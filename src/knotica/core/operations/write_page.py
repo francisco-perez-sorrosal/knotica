@@ -12,7 +12,6 @@ page content *and* index line make no commit and return ``changed=False``.
 
 from pathlib import PurePath
 
-from knotica.core.config import resolve
 from knotica.core.errors import ErrorCode, KnoticaError, err, ok
 from knotica.core.lint import INDEX_PATH, RESERVED_TOP_LEVEL_NAMES
 from knotica.core.page import (
@@ -25,59 +24,43 @@ from knotica.core.page import (
 )
 from knotica.core.schema import resolve_schema, validated_topic
 from knotica.core.transaction import VaultTransaction
-from knotica.store import LocalFSStore, VaultStore
-
-
-def _resolved_vault(
-    store: VaultStore | None, vault_root: str | PurePath | None
-) -> tuple[VaultStore, str | PurePath]:
-    """Return an explicit ``(store, vault_root)`` pair, resolving the configured vault when omitted.
-
-    Adapters pass a pre-resolved vault (config-agnostic path); callers that pass
-    neither get the configured default vault resolved per call (honoring
-    ``$KNOTICA_CONFIG``), which raises ``NOT_CONFIGURED`` when the vault is unset.
-    """
-    if store is not None and vault_root is not None:
-        return store, vault_root
-    root = resolve().path
-    return (store or LocalFSStore(root)), (vault_root if vault_root is not None else root)
+from knotica.store import VaultStore
 
 
 def write_page(
+    store: VaultStore,
+    vault_root: str | PurePath,
     topic: str,
     page: str,
     content: str,
     summary: str,
     *,
     index_entry: str | None = None,
-    store: VaultStore | None = None,
-    vault_root: str | PurePath | None = None,
 ) -> dict[str, object]:
     """Create or replace one wiki page atomically (scrub + write + commit + log).
 
     Args:
+        store: The vault storage backend.
+        vault_root: The already-resolved vault root (operations are config-agnostic).
         topic: Owning topic; must already exist.
         page: Page name or topic-relative path; never a reserved bookkeeping file.
         content: Full markdown body including YAML frontmatter.
         summary: One-line change summary for the commit subject and log entry.
         index_entry: Optional catalog line text; when set, this page's root
             ``index.md`` line is upserted in the same commit.
-        store: Vault storage backend. Omit to resolve the configured default vault.
-        vault_root: Resolved vault root. Omit to resolve from config alongside ``store``.
 
     Returns:
         A success envelope with pointer ``{path, commit_sha, changed}`` (plus any
         secret-scrub warnings), or a typed failure envelope.
     """
     try:
-        vault_store, root = _resolved_vault(store, vault_root)
         cleaned_topic = validated_topic(topic)
         target = _validate_page_target(page)
-        resolve_schema(vault_store, cleaned_topic)
+        resolve_schema(store, cleaned_topic)
         _validate_content_frontmatter(content)
         path = page_path(cleaned_topic, page)
         return _commit_page(
-            vault_store, root, cleaned_topic, target, path, content, summary, index_entry
+            store, vault_root, cleaned_topic, target, path, content, summary, index_entry
         )
     except _WritePageRejected as rejected:
         return rejected.envelope

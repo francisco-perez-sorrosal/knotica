@@ -13,7 +13,6 @@ byte comparison, which the timestamp would always defeat.
 from datetime import UTC, datetime
 from pathlib import PurePath
 
-from knotica.core.config import resolve
 from knotica.core.errors import ErrorCode, KnoticaError, err, ok
 from knotica.core.records import (
     SourceProvenance,
@@ -24,7 +23,7 @@ from knotica.core.records import (
 from knotica.core.scrub import scrub
 from knotica.core.transaction import VaultTransaction
 from knotica.core.vcs import VaultVcs
-from knotica.store import LocalFSStore, VaultStore
+from knotica.store import VaultStore
 
 #: Root directory under which all immutable sources are stored (reserved top-level name).
 _SOURCES_DIR = "sources"
@@ -36,58 +35,41 @@ _INGESTED_BY = "knotica"
 _DEFAULT_SOURCE_TYPE = "markdown"
 
 
-def _resolved_vault(
-    store: VaultStore | None, vault_root: str | PurePath | None
-) -> tuple[VaultStore, str | PurePath]:
-    """Return an explicit ``(store, vault_root)`` pair, resolving the configured vault when omitted.
-
-    Adapters pass a pre-resolved vault (config-agnostic path); callers that pass
-    neither get the configured default vault resolved per call (honoring
-    ``$KNOTICA_CONFIG``), which raises ``NOT_CONFIGURED`` when the vault is unset.
-    """
-    if store is not None and vault_root is not None:
-        return store, vault_root
-    root = resolve().path
-    return (store or LocalFSStore(root)), (vault_root if vault_root is not None else root)
-
-
 def store_source(
+    store: VaultStore,
+    vault_root: str | PurePath,
     topic: str,
     citation_key: str,
     title: str,
     content: str,
     source_url: str,
     source_type: str = _DEFAULT_SOURCE_TYPE,
-    *,
-    store: VaultStore | None = None,
-    vault_root: str | PurePath | None = None,
 ) -> dict[str, object]:
     """Persist a raw source immutably under ``sources/<topic>/<citation_key>.md``.
 
     Args:
+        store: The vault storage backend.
+        vault_root: The already-resolved vault root (operations are config-agnostic).
         topic: Topic the source belongs to (provenance + directory).
         citation_key: Filename stem under ``sources/<topic>/``.
         title: Human-readable source title for the commit subject and log entry.
         content: The source content as markdown/text (client already converted it).
         source_url: Origin URL recorded in provenance.
         source_type: Original format (``html`` / ``pdf`` / ``markdown`` / ``text``).
-        store: Vault storage backend. Omit to resolve the configured default vault.
-        vault_root: Resolved vault root. Omit to resolve from config alongside ``store``.
 
     Returns:
         A success envelope with pointer ``{path, commit_sha, changed}`` (plus any
         secret-scrub warnings), or a ``SOURCE_EXISTS`` failure envelope.
     """
     try:
-        vault_store, root = _resolved_vault(store, vault_root)
         path = _source_path(topic, citation_key)
         scrubbed_body, _spans = scrub(content)
-        conflict = _idempotency_check(vault_store, root, path, scrubbed_body)
+        conflict = _idempotency_check(store, vault_root, path, scrubbed_body)
         if conflict is not None:
             return conflict
         provenance = _build_provenance(topic, citation_key, source_url, source_type, scrubbed_body)
         document = render_source_document(provenance, content)
-        return _commit_source(vault_store, root, topic, title, path, document)
+        return _commit_source(store, vault_root, topic, title, path, document)
     except KnoticaError as error:
         return error.envelope()
 
