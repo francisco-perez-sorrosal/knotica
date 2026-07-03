@@ -15,6 +15,7 @@ through the same seam in later steps -- see the extension point in
 from mcp.server.fastmcp import FastMCP
 
 from knotica.mcp_server.tools_read import register_read_tools
+from knotica.mcp_server.tools_write import register_write_tools
 
 #: Server display name (the client sees this in ``initialize``).
 _SERVER_NAME = "knotica"
@@ -29,9 +30,10 @@ def build_server() -> FastMCP:
     """
     mcp = FastMCP(_SERVER_NAME)
     register_read_tools(mcp)
-    # Extension point for later steps: register_write_tools(mcp),
-    # register_resources(mcp), register_prompts(mcp) wire onto this same
-    # instance -- each is pure registration, no vault access at startup.
+    register_write_tools(mcp)
+    # Extension point for later steps: register_resources(mcp),
+    # register_prompts(mcp) wire onto this same instance -- each is pure
+    # registration, no vault access at startup.
     return mcp
 
 
