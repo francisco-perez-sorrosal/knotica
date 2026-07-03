@@ -1,0 +1,10 @@
+# Device/app state — never committed.
+.obsidian/
+.trash/
+.DS_Store
+
+# Runtime lock files (created lazily by knotica's mutation guard).
+.knotica/locks/
+
+# NOTE: .knotica/ itself IS committed — it carries agent state (datasets/qa.jsonl, prompts/,
+# compiled/) that is part of the wiki's versioned substrate. Do not ignore it.
