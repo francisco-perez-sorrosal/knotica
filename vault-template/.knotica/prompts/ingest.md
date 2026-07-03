@@ -44,8 +44,9 @@ For each entity the schema's ingest rule calls for (typically a main page for th
 plus linked pages for the methods/concepts it introduces), call `write_page` with the
 resolved `topic`, the `page` name, the full markdown `content` **including YAML
 frontmatter** conforming to the resolved schema (`type`, `topic`, `created`, `updated`,
-`confidence`, `sources` — cite the citation key from step 4 — `status`, `tags`), and a
-one-line `summary` (it becomes the commit message and log title).
+`confidence`, `sources` — cite the citation key from step 4 — `status`, `tags`), a
+one-line `summary` (it becomes the commit message and log title), and a one-line
+`index_entry` describing the page for the global catalog.
 
 - Connect related pages with wikilinks; use full vault-path wikilinks
   (`[[<topic>/<page>]]`) across topics, bare `[[page]]` within one.
@@ -53,12 +54,13 @@ one-line `summary` (it becomes the commit message and log title).
   `log.md` append. **Never write `log.md` yourself** — the tools maintain it.
 - Re-sending identical content is a safe no-op (`changed: false`, no commit).
 
-## 6. Update the index
+## 6. The index maintains itself — through your `index_entry`
 
-The index is not updated automatically. Call `write_page` once more to update the global
-catalog `index.md` at the vault root (pass the resolved `topic`; page `index.md`): read
-its current content first if you do not have it, then rewrite it with an entry per page
-you created or changed, using full-path wikilinks and a one-line description each.
+Root `index.md` is never a `write_page` target (reserved name — the call would fail with
+`RESERVED_NAME`). Instead, the `index_entry` you pass in step 5 is upserted as the
+page's catalog line (full-path wikilink + your one-line description) **in the same
+commit** that writes the page. You cannot write a page and forget the index; never read
+or rewrite `index.md` yourself.
 
 ## If a tool returns an error
 

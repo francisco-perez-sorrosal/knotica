@@ -56,7 +56,11 @@ session or the Phase-1 cold-start drill (user-involved acceptance gates), not by
 
 - **REQ-TOOL-01** [auto] — *When* `write_page` / `store_source` / `create_topic` / `curate_example`
   succeed with an effective change, *the system* produces exactly one commit + one log entry each
-  (inherits MUT).
+  (inherits MUT). *When* `write_page` is called with the optional `index_entry` argument, the same
+  commit upserts the page's line (full-path wikilink + entry text) in root `index.md` — reserved
+  bookkeeping files (`index.md`, `log.md`, `SCHEMA.md`) are maintained only as atomic side effects,
+  never as direct write targets (adjudicated 2026-07-03; see INTERFACE_DESIGN §1.1/§1.3 and ADR
+  dec-draft-11700457 as amended).
 - **REQ-TOOL-02** [auto] — *When* `list_topics` / `read_page` / `search` / `list_links` / `lint_check`
   run, *the system* produces zero commits and never acquires the write lock, *so that* reads are cheap
   and concurrent.

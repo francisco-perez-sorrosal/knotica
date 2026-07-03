@@ -62,7 +62,9 @@ concrete fix.
 Do not change anything unprompted. If the user confirms specific fixes, apply them with
 `write_page` (full corrected content, one-line `summary` per page). Each call commits
 and appends to `log.md` automatically — never write `log.md` yourself. If a fix changes
-what the catalog should list, update `index.md` with a further `write_page` call.
+what the catalog should say about a page, pass a corrected `index_entry` on that page's
+`write_page` call — root `index.md` is never a direct write target; its line updates in
+the same commit.
 
 ## If a tool returns an error
 
