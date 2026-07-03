@@ -7,13 +7,15 @@ tool resolves config lazily per call and returns ``NOT_CONFIGURED`` when the
 vault is absent. The CLI (`knotica mcp`) imports :data:`mcp` (or calls
 :func:`build_server`) to run the stdio transport.
 
-Only read tools are wired today; write tools, resources, and prompts register
-through the same seam in later steps -- see the extension point in
-:func:`build_server`.
+The full surface is wired here: read tools, write tools, resources, and prompts
+all register onto the one instance through :func:`build_server`, each a pure
+registration that touches no vault at startup.
 """
 
 from mcp.server.fastmcp import FastMCP
 
+from knotica.mcp_server.prompts import register_prompts
+from knotica.mcp_server.resources import register_resources
 from knotica.mcp_server.tools_read import register_read_tools
 from knotica.mcp_server.tools_write import register_write_tools
 
@@ -31,9 +33,8 @@ def build_server() -> FastMCP:
     mcp = FastMCP(_SERVER_NAME)
     register_read_tools(mcp)
     register_write_tools(mcp)
-    # Extension point for later steps: register_resources(mcp),
-    # register_prompts(mcp) wire onto this same instance -- each is pure
-    # registration, no vault access at startup.
+    register_resources(mcp)
+    register_prompts(mcp)
     return mcp
 
 
