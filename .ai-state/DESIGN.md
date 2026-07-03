@@ -53,12 +53,12 @@ Rendered diagram pending: `docs/diagrams/architecture/rendered/components.svg`.
 | `src/knotica/search/` | `SearchBackend` protocol + `RipgrepBackend` — read-only full-text search | store paths | Designed |
 | `src/knotica/core/` | Vault semantics: `config`, `schema` (root+overlay), `page`/`links`, `lint`, `vcs` (subprocess git), `lock` (fcntl.flock), `scrub`, `records`, **`transaction.VaultTransaction`**, `operations.*` | store, search | Designed |
 | `src/knotica/cli/` | `knotica` entry point: `init`, `mcp`, `doctor`, `status`, `migrate` — thin; mutations delegate to `core.operations` | core | Designed |
-| `src/knotica/mcp/` | `FastMCP` server: tools, resources (schemas + index), prompts (static name / lazy body) — thin; stateless | core | Designed |
+| `src/knotica/mcp_server/` | `FastMCP` server: tools, resources (schemas + index), prompts (static name / lazy body) — thin; stateless. *Named `mcp_server` (not `mcp`) to avoid shadowing the `mcp` SDK; per-concern modules `server`/`envelope`/`tools_read`/`tools_write`/`resources`/`prompts` (dec-draft-8d8c18a1)* | core | Designed |
 | `src/knotica/programs/` | DSPy modules (`query` first) — Phase 3a | core | Planned |
 | `src/knotica/agent/`, `evals/` | Headless runners + SIA-compatible evaluator — Phase 2–3 | core | Planned |
 | Plugin layer (repo root) | `.claude-plugin/`, `.mcp.json`, `commands/`, `hooks/`, `skills/wiki-maintenance/` | `knotica mcp` entry | Designed |
 
-**Dependency rule (fitness-checkable):** arrows point inward toward `store/`. `mcp/` and `cli/` may import
+**Dependency rule (fitness-checkable):** arrows point inward toward `store/`. `mcp_server/` and `cli/` may import
 `core/` but must **not** import git bindings/subprocess-git or call `store.write_*` directly — the *only*
 writer of the vault is `core.transaction`. An import-boundary test enforces this.
 

@@ -41,10 +41,10 @@ under `src/knotica/`, the implementer moves each row here with a verified file p
 description, keeping this guide a strict subset of the Built components in `DESIGN.md`.
 
 Navigation once built (planned homes):
-- Vault mutation logic → `src/knotica/core/` (`transaction.py`, `operations.py`) — the single writer.
+- Vault mutation logic → `src/knotica/core/` (`transaction.py`, `operations/` — one module per op) — the single writer.
 - Storage backend → `src/knotica/store/` (`VaultStore` protocol + `LocalFSStore`).
 - Full-text search → `src/knotica/search/`.
-- MCP server (tools/resources/prompts) → `src/knotica/mcp/`.
+- MCP server (tools/resources/prompts) → `src/knotica/mcp_server/` (named to avoid shadowing the `mcp` SDK package; see `dec-draft-8d8c18a1`).
 - CLI (`init`/`mcp`/`doctor`/`status`/`migrate`) → `src/knotica/cli/`.
 - Plugin layer → repo root (`.claude-plugin/`, `.mcp.json`, `commands/`, `hooks/`, `skills/`).
 
