@@ -1,0 +1,156 @@
+"""``store_source`` -- immutable raw-source persistence with provenance frontmatter.
+
+Persists a client-fetched source into ``sources/<topic>/<citation_key>.md`` with
+a :class:`~knotica.core.records.SourceProvenance` frontmatter block and exactly
+one commit. Sources are immutable: a re-store with identical content is a no-op
+success; a re-store under the same ``citation_key`` with *different* content
+fails with ``SOURCE_EXISTS``. Because the provenance carries a fresh ``retrieved``
+timestamp, idempotency is decided by comparing the stored body against the new
+(scrubbed) content *before* building the document -- never by the transaction's
+byte comparison, which the timestamp would always defeat.
+"""
+
+from datetime import UTC, datetime
+from pathlib import PurePath
+
+from knotica.core.config import resolve
+from knotica.core.errors import ErrorCode, KnoticaError, err, ok
+from knotica.core.records import (
+    SourceProvenance,
+    body_sha256,
+    parse_source_document,
+    render_source_document,
+)
+from knotica.core.scrub import scrub
+from knotica.core.transaction import VaultTransaction
+from knotica.core.vcs import VaultVcs
+from knotica.store import LocalFSStore, VaultStore
+
+#: Root directory under which all immutable sources are stored (reserved top-level name).
+_SOURCES_DIR = "sources"
+
+#: Recorded provenance for who ingested the source (the deterministic tool, not the client's LLM).
+_INGESTED_BY = "knotica"
+
+#: Default original format when a caller omits it (the client converts to markdown first).
+_DEFAULT_SOURCE_TYPE = "markdown"
+
+
+def _resolved_vault(
+    store: VaultStore | None, vault_root: str | PurePath | None
+) -> tuple[VaultStore, str | PurePath]:
+    """Return an explicit ``(store, vault_root)`` pair, resolving the configured vault when omitted.
+
+    Adapters pass a pre-resolved vault (config-agnostic path); callers that pass
+    neither get the configured default vault resolved per call (honoring
+    ``$KNOTICA_CONFIG``), which raises ``NOT_CONFIGURED`` when the vault is unset.
+    """
+    if store is not None and vault_root is not None:
+        return store, vault_root
+    root = resolve().path
+    return (store or LocalFSStore(root)), (vault_root if vault_root is not None else root)
+
+
+def store_source(
+    topic: str,
+    citation_key: str,
+    title: str,
+    content: str,
+    source_url: str,
+    source_type: str = _DEFAULT_SOURCE_TYPE,
+    *,
+    store: VaultStore | None = None,
+    vault_root: str | PurePath | None = None,
+) -> dict[str, object]:
+    """Persist a raw source immutably under ``sources/<topic>/<citation_key>.md``.
+
+    Args:
+        topic: Topic the source belongs to (provenance + directory).
+        citation_key: Filename stem under ``sources/<topic>/``.
+        title: Human-readable source title for the commit subject and log entry.
+        content: The source content as markdown/text (client already converted it).
+        source_url: Origin URL recorded in provenance.
+        source_type: Original format (``html`` / ``pdf`` / ``markdown`` / ``text``).
+        store: Vault storage backend. Omit to resolve the configured default vault.
+        vault_root: Resolved vault root. Omit to resolve from config alongside ``store``.
+
+    Returns:
+        A success envelope with pointer ``{path, commit_sha, changed}`` (plus any
+        secret-scrub warnings), or a ``SOURCE_EXISTS`` failure envelope.
+    """
+    try:
+        vault_store, root = _resolved_vault(store, vault_root)
+        path = _source_path(topic, citation_key)
+        scrubbed_body, _spans = scrub(content)
+        conflict = _idempotency_check(vault_store, root, path, scrubbed_body)
+        if conflict is not None:
+            return conflict
+        provenance = _build_provenance(topic, citation_key, source_url, source_type, scrubbed_body)
+        document = render_source_document(provenance, content)
+        return _commit_source(vault_store, root, topic, title, path, document)
+    except KnoticaError as error:
+        return error.envelope()
+
+
+def _source_path(topic: str, citation_key: str) -> str:
+    """Build the vault-relative source path, rejecting empty or path-bearing keys."""
+    cleaned_topic = topic.strip()
+    cleaned_key = citation_key.strip()
+    if not cleaned_topic or not cleaned_key:
+        raise ValueError("store_source requires a non-empty topic and citation_key.")
+    if "/" in cleaned_key or "\\" in cleaned_key or cleaned_key.startswith("."):
+        raise ValueError(f"citation_key must be a bare filename stem, got: {citation_key!r}")
+    return f"{_SOURCES_DIR}/{cleaned_topic}/{cleaned_key}.md"
+
+
+def _idempotency_check(
+    store: VaultStore, vault_root: str | PurePath, path: str, scrubbed_body: str
+) -> dict[str, object] | None:
+    """Return a no-op success or a ``SOURCE_EXISTS`` failure when the key is taken; else ``None``.
+
+    A source with identical stored content is a no-op success (no transaction);
+    a source with the same key but different content is a hard immutability
+    failure. An absent key returns ``None`` -- the caller proceeds to write.
+    """
+    if not store.exists(path):
+        return None
+    _provenance, existing_body = parse_source_document(store.read_text(path))
+    if existing_body == scrubbed_body:
+        pointer = {"path": path, "commit_sha": VaultVcs(vault_root).head_sha(), "changed": False}
+        return ok(pointer)
+    return err(
+        ErrorCode.SOURCE_EXISTS,
+        f"store_source failed because '{path}' already exists with different content; "
+        "sources are immutable.",
+    )
+
+
+def _build_provenance(
+    topic: str, citation_key: str, source_url: str, source_type: str, scrubbed_body: str
+) -> SourceProvenance:
+    """Assemble the provenance record; ``sha256`` is the digest of the stored (scrubbed) body."""
+    return SourceProvenance(
+        topic=topic.strip(),
+        citation_key=citation_key.strip(),
+        retrieved=datetime.now(UTC).isoformat(),
+        origin_url=source_url,
+        sha256=body_sha256(scrubbed_body),
+        source_type=source_type,
+        ingested_by=_INGESTED_BY,
+    )
+
+
+def _commit_source(
+    store: VaultStore,
+    vault_root: str | PurePath,
+    topic: str,
+    title: str,
+    path: str,
+    document: str,
+) -> dict[str, object]:
+    """Open the transaction, declare the source write, and envelope the result."""
+    with VaultTransaction(store, vault_root, "store_source", topic, title) as txn:
+        txn.write(path, document)
+    result = txn.result
+    pointer = {"path": path, "commit_sha": result.commit_sha, "changed": result.changed}
+    return ok(pointer, warnings=result.warnings())
