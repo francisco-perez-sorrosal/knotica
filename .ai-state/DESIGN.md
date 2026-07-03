@@ -13,7 +13,7 @@
 | **Language / Framework** | Python 3.12+ (uv) / official `mcp` SDK 1.28.1 (`FastMCP`) |
 | **Architecture pattern** | Hexagonal, single-mutation-core (one writer through a `VaultTransaction`) |
 | **Source stage** | Pipeline `wiki-mvp-core` (Phases 0–1) — systems-architect creation |
-| **Last verified** | 2026-07-03 by systems-architect (design target; no code on disk yet) |
+| **Last verified** | 2026-07-03 by implementer (package skeleton scaffolded; components not yet Built) |
 
 Knotica implements Karpathy's llm-wiki pattern: an AI-maintained compounding markdown knowledge base in
 an Obsidian vault, with per-topic self-improving loops (DSPy inner, SIA outer) planned for Phases 2–3.
@@ -88,8 +88,11 @@ config and returns `unconfigured` until `init`/`setup` writes `config.toml` (pic
 ## 6. Dependencies
 
 <!-- Implementer-owned: pin exact versions in pyproject.toml. -->
-Floors, not pins: `mcp>=1.28`. `git` and `uv`/`uvx` are user-machine prerequisites, not project deps.
-`ripgrep` used via subprocess. Full dependency list filled by the implementer.
+Floors, not pins: `mcp>=1.28` (resolves to 1.28.1 in `uv.lock`) — the sole runtime dependency.
+Dev group: `pytest`, `ruff`. Build backend: `hatchling` (src layout; repo-root `vault-template/`
+force-included into the wheel as `knotica/vault-template` for `knotica init`; editable/dev installs
+fall back to the repo-root copy). `git` and `uv`/`uvx` are user-machine prerequisites, not project
+deps. `ripgrep` used via subprocess.
 
 ## 7. Constraints
 

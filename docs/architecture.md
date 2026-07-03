@@ -5,9 +5,11 @@
      .ai-state/DESIGN.md; the converged design lives in docs/PRE_PLAN.md.
      Created by systems-architect; updated by implementer; verified by doc-engineer at checkpoints. -->
 
-> **Status: pre-implementation (2026-07-03).** No `src/` code exists on disk yet — the Built-component set
-> is empty, so this guide currently carries **zero** present-tense component claims. It will be filled by
-> the implementer as modules land. For the design target and rationale, read
+> **Status: scaffolded (2026-07-03).** The uv-managed package skeleton exists on disk
+> (`pyproject.toml`, `src/knotica/` with empty `core/`, `store/`, `search/`, `cli/`, `mcp_server/`
+> subpackages, `knotica` console entry point printing the version) — but **no component is Built
+> yet**: every subpackage is a docstring-only stub stating its boundary role. This guide gains
+> present-tense component claims as modules land. For the design target and rationale, read
 > [`.ai-state/DESIGN.md`](../.ai-state/DESIGN.md); for the full converged design, read
 > [`docs/PRE_PLAN.md`](./PRE_PLAN.md).
 
@@ -19,7 +21,7 @@
 | **Type** | Stateless MCP server + CLI over a versioned Obsidian vault; Claude plugin marketplace |
 | **Language / Framework** | Python 3.12+ (uv) / official `mcp` SDK (`FastMCP`) |
 | **Architecture pattern** | Hexagonal, single-mutation-core |
-| **Last verified against code** | 2026-07-03 — no code on disk (pre-implementation) |
+| **Last verified against code** | 2026-07-03 — package skeleton on disk (`src/knotica/`); no Built components |
 
 Knotica is an AI-maintained markdown wiki in an Obsidian vault. The **Claude client's LLM is the brain**;
 the server exposes deterministic tools and holds no session state. Every vault mutation flows through a
