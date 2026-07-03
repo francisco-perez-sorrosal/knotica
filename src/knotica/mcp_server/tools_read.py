@@ -26,6 +26,7 @@ from pathlib import Path
 from typing import Any
 
 from mcp.server.fastmcp import FastMCP
+from mcp.types import CallToolResult
 
 from knotica.core.config import resolve
 from knotica.core.errors import KnoticaError
@@ -80,6 +81,12 @@ _LINT_CHECK_DESCRIPTION = (
     "guided by the schemas."
 )
 
+#: Every tool returns a ``CallToolResult`` so ``isError`` is set explicitly:
+#: ``False`` on success, ``True`` on failure (the error rides in-band with the
+#: MCP error flag). FastMCP forbids a ``dict | CallToolResult`` union, so the
+#: success payload is wrapped uniformly rather than returned as a bare dict.
+ToolResult = CallToolResult
+
 #: Core read exceptions the adapter maps to failure envelopes (everything else
 #: is a genuine bug and propagates).
 _READ_EXCEPTIONS = (
@@ -98,11 +105,11 @@ def register_read_tools(mcp: FastMCP) -> None:
     """
 
     @mcp.tool(name="list_topics", description=_LIST_TOPICS_DESCRIPTION)
-    def list_topics() -> dict[str, Any]:
+    def list_topics() -> ToolResult:
         return _read(lambda store, _root: _collect_topics(store))
 
     @mcp.tool(name="read_page", description=_READ_PAGE_DESCRIPTION)
-    def read_page(topic: str, page: str) -> dict[str, Any]:
+    def read_page(topic: str, page: str) -> ToolResult:
         return _read(lambda store, _root: _read_one_page(store, topic, page))
 
     @mcp.tool(name="search", description=_SEARCH_DESCRIPTION)
@@ -111,7 +118,7 @@ def register_read_tools(mcp: FastMCP) -> None:
         topic: str = "",
         cursor: str = "",
         limit: int = DEFAULT_PAGE_SIZE,
-    ) -> dict[str, Any]:
+    ) -> ToolResult:
         return _read(
             lambda _store, root: envelope.read_ok(
                 RipgrepBackend(root).search(query, topic=topic, cursor=cursor, limit=limit).render()
@@ -119,11 +126,11 @@ def register_read_tools(mcp: FastMCP) -> None:
         )
 
     @mcp.tool(name="list_links", description=_LIST_LINKS_DESCRIPTION)
-    def list_links(topic: str, page: str, direction: str = "both") -> dict[str, Any]:
+    def list_links(topic: str, page: str, direction: str = "both") -> ToolResult:
         return _read(lambda store, _root: _collect_links(store, topic, page, direction))
 
     @mcp.tool(name="lint_check", description=_LINT_CHECK_DESCRIPTION)
-    def lint_check(topic: str = "") -> dict[str, Any]:
+    def lint_check(topic: str = "") -> ToolResult:
         return _read(
             lambda store, _root: envelope.read_ok(
                 {"violations": [violation.render() for violation in lint_vault(store, topic)]}
@@ -131,7 +138,7 @@ def register_read_tools(mcp: FastMCP) -> None:
         )
 
 
-def _read(operation: Callable[[VaultStore, Path], dict[str, Any]]) -> dict[str, Any]:
+def _read(operation: Callable[[VaultStore, Path], dict[str, Any]]) -> ToolResult:
     """Resolve the vault per call and run ``operation``, envelope-ing every outcome.
 
     An unconfigured vault yields the ``NOT_CONFIGURED`` envelope before any store
@@ -144,9 +151,10 @@ def _read(operation: Callable[[VaultStore, Path], dict[str, Any]]) -> dict[str, 
         return envelope.error_envelope(error)
     store = LocalFSStore(vault.path)
     try:
-        return operation(store, vault.path)
+        payload = operation(store, vault.path)
     except _READ_EXCEPTIONS as exc:
         return envelope.map_read_exception(exc)
+    return envelope.success_result(payload)
 
 
 def _collect_topics(store: VaultStore) -> dict[str, Any]:
