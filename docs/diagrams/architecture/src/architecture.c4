@@ -1,0 +1,67 @@
+// Knotica architecture model — L0 (context) + L1 (components)
+// Render: likec4 gen d2 docs/diagrams/architecture/src/architecture.c4 -o docs/diagrams/architecture/rendered/
+//         d2 docs/diagrams/architecture/rendered/context.d2    docs/diagrams/architecture/rendered/context.svg
+//         d2 docs/diagrams/architecture/rendered/components.d2 docs/diagrams/architecture/rendered/components.svg
+specification {
+  element person
+  element system
+  element component
+  element externalSystem
+}
+
+model {
+  user = person "User" {
+    description "Works the wiki via a Claude client; the client LLM is the brain"
+  }
+  client = externalSystem "Claude client (Code / Desktop)" {
+    description "Client-as-brain: performs ingest/query/lint guided by vault schemas"
+  }
+  obsidian = externalSystem "Obsidian" {
+    description "Frontend over plain markdown + wikilinks + frontmatter"
+  }
+  vault = externalSystem "Vault (git repo)" {
+    description "The wiki + config = the only state; ~/dev/data/knotica"
+  }
+
+  knotica = system "Knotica" {
+    description "Stateless, deterministic MCP server + CLI over a versioned Obsidian vault"
+
+    mcp = component "mcp/ (adapter)" {
+      description "FastMCP server: tools, resources, prompts (static name / lazy body). Thin."
+    }
+    cli = component "cli/ (adapter)" {
+      description "knotica entry point: init, mcp, doctor, status, migrate. Thin."
+    }
+    core = component "core/ (vault semantics + single mutation path)" {
+      description "config, schema, page/links, lint, vcs, lock, scrub, records, VaultTransaction, operations"
+    }
+    store = component "store/ (protocol)" {
+      description "VaultStore protocol + LocalFSStore (atomic temp+rename). Pure storage."
+    }
+    search = component "search/ (protocol)" {
+      description "SearchBackend protocol + RipgrepBackend. Read-only."
+    }
+  }
+
+  user -> client "operates"
+  user -> obsidian "reads/edits vault"
+  client -> knotica.mcp "MCP tools/prompts/resources"
+  client -> knotica.cli "slash-command aliases invoke CLI"
+  knotica.mcp -> knotica.core "calls operations / read fns"
+  knotica.cli -> knotica.core "calls operations / diagnostics"
+  knotica.core -> knotica.store "reads / atomic writes (only writer)"
+  knotica.core -> knotica.search "full-text queries"
+  knotica.core -> vault "git commit per mutating op (via core.vcs)"
+  obsidian -> vault "renders"
+}
+
+views {
+  view context of knotica {
+    title "Knotica — System Context (L0)"
+    include user, client, obsidian, vault, knotica
+  }
+  view components of knotica {
+    title "Knotica — Components (L1)"
+    include *
+  }
+}
