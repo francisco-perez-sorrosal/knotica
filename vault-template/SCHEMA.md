@@ -21,10 +21,16 @@ bump plus a migration step.
 
 ## Cross-topic linking
 
-- Within a topic, link by page name: `[[react]]`.
+- Within a topic, link by page name: `[[react]]`. A bare page name resolves **only within
+  the same directory** as the linking page — never across directories or into the vault
+  root (amended 2026-07-03 after Phase-0 validation; this is the rule the tooling
+  implements).
 - Across topics — and from root pages (`index.md`, `START_HERE.md`) — always use the full
   vault path: `[[agentic-systems/react]]`. The explicit path keeps resolution unambiguous
   and mechanically checkable.
+- `SCHEMA.md` files (root or topic overlay) must always be linked by full vault path
+  (`[[SCHEMA]]` is ambiguous between the root constitution and a topic overlay — never use
+  the bare form).
 
 ## Core frontmatter
 
@@ -160,9 +166,16 @@ frontmatter:
 | `citation_key` | string | Citation key; also the filename (e.g. `wang2024awm`). |
 | `retrieved` | string (ISO 8601) | When the source was retrieved. |
 | `origin_url` | string | Where the source came from. |
-| `sha256` | string | Hex digest of the stored content. |
+| `sha256` | string | Hex digest of the stored markdown **body** — the bytes after the provenance frontmatter block's trailing blank line, trailing newline included (the frontmatter cannot hash itself; clarified 2026-07-03). |
 | `source_type` | `html` \| `pdf` \| `markdown` \| `text` | Original format. |
 | `ingested_by` | string | Model/agent identifier that performed the ingest. |
 
 A source, once stored, is never rewritten: re-storing identical content is a no-op; storing
 different content under the same citation key is an error — pick a new key.
+
+**Correcting a defective source** (e.g., a conversion bug discovered later): store the fixed
+content under a new suffixed key (`<key>-v2`), update the pages' `sources` references, and
+note the supersession in the new source's body. The defective source stays (immutability),
+but nothing may cite it going forward. Conversion judgment calls (repairing renderer
+artifacts, dropping figures) should be reported to the user *before* storing — immutability
+plus the `sha256` seal makes them permanent (amended 2026-07-03 after Phase-0 validation).

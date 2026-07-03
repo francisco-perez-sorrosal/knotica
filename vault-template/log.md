@@ -23,12 +23,12 @@ Entries follow below.
 
 ## [2026-07-03] write_page | agentic-systems | Agent Workflow Memory (Wang et al., 2024) (demo sample)
 - agentic-systems/agent-workflow-memory.md
+- index.md
 
 ## [2026-07-03] write_page | agentic-systems | Workflow induction (demo sample)
 - agentic-systems/workflow-induction.md
+- index.md
 
 ## [2026-07-03] write_page | agentic-systems | Agent memory (demo sample)
 - agentic-systems/agent-memory.md
-
-## [2026-07-03] write_page | agentic-systems | Index entries for the AWM demo ingest (demo sample)
 - index.md

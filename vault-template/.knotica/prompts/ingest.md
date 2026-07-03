@@ -34,9 +34,13 @@ the original format (`html`, `pdf`, `markdown`, or `text`).
 ## 4. Store the source immutably
 
 Call `store_source` with the resolved `topic`, a `citation_key` (lowercase, no spaces —
-e.g. `wang2024awm`), the converted markdown as `content`, the origin as `source_url`,
-and `source_type`. Sources are immutable: `SOURCE_EXISTS` means the key already holds
-different content — pick a new citation key rather than overwriting.
+e.g. `wang2024awm`), a human-readable `title` (it becomes the commit message and log
+title), the converted markdown as `content`, the origin as `source_url`, and
+`source_type`. Sources are immutable: `SOURCE_EXISTS` means the key already holds
+different content — pick a new citation key rather than overwriting. If your conversion
+required judgment calls (repairing renderer artifacts, dropping figures), report them to
+the user before storing — immutability makes them permanent; a defective stored source
+is corrected only by re-storing under a suffixed key (`<key>-v2`).
 
 ## 5. Write the entity pages
 
