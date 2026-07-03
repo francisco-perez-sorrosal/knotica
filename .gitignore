@@ -1,0 +1,27 @@
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+dist/
+build/
+*.egg-info/
+
+# uv
+# (uv.lock IS committed)
+
+# Tooling
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+tmp/
+
+# Ephemeral agent pipeline documents (never commit; .ai-state/ IS committed)
+.ai-work/
+
+# Claude Code local settings
+.claude/settings.local.json
+.claude/*.local.md
+.claude/*.local.json
+
+# OS
+.DS_Store
