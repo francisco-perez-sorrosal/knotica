@@ -25,11 +25,22 @@ It is the merged root constitution ⊕ topic overlay: allowed entity types, the 
 template, required frontmatter fields, and the topic's ingest rule. Everything you write
 below must conform to it.
 
-## 3. Fetch and convert the source
+## 3. Fetch and convert the source — completely
 
-Fetch `source` yourself and convert it to clean markdown — no tool fetches for you.
-Preserve the content faithfully; strip navigation boilerplate. Note the origin URL and
-the original format (`html`, `pdf`, `markdown`, or `text`).
+Retrieve the **full text**, not a summary, abstract, or excerpt. For arXiv, fetch the HTML
+full text (`ar5iv.org/abs/<id>` or the paper's `/html/` view) or the PDF — never the `/abs/`
+landing page, which is only the abstract. Convert to clean markdown yourself (no tool fetches
+for you) and transcribe faithfully: preserve every section, table, and key result; do **not**
+paraphrase, compress, or summarize — the stored source is the evidence of record that pages
+cite. Strip only navigation and boilerplate (nav bars, cookie banners, footers), never
+substantive content. Note the origin URL and the original format (`html`, `pdf`, `markdown`,
+or `text`).
+
+**Before storing, verify completeness.** Does the markdown carry all of the document's major
+sections end to end, not just the opening? Does its length look like a full document rather
+than an abstract? If it looks truncated or summarized, re-fetch before continuing. If the full
+text genuinely cannot be retrieved (paywall, fetch failure), tell the user and store what you
+have **with an explicit note that it is partial** — never store a partial source as if complete.
 
 ## 4. Store the source immutably
 

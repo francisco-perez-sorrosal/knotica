@@ -39,8 +39,9 @@ _INSTRUCTIONS = (
     "query, lint, curate -- are multi-step protocols, not single tool calls. Before performing "
     "one, call `read_protocol(operation, topic)` to load its exact steps, then follow them end to "
     "end. In particular, an ingest is store_source -> write the entity pages -> wikilink them -> "
-    "update the index; do not stop after storing the source. Topic is always an explicit argument; "
-    "the vault (git) is the only state."
+    "update the index; do not stop after storing the source, and store the source's FULL text "
+    "faithfully -- never a summary, abstract, or truncated excerpt. Topic is always an explicit "
+    "argument; the vault (git) is the only state."
 )
 
 
