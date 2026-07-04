@@ -376,7 +376,24 @@ def test_page_with_several_defects_reports_all_of_them(template_vault: Path) -> 
 # ---------------------------------------------------------------------------
 
 
-def test_all_thirteen_checks_have_a_planting_test() -> None:
+def test_page_citing_an_unstored_source_inline_is_flagged(template_vault: Path) -> None:
+    # A page must not cite a source the vault does not hold -- the claim would be
+    # unverifiable. An inline citation key that resolves to no stored source is flagged.
+    append_to_memory(template_vault, "\n\nA later survey expands this (nobody2099ghost §3).\n")
+
+    violation = only(lint(template_vault), LintCheck.CITATION_UNRESOLVED)
+    assert "nobody2099ghost" in violation.message
+
+
+def test_declared_source_that_is_not_stored_is_flagged(template_vault: Path) -> None:
+    # A citation key listed in `sources:` frontmatter must resolve to a stored source.
+    edit_memory(template_vault, "sources: [wang2024awm]", "sources: [wang2024awm, phantom2099ref]")
+
+    violation = only(lint(template_vault), LintCheck.CITATION_UNRESOLVED)
+    assert "phantom2099ref" in violation.message
+
+
+def test_every_check_id_has_a_planting_test() -> None:
     # Guards against a check id being added without a corresponding violation
     # test. Each id below is asserted by exactly one planting test above.
     covered = {
@@ -393,5 +410,6 @@ def test_all_thirteen_checks_have_a_planting_test() -> None:
         LintCheck.INDEX_MISSING_ENTRY,
         LintCheck.LOG_MISSING_PATH,
         LintCheck.PAGE_ORPHANED,
+        LintCheck.CITATION_UNRESOLVED,
     }
     assert covered == set(LintCheck)

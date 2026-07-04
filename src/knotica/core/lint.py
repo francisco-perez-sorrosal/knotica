@@ -22,7 +22,7 @@ yields the same violations in the same order.
 """
 
 import re
-from collections.abc import Iterable
+from collections.abc import Iterable, Mapping
 from dataclasses import dataclass
 from enum import StrEnum
 
@@ -56,6 +56,11 @@ RESERVED_TOP_LEVEL_NAMES: frozenset[str] = frozenset(
 
 #: Vault-relative path of the global catalog.
 INDEX_PATH = "index.md"
+
+#: Citation-key shape: author surname(s) + 4-digit year + optional tag/section
+#: suffix (e.g. ``wang2024awm``, ``hu2025memory-s3-forms``) -- distinctive enough
+#: to pick source citations out of prose without matching ordinary words.
+_CITATION_KEY_RE = re.compile(r"[a-z][a-z]+\d{4}[a-z0-9-]*")
 
 #: Vault-relative path of the append-only operation log.
 LOG_PATH = "log.md"
@@ -97,6 +102,7 @@ class LintCheck(StrEnum):
     INDEX_MISSING_ENTRY = "index-missing-entry"
     LOG_MISSING_PATH = "log-missing-path"
     PAGE_ORPHANED = "page-orphaned"
+    CITATION_UNRESOLVED = "citation-unresolved"
 
 
 @dataclass(frozen=True)
@@ -151,6 +157,7 @@ def lint_vault(store: VaultStore, topic: str = "") -> list[Violation]:
     if scope is None:
         violations.extend(_check_reserved_names(store))
     violations.extend(_check_frontmatter(store, content_pages))
+    violations.extend(_check_source_citations(store, content_pages))
     for page in scoped_pages:
         violations.extend(_check_page_links(page, vault_links[page]))
     violations.extend(_check_schema_layers(store, root, topics))
@@ -273,6 +280,53 @@ def _check_frontmatter(store: VaultStore, content_pages: Iterable[str]) -> list[
             for problem in validate_frontmatter(frontmatter)
         )
     return violations
+
+
+def _check_source_citations(store: VaultStore, content_pages: Iterable[str]) -> list[Violation]:
+    """Every source a page cites must be stored under ``sources/<topic>/``.
+
+    Catches a page that outruns its evidence -- a claim citing a source (or a
+    section chunk) that was never stored, so the citation resolves to nothing a
+    reader can verify. The cited keys are the page's declared ``sources``
+    frontmatter plus any citation-key-shaped tokens in the body; each must
+    resolve to a stored ``sources/<topic>/<key>.md`` under the page's own topic.
+    """
+    violations: list[Violation] = []
+    for path in content_pages:
+        topic = path.split("/", 1)[0]
+        frontmatter, error, body = parse_page(store.read_text(path))
+        if error is not None or frontmatter is None:
+            continue  # a malformed/absent frontmatter is a separate check's finding
+        for key in sorted(_cited_source_keys(frontmatter, body)):
+            source_path = f"{_SOURCES_DIR}/{topic}/{key}.md"
+            if store.exists(source_path):
+                continue
+            violations.append(
+                Violation(
+                    check=LintCheck.CITATION_UNRESOLVED,
+                    path=path,
+                    message=(
+                        f"Page cites source '{key}' but no stored source exists at "
+                        f"{source_path} -- the claim cannot be verified against the vault."
+                    ),
+                    fix=(
+                        f"Store the source before citing it (store_source with citation_key "
+                        f"'{key}'), or correct the citation to a stored source. For a long "
+                        "paper, store each cited section as its own chunk."
+                    ),
+                )
+            )
+    return violations
+
+
+def _cited_source_keys(frontmatter: Mapping[str, object], body: str) -> set[str]:
+    """Citation keys a page references: declared ``sources`` plus inline tokens."""
+    keys: set[str] = set()
+    declared = frontmatter.get("sources")
+    if isinstance(declared, list):
+        keys.update(str(item).strip() for item in declared if str(item).strip())
+    keys.update(_CITATION_KEY_RE.findall(body or ""))
+    return keys
 
 
 def _block_scalar_violations(path: str, frontmatter: dict[str, object]) -> list[Violation]:

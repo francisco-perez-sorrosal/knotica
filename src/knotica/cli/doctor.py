@@ -61,6 +61,8 @@ _STRUCTURE_CHECKS = frozenset(
         LintCheck.PAGE_ORPHANED,
     }
 )
+#: Source-citation integrity, surfaced under its own "citations" row (WARN).
+_CITATION_CHECKS = frozenset({LintCheck.CITATION_UNRESOLVED})
 
 
 @dataclass(frozen=True, slots=True)
@@ -137,6 +139,7 @@ def _run_checks(
     violations = lint_vault(store)
     rows.append(_reserved_names_row(violations))
     rows.append(_links_row(violations))
+    rows.append(_citations_row(violations))
     rows.append(_structure_row(violations))
     rows.extend(_git_rows(vault_path))
     rows.append(_mcp_row())
@@ -181,6 +184,20 @@ def _links_row(violations: list[Violation]) -> CheckRow:
         "links",
         f"{len(hits)} unresolved wikilink(s) ({_locations(hits)})",
         "fix or remove the dangling wikilinks; run `knotica status` for the full lint",
+    )
+
+
+def _citations_row(violations: list[Violation]) -> CheckRow:
+    """Pages citing a source not stored in the vault are a WARN (unverifiable claims)."""
+    hits = [v for v in violations if v.check in _CITATION_CHECKS]
+    if not hits:
+        return CheckRow(Status.PASS, "citations", "every cited source is stored")
+    return CheckRow(
+        Status.WARN,
+        "citations",
+        f"{len(hits)} citation(s) to unstored sources ({_locations(hits)})",
+        "store the cited source(s) before citing, or fix the citation key — "
+        "for a long paper, store each cited section as its own chunk",
     )
 
 

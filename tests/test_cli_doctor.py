@@ -259,6 +259,26 @@ def test_broken_wikilink_flags_the_links_row_as_unresolved(
     assert result.returncode == (1 if _has_fail(result.stdout) else 0)
 
 
+def test_page_citing_an_unstored_source_flags_the_citations_row(
+    vault_config: Path, template_vault: Path
+):
+    page = template_vault / "agentic-systems" / "agent-memory.md"
+    page.write_text(
+        page.read_text() + "\n\nA later survey expands this (nobody2099ghost §3).\n",
+        encoding="utf-8",
+    )
+
+    result = _run("doctor")
+
+    assert _statuses_for(result.stdout, "citations") & {"WARN", "FAIL"}, (
+        "citing a source the vault does not hold must drive the citations row off PASS"
+    )
+    assert "unstored" in result.stdout.lower(), (
+        "the citations row must name the unstored-source condition"
+    )
+    assert result.returncode == (1 if _has_fail(result.stdout) else 0)
+
+
 def test_dirty_working_tree_flags_a_git_row_and_offers_fix(
     vault_config: Path, template_vault: Path
 ):
