@@ -31,19 +31,16 @@ passes it in. Availability is decided purely by version (behind vs. current);
 nothing.
 """
 
-import importlib.resources
 from dataclasses import dataclass
 from pathlib import Path, PurePath
 
 from knotica.core.errors import ErrorCode, KnoticaError, err, ok
 from knotica.core.page import parse_page, serialize_frontmatter
 from knotica.core.schema import ROOT_SCHEMA_PATH, overlay_path
+from knotica.core.template import TemplateNotFoundError, packaged_template_path
 from knotica.core.transaction import LOG_PATH, VaultTransaction
 from knotica.core.vcs import VaultVcs
 from knotica.store import VaultStore
-
-#: The template directory name mapped into the wheel (see pyproject force-include).
-_TEMPLATE_DIRNAME = "vault-template"
 
 #: Frontmatter key carrying a schema file's version.
 _SCHEMA_VERSION_KEY = "schema_version"
@@ -96,7 +93,14 @@ def migrate(
     cleaned_topic = topic.strip()
     version_rel = overlay_path(cleaned_topic) if cleaned_topic else ROOT_SCHEMA_PATH
     scope = cleaned_topic or "root"
-    template_root = _packaged_template_root()
+    try:
+        template_root = packaged_template_path()
+    except TemplateNotFoundError as missing:
+        raise KnoticaError(
+            ErrorCode.GIT_ERROR,
+            f"migrate failed because {missing}.",
+            fix="Reinstall knotica so the packaged template ships with the wheel.",
+        ) from missing
 
     target_version = _template_schema_version(template_root, version_rel)
     if target_version is None:
@@ -111,27 +115,6 @@ def migrate(
         head = VaultVcs(vault_root).head_sha()
         return ok(_plan_pointer(plan, commit_sha=head, applied=False))
     return _apply(store, vault_root, plan, template_root, version_rel)
-
-
-def _packaged_template_root() -> Path:
-    """Locate the packaged ``vault-template`` (wheel data, else the repo-root copy).
-
-    Installed wheels carry the template as package data; editable/dev installs
-    resolve the repo-root copy instead (the package tree has no template).
-    """
-    resource = importlib.resources.files("knotica") / _TEMPLATE_DIRNAME
-    if resource.is_dir():
-        return Path(str(resource))
-    for parent in Path(__file__).resolve().parents:
-        candidate = parent / _TEMPLATE_DIRNAME
-        if candidate.is_dir():
-            return candidate
-    raise KnoticaError(
-        ErrorCode.GIT_ERROR,
-        "migrate failed because the packaged vault-template could not be located "
-        "(neither as installed package data nor as a repo-root directory).",
-        fix="Reinstall knotica so the packaged template ships with the wheel.",
-    )
 
 
 def _template_schema_version(template_root: Path, version_rel: str) -> int | None:

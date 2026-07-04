@@ -13,7 +13,7 @@
 | **Language / Framework** | Python 3.12+ (uv) / official `mcp` SDK 1.28.1 (`FastMCP`) |
 | **Architecture pattern** | Hexagonal, single-mutation-core (one writer through a `VaultTransaction`) |
 | **Source stage** | Pipeline `wiki-mvp-core` (Phases 0–1) — systems-architect creation |
-| **Last verified** | 2026-07-03 by implementer (core-band checkpoint: store/search/core Built + green; cli/mcp_server still Designed — Phase 1c/1d not started) |
+| **Last verified** | 2026-07-03 by implementer (adapter checkpoint: store/search/core/mcp_server/cli Built + green, 609 passed; plugin layer pending — Phase 1e not started) |
 
 Knotica implements Karpathy's llm-wiki pattern: an AI-maintained compounding markdown knowledge base in
 an Obsidian vault, with per-topic self-improving loops (DSPy inner, SIA outer) planned for Phases 2–3.
@@ -51,9 +51,9 @@ Rendered diagram pending: `docs/diagrams/architecture/rendered/components.svg`.
 |---|---|---|---|
 | `src/knotica/store/` | `VaultStore` protocol + `LocalFSStore` — atomic (temp+rename) storage primitives; no git/log/schema knowledge | stdlib | Built |
 | `src/knotica/search/` | `SearchBackend` protocol + `RipgrepBackend` — read-only full-text search | store paths | Built |
-| `src/knotica/core/` | Vault semantics: `config`, `schema` (root+overlay), `page`/`links`, `lint`, `vcs` (subprocess git), `lock` (fcntl.flock), `scrub`, `records`, **`transaction.VaultTransaction`**, `operations.*` (four ops config-agnostic: `(store, vault_root, *semantic_args)` — no `core.config` import) | store, search | Built |
-| `src/knotica/cli/` | `knotica` entry point: `init`, `mcp`, `doctor`, `status`, `migrate` — thin; mutations delegate to `core.operations` | core | Designed |
-| `src/knotica/mcp_server/` | `FastMCP` server: tools, resources (schemas + index), prompts (static name / lazy body) — thin; stateless. *Named `mcp_server` (not `mcp`) to avoid shadowing the `mcp` SDK; per-concern modules `server`/`envelope`/`tools_read`/`tools_write`/`resources`/`prompts` (dec-draft-8d8c18a1)* | core | Designed |
+| `src/knotica/core/` | Vault semantics: `config`, `schema` (root+overlay), `page`/`links`, `lint`, `vcs` (subprocess git), `lock` (fcntl.flock), `scrub`, `records`, `template` (read-only packaged-template locator, shared by `cli.init` + `operations.migrate`), **`transaction.VaultTransaction`**, `operations.*` (four ops config-agnostic: `(store, vault_root, *semantic_args)` — no `core.config` import) | store, search | Built |
+| `src/knotica/cli/` | `knotica` entry point: `init`, `mcp`, `doctor`, `status`, `migrate`, `prompt` — thin, self-registering registry; mutations delegate to `core.operations`; never writes the vault directly | core | Built |
+| `src/knotica/mcp_server/` | `FastMCP` server: tools, resources (schemas + index), prompts (static name / lazy body) — thin; stateless. *Named `mcp_server` (not `mcp`) to avoid shadowing the `mcp` SDK; per-concern modules `server`/`envelope`/`tools_read`/`tools_write`/`resources`/`prompts` (dec-draft-8d8c18a1)* | core | Built |
 | `src/knotica/programs/` | DSPy modules (`query` first) — Phase 3a | core | Planned |
 | `src/knotica/agent/`, `evals/` | Headless runners + SIA-compatible evaluator — Phase 2–3 | core | Planned |
 | Plugin layer (repo root) | `.claude-plugin/`, `.mcp.json`, `commands/`, `hooks/`, `skills/wiki-maintenance/` | `knotica mcp` entry | Designed |

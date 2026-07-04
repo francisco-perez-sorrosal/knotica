@@ -5,10 +5,10 @@
      .ai-state/DESIGN.md; the converged design lives in docs/PRE_PLAN.md.
      Created by systems-architect; updated by implementer; verified by doc-engineer at checkpoints. -->
 
-> **Status: core band Built (2026-07-03).** The `store/`, `search/`, and `core/` subpackages are
-> implemented and green (full suite 510 passed / 18 skipped); the `cli/` and `mcp_server/` adapters
-> are still docstring-only stubs (Phase 1c/1d not started). This guide gains present-tense component
-> claims as modules land. For the design target and rationale, read
+> **Status: core + adapter bands Built (2026-07-03).** The `store/`, `search/`, `core/`, `mcp_server/`,
+> and `cli/` subpackages are implemented and green (full suite 609 passed / 18 skipped). The remaining
+> work is the plugin layer (`.claude-plugin/`, `commands/`, `hooks/`, `skills/`) and the acceptance
+> drills. For the design target and rationale, read
 > [`.ai-state/DESIGN.md`](../.ai-state/DESIGN.md); for the full converged design, read
 > [`docs/PRE_PLAN.md`](./PRE_PLAN.md).
 
@@ -20,7 +20,7 @@
 | **Type** | Stateless MCP server + CLI over a versioned Obsidian vault; Claude plugin marketplace |
 | **Language / Framework** | Python 3.12+ (uv) / official `mcp` SDK (`FastMCP`) |
 | **Architecture pattern** | Hexagonal, single-mutation-core |
-| **Last verified against code** | 2026-07-03 — core band Built (`store/`, `search/`, `core/`); `cli/` + `mcp_server/` still stubs |
+| **Last verified against code** | 2026-07-03 — core + adapter bands Built (`store/`, `search/`, `core/`, `mcp_server/`, `cli/`); plugin layer pending |
 
 Knotica is an AI-maintained markdown wiki in an Obsidian vault. The **Claude client's LLM is the brain**;
 the server exposes deterministic tools and holds no session state. Every vault mutation flows through a
@@ -36,25 +36,28 @@ knotica → the vault git repo. Deployment is out of scope (local-only Phases 0�
 
 ## 3. Components
 
-**Built components (core band):**
+**Built components (core + adapter bands):**
 
 | Component | Responsibility | Path (verified on disk) |
 |---|---|---|
 | `store/` | `VaultStore` protocol + `LocalFSStore` — atomic (temp+rename) storage primitives; no git/log/schema knowledge | `src/knotica/store/` |
 | `search/` | `SearchBackend` protocol + `RipgrepBackend` — read-only full-text search with cursor paging | `src/knotica/search/` |
-| `core/` | Vault semantics: `config`, `schema`, `page`/`links`, `lint`, `vcs`, `lock`, `scrub`, `records`, `transaction.VaultTransaction`, and the four `operations.*` writes. Operations are config-agnostic — `(store, vault_root, *semantic_args)`, resolving config only at the adapter boundary | `src/knotica/core/` |
+| `core/` | Vault semantics: `config`, `schema`, `page`/`links`, `lint`, `vcs`, `lock`, `scrub`, `records`, `template` (read-only packaged-template locator), `transaction.VaultTransaction`, and the four `operations.*` writes. Operations are config-agnostic — `(store, vault_root, *semantic_args)`, resolving config only at the adapter boundary | `src/knotica/core/` |
+| `mcp_server/` | FastMCP adapter: read tools, mutating tools, resources, and prompts. Resolves config per call; delegates every mutation to `core.operations.*`; never writes the vault directly | `src/knotica/mcp_server/` |
+| `cli/` | `knotica` console entry point — self-registering subcommand registry (`init`/`mcp`/`doctor`/`status`/`migrate`/`prompt`). Reads via `core` read functions; mutations only through `core.operations.*`; never writes the vault directly | `src/knotica/cli/` |
 
-The `cli/` and `mcp_server/` adapters are **still Designed** (docstring-only stubs, Phase 1c/1d not
-started). The full module map — including Designed/Planned rows — is the authoritative table in
+The single-writer boundary (adapters never mutate the vault; the sole writer is `core.transaction`) is
+enforced statically by `tests/test_architecture_boundaries.py`. The full module map — including the
+Planned plugin-layer rows — is the authoritative table in
 [`.ai-state/DESIGN.md` § 3](../.ai-state/DESIGN.md#3-components).
 
-Navigation once built (planned homes):
+Navigation:
 - Vault mutation logic → `src/knotica/core/` (`transaction.py`, `operations/` — one module per op) — the single writer.
 - Storage backend → `src/knotica/store/` (`VaultStore` protocol + `LocalFSStore`).
 - Full-text search → `src/knotica/search/`.
 - MCP server (tools/resources/prompts) → `src/knotica/mcp_server/` (named to avoid shadowing the `mcp` SDK package; see `dec-draft-8d8c18a1`).
-- CLI (`init`/`mcp`/`doctor`/`status`/`migrate`) → `src/knotica/cli/`.
-- Plugin layer → repo root (`.claude-plugin/`, `.mcp.json`, `commands/`, `hooks/`, `skills/`).
+- CLI (`init`/`mcp`/`doctor`/`status`/`migrate`/`prompt`) → `src/knotica/cli/`.
+- Plugin layer (Planned) → repo root (`.claude-plugin/`, `.mcp.json`, `commands/`, `hooks/`, `skills/`).
 
 ## 4. Getting Started
 

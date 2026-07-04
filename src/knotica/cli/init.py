@@ -21,12 +21,12 @@ it is a plain file write, not a vault mutation.
 """
 
 import argparse
-import importlib.resources
 import json
 import os
 import shutil
 import subprocess
 import sys
+import tempfile
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -39,11 +39,11 @@ from knotica.cli.common import (
     console_from_args,
 )
 from knotica.core.config import config_file_path
+from knotica.core.template import TEMPLATE_DIRNAME, TemplateNotFoundError
+from knotica.core.template import packaged_template_path as _locate_template
 
 __all__ = ["configure", "packaged_template_path", "run"]
 
-#: Directory name of the packaged vault template (wheel data / repo root).
-_TEMPLATE_DIRNAME = "vault-template"
 #: Config vault name written by the wizard (the schema's ``default_vault``).
 _DEFAULT_VAULT_NAME = "main"
 #: Default vault filesystem path offered under ``--yes`` / interactive default.
@@ -127,25 +127,19 @@ def run(args: argparse.Namespace) -> int:
 
 
 def packaged_template_path() -> Path:
-    """Locate the packaged ``vault-template`` (wheel data, else the repo root).
+    """Locate the packaged ``vault-template``, as a wizard-grammar error on miss.
 
-    Installed wheels carry the template as package data; editable/dev installs
-    resolve the repo-root copy instead. Exposed here as the single reusable
-    locator so other fallback-channel code (e.g. ``migrate``) can share it
-    rather than duplicating the wheel-then-repo walk.
+    Thin wrapper over :func:`knotica.core.template.packaged_template_path` (the
+    single reusable locator) that translates a missing template into the
+    wizard's three-part ``_InitError``.
     """
-    resource = importlib.resources.files("knotica") / _TEMPLATE_DIRNAME
-    if resource.is_dir():
-        return Path(str(resource))
-    for parent in Path(__file__).resolve().parents:
-        candidate = parent / _TEMPLATE_DIRNAME
-        if candidate.is_dir():
-            return candidate
-    raise _InitError(
-        "init failed because the packaged vault-template could not be located "
-        "(neither as installed package data nor as a repo-root directory). "
-        "To fix: reinstall knotica so the template ships with the wheel."
-    )
+    try:
+        return _locate_template()
+    except TemplateNotFoundError as missing:
+        raise _InitError(
+            f"init failed because {missing}. "
+            "To fix: reinstall knotica so the template ships with the wheel."
+        ) from missing
 
 
 def _scaffold_and_wire(console: Console, inputs: _Inputs) -> None:
@@ -286,7 +280,7 @@ def _write_config(console: Console, vault_name: str, vault_path: Path) -> None:
     data["default_vault"] = vault_name
     vaults = data.setdefault("vaults", {})
     vaults[vault_name] = {"path": str(vault_path)}
-    path.write_text(_dump_config_toml(data), encoding="utf-8")
+    _atomic_write(path, _dump_config_toml(data))
     console.info(f"wrote config → {path}")
 
 
@@ -392,7 +386,7 @@ def _mcp_from_source() -> str:
     if override:
         return override
     for parent in Path(__file__).resolve().parents:
-        if (parent / "pyproject.toml").is_file() and (parent / _TEMPLATE_DIRNAME).is_dir():
+        if (parent / "pyproject.toml").is_file() and (parent / TEMPLATE_DIRNAME).is_dir():
             return str(parent)
     return "knotica"
 
@@ -403,6 +397,26 @@ def _desktop_config_path() -> Path:
     if override:
         return Path(os.path.expandvars(override)).expanduser()
     return Path.home() / "Library" / "Application Support" / "Claude" / "claude_desktop_config.json"
+
+
+def _atomic_write(path: Path, text: str) -> None:
+    """Write ``text`` to ``path`` atomically: temp file in the same dir + rename.
+
+    ``config.toml`` is merged additively (every pre-existing vault is preserved),
+    so a torn write must never leave a truncated file that drops those vaults.
+    Writing a sibling temp file and ``os.replace``-ing it (an atomic rename on
+    the same filesystem) guarantees readers see either the old file or the fully
+    written new one -- never a partial merge.
+    """
+    fd, tmp_name = tempfile.mkstemp(dir=str(path.parent), prefix=f"{path.name}.", suffix=".tmp")
+    tmp = Path(tmp_name)
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as handle:
+            handle.write(text)
+        os.replace(tmp, path)
+    except BaseException:
+        tmp.unlink(missing_ok=True)
+        raise
 
 
 def _read_config(path: Path) -> dict:

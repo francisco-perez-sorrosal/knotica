@@ -2,10 +2,11 @@
 
 Thin by design: parses arguments, applies output conventions (stdout = data,
 stderr = messages -- see :mod:`knotica.cli.common`), and delegates. Reads go
-through ``knotica.core`` read functions; mutations go ONLY through
-``knotica.core.operations.*`` -- this package never imports ``core.vcs``/
-``core.lock`` and never writes the vault directly (the single writer is
-``core.transaction``; enforced by the import-boundary fitness test).
+through ``knotica.core`` read functions (including the read-only ``VaultVcs``
+state accessors that ``doctor``/``status`` use); mutations go ONLY through
+``knotica.core.operations.*`` -- this package never performs vault mutations and
+never imports ``core.lock``, and the sole writer of the vault is
+``core.transaction`` (enforced by the import-boundary fitness test).
 
 **Self-registration dispatch.** ``main`` builds the argparse parser, then for
 each command name imports its module and calls ``module.configure(subparsers)``
