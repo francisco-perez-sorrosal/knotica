@@ -53,21 +53,38 @@ required judgment calls (repairing renderer artifacts, dropping figures), report
 the user before storing — immutability makes them permanent; a defective stored source
 is corrected only by re-storing under a suffixed key (`<key>-v2`).
 
-## 5. Write the entity pages
+## 5. Plan the pages, then write them in dependency order
 
-For each entity the schema's ingest rule calls for (typically a main page for the source
-plus linked pages for the methods/concepts it introduces), call `write_page` with the
-resolved `topic`, the `page` name, the full markdown `content` **including YAML
-frontmatter** conforming to the resolved schema (`type`, `topic`, `created`, `updated`,
-`confidence`, `sources` — cite the citation key from step 4 — `status`, `tags`), a
-one-line `summary` (it becomes the commit message and log title), and a one-line
-`index_entry` describing the page for the global catalog.
+Distill the source into schema-conformant pages. The ordering below is what keeps a **long
+or interrupted ingest** safe — a large paper may not fit in one turn, and that must be fine.
 
-- Connect related pages with wikilinks; use full vault-path wikilinks
-  (`[[<topic>/<page>]]`) across topics, bare `[[page]]` within one.
-- Each `write_page` call is one atomic unit: secret-scrub, write, one git commit, and a
-  `log.md` append. **Never write `log.md` yourself** — the tools maintain it.
-- Re-sending identical content is a safe no-op (`changed: false`, no commit).
+**Plan first.** Before writing anything, list the pages this ingest will create: a main page
+for the source plus one page per method, concept, system, or benchmark the schema's ingest
+rule warrants. Keep the set focused — create a page for each entity that other pages will
+link to or that stands on its own; fold minor points into prose rather than spawning thin
+pages. For a dense survey, a handful of well-scoped pages beats many shallow ones.
+
+**Write leaf pages before the pages that link to them — the source's main page last.** A page
+may only link to pages that already exist, so write the concept/method pages first and the
+main source page (which links out to all of them) last. This keeps the vault lint-clean at
+*every* step: if you stop early you have real pages with no dangling wikilinks, never a
+committed page pointing at a missing target.
+
+**Write one page per step; if you must stop, resume — never restart.** Each `write_page` is
+one atomic commit (secret-scrub, write, one git commit, a `log.md` append — **never write
+`log.md` yourself**), so a long ingest is checkpointed page by page. Because `write_page` is
+idempotent (re-sending an identical page is a safe no-op, `changed: false`), you resume simply
+by re-running the ingest and writing only the pages not yet present — skip the ones already
+committed; never duplicate a page or start over.
+
+Each `write_page` call takes the resolved `topic`, the `page` name, the full markdown
+`content` **including YAML frontmatter** conforming to the resolved schema (`type`, `topic`,
+`created`, `updated`, `confidence`, `sources` — cite the citation key from step 4 —
+`status`, `tags`), a one-line `summary` (the commit message and log title), and a one-line
+`index_entry` for the global catalog. Connect related pages with wikilinks: full vault-path
+(`[[<topic>/<page>]]`) across topics, bare `[[page]]` within one. **Pages are concise
+distillations** (Summary, cited Key claims, Relations, Open questions) — the source's full
+text lives in the stored source; do not copy it into pages.
 
 ## 6. The index maintains itself — through your `index_entry`
 
