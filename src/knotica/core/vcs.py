@@ -68,6 +68,31 @@ class VaultVcs:
         result = self._run(["rev-parse", "HEAD"])
         return result.stdout.strip()
 
+    def current_branch(self) -> str | None:
+        """Return the current branch name, or ``None`` when ``HEAD`` is detached.
+
+        Read-only inspection for ``knotica doctor``/``status`` -- never mutates.
+        """
+        result = self._run(["rev-parse", "--abbrev-ref", "HEAD"], optional_locks=False)
+        branch = result.stdout.strip()
+        return None if branch == "HEAD" else branch
+
+    def unpushed_count(self) -> int | None:
+        """Return commits on ``HEAD`` not yet on its upstream.
+
+        ``None`` when the branch tracks no upstream (no remote configured) --
+        there is nothing to be behind. Read-only; never mutates.
+        """
+        upstream = self._run(
+            ["rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{upstream}"],
+            check=False,
+            optional_locks=False,
+        )
+        if upstream.returncode != 0 or not upstream.stdout.strip():
+            return None
+        result = self._run(["rev-list", "--count", "@{upstream}..HEAD"], optional_locks=False)
+        return int(result.stdout.strip() or "0")
+
     def is_dirty(self, paths: Sequence[str | PurePath] | None = None) -> bool:
         """Return whether the work tree has uncommitted changes.
 
