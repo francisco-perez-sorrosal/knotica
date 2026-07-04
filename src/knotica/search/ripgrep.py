@@ -17,8 +17,10 @@ Scope rules (identical in both engines): only ``*.md`` files; dot-folders and
 dot-files (``.knotica/``, ``.git/``, ``.obsidian/``, ...) are skipped; stored
 sources under ``sources/<topic>/`` ARE searched and marked ``kind="source"``.
 Ripgrep runs with ``--no-config --no-ignore`` so user ripgrep configs and
-vault ``.gitignore`` files cannot make its file set diverge from the
-fallback's walk (hidden-path skipping is ripgrep's default and is preserved).
+vault ``.gitignore`` files cannot make its file set diverge from the fallback's
+walk, and with an explicit ``--glob '!**/.*'`` so hidden files and dot-folders
+are excluded regardless of ripgrep's version-dependent hidden-path defaults --
+matching the fallback's own dot-skipping walk exactly.
 
 Read-only boundary: this module never writes, locks, or touches git.
 """
@@ -46,6 +48,12 @@ SNIPPET_MAX_CHARS = 200
 
 _SOURCES_DIR = "sources"
 _MARKDOWN_SUFFIX = ".md"
+
+#: Ripgrep exclusion glob for every hidden path -- dot-files at any depth and
+#: anything under a dot-folder. Made explicit (not left to ripgrep's default
+#: hidden-path handling, which ``--no-ignore`` disables on ripgrep 15+) so the
+#: rg file set matches the pure-Python fallback's dot-skipping walk exactly.
+_HIDDEN_EXCLUDE_GLOB = "!**/.*"
 
 #: rg exit codes that mean the scan itself succeeded (0 = matches, 1 = none).
 _RG_OK_EXIT_CODES = frozenset({0, 1})
@@ -135,6 +143,8 @@ class RipgrepBackend:
             "--fixed-strings",
             "--glob",
             f"*{_MARKDOWN_SUFFIX}",
+            "--glob",
+            _HIDDEN_EXCLUDE_GLOB,
         ]
         for term in terms:
             command.extend(["-e", term])
