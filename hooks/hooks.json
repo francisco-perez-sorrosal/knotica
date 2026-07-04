@@ -1,0 +1,17 @@
+{
+  "description": "Knotica SessionStart: backgrounded pre-warm of the uvx launcher plus config/schema/dirty-tree nudges.",
+  "hooks": {
+    "SessionStart": [
+      {
+        "matcher": "*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "sh ${CLAUDE_PLUGIN_ROOT}/hooks/session_start.sh",
+            "timeout": 30
+          }
+        ]
+      }
+    ]
+  }
+}
