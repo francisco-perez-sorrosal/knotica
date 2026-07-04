@@ -65,7 +65,7 @@ Navigation:
 Two install channels, both backing the same MCP server (see the [README](../README.md) for the
 end-user walkthrough):
 
-- **Plugin:** `/plugin marketplace add francisco-perez-sorrosal/knotica` → `/plugin install knotica@knotica`
+- **Plugin:** `/plugin marketplace add francisco-perez-sorrosal/bit-agora` → `/plugin install knotica@bit-agora`
   → `/knotica:setup`.
 - **CLI:** `uv tool install --from . knotica` → `knotica init`.
 

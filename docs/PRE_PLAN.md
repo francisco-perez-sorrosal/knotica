@@ -60,11 +60,11 @@ Design target: empty machine → first ingested page with **zero knotica-owned A
 
 ### Primary channel: Claude plugin marketplace (Claude Code)
 
-The GitHub repo is **simultaneously the Python package and a Claude plugin marketplace** (`.claude-plugin/plugin.json` + `marketplace.json` alongside `pyproject.toml`). Install:
+The GitHub repo is **both the Python package and a Claude plugin** (`.claude-plugin/plugin.json` alongside `pyproject.toml`); it is published through the external **`bit-agora`** marketplace (`francisco-perez-sorrosal/bit-agora`) rather than acting as its own marketplace. Install:
 
 ```
-/plugin marketplace add francisco-perez-sorrosal/knotica
-/plugin install knotica@knotica
+/plugin marketplace add francisco-perez-sorrosal/bit-agora
+/plugin install knotica@bit-agora
 ```
 
 - **MCP server auto-registration, zero separate install:** plugin `.mcp.json` launches the server from its own checkout — `{"knotica": {"command": "uvx", "args": ["--from", "${CLAUDE_PLUGIN_ROOT}", "knotica", "mcp"]}}`. uvx resolves the env on first run; no PyPI needed.
@@ -124,11 +124,10 @@ Each operation prompt carries the full protocol (read schema resource → act �
 ## Code repository shape
 
 ```
-~/dev/knotica/              # dual-role: Python package + Claude plugin marketplace
+~/dev/knotica/              # dual-role: Python package + Claude plugin (published via the bit-agora marketplace)
   pyproject.toml            # uv, Python 3.12+
   .claude-plugin/
-    plugin.json             # plugin manifest
-    marketplace.json        # marketplace catalog (this repo is its own marketplace)
+    plugin.json             # plugin manifest (distributed through francisco-perez-sorrosal/bit-agora)
   .mcp.json                 # launches server via uvx --from ${CLAUDE_PLUGIN_ROOT}
   commands/                 # /knotica:setup, doctor, migrate (thin shims over CLI)
   hooks/hooks.json          # SessionStart: config nudge, schema-version check, doctor --quick

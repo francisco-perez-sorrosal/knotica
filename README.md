@@ -28,8 +28,8 @@ Knotica ships through two channels. Both back the same MCP server.
 ### Channel 1 — Claude Code plugin (recommended)
 
 ```
-/plugin marketplace add francisco-perez-sorrosal/knotica
-/plugin install knotica@knotica
+/plugin marketplace add francisco-perez-sorrosal/bit-agora
+/plugin install knotica@bit-agora
 ```
 
 ### Channel 2 — CLI (also covers Claude Desktop)
