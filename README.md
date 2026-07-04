@@ -80,10 +80,6 @@ The operation aliases (`ingest`, `query`, `lint`, `curate`) inject the vault-res
 | `knotica migrate` | Schema-version migration; preview with `--dry-run` or `--check`, apply with `--yes`. |
 | `knotica prompt` | Render a vault-resolved operation prompt body to stdout (backs the operation aliases). |
 
-## Status
-
-Phases 0–1 (vault template + core / MCP / plugin layer) are implemented; the self-improvement loops (DSPy, SIA) land in later phases. The converged design lives in [`docs/PRE_PLAN.md`](docs/PRE_PLAN.md) — the single authoritative source for architecture, phases, and decisions. Developers should start with the [architecture guide](docs/architecture.md).
-
 ## For AI agents working on this repo
 
 - **Read [`docs/PRE_PLAN.md`](docs/PRE_PLAN.md) first** — it is canonical; this README is a summary. `CLAUDE.md` lists the non-negotiable invariants (client-as-brain, stateless server, vault/code separation, per-op commits, clone-based loops).
