@@ -11,7 +11,7 @@ unconfigured vault exits 3 with the uniform not-configured remediation.
 
 RED until the ``status`` command lands: the registered stub raises
 ``NotImplementedError`` (empty stdout, exit 1), so every assertion fails until
-Step-38 impl commits.
+the paired ``status`` implementation commits.
 """
 
 import json

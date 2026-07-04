@@ -28,7 +28,7 @@ PASS", which is what §4.4 actually promises.
 
 RED until the ``doctor`` command lands: the registered stub raises
 ``NotImplementedError`` (empty stdout, exit 1), so every behavioral assertion
-below fails until Step-38 impl commits.
+below fails until the paired ``doctor`` implementation commits.
 """
 
 import json
