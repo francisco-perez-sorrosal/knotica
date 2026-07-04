@@ -15,7 +15,8 @@ config-agnostic -- callers resolve the vault root per call and pass it in.
 
 from knotica.core.operations.create_topic import create_topic
 from knotica.core.operations.curate_example import curate_example
+from knotica.core.operations.migrate import migrate
 from knotica.core.operations.store_source import store_source
 from knotica.core.operations.write_page import write_page
 
-__all__ = ["create_topic", "curate_example", "store_source", "write_page"]
+__all__ = ["create_topic", "curate_example", "migrate", "store_source", "write_page"]
