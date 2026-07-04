@@ -53,6 +53,25 @@ required judgment calls (repairing renderer artifacts, dropping figures), report
 the user before storing — immutability makes them permanent; a defective stored source
 is corrected only by re-storing under a suffixed key (`<key>-v2`).
 
+**Store enough that every claim stays verifiable — for a long paper, store it section by
+section.** Your pages may cite only what the vault actually holds, so store the full text of
+every section your pages will draw claims from — not just the abstract, the table of contents,
+and the conclusion. If the source is short, store it whole. If it is long and clearly sectioned
+(a survey, a book, a long paper) and will not fit one `store_source` call, store it in
+**sections**:
+
+- a **spine** under the base `citation_key` (e.g. `hu2025memory`) — the bibliographic header,
+  the abstract, and a **section map** listing each section's chunk key and title;
+- **each major section you will cite** as its own chunk under a section-suffixed key
+  (e.g. `hu2025memory-s3-forms`), holding that section's faithful **verbatim** text, never a
+  summary. One `store_source` per section — each chunk is small, immutable, and a durable
+  checkpoint, so a long source is **resumable**: re-run and store only the sections still
+  missing (identical content is a safe no-op).
+
+The invariant that ties storage to the pages: **never write a page that cites a `§N` whose text
+is not stored in a chunk.** If a section is genuinely unavailable, say so and make no claims
+about it.
+
 ## 5. Plan the pages, then write them in dependency order
 
 Distill the source into schema-conformant pages. The ordering below is what keeps a **long
@@ -85,6 +104,11 @@ Each `write_page` call takes the resolved `topic`, the `page` name, the full mar
 (`[[<topic>/<page>]]`) across topics, bare `[[page]]` within one. **Pages are concise
 distillations** (Summary, cited Key claims, Relations, Open questions) — the source's full
 text lives in the stored source; do not copy it into pages.
+
+**Cite only what the vault holds.** In each page's `sources:` frontmatter list the specific
+source keys the page used — for a section-chunked paper, the section-chunk keys, plus the spine
+key for whole-paper claims — and make every inline `§N` reference resolve to a stored chunk. A
+page must never cite a section the vault does not contain.
 
 ## 6. The index maintains itself — through your `index_entry`
 
