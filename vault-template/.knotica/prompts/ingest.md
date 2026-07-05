@@ -61,7 +61,9 @@ and the conclusion. If the source is short, store it whole. If it is long and cl
 **sections**:
 
 - a **spine** under the base `citation_key` (e.g. `hu2025memory`) — the bibliographic header,
-  the abstract, and a **section map** listing each section's chunk key and title;
+  the abstract, and a **section map** that lists each section as a wikilink to its chunk
+  (`- §N Title — [[<key>]]`, a clickable table of contents; the spine and its chunks share one
+  directory, so a bare `[[<key>]]` resolves);
 - **each major section you will cite** as its own chunk under a section-suffixed key
   (e.g. `hu2025memory-s3-forms`), holding that section's faithful **verbatim** text, never a
   summary, **as clean Markdown** — render the section heading as a Markdown header
