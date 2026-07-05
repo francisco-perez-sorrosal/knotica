@@ -64,7 +64,9 @@ and the conclusion. If the source is short, store it whole. If it is long and cl
   the abstract, and a **section map** listing each section's chunk key and title;
 - **each major section you will cite** as its own chunk under a section-suffixed key
   (e.g. `hu2025memory-s3-forms`), holding that section's faithful **verbatim** text, never a
-  summary. One `store_source` per section — each chunk is small, immutable, and a durable
+  summary, **as clean Markdown** — render the section heading as a Markdown header
+  (`## <n> <Title>`) and repair extraction artifacts (runs of spaces, mid-word breaks from
+  PDF columns) so the chunk reads as Markdown, not a raw text dump. One `store_source` per section — each chunk is small, immutable, and a durable
   checkpoint, so a long source is **resumable**: re-run and store only the sections still
   missing (identical content is a safe no-op).
 
@@ -103,12 +105,18 @@ Each `write_page` call takes the resolved `topic`, the `page` name, the full mar
 `index_entry` for the global catalog. Connect related pages with wikilinks: full vault-path
 (`[[<topic>/<page>]]`) across topics, bare `[[page]]` within one. **Pages are concise
 distillations** (Summary, cited Key claims, Relations, Open questions) — the source's full
-text lives in the stored source; do not copy it into pages.
+text lives in the stored source; do not copy it into pages. Write the body as clean Markdown:
+**one line per paragraph or list item — do not hard-wrap prose mid-line** (the editor
+soft-wraps; hard line breaks render as broken text).
 
-**Cite only what the vault holds.** In each page's `sources:` frontmatter list the specific
-source keys the page used — for a section-chunked paper, the section-chunk keys, plus the spine
-key for whole-paper claims — and make every inline `§N` reference resolve to a stored chunk. A
-page must never cite a section the vault does not contain.
+**Cite only what the vault holds, and make citations clickable.** In each page's `sources:`
+frontmatter list the specific source keys the page used — for a section-chunked paper, the
+section-chunk keys, plus the spine key for whole-paper claims. Write each inline citation as a
+**wikilink to the cited chunk**, using its full vault path with a readable alias:
+`[[sources/<topic>/<key>|<key> §N]]` (e.g.
+`[[sources/agentic-systems/hu2025memory-s3-form|hu2025memory §3]]`) — so the reader can click
+straight to the evidence. Every citation must resolve to a stored chunk; a page must never cite
+a section the vault does not contain.
 
 ## 6. The index maintains itself — through your `index_entry`
 
