@@ -29,7 +29,15 @@ from knotica.cli.common import EXIT_ERROR, EXIT_MISUSE
 
 #: Registered command names, in help-listing order. Each maps to a
 #: ``knotica.cli.<name>`` module exporting ``configure`` and ``run``.
-COMMAND_NAMES: tuple[str, ...] = ("init", "mcp", "doctor", "status", "migrate", "prompt")
+COMMAND_NAMES: tuple[str, ...] = (
+    "init",
+    "mcp",
+    "doctor",
+    "status",
+    "migrate",
+    "prompt",
+    "guillotine",
+)
 
 
 def main(argv: list[str] | None = None) -> int:
