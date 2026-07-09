@@ -1,5 +1,9 @@
 ---
 schema_version: 1
+type: schema
+title: "SCHEMA — Root Constitution"
+description: "This file is the vault's constitution: the invariants every topic inherits. Topic overlays"
+timestamp: "2026-07-08T19:54:39Z"
 ---
 
 # SCHEMA — Root Constitution
@@ -35,20 +39,25 @@ bump plus a migration step.
 ## Core frontmatter
 
 Every content page (topic pages; not the reserved structural pages listed below) carries YAML
-frontmatter with these fields:
+frontmatter with these fields. Knotica is a **native OKF-compatible superset**: the `type`
+field satisfies Open Knowledge Format requirements (any non-empty string is valid OKF).
 
 | Field | Value | Meaning |
 |---|---|---|
-| `type` | string | Page kind. Topic overlays define the allowed entity types. |
+| `type` | string | **OKF-required** page kind (`concept`, `paper`, `method`, `source`, `schema`, …). Open taxonomy — topic overlays may constrain allowed values. |
+| `title` | string | **OKF-recommended** human title. |
+| `description` | string | **OKF-recommended** one-line summary. |
+| `resource` | string | **OKF-recommended** canonical URL for references (maps from `origin_url` on sources). |
+| `timestamp` | RFC 3339 | **OKF-recommended** last-significant-update instant, UTC (`2026-07-08T15:30:00Z`). |
+| `tags` | list of strings | **OKF-recommended** topical tags. |
 | `topic` | string | The topic directory this page belongs to. |
-| `created` | `YYYY-MM-DD` | Date the page was created. |
-| `updated` | `YYYY-MM-DD` | Date of the last content update. |
+| `created` | RFC 3339 | When the page was created (UTC). |
+| `updated` | RFC 3339 | Date of the last content update (UTC). |
 | `confidence` | `low` \| `medium` \| `high` | Confidence in the page's claims. |
 | `sources` | list of strings | Citation keys of supporting sources under `sources/<topic>/`. |
 | `status` | `active` \| `stale` | `stale` marks pages needing review. |
 | `supersedes` | page reference (optional) | Page this one replaces. |
 | `superseded_by` | page reference (optional) | Page that replaces this one. |
-| `tags` | list of strings | Free-form topical tags. |
 
 ## Reserved names
 
@@ -135,14 +144,52 @@ token_cost_penalty`.
 
 ### 3. Log entry
 
-Appended to `log.md` (append-only, one entry per mutating operation, newest last):
+Native vault `log.md` files use the **OKF date-grouped shape** (newest first):
+
+```
+# Directory Update Log
+
+## 2026-07-08
+
+* **Update**: Added [Agent memory](agentic-systems/agent-memory.md), updated [index](index.md).
+```
+
+Date headings use `## YYYY-MM-DD` (no brackets). Each bullet is `* **Kind**: prose with optional Markdown links`.
+
+Mutating operations still record the same facts; `knotica okf repair` can convert legacy
+Knotica operation headings (`## [YYYY-MM-DD] <op> | <topic> | <title>`) into OKF shape.
+The frozen commit-message grammar (§4) is unchanged.
+
+Legacy Knotica heading (parseable, convertible):
 
 ```
 ## [YYYY-MM-DD] <op> | <topic> | <title>
 - <touched page path>   (optional bullets, one per touched page)
 ```
 
-The H2 line is exact — greppable and Obsidian-renderable.
+### 3b. OKF reserved files
+
+Only `index.md` and `log.md` are OKF-reserved:
+
+- `index.md` — **no frontmatter**; Markdown catalog body only.
+- `log.md` — date-grouped update log; not a concept document.
+
+All other `.md` files (including `SCHEMA.md`, `START_HERE.md`, `reports/*.md`) are concept
+documents and require YAML frontmatter with non-empty `type`.
+
+### 3c. OKF interoperability commands
+
+```bash
+knotica okf check              # native OKF compatibility (wikilinks allowed)
+knotica okf check --strict     # graph-integrity strictness
+knotica okf export -o <path>   # pure OKF bundle (Markdown links)
+knotica okf export --pure -o <path>
+knotica okf repair --dry-run   # fix structural drift in the active vault
+knotica okf repair --apply
+```
+
+Pure OKF export converts wikilinks to standard Markdown links; the working vault keeps
+wikilinks as the preferred authoring syntax.
 
 ### 4. Commit message
 

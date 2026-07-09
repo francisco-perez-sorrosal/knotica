@@ -1,12 +1,15 @@
 ---
 type: method
 topic: agentic-systems
-created: 2026-07-03
-updated: 2026-07-03
+created: "2026-07-03T00:00:00Z"
+updated: "2026-07-03T00:00:00Z"
 confidence: high
 sources: [wang2024awm]
 status: active
 tags: [demo-sample, workflows, learning-from-experience]
+title: Workflow induction
+description: "Workflow induction extracts reusable sub-routines from agent task trajectories: an LM-based"
+timestamp: "2026-07-03T00:00:00Z"
 ---
 
 > **Demo sample — delete freely.** This page is part of the template's demo ingest; see

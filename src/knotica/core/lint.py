@@ -25,6 +25,7 @@ import re
 from collections.abc import Iterable, Mapping
 from dataclasses import dataclass
 from enum import StrEnum
+from typing import Literal
 
 from knotica.core.links import Link, iter_page_paths, outbound_links
 from knotica.core.page import TopicNotFoundError, parse_page, validate_frontmatter
@@ -36,6 +37,7 @@ from knotica.core.schema import (
     read_topic_overlay,
     validated_topic,
 )
+from knotica.okf.log_fmt import iter_log_touched_paths
 from knotica.store import PathOutsideVaultError, VaultStore
 
 __all__ = [
@@ -72,15 +74,14 @@ _SOURCES_DIR = "sources"
 #: Filename of a topic's schema overlay (exempt from content-page checks).
 _OVERLAY_FILENAME = "SCHEMA.md"
 
+#: Meta concept pages that satisfy OKF with ``type`` only (no Knotica core fields).
+_OKF_FRONTMATTER_EXEMPT: frozenset[str] = frozenset({"SCHEMA.md", "START_HERE.md"})
+
 #: YAML block-scalar indicators. The strict-subset parser silently mis-parses a
 #: block-scalar opener whose continuation lines contain colons (they become
 #: separate fields), so a field whose *value* is one of these tokens is the
 #: telltale of a block scalar that escaped the parser's error paths.
 _BLOCK_SCALAR_TOKENS: frozenset[str] = frozenset({"|", "|-", "|+", ">", ">-", ">+"})
-
-#: One log-entry header, exactly as frozen by the constitution:
-#: ``## [YYYY-MM-DD] <op> | <topic> | <title>``.
-_LOG_ENTRY_RE = re.compile(r"^## \[\d{4}-\d{2}-\d{2}\] (?P<op>[^|]+?) \| (?P<topic>[^|]+?) \| .+$")
 
 _FENCE_RE = re.compile(r"^\s*(```|~~~)")
 _MARKDOWN_SUFFIX = ".md"
@@ -133,7 +134,12 @@ class Violation:
         }
 
 
-def lint_vault(store: VaultStore, topic: str = "") -> list[Violation]:
+def lint_vault(
+    store: VaultStore,
+    topic: str = "",
+    *,
+    profile: Literal["knotica", "okf"] = "knotica",
+) -> list[Violation]:
     """Run every mechanical check over the vault (or one topic); findings as data.
 
     An empty ``topic`` lints the whole vault. A named topic scopes page-level
@@ -156,13 +162,18 @@ def lint_vault(store: VaultStore, topic: str = "") -> list[Violation]:
     violations: list[Violation] = []
     if scope is None:
         violations.extend(_check_reserved_names(store))
-    violations.extend(_check_frontmatter(store, content_pages))
-    violations.extend(_check_source_citations(store, content_pages))
-    for page in scoped_pages:
-        violations.extend(_check_page_links(page, vault_links[page]))
+    if profile == "okf":
+        violations.extend(_check_frontmatter_okf(store, content_pages))
+        violations.extend(_check_okf_links(store, scoped_pages))
+    else:
+        violations.extend(_check_frontmatter(store, content_pages))
+        violations.extend(_check_source_citations(store, content_pages))
+        for page in scoped_pages:
+            violations.extend(_check_page_links(page, vault_links[page]))
     violations.extend(_check_schema_layers(store, root, topics))
     violations.extend(_check_index(content_pages, vault_links))
-    violations.extend(_check_orphans(content_pages, vault_links))
+    if profile != "okf":
+        violations.extend(_check_orphans(content_pages, vault_links))
     violations.extend(_check_log(store, scope))
     return violations
 
@@ -236,6 +247,80 @@ def _check_reserved_names(store: VaultStore) -> list[Violation]:
         and name != _SOURCES_DIR
         and _is_directory(store, name)
     ]
+
+
+def _is_okf_frontmatter_exempt(path: str) -> bool:
+    name = path.rsplit("/", 1)[-1]
+    return name in _OKF_FRONTMATTER_EXEMPT or path.endswith(f"/{_OVERLAY_FILENAME}")
+
+
+def _check_frontmatter_okf(store: VaultStore, content_pages: Iterable[str]) -> list[Violation]:
+    """OKF profile: concept files need parseable frontmatter with non-empty ``type``."""
+    violations: list[Violation] = []
+    for path in content_pages:
+        if _is_okf_frontmatter_exempt(path):
+            continue
+        frontmatter, error, _body = parse_page(store.read_text(path))
+        if error is not None:
+            violations.append(
+                Violation(
+                    check=LintCheck.FRONTMATTER_MALFORMED,
+                    path=path,
+                    message=f"Frontmatter does not parse because {error}",
+                    fix="Rewrite frontmatter using the vault's strict YAML subset.",
+                )
+            )
+            continue
+        if frontmatter is None:
+            violations.append(
+                Violation(
+                    check=LintCheck.FRONTMATTER_MISSING,
+                    path=path,
+                    message="Concept file lacks YAML frontmatter.",
+                    fix="Add frontmatter with a non-empty type field.",
+                )
+            )
+            continue
+        type_value = frontmatter.get("type")
+        if not isinstance(type_value, str) or not type_value.strip():
+            violations.append(
+                Violation(
+                    check=LintCheck.FRONTMATTER_FIELD,
+                    path=path,
+                    message="Frontmatter field 'type' is missing or empty.",
+                    fix="Set type to a non-empty string (OKF-required).",
+                )
+            )
+    return violations
+
+
+def _check_okf_links(store: VaultStore, scoped_pages: list[str]) -> list[Violation]:
+    """OKF profile: unresolved internal links via OKF resolution tiers."""
+    from knotica.okf.index import build_vault_index
+    from knotica.okf.links import extract_internal_links, resolve_internal_link
+
+    index = build_vault_index(store)
+    violations: list[Violation] = []
+    for path in scoped_pages:
+        body = store.read_text(path)
+        for link in extract_internal_links(path, body):
+            if link.is_external:
+                continue
+            resolved = resolve_internal_link(link, index)
+            if resolved.resolved:
+                continue
+            message = f"Unresolved internal link {link.raw!r}" + (
+                " (ambiguous)" if resolved.ambiguous else ""
+            )
+            violations.append(
+                Violation(
+                    check=LintCheck.LINK_UNRESOLVED,
+                    path=path,
+                    message=message,
+                    fix="Point the link at an existing concept file or use a full vault path.",
+                )
+            )
+    return violations
 
 
 def _check_frontmatter(store: VaultStore, content_pages: Iterable[str]) -> list[Violation]:
@@ -525,9 +610,7 @@ def _check_log(store: VaultStore, scope: str | None) -> list[Violation]:
     if not store.exists(LOG_PATH):
         return []
     violations: list[Violation] = []
-    for line_number, entry_topic, touched_path in _iter_log_touched_paths(
-        store.read_text(LOG_PATH)
-    ):
+    for line_number, entry_topic, touched_path in iter_log_touched_paths(store.read_text(LOG_PATH)):
         if scope is not None and entry_topic != scope:
             continue
         if not _path_exists(store, touched_path):
@@ -544,29 +627,6 @@ def _check_log(store: VaultStore, scope: str | None) -> list[Violation]:
                 )
             )
     return violations
-
-
-def _iter_log_touched_paths(text: str) -> list[tuple[int, str, str]]:
-    """Yield ``(line, entry_topic, touched_path)`` for every bullet under an entry."""
-    rows: list[tuple[int, str, str]] = []
-    current_topic: str | None = None
-    in_fence = False
-    for line_number, line in enumerate(text.splitlines(), start=1):
-        if _FENCE_RE.match(line):
-            in_fence = not in_fence
-            continue
-        if in_fence:
-            continue
-        entry = _LOG_ENTRY_RE.match(line)
-        if entry is not None:
-            current_topic = entry.group("topic").strip()
-            continue
-        stripped = line.strip()
-        if line.startswith("#"):
-            current_topic = None  # any other heading closes the entry
-        elif current_topic is not None and stripped.startswith("- "):
-            rows.append((line_number, current_topic, stripped[2:].strip()))
-    return rows
 
 
 def _path_exists(store: VaultStore, path: str) -> bool:

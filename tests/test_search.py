@@ -99,12 +99,20 @@ PLANTED_EXCLUDED = (
 #: (root pages carry ``topic=""``). The template's ``.knotica/prompts/`` also
 #: contains "memory" -- its absence below is the dot-folder exclusion working.
 GOLDEN_MEMORY_RANKING = (
-    ("sources/agentic-systems/wang2024awm.md", "agentic-systems", "source", 34),
-    ("agentic-systems/agent-memory.md", "agentic-systems", "page", 12),
-    ("agentic-systems/agent-workflow-memory.md", "agentic-systems", "page", 8),
+    ("sources/agentic-systems/wang2024awm.md", "agentic-systems", "source", 35),
+    ("agentic-systems/agent-memory.md", "agentic-systems", "page", 14),
+    ("agentic-systems/agent-workflow-memory.md", "agentic-systems", "page", 10),
     ("agentic-systems/workflow-induction.md", "agentic-systems", "page", 6),
     ("log.md", "", "page", 5),
     ("index.md", "", "page", 4),
+    ("SCHEMA.md", "", "page", 2),
+)
+
+GOLDEN_MEMORY_TOPIC_RANKING = (
+    ("sources/agentic-systems/wang2024awm.md", "agentic-systems", "source", 35),
+    ("agentic-systems/agent-memory.md", "agentic-systems", "page", 14),
+    ("agentic-systems/agent-workflow-memory.md", "agentic-systems", "page", 10),
+    ("agentic-systems/workflow-induction.md", "agentic-systems", "page", 6),
 )
 
 
@@ -379,7 +387,7 @@ def test_named_topic_scopes_to_its_pages_and_its_stored_sources(
     page = make_backend(template_vault).search("memory", topic="agentic-systems", limit=50)
 
     ranked = [(r.path, r.topic, r.kind, r.score) for r in page.results]
-    assert ranked == list(GOLDEN_MEMORY_RANKING[:4])
+    assert ranked == list(GOLDEN_MEMORY_TOPIC_RANKING)
     assert page.total_count == 4, "root-level pages must drop out of a topic-scoped search"
 
 
@@ -390,7 +398,7 @@ def test_template_walk_pages_through_the_golden_order(
 
     pages = _walk(backend, "memory", limit=2)
 
-    assert [len(page.results) for page in pages] == [2, 2, 2]
+    assert [len(page.results) for page in pages] == [2, 2, 2, 1]
     assert _walked_paths(pages) == [path for path, _, _, _ in GOLDEN_MEMORY_RANKING]
     assert {page.total_count for page in pages} == {len(GOLDEN_MEMORY_RANKING)}
 

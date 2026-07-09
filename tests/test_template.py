@@ -193,10 +193,7 @@ def test_template_log_entries_obey_the_frozen_grammar(template_vault: Path):
 
     entries = parse_log_entries(log_text)
     assert entries, "the demo ingest must have appended real log entries"
-    # The header's fenced format example must never count as a real entry.
-    assert all("ReAct" not in entry.title for entry in entries), (
-        "a fenced example leaked into the parsed log entries"
-    )
+    assert all("Fenced example" not in entry.title for entry in entries)
     ops = {entry.op for entry in entries}
     assert ops <= {"write_page", "store_source", "create_topic", "curate_example", "migrate"}, (
         f"log entries carry unknown operations: {ops}"

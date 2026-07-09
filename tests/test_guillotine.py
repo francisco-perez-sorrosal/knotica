@@ -10,7 +10,9 @@ from pathlib import Path
 
 import pytest
 
+from knotica.core.page import validate_frontmatter, parse_page
 from knotica.core.operations.guillotine import apply_guillotine, persist_guillotine_artifacts
+from knotica.guillotine.paths import reports_dir
 from knotica.guillotine.models import PassageRole, Verdict
 from knotica.guillotine.report import artifact_paths_for, render_cli_summary
 from knotica.guillotine.runner import ClaimNotFoundError, run_guillotine
@@ -25,6 +27,7 @@ from knotica.store import LocalFSStore
 from support.vault import parse_knotica_commit, run_git
 
 DEMO_CLAIM = "Open-source agents are inherently unsafe for serious users."
+GUILLOTINE_REPORTS = reports_dir("agentic-systems")
 REFUTE_PAGE = """---
 type: concept
 topic: agentic-systems
@@ -109,6 +112,12 @@ def guillotine_vault(template_vault: Path) -> Path:
     return template_vault
 
 
+def _persist_dry_run(store: LocalFSStore, vault: Path, result, diff: str) -> dict[str, object]:
+    return persist_guillotine_artifacts(
+        store, vault, result, diff, summary="guillotine dry-run report"
+    )
+
+
 def _cli(*args: str) -> list[str]:
     console = Path(sys.executable).with_name("knotica")
     if console.exists():
@@ -143,12 +152,12 @@ def test_guillotine_finds_case_insensitive_claim(guillotine_vault: Path) -> None
 
 
 def test_guillotine_excludes_reports_by_default(guillotine_vault: Path) -> None:
-    reports = guillotine_vault / "reports" / "guillotine"
+    reports = guillotine_vault / GUILLOTINE_REPORTS
     reports.mkdir(parents=True, exist_ok=True)
     (reports / "old.md").write_text(DEMO_CLAIM, encoding="utf-8")
     dirs = resolve_search_scope(guillotine_vault, "agentic-systems", include_reports=False)
     hits = find_candidate_mentions(DEMO_CLAIM, guillotine_vault, dirs, include_reports=False)
-    assert all(not hit.path.startswith("reports/") for hit in hits)
+    assert all(not hit.path.startswith(f"{GUILLOTINE_REPORTS}/") for hit in hits)
 
 
 def test_guillotine_classifies_assertion(guillotine_vault: Path) -> None:
@@ -185,8 +194,9 @@ def test_guillotine_preserves_refutation_in_patch(guillotine_vault: Path) -> Non
 def test_guillotine_generates_report(guillotine_vault: Path) -> None:
     store = LocalFSStore(guillotine_vault)
     result, diff = run_guillotine(store, guillotine_vault, DEMO_CLAIM, topic="agentic-systems")
-    envelope = persist_guillotine_artifacts(store, result, diff)
+    envelope = _persist_dry_run(store, guillotine_vault, result, diff)
     assert "error" not in envelope
+    assert envelope["report_path"].startswith(f"{GUILLOTINE_REPORTS}/")
     report_path = guillotine_vault / envelope["report_path"]
     assert report_path.exists()
     text = report_path.read_text(encoding="utf-8")
@@ -197,7 +207,7 @@ def test_guillotine_generates_report(guillotine_vault: Path) -> None:
 def test_guillotine_generates_diff(guillotine_vault: Path) -> None:
     store = LocalFSStore(guillotine_vault)
     result, diff = run_guillotine(store, guillotine_vault, DEMO_CLAIM, topic="agentic-systems")
-    persist_guillotine_artifacts(store, result, diff)
+    _persist_dry_run(store, guillotine_vault, result, diff)
     diff_path = guillotine_vault / artifact_paths_for(result).diff_path
     assert diff_path.exists()
     assert "agent-safety.md" in diff_path.read_text(encoding="utf-8")
@@ -207,7 +217,7 @@ def test_guillotine_dry_run_does_not_modify_pages(guillotine_vault: Path) -> Non
     store = LocalFSStore(guillotine_vault)
     before = (guillotine_vault / "agentic-systems/agent-safety.md").read_text(encoding="utf-8")
     result, diff = run_guillotine(store, guillotine_vault, DEMO_CLAIM, topic="agentic-systems")
-    persist_guillotine_artifacts(store, result, diff)
+    _persist_dry_run(store, guillotine_vault, result, diff)
     after = (guillotine_vault / "agentic-systems/agent-safety.md").read_text(encoding="utf-8")
     assert before == after
 
@@ -232,7 +242,7 @@ def test_guillotine_does_not_modify_sources_by_default(guillotine_vault: Path) -
     source_path = guillotine_vault / "sources/agentic-systems/vendor-report-2026.md"
     before = source_path.read_text(encoding="utf-8")
     result, diff = run_guillotine(store, guillotine_vault, DEMO_CLAIM, topic="agentic-systems")
-    persist_guillotine_artifacts(store, result, diff)
+    _persist_dry_run(store, guillotine_vault, result, diff)
     assert source_path.read_text(encoding="utf-8") == before
 
 
@@ -340,7 +350,10 @@ def test_guillotine_report_shows_replacement_diff(guillotine_vault: Path) -> Non
     from knotica.guillotine.report import render_report_markdown
 
     report_md = render_report_markdown(
-        result, "reports/guillotine/test.diff", dry_run=True, commit_sha=None
+        result,
+        f"{GUILLOTINE_REPORTS}/test.diff",
+        dry_run=True,
+        commit_sha=None,
     )
     changes_start = report_md.index("## Proposed Changes")
     changes_section = report_md[changes_start:]
@@ -382,12 +395,13 @@ def test_guillotine_report_includes_datetime_and_plain_line_labels(guillotine_va
     fixed_time = datetime(2026, 7, 7, 19, 38, 0, tzinfo=UTC)
     report_md = render_report_markdown(
         result,
-        "reports/guillotine/test.diff",
+        f"{GUILLOTINE_REPORTS}/test.diff",
         dry_run=True,
         commit_sha=None,
         generated_at=fixed_time,
     )
-    assert "datetime: 2026-07-07T19:38:00+00:00" in report_md
+    assert 'timestamp: "2026-07-07T19:38:00Z"' in report_md
+    assert "run_status: dry-run" in report_md
     assert "**Generated:** 2026-07-07T19:38:00+00:00" in report_md
     assert "[[agentic-systems/agent-safety]]" in report_md
     assertion = next(p for p in result.passages if p.path == "agentic-systems/agent-safety.md")
@@ -412,7 +426,10 @@ def test_guillotine_report_explains_risk_score_calculation(guillotine_vault: Pat
     from knotica.guillotine.report import render_report_markdown
 
     report_md = render_report_markdown(
-        result, "reports/guillotine/test.diff", dry_run=True, commit_sha=None
+        result,
+        f"{GUILLOTINE_REPORTS}/test.diff",
+        dry_run=True,
+        commit_sha=None,
     )
     assert "## Risk Score" in report_md
     assert "Why This Was Flagged" not in report_md
@@ -439,7 +456,10 @@ def test_guillotine_synthesis_graph_excludes_sources(guillotine_vault: Path) -> 
     from knotica.guillotine.report import render_report_markdown
 
     report_md = render_report_markdown(
-        result, "reports/guillotine/test.diff", dry_run=True, commit_sha=None
+        result,
+        f"{GUILLOTINE_REPORTS}/test.diff",
+        dry_run=True,
+        commit_sha=None,
     )
     assert "## Synthesis Graph" in report_md
     assert "## Evidence Graph" not in report_md
@@ -457,3 +477,63 @@ def test_guillotine_synthesis_graph_excludes_sources(guillotine_vault: Path) -> 
     tree_part = graph_section[graph_section.index("claim:") :]
     assert "[[sources/" not in tree_part
     assert "[[agentic-systems/" in tree_part
+
+
+def test_guillotine_report_frontmatter_is_okf_compatible(guillotine_vault: Path) -> None:
+    store = LocalFSStore(guillotine_vault)
+    result, diff = run_guillotine(store, guillotine_vault, DEMO_CLAIM, topic="agentic-systems")
+    envelope = _persist_dry_run(store, guillotine_vault, result, diff)
+    report_path = envelope["report_path"]
+    text = (guillotine_vault / report_path).read_text(encoding="utf-8")
+    frontmatter, error, _body = parse_page(text)
+    assert error is None
+    assert frontmatter is not None
+    assert frontmatter["type"] == "report"
+    assert frontmatter["topic"] == "agentic-systems"
+    assert frontmatter["status"] == "active"
+    assert frontmatter["run_status"] == "dry-run"
+    assert validate_frontmatter(frontmatter) == []
+    assert "timestamp" in frontmatter
+    assert "tags" in frontmatter
+    assert "guillotine" in frontmatter["tags"]
+
+
+def test_guillotine_dry_run_commits_artifacts_and_log(guillotine_vault: Path) -> None:
+    store = LocalFSStore(guillotine_vault)
+    result, diff = run_guillotine(store, guillotine_vault, DEMO_CLAIM, topic="agentic-systems")
+    envelope = _persist_dry_run(store, guillotine_vault, result, diff)
+    assert "error" not in envelope
+    assert envelope.get("changed") is True
+    subject = run_git(guillotine_vault, "log", "-1", "--format=%s").strip()
+    parsed = parse_knotica_commit(subject)
+    assert parsed is not None
+    assert parsed["op"] == "guillotine"
+    log_text = (guillotine_vault / "log.md").read_text(encoding="utf-8")
+    assert (
+        envelope["report_path"].removesuffix(".md") in log_text
+        or envelope["report_path"] in log_text
+    )
+    newest_section = log_text.split("##", maxsplit=2)[1]
+    assert ".diff" not in newest_section
+    assert ".json" not in newest_section
+
+
+def test_guillotine_upserts_reports_index_entry(guillotine_vault: Path) -> None:
+    store = LocalFSStore(guillotine_vault)
+    result, diff = run_guillotine(store, guillotine_vault, DEMO_CLAIM, topic="agentic-systems")
+    envelope = _persist_dry_run(store, guillotine_vault, result, diff)
+    assert "error" not in envelope
+    index_text = (guillotine_vault / "index.md").read_text(encoding="utf-8")
+    report_stem = envelope["report_path"].removesuffix(".md")
+    assert f"[[{report_stem}]]" in index_text
+    assert "Guillotine dry-run" in index_text
+
+
+def test_guillotine_repeat_dry_run_dedupes_log_entry(guillotine_vault: Path) -> None:
+    store = LocalFSStore(guillotine_vault)
+    result, diff = run_guillotine(store, guillotine_vault, DEMO_CLAIM, topic="agentic-systems")
+    _persist_dry_run(store, guillotine_vault, result, diff)
+    _persist_dry_run(store, guillotine_vault, result, diff)
+    log_text = (guillotine_vault / "log.md").read_text(encoding="utf-8")
+    report_stem = artifact_paths_for(result).report_path.removesuffix(".md")
+    assert log_text.count(f"[[{report_stem}]]") == 1

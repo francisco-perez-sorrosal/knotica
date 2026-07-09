@@ -56,7 +56,8 @@ from typing import Literal, NoReturn
 
 from knotica.core.errors import ErrorCode, KnoticaError, KnoticaWarning, secret_scrubbed_warning
 from knotica.core.lock import DEFAULT_ACQUIRE_TIMEOUT_SECONDS, LockBusyError, vault_lock
-from knotica.core.records import LogEntry, format_commit_subject, format_log_entry
+from knotica.core.records import format_commit_subject
+from knotica.okf.log_fmt import prepend_operation_log
 from knotica.core.scrub import RedactedSpan, scrub
 from knotica.core.vcs import GitError, VaultVcs
 from knotica.store import VaultStore
@@ -319,25 +320,16 @@ class VaultTransaction:
         return self._store.read_text(path) != content
 
     def _appended_log(self, pages: tuple[str, ...]) -> str:
-        """The full new log content: existing log plus this operation's entry.
-
-        The entry follows the frozen grammar (H2 line plus one bullet per
-        touched page) and is separated from the existing content by exactly
-        one blank line, matching the template's entry rhythm.
-        """
-        entry = format_log_entry(
-            LogEntry(
-                date=datetime.now(UTC).strftime("%Y-%m-%d"),
-                op=self._op,
-                topic=self._topic,
-                title=self._title,
-                pages=pages,
-            )
-        )
+        """The full new log content: existing log with this operation prepended (newest first)."""
         existing = self._store.read_text(LOG_PATH) if self._store.exists(LOG_PATH) else ""
-        if not existing.strip():
-            return entry
-        return existing.rstrip("\n") + "\n\n" + entry
+        return prepend_operation_log(
+            existing,
+            entry_date=datetime.now(UTC).strftime("%Y-%m-%d"),
+            op=self._op,
+            topic=self._topic,
+            title=self._title,
+            pages=pages,
+        )
 
 
 def _normalize_write_path(path: str | PurePath) -> str:

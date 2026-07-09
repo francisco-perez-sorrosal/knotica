@@ -1,3 +1,9 @@
+---
+type: guide
+title: Start Here
+description: "Welcome — this vault is an **AI-maintained knowledge wiki**. You read and explore it in"
+timestamp: "2026-07-08T19:54:39Z"
+---
 # Start Here
 
 Welcome — this vault is an **AI-maintained knowledge wiki**. You read and explore it in

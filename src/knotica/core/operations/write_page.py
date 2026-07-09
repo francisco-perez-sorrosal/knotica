@@ -13,7 +13,8 @@ page content *and* index line make no commit and return ``changed=False``.
 from pathlib import PurePath
 
 from knotica.core.errors import ErrorCode, KnoticaError, err, ok
-from knotica.core.lint import INDEX_PATH, RESERVED_TOP_LEVEL_NAMES
+from knotica.core.index_catalog import INDEX_PATH, upsert_index_bullet
+from knotica.core.lint import RESERVED_TOP_LEVEL_NAMES
 from knotica.core.page import (
     FieldProblem,
     TopicNotFoundError,
@@ -145,62 +146,16 @@ def _commit_page(
     with VaultTransaction(store, vault_root, "write_page", topic, summary) as txn:
         txn.write(path, content)
         if index_entry:
-            stem = normalized_page[: -len(".md")]
             existing_index = store.read_text(INDEX_PATH) if store.exists(INDEX_PATH) else ""
-            txn.write(INDEX_PATH, _upsert_index_entry(existing_index, topic, stem, index_entry))
+            txn.write(
+                INDEX_PATH,
+                upsert_index_bullet(
+                    existing_index,
+                    vault_path=path,
+                    index_entry=index_entry,
+                    section=topic,
+                ),
+            )
     result = txn.result
     pointer = {"path": path, "commit_sha": result.commit_sha, "changed": result.changed}
     return ok(pointer, warnings=result.warnings())
-
-
-def _upsert_index_entry(index_text: str, topic: str, page_stem: str, index_entry: str) -> str:
-    """Replace this page's catalog bullet (keyed by wikilink), or add it, preserving all others.
-
-    The bullet is a single line: ``- [[<topic>/<page_stem>]] — <index_entry>``.
-    An existing entry -- even one wrapped across continuation lines -- is replaced
-    in place; a new entry is appended under the topic's ``### <topic>`` section
-    when present, otherwise at the end of the file.
-    """
-    wikilink = f"[[{topic}/{page_stem}]]"
-    new_bullet = f"- {wikilink} — {index_entry}"
-    lines = index_text.splitlines()
-    block = _find_bullet_block(lines, wikilink)
-    if block is not None:
-        start, end = block
-        updated = lines[:start] + [new_bullet] + lines[end:]
-    else:
-        insert_at = _topic_section_insert_point(lines, topic)
-        updated = lines[:insert_at] + [new_bullet] + lines[insert_at:]
-    return "\n".join(updated).rstrip("\n") + "\n"
-
-
-def _find_bullet_block(lines: list[str], wikilink: str) -> tuple[int, int] | None:
-    """Return the ``[start, end)`` line span of the bullet for ``wikilink``, if present."""
-    for index, line in enumerate(lines):
-        if line.lstrip().startswith("- ") and wikilink in line:
-            end = index + 1
-            while end < len(lines) and _is_continuation(lines[end]):
-                end += 1
-            return index, end
-    return None
-
-
-def _is_continuation(line: str) -> bool:
-    """Whether ``line`` continues the preceding bullet (indented, not a new bullet/heading)."""
-    stripped = line.lstrip()
-    return bool(stripped) and not stripped.startswith("- ") and not stripped.startswith("#")
-
-
-def _topic_section_insert_point(lines: list[str], topic: str) -> int:
-    """Line index to insert a new bullet: after the topic section's content, or end of file."""
-    header = f"### {topic}"
-    try:
-        start = next(index for index, line in enumerate(lines) if line.strip() == header)
-    except StopIteration:
-        return len(lines)
-    end = start + 1
-    while end < len(lines) and not lines[end].lstrip().startswith("#"):
-        end += 1
-    while end > start + 1 and not lines[end - 1].strip():
-        end -= 1
-    return end

@@ -1,12 +1,15 @@
 ---
 type: paper
 topic: agentic-systems
-created: 2026-07-03
-updated: 2026-07-03
+created: "2026-07-03T00:00:00Z"
+updated: "2026-07-03T00:00:00Z"
 confidence: high
 sources: [wang2024awm]
 status: active
 tags: [demo-sample, web-agents, memory, workflows]
+title: "Agent Workflow Memory (Wang et al., 2024)"
+description: "Agent Workflow Memory (AWM) makes language-model web agents learn from their own experience:"
+timestamp: "2026-07-03T00:00:00Z"
 ---
 
 > **Demo sample — delete freely.** This page is part of the template's demo ingest. Deleting

@@ -1,5 +1,9 @@
 ---
 schema_version: 1
+type: schema
+title: "SCHEMA — agentic-systems overlay"
+description: "This overlay extends the root constitution (root `SCHEMA.md`) for the `agentic-systems`"
+timestamp: "2026-07-08T19:54:39Z"
 ---
 
 # SCHEMA — agentic-systems overlay

@@ -67,8 +67,9 @@ and the conclusion. If the source is short, store it whole. If it is long and cl
 - **each major section you will cite** as its own chunk under a section-suffixed key
   (e.g. `hu2025memory-s3-forms`), holding that section's faithful **verbatim** text, never a
   summary, **as clean Markdown** — render the section heading as a Markdown header
-  (`## <n> <Title>`) and repair extraction artifacts (runs of spaces, mid-word breaks from
-  PDF columns) so the chunk reads as Markdown, not a raw text dump. One `store_source` per section — each chunk is small, immutable, and a durable
+  (`## <n> <Title>`) and repair remaining extraction artifacts (runs of spaces, subsection
+  titles run into body text). For `source_type: pdf`, `store_source` also applies a
+  deterministic reflow that joins hard-wrapped column lines before persistence. One `store_source` per section — each chunk is small, immutable, and a durable
   checkpoint, so a long source is **resumable**: re-run and store only the sections still
   missing (identical content is a safe no-op).
 
@@ -101,11 +102,11 @@ by re-running the ingest and writing only the pages not yet present — skip the
 committed; never duplicate a page or start over.
 
 Each `write_page` call takes the resolved `topic`, the `page` name, the full markdown
-`content` **including YAML frontmatter** conforming to the resolved schema (`type`, `topic`,
-`created`, `updated`, `confidence`, `sources` — cite the citation key from step 4 —
-`status`, `tags`), a one-line `summary` (the commit message and log title), and a one-line
-`index_entry` for the global catalog. Connect related pages with wikilinks: full vault-path
-(`[[<topic>/<page>]]`) across topics, bare `[[page]]` within one. **Pages are concise
+`content` **including YAML frontmatter** conforming to the resolved schema. Required OKF
+fields: `type` (e.g. `concept`, `paper`, `source`), `title`, and `timestamp` (RFC 3339 UTC,
+e.g. `2026-07-08T15:30:00Z`). Knotica extensions: `topic`, `created`, `updated`,
+`confidence`, `sources`, `status`, `tags`. Cite the citation key from step 4 in
+`sources`. Use **wikilinks** for internal links (`[[page]]`, `[[topic/page|alias]]`) — preferred native authoring syntax.
 distillations** (Summary, cited Key claims, Relations, Open questions) — the source's full
 text lives in the stored source; do not copy it into pages. Write the body as clean Markdown:
 **one line per paragraph or list item — do not hard-wrap prose mid-line** (the editor

@@ -21,6 +21,7 @@ from knotica.core.records import (
     render_source_document,
 )
 from knotica.core.scrub import scrub
+from knotica.core.text_reflow import reflow_pdf_markdown
 from knotica.core.transaction import VaultTransaction
 from knotica.core.vcs import VaultVcs
 from knotica.store import VaultStore
@@ -63,15 +64,23 @@ def store_source(
     """
     try:
         path = _source_path(topic, citation_key)
-        scrubbed_body, _spans = scrub(content)
+        prepared_body = _prepare_source_body(content, source_type)
+        scrubbed_body, _spans = scrub(prepared_body)
         conflict = _idempotency_check(store, vault_root, path, scrubbed_body)
         if conflict is not None:
             return conflict
         provenance = _build_provenance(topic, citation_key, source_url, source_type, scrubbed_body)
-        document = render_source_document(provenance, content)
+        document = render_source_document(provenance, scrubbed_body)
         return _commit_source(store, vault_root, topic, title, path, document)
     except KnoticaError as error:
         return error.envelope()
+
+
+def _prepare_source_body(content: str, source_type: str) -> str:
+    """Normalize extracted source text before scrubbing and persistence."""
+    if source_type.strip().lower() == "pdf":
+        return reflow_pdf_markdown(content)
+    return content
 
 
 def _source_path(topic: str, citation_key: str) -> str:

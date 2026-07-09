@@ -78,11 +78,13 @@ The operation aliases (`ingest`, `query`, `lint`, `curate`) inject the vault-res
 | `knotica doctor` | Deterministic mechanical health checks (`--quick`, `--json`, `--fix`). |
 | `knotica status` | Deterministic counts — pages/topic, compile-ready, last lint, unpushed commits (`--json`, `--topic`). |
 | `knotica migrate` | Schema-version migration; preview with `--dry-run` or `--check`, apply with `--yes`. |
+| `knotica okf` | Native [OKF](docs/okf.md) compatibility — `check`, `export`, `repair`. |
 | `knotica prompt` | Render a vault-resolved operation prompt body to stdout (backs the operation aliases). |
 
 ## For AI agents working on this repo
 
 - **Read [`docs/PRE_PLAN.md`](docs/PRE_PLAN.md) first** — it is canonical; this README is a summary. `CLAUDE.md` lists the non-negotiable invariants (client-as-brain, stateless server, vault/code separation, per-op commits, clone-based loops).
+- **OKF compatibility:** see [`docs/okf.md`](docs/okf.md) — Knotica is an OKF-compatible superset; `knotica okf export` produces pure OKF bundles.
 - Repo layout: `src/knotica/` (`core/`, `store/`, `search/`, `cli/`, `mcp_server/`) · `vault-template/` (scaffolded into user vaults) · `.claude-plugin/` + `commands/` + `hooks/` + `skills/` + `.mcp.json` (the Claude plugin layer) · `tests/`.
 - The wiki vault is **not** in this repo — it lives at a user-configured path (dev default `~/dev/data/knotica`) and is its own git repo.
 - Python 3.12+, uv-managed; `uv run pytest` for tests.

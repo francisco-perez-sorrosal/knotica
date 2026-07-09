@@ -3,11 +3,15 @@ schema_version: 1
 type: source
 topic: agentic-systems
 citation_key: wang2024awm
-retrieved: 2026-07-03T09:49:48Z
-origin_url: https://arxiv.org/html/2409.07429
+retrieved: "2026-07-03T09:49:48Z"
+origin_url: "https://arxiv.org/html/2409.07429"
 sha256: fb5866613dd38425bd7c0b3e99f6e8663182489640d56ffae79da85e31bbec70
 source_type: html
 ingested_by: claude-fable-5
+title: Agent Workflow Memory
+description: "Zora Zhiruo Wang (Carnegie Mellon University), Jiayuan Mao (MIT), Daniel Fried (Carnegie Mellon University), Graham Neubig (Carnegie Mellon University)"
+resource: "https://arxiv.org/html/2409.07429"
+timestamp: "2026-07-03T09:49:48Z"
 ---
 
 # Agent Workflow Memory

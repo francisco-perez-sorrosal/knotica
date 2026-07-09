@@ -7,12 +7,13 @@ from datetime import UTC, datetime
 from pathlib import PurePath
 
 from knotica.core.errors import ErrorCode, KnoticaError, err, ok
+from knotica.core.index_catalog import INDEX_PATH, REPORTS_SECTION, upsert_index_bullet
 from knotica.core.transaction import VaultTransaction
 from knotica.guillotine.models import GuillotineResult
 from knotica.guillotine.patch import apply_patches_to_contents
 from knotica.guillotine.report import (
     artifact_paths_for,
-    build_report,
+    guillotine_index_entry,
     render_report_json,
     render_report_markdown,
 )
@@ -21,43 +22,121 @@ from knotica.store import VaultStore
 __all__ = ["apply_guillotine", "persist_guillotine_artifacts"]
 
 
-def persist_guillotine_artifacts(
-    store: VaultStore,
+def _artifact_bundle(
     result: GuillotineResult,
     diff_text: str,
-) -> dict[str, object]:
-    """Write guillotine report artifacts without applying page patches or committing."""
+    *,
+    dry_run: bool,
+    commit_sha: str | None = None,
+) -> tuple[str, str, str, str, str]:
+    """Render report markdown, diff text, and JSON sidecar for one trial."""
     artifacts = artifact_paths_for(result)
     generated_at = datetime.now(UTC)
     report_md = render_report_markdown(
         result,
         artifacts.diff_path,
-        dry_run=True,
-        commit_sha=None,
+        dry_run=dry_run,
+        commit_sha=commit_sha,
         generated_at=generated_at,
+        report_path=artifacts.report_path,
     )
     json_payload = render_report_json(
         result,
         artifacts.report_path,
         artifacts.diff_path,
         artifacts.json_path,
-        dry_run=True,
+        dry_run=dry_run,
         generated_at=generated_at,
     )
-    store.write_text_atomic(artifacts.report_path, report_md)
-    store.write_text_atomic(artifacts.diff_path, diff_text)
-    store.write_text_atomic(
-        artifacts.json_path, json.dumps(json_payload, ensure_ascii=False, indent=2) + "\n"
+    json_text = json.dumps(json_payload, ensure_ascii=False, indent=2) + "\n"
+    return (
+        artifacts.report_path,
+        artifacts.diff_path,
+        artifacts.json_path,
+        report_md,
+        json_text,
     )
-    report = build_report(result, artifacts, dry_run=True)
+
+
+def _write_guillotine_transaction(
+    store: VaultStore,
+    vault_root: str | PurePath,
+    result: GuillotineResult,
+    *,
+    summary: str,
+    report_path: str,
+    diff_path: str,
+    json_path: str,
+    report_md: str,
+    diff_text: str,
+    json_text: str,
+    dry_run: bool,
+    page_updates: dict[str, str] | None = None,
+) -> dict[str, object]:
+    """Commit guillotine artifacts, optional wiki patches, and catalog index line."""
+    index_entry = guillotine_index_entry(result, dry_run=dry_run)
+    try:
+        with VaultTransaction(
+            store, vault_root, op="guillotine", topic=result.topic, title=summary
+        ) as tx:
+            for path, content in (page_updates or {}).items():
+                tx.write(path, content)
+            tx.write(report_path, report_md)
+            tx.write(diff_path, diff_text)
+            tx.write(json_path, json_text)
+            existing_index = store.read_text(INDEX_PATH) if store.exists(INDEX_PATH) else ""
+            tx.write(
+                INDEX_PATH,
+                upsert_index_bullet(
+                    existing_index,
+                    vault_path=report_path,
+                    index_entry=index_entry,
+                    section=REPORTS_SECTION,
+                ),
+            )
+        result_state = tx.result
+    except KnoticaError as error:
+        return error.envelope()
+
     return ok(
         {
-            "report_path": artifacts.report_path,
-            "diff_path": artifacts.diff_path,
-            "json_path": artifacts.json_path,
-            "recommendation": report.recommendation.value,
-            "risk_score": report.risk_score,
-        }
+            "report_path": report_path,
+            "diff_path": diff_path,
+            "json_path": json_path,
+            "commit_sha": result_state.commit_sha,
+            "changed": result_state.changed,
+            "touched_paths": list(result_state.touched_paths),
+            "recommendation": result.recommendation.value,
+            "risk_score": result.risk_score,
+        },
+        warnings=result_state.warnings(),
+    )
+
+
+def persist_guillotine_artifacts(
+    store: VaultStore,
+    vault_root: str | PurePath,
+    result: GuillotineResult,
+    diff_text: str,
+    *,
+    summary: str,
+) -> dict[str, object]:
+    """Write guillotine report artifacts in one vault transaction (dry-run mode)."""
+    report_path, diff_path, json_path, report_md, json_text = _artifact_bundle(
+        result, diff_text, dry_run=True
+    )
+    return _write_guillotine_transaction(
+        store,
+        vault_root,
+        result,
+        summary=summary,
+        report_path=report_path,
+        diff_path=diff_path,
+        json_path=json_path,
+        report_md=report_md,
+        diff_text=diff_text,
+        json_text=json_text,
+        dry_run=True,
     )
 
 
@@ -81,52 +160,22 @@ def apply_guillotine(
             "apply_guillotine refused to modify immutable raw source files.",
         )
 
-    artifacts = artifact_paths_for(result)
+    report_path, diff_path, json_path, report_md, json_text = _artifact_bundle(
+        result, diff_text, dry_run=False
+    )
     file_contents = {patch.path: store.read_text(patch.path) for patch in result.patches}
     updated = apply_patches_to_contents(file_contents, list(result.patches))
-    generated_at = datetime.now(UTC)
-    report_md = render_report_markdown(
+    return _write_guillotine_transaction(
+        store,
+        vault_root,
         result,
-        artifacts.diff_path,
+        summary=summary,
+        report_path=report_path,
+        diff_path=diff_path,
+        json_path=json_path,
+        report_md=report_md,
+        diff_text=diff_text,
+        json_text=json_text,
         dry_run=False,
-        commit_sha=None,
-        generated_at=generated_at,
-    )
-    json_payload = render_report_json(
-        result,
-        artifacts.report_path,
-        artifacts.diff_path,
-        artifacts.json_path,
-        dry_run=False,
-        generated_at=generated_at,
-    )
-
-    try:
-        with VaultTransaction(
-            store, vault_root, op="guillotine", topic=result.topic, title=summary
-        ) as tx:
-            for path, content in updated.items():
-                tx.write(path, content)
-            tx.write(artifacts.report_path, report_md)
-            tx.write(artifacts.diff_path, diff_text)
-            tx.write(
-                artifacts.json_path,
-                json.dumps(json_payload, ensure_ascii=False, indent=2) + "\n",
-            )
-        result_state = tx.result
-    except KnoticaError as error:
-        return error.envelope()
-
-    return ok(
-        {
-            "report_path": artifacts.report_path,
-            "diff_path": artifacts.diff_path,
-            "json_path": artifacts.json_path,
-            "commit_sha": result_state.commit_sha,
-            "changed": result_state.changed,
-            "touched_paths": list(result_state.touched_paths),
-            "recommendation": result.recommendation.value,
-            "risk_score": result.risk_score,
-        },
-        warnings=result_state.warnings(),
+        page_updates=updated,
     )

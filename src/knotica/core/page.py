@@ -60,6 +60,7 @@ CONFIDENCE_VALUES: frozenset[str] = frozenset({"low", "medium", "high"})
 STATUS_VALUES: frozenset[str] = frozenset({"active", "stale"})
 
 _DATE_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
+_DATETIME_RE = re.compile(r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:\d{2})$")
 _FRONTMATTER_FENCE = "---"
 _KEY_VALUE_RE = re.compile(r"^(?P<key>[A-Za-z_][A-Za-z0-9_-]*):(?:\s+(?P<value>.*))?$")
 _PLAIN_SCALAR_SAFE_RE = re.compile(r"^[A-Za-z0-9._/@+-][A-Za-z0-9 ._/@+-]*$")
@@ -428,9 +429,11 @@ def _check_nonempty_string(value: object) -> str | None:
 
 
 def _check_date(value: object) -> str | None:
-    if not isinstance(value, str) or not _DATE_RE.fullmatch(value):
-        return f"must be a YYYY-MM-DD date, got {value!r}"
-    return None
+    if not isinstance(value, str):
+        return f"must be a YYYY-MM-DD date or RFC 3339 datetime, got {value!r}"
+    if _DATE_RE.fullmatch(value) or _DATETIME_RE.fullmatch(value):
+        return None
+    return f"must be a YYYY-MM-DD date or RFC 3339 datetime, got {value!r}"
 
 
 def _check_enum(value: object, allowed: frozenset[str]) -> str | None:
@@ -449,6 +452,9 @@ def _check_type_field(value: object, allowed_types: Collection[str] | None) -> s
     problem = _check_nonempty_string(value)
     if problem is not None:
         return problem
-    if allowed_types is not None and value not in allowed_types:
-        return f"must be one of {'|'.join(sorted(allowed_types))}, got {value!r}"
-    return None
+    if allowed_types is None:
+        return None
+    allowed_lower = {item.lower() for item in allowed_types}
+    if str(value).lower() in allowed_lower:
+        return None
+    return f"must be one of {'|'.join(sorted(allowed_types))}, got {value!r}"

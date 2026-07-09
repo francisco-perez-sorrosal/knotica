@@ -36,6 +36,7 @@ import pytest
 from mcp.shared.exceptions import McpError
 from pydantic import AnyUrl
 
+from knotica.core.page import parse_page
 from knotica.core.schema import resolve_schema
 from knotica.store import LocalFSStore
 from test_errors import assert_names_both_setup_paths
@@ -174,9 +175,10 @@ def test_resolved_resource_carries_the_topic_overlay_content(
 ) -> None:
     """The seed topic ships a schema overlay; the resolved body must include it,
     proving a real merge occurred (not just the root constitution served)."""
-    overlay_body = (template_vault / f"{TOPIC}/SCHEMA.md").read_text(encoding="utf-8")
+    overlay_raw = (template_vault / f"{TOPIC}/SCHEMA.md").read_text(encoding="utf-8")
+    _fm, _err, overlay_body = parse_page(overlay_raw)
     text, _mime = read_text_and_mime(RESOLVED_URI)
-    # A distinctive line from the overlay must survive into the merged body.
+    # A distinctive line from the overlay body must survive into the merged body.
     overlay_lines = [ln.strip() for ln in overlay_body.splitlines() if ln.strip()]
     distinctive = next((ln for ln in overlay_lines if len(ln) > 20), overlay_lines[0])
     assert distinctive in text, "resolved body must contain the topic overlay content"

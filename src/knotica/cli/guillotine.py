@@ -137,7 +137,9 @@ def run(args: argparse.Namespace) -> int:
 
     summary = _short_summary(result.claim)
     if dry_run:
-        envelope = persist_guillotine_artifacts(store, result, diff_text)
+        envelope = persist_guillotine_artifacts(
+            store, vault_path, result, diff_text, summary=summary
+        )
         if "error" in envelope:
             console.error(str(envelope["error"]))
             return EXIT_APPLY_FAILED

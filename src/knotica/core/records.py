@@ -280,57 +280,41 @@ class LogEntry:
 
 
 def format_log_entry(entry: LogEntry) -> str:
-    """Render an entry in the frozen grammar, one trailing newline included."""
+    """Render one native OKF log block (date heading + bullet), trailing newline included."""
+    from knotica.okf.log_fmt import format_operation_log_entry
+
     if not _DATE_RE.fullmatch(entry.date):
         raise ValueError(f"log-entry date must be YYYY-MM-DD, got {entry.date!r}")
     _validate_op(entry.op)
     _validate_slot("topic", entry.topic, forbidden=_LOG_TITLE_SEPARATOR)
     _validate_slot("title", entry.title)
-    lines = [f"## [{entry.date}] {entry.op} | {entry.topic} | {entry.title}"]
     for page in entry.pages:
         _validate_slot("touched page path", page)
-        lines.append(f"- {page}")
-    return "\n".join(lines) + "\n"
+    okf_entry = format_operation_log_entry(
+        entry_date=entry.date,
+        op=entry.op,
+        topic=entry.topic,
+        title=entry.title,
+        pages=entry.pages,
+    )
+    return f"## {entry.date}\n* **{okf_entry.kind}**: {okf_entry.body}\n"
 
 
 def parse_log_entries(text: str) -> list[LogEntry]:
-    """Parse every frozen-grammar entry in a ``log.md`` body, with its bullets.
+    """Parse every log entry in a ``log.md`` body, oldest first.
 
-    Lines inside fenced code blocks are skipped: the template's ``log.md``
-    header quotes the grammar and an example inside fences, and those must
-    never count as real operation entries. Bullets attach to the most recent
-    entry line; any other non-blank line detaches subsequent bullets.
+    Accepts native OKF date-grouped bullets and legacy Knotica operation
+    headings. Fenced code blocks are skipped.
     """
-    entries: list[LogEntry] = []
-    pending: tuple[re.Match[str], list[str]] | None = None
-    in_fence = False
+    from knotica.okf.log_fmt import okf_entry_to_knotica_fields, parse_log_entries as parse_okf
 
-    def flush() -> None:
-        nonlocal pending
-        if pending is not None:
-            match, pages = pending
-            entries.append(LogEntry(pages=tuple(pages), **match.groupdict()))
-            pending = None
-
-    for line in text.splitlines():
-        if line.lstrip().startswith("```"):
-            in_fence = not in_fence
-            continue
-        if in_fence:
-            continue
-        match = LOG_ENTRY_RE.match(line)
-        if match:
-            flush()
-            pending = (match, [])
-            continue
-        if not line.strip():
-            continue
-        if pending is not None and line.startswith("- "):
-            pending[1].append(line[2:].strip())
-        else:
-            flush()
-    flush()
-    return entries
+    knotica_entries: list[LogEntry] = []
+    for okf_entry in reversed(parse_okf(text)):
+        date_value, op, topic, title, pages = okf_entry_to_knotica_fields(okf_entry)
+        knotica_entries.append(
+            LogEntry(date=date_value, op=op, topic=topic, title=title, pages=pages)
+        )
+    return knotica_entries
 
 
 # ---------------------------------------------------------------------------
@@ -370,12 +354,22 @@ def parse_commit_subject(subject: str) -> CommitSubject | None:
 # ---------------------------------------------------------------------------
 
 
+def _is_source_type_marker(fields: Mapping[str, object]) -> bool:
+    marker = fields.get("type")
+    if marker == _SOURCE_TYPE_VALUE:
+        return True
+    # Transitional: accept Title Case from an earlier OKF repair pass.
+    if marker in {"Reference", "reference"}:
+        return True
+    return False
+
+
 @dataclass(frozen=True, kw_only=True)
 class SourceProvenance:
     """The frontmatter record of one immutably stored source.
 
-    The fixed ``type: source`` marker is implied by this class and rendered
-    automatically; ``sha256`` is the body-only digest (:func:`body_sha256`).
+    Uses ``type: source`` (valid OKF — open taxonomy). ``sha256`` is the
+    body-only digest (:func:`body_sha256`).
     """
 
     schema_version: int = PROVENANCE_SCHEMA_VERSION
@@ -386,6 +380,7 @@ class SourceProvenance:
     sha256: str
     source_type: str
     ingested_by: str
+    title: str | None = None
 
     def __post_init__(self) -> None:
         _validate_schema_version(self.schema_version)
@@ -394,29 +389,32 @@ class SourceProvenance:
             raise ValueError(f"sha256 must be a 64-char lowercase hex digest, got {self.sha256!r}")
 
     def to_frontmatter(self) -> str:
-        """Render the frontmatter block (both fences, trailing newline), schema order."""
-        return serialize_frontmatter(
-            {
-                "schema_version": self.schema_version,
-                "type": _SOURCE_TYPE_VALUE,
-                "topic": self.topic,
-                "citation_key": self.citation_key,
-                "retrieved": self.retrieved,
-                "origin_url": self.origin_url,
-                "sha256": self.sha256,
-                "source_type": self.source_type,
-                "ingested_by": self.ingested_by,
-            }
-        )
+        """Render provenance frontmatter with OKF-recommended fields."""
+        fields: dict[str, object] = {
+            "schema_version": self.schema_version,
+            "type": _SOURCE_TYPE_VALUE,
+            "topic": self.topic,
+            "citation_key": self.citation_key,
+            "retrieved": self.retrieved,
+            "timestamp": self.retrieved,
+            "origin_url": self.origin_url,
+            "resource": self.origin_url,
+            "sha256": self.sha256,
+            "source_type": self.source_type,
+            "ingested_by": self.ingested_by,
+        }
+        if self.title:
+            fields["title"] = self.title
+        return serialize_frontmatter(fields)
 
     @classmethod
     def from_fields(cls, fields: Mapping[str, object]) -> "SourceProvenance":
         """Build from parsed frontmatter fields; unknown extra fields are tolerated."""
-        marker = fields.get("type")
-        if marker != _SOURCE_TYPE_VALUE:
+        if not _is_source_type_marker(fields):
             raise RecordParseError(
-                f"provenance record field 'type' must be '{_SOURCE_TYPE_VALUE}', got {marker!r}"
+                f"provenance record field 'type' must be 'source', got {fields.get('type')!r}"
             )
+        title = fields.get("title")
         return cls(
             schema_version=_required_int(fields, "schema_version", record="provenance"),
             topic=_required_str(fields, "topic", record="provenance"),
@@ -426,6 +424,7 @@ class SourceProvenance:
             sha256=_required_str(fields, "sha256", record="provenance"),
             source_type=_required_str(fields, "source_type", record="provenance"),
             ingested_by=_required_str(fields, "ingested_by", record="provenance"),
+            title=title if isinstance(title, str) and title.strip() else None,
         )
 
 

@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 from datetime import UTC, date, datetime
 
+from knotica.core.page import serialize_frontmatter
 from knotica.guillotine.models import (
     ArtifactPaths,
     EvidenceGraph,
@@ -16,11 +17,11 @@ from knotica.guillotine.models import (
     Verdict,
     VERDICT_THRESHOLDS,
 )
+from knotica.guillotine.paths import reports_dir
 from knotica.guillotine.score import verdict_threshold_for
 from knotica.guillotine.search import claim_slug
+from knotica.okf.frontmatter import normalize_concept_frontmatter
 from knotica.store import VaultStore
-
-_REPORTS_DIR = "reports/guillotine"
 
 # Obsidian callout kinds used in human-readable reports.
 _CALLOUT_VERDICT: dict[Verdict, str] = {
@@ -45,11 +46,14 @@ def write_artifacts(
     today = date.today().isoformat()
     slug = claim_slug(result.claim)
     base_name = f"{today}-{slug}"
-    report_path = f"{_REPORTS_DIR}/{base_name}.md"
-    diff_path = f"{_REPORTS_DIR}/{base_name}.diff"
-    json_path = f"{_REPORTS_DIR}/{base_name}.json"
+    artifact_dir = reports_dir(result.topic)
+    report_path = f"{artifact_dir}/{base_name}.md"
+    diff_path = f"{artifact_dir}/{base_name}.diff"
+    json_path = f"{artifact_dir}/{base_name}.json"
 
-    report_md = render_report_markdown(result, diff_path, dry_run=dry_run, commit_sha=commit_sha)
+    report_md = render_report_markdown(
+        result, diff_path, dry_run=dry_run, commit_sha=commit_sha, report_path=report_path
+    )
     json_payload = render_report_json(result, report_path, diff_path, json_path, dry_run=dry_run)
 
     store.write_text_atomic(report_path, report_md)
@@ -107,11 +111,73 @@ def artifact_paths_for(result: GuillotineResult) -> ArtifactPaths:
     today = date.today().isoformat()
     slug = claim_slug(result.claim)
     base_name = f"{today}-{slug}"
+    artifact_dir = reports_dir(result.topic)
     return ArtifactPaths(
-        report_path=f"{_REPORTS_DIR}/{base_name}.md",
-        diff_path=f"{_REPORTS_DIR}/{base_name}.diff",
-        json_path=f"{_REPORTS_DIR}/{base_name}.json",
+        report_path=f"{artifact_dir}/{base_name}.md",
+        diff_path=f"{artifact_dir}/{base_name}.diff",
+        json_path=f"{artifact_dir}/{base_name}.json",
     )
+
+
+def guillotine_index_entry(result: GuillotineResult, *, dry_run: bool) -> str:
+    """One-line catalog description for a guillotine report in ``index.md``."""
+    mode = "dry-run" if dry_run else "applied"
+    verdict = _verdict_label(result.recommendation)
+    return f"Guillotine {mode} — verdict {verdict} ({result.risk_score}/100)."
+
+
+def _rfc3339_timestamp(moment: datetime) -> str:
+    """Format an aware UTC instant for Knotica/OKF frontmatter."""
+    if moment.tzinfo is None:
+        moment = moment.replace(tzinfo=UTC)
+    return moment.astimezone(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
+def _report_frontmatter_fields(
+    result: GuillotineResult,
+    *,
+    dry_run: bool,
+    generated_at: datetime,
+    commit_sha: str | None,
+) -> dict[str, object]:
+    """Build report frontmatter: Knotica core + OKF fields + guillotine extensions."""
+    timestamp = _rfc3339_timestamp(generated_at)
+    run_status = "dry-run" if dry_run else "applied"
+    fields: dict[str, object] = {
+        "type": "report",
+        "topic": result.topic,
+        "title": "Memory Guillotine Report",
+        "description": result.summary or f"Guillotine trial report for topic {result.topic}.",
+        "claim": result.claim,
+        "verdict": result.recommendation.value.lower(),
+        "date": generated_at.date().isoformat(),
+        "datetime": timestamp,
+        "timestamp": timestamp,
+        "risk_score": result.risk_score,
+        "run_status": run_status,
+        "created": timestamp,
+        "updated": timestamp,
+        "confidence": "medium",
+        "sources": [],
+        "status": "active",
+        "tags": ["guillotine", "report", result.topic],
+    }
+    if commit_sha:
+        fields["commit_sha"] = commit_sha
+    return fields
+
+
+def _serialize_report_document(
+    report_path: str,
+    fields: dict[str, object],
+    body: str,
+) -> str:
+    """Normalize frontmatter for OKF compatibility and serialize the full report."""
+    draft = serialize_frontmatter(fields) + body
+    normalized = normalize_concept_frontmatter(report_path, draft)
+    if normalized.fields:
+        return serialize_frontmatter(normalized.fields) + body
+    return draft
 
 
 def render_report_markdown(
@@ -121,26 +187,17 @@ def render_report_markdown(
     dry_run: bool,
     commit_sha: str | None,
     generated_at: datetime | None = None,
+    report_path: str | None = None,
 ) -> str:
     """Render the human-readable guillotine trial report."""
     timestamp = generated_at or datetime.now(UTC)
-    generated_date = timestamp.date().isoformat()
     generated_datetime = timestamp.isoformat(timespec="seconds")
-    status = "dry-run" if dry_run else "applied"
+    run_status = "dry-run" if dry_run else "applied"
     verdict_label = _verdict_label(result.recommendation)
     pages = sorted({passage.path for passage in result.passages})
+    resolved_report_path = report_path or artifact_paths_for(result).report_path
 
-    lines = [
-        "---",
-        "type: guillotine-report",
-        f'claim: "{_yaml_escape(result.claim)}"',
-        f"topic: {result.topic}",
-        f"date: {generated_date}",
-        f"datetime: {generated_datetime}",
-        f"verdict: {result.recommendation.value.lower()}",
-        f"risk_score: {result.risk_score}",
-        f"status: {status}",
-        "---",
+    body_lines = [
         "",
         "# Memory Guillotine Report",
         "",
@@ -151,7 +208,7 @@ def render_report_markdown(
                 [
                     f"**Generated:** {generated_datetime}",
                     f"**Topic:** `{result.topic}`",
-                    f"**Status:** {status}",
+                    f"**Run status:** {run_status}",
                 ]
             ),
         ),
@@ -208,9 +265,9 @@ def render_report_markdown(
         "",
     ]
     if dry_run:
-        lines.append(_callout("success", "Dry run", "Not applied; no rollback needed."))
+        body_lines.append(_callout("success", "Dry run", "Not applied; no rollback needed."))
     elif commit_sha:
-        lines.append(
+        body_lines.append(
             _callout(
                 "warning",
                 "Revert command",
@@ -218,9 +275,11 @@ def render_report_markdown(
             )
         )
     else:
-        lines.append(_callout("warning", "No commit SHA", "Applied without a recorded commit SHA."))
+        body_lines.append(
+            _callout("warning", "No commit SHA", "Applied without a recorded commit SHA.")
+        )
 
-    lines.extend(
+    body_lines.extend(
         [
             "",
             "---",
@@ -230,7 +289,14 @@ def render_report_markdown(
             _receipt_callout(result, pages, dry_run, commit_sha, timestamp),
         ]
     )
-    return "\n".join(lines) + "\n"
+    body = "\n".join(body_lines) + "\n"
+    fields = _report_frontmatter_fields(
+        result,
+        dry_run=dry_run,
+        generated_at=timestamp,
+        commit_sha=commit_sha,
+    )
+    return _serialize_report_document(resolved_report_path, fields, body)
 
 
 def render_report_json(
@@ -258,6 +324,7 @@ def render_report_json(
             for factor in result.score_factors
         ],
         "summary": result.summary,
+        "run_status": "dry-run" if dry_run else "applied",
         "status": "dry-run" if dry_run else "applied",
         "date": timestamp.date().isoformat(),
         "generated_at": timestamp.isoformat(timespec="seconds"),
@@ -740,10 +807,6 @@ def _verdict_label(verdict: Verdict) -> str:
     return labels.get(verdict, verdict.value)
 
 
-def _yaml_escape(text: str) -> str:
-    return text.replace('"', '\\"')
-
-
 def _callout(kind: str, title: str, body: str) -> str:
     """Obsidian-style callout block (renders in Obsidian and many MD viewers)."""
     lines = [f"> [!{kind}] {title}", ">"]
@@ -759,7 +822,7 @@ def _fenced_text(text: str) -> str:
 def _at_a_glance_callout(result: GuillotineResult, verdict_label: str, dry_run: bool) -> str:
     wiki_count = sum(1 for passage in result.passages if not passage.is_source)
     source_count = sum(1 for passage in result.passages if passage.is_source)
-    status = "dry-run" if dry_run else "applied"
+    run_status = "dry-run" if dry_run else "applied"
     body = "\n".join(
         [
             f"**Risk score:** {result.risk_score}/100",
@@ -767,7 +830,7 @@ def _at_a_glance_callout(result: GuillotineResult, verdict_label: str, dry_run: 
             f"**Passages:** {len(result.passages)} total "
             f"({wiki_count} wiki · {source_count} raw source)",
             f"**Patches proposed:** {len(result.patches)}",
-            f"**Run mode:** {status}",
+            f"**Run mode:** {run_status}",
         ]
     )
     return _callout("info", "At a glance", body)

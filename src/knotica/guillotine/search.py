@@ -8,9 +8,10 @@ from collections.abc import Iterable, Iterator
 from dataclasses import dataclass
 from pathlib import Path, PurePath, PurePosixPath
 
+from knotica.guillotine.paths import is_guillotine_report_path, reports_dir
+
 _SOURCES_DIR = "sources"
 _MARKDOWN_SUFFIX = ".md"
-_REPORTS_DIR = "reports/guillotine"
 _CONTEXT_LINES = 2
 
 #: Directories skipped during vault walks (dot-folders and guillotine output).
@@ -95,7 +96,7 @@ def resolve_search_scope(
     if not existing:
         raise FileNotFoundError(f"No topic directory named '{topic}' at the vault root.")
     if include_reports:
-        report_dir = vault_root / _REPORTS_DIR
+        report_dir = vault_root / reports_dir(topic)
         if report_dir.is_dir():
             existing.append(report_dir)
     return existing
@@ -119,7 +120,7 @@ def find_candidate_mentions(
     hits: list[CandidateHit] = []
     for file_path in _walk_markdown_files(scan_dirs, include_reports=include_reports):
         rel_path = file_path.relative_to(vault_root).as_posix()
-        if not include_reports and rel_path.startswith(_REPORTS_DIR):
+        if not include_reports and is_guillotine_report_path(rel_path):
             continue
         file_hits = _scan_file(file_path, rel_path, pattern)
         hits.extend(file_hits)

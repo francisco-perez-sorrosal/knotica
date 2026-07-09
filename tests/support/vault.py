@@ -198,33 +198,19 @@ class LogEntry:
 
 
 def parse_log_entries(log_text: str) -> list[LogEntry]:
-    """Parse every frozen-grammar entry in a ``log.md`` body, with its bullets.
+    """Parse log entries via the canonical records parser (oldest first)."""
+    from knotica.core.records import parse_log_entries as parse_records
 
-    Lines inside fenced code blocks are skipped — ``log.md``'s header carries
-    the format specification and an example inside fences, and those must never
-    count as real operation entries.
-    """
-    entries: list[LogEntry] = []
-    current: LogEntry | None = None
-    in_fence = False
-    for line in log_text.splitlines():
-        if line.lstrip().startswith("```"):
-            in_fence = not in_fence
-            continue
-        if in_fence:
-            continue
-        match = LOG_ENTRY_RE.match(line)
-        if match:
-            current = LogEntry(**match.groupdict())
-            entries.append(current)
-            continue
-        if not line.strip():
-            continue
-        if current is not None and line.startswith("- "):
-            current.pages.append(line[2:].strip())
-        else:
-            current = None
-    return entries
+    return [
+        LogEntry(
+            date=entry.date,
+            op=entry.op,
+            topic=entry.topic,
+            title=entry.title,
+            pages=list(entry.pages),
+        )
+        for entry in parse_records(log_text)
+    ]
 
 
 # ---------------------------------------------------------------------------

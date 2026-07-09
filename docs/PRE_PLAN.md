@@ -38,7 +38,7 @@ Reserved top-level names (`sources`, `index.md`, `log.md`, `SCHEMA.md`, `START_H
 
 ## Seed topic sketch: `agentic-systems/` (papers)
 
-- **Root `SCHEMA.md` invariants**: wikilink syntax; core frontmatter (`type`, `topic`, `created`, `updated`, `confidence`, `sources: []`, `status: active|stale`, `supersedes`/`superseded_by`, `tags`); `log.md` entry format (`## [YYYY-MM-DD] <op> | <title>`); cross-topic linking rules; one git commit per mutating op; secret-scrub on ingest.
+- **Root `SCHEMA.md` invariants**: wikilink syntax; core frontmatter (`type`, `topic`, `created`, `updated`, `confidence`, `sources: []`, `status: active|stale`, `supersedes`/`superseded_by`, `tags`); native OKF `log.md` shape (§3, date-grouped newest first; legacy headings parseable); cross-topic linking rules; one git commit per mutating op; secret-scrub on ingest.
 - **Topic overlay**: entity types `paper`, `method`, `system`, `benchmark`, `concept`, `person-or-lab`; page template (Summary → Key claims with citations → Relations → Open questions); ingest rule: source PDFs/md into `sources/agentic-systems/` under citation-key names; each paper ingest touches its entity pages + index + log.
 - Divergence is earned: new topics start with an empty overlay inheriting root.
 - **Seed corpus (locked from research, 2026-07-03):** ReAct ([2210.03629](https://arxiv.org/abs/2210.03629), agent architectures, ar5iv HTML), Darwin Gödel Machine ([2505.22954](https://arxiv.org/abs/2505.22954), self-improvement, native HTML), Agent Workflow Memory ([2409.07429](https://arxiv.org/abs/2409.07429), memory, native HTML, short — **the demo-ingest sample**). Ingestion ergonomics: native arxiv HTML > ar5iv HTML > PDF.

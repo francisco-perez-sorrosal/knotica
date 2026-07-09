@@ -167,11 +167,12 @@ def test_commit_grammar_rejects_nonconforming_subjects(subject: str):
 def test_log_parser_reads_entries_with_their_touched_page_bullets():
     text = (
         "# Operation Log\n\n"
-        "## [2026-07-03] write_page | agentic-systems | Ingest ReAct paper\n"
-        "- agentic-systems/react.md\n"
-        "- index.md\n\n"
-        "## [2026-07-04] store_source | agentic-systems | ReAct source\n"
-        "- sources/agentic-systems/yao2022react.md\n"
+        "## 2026-07-04\n"
+        "* **Update**: store_source · agentic-systems — ReAct source "
+        "([[sources/agentic-systems/yao2022react]])\n\n"
+        "## 2026-07-03\n"
+        "* **Update**: write_page · agentic-systems — Ingest ReAct paper "
+        "([[agentic-systems/react]], [[index]])\n"
     )
 
     entries = parse_log_entries(text)
@@ -180,7 +181,7 @@ def test_log_parser_reads_entries_with_their_touched_page_bullets():
         ("write_page", "agentic-systems", "Ingest ReAct paper"),
         ("store_source", "agentic-systems", "ReAct source"),
     ]
-    assert entries[0].pages == ["agentic-systems/react.md", "index.md"]
+    assert list(entries[0].pages) == ["agentic-systems/react.md", "index.md"]
     assert entries[1].date == "2026-07-04"
 
 
@@ -188,11 +189,12 @@ def test_log_parser_skips_entries_inside_fenced_code_blocks():
     text = (
         "The format is:\n\n"
         "```\n"
-        "## [2026-07-03] write_page | agentic-systems | Fenced example\n"
-        "- fenced.md\n"
+        "## 2026-07-03\n"
+        "* **Update**: write_page · agentic-systems — Fenced example\n"
         "```\n\n"
-        "## [2026-07-03] write_page | agentic-systems | Real entry\n"
-        "- real.md\n"
+        "## 2026-07-03\n"
+        "* **Update**: write_page · agentic-systems — Real entry "
+        "([[real.md]])\n"
     )
 
     entries = parse_log_entries(text)
@@ -202,15 +204,15 @@ def test_log_parser_skips_entries_inside_fenced_code_blocks():
 
 def test_log_parser_stops_attributing_bullets_after_intervening_prose():
     text = (
-        "## [2026-07-03] write_page | agentic-systems | Entry\n"
-        "- touched.md\n\n"
+        "## 2026-07-03\n"
+        "* **Update**: write_page · agentic-systems — Entry ([[touched.md]])\n\n"
         "Some prose paragraph.\n"
         "- not a touched page\n"
     )
 
     entries = parse_log_entries(text)
 
-    assert entries[0].pages == ["touched.md"]
+    assert list(entries[0].pages) == ["touched.md"]
 
 
 # ---------------------------------------------------------------------------

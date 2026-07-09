@@ -12,7 +12,7 @@ recorded resolution decision, not from the implementation:
   a same-directory miss stays unresolved (lint fodder) even when a page of
   that name exists elsewhere in the vault. This deliberately pins the
   two-``SCHEMA.md`` basename ambiguity to the topic's own overlay;
-- the shipped template's graph is the golden fixture: 20 outbound links,
+- the shipped template's graph is the golden fixture: 27 outbound links,
   all resolved, with hand-counted per-page totals;
 - inbound (backlink) queries agree edge-for-edge with the outbound scan.
 """
@@ -44,13 +44,13 @@ TEMPLATE_PAGES = (
 #: Hand-counted outbound links per template page (re-derived from the pages
 #: themselves, independently of the implementation): index catalogs the three
 #: demo pages plus both SCHEMA files; START_HERE links SCHEMA/index/log (log
-#: twice); log links SCHEMA once outside its fenced format examples; both
+#: twice); log links SCHEMA plus demo-operation wikilinks in OKF bullets; both
 #: SCHEMA files and the stored source carry wikilink examples only in code.
 GOLDEN_OUTBOUND_COUNTS = (
     ("SCHEMA.md", 0),
     ("START_HERE.md", 4),
     ("index.md", 5),
-    ("log.md", 1),
+    ("log.md", 8),
     ("agentic-systems/SCHEMA.md", 0),
     ("agentic-systems/agent-memory.md", 3),
     ("agentic-systems/agent-workflow-memory.md", 4),
@@ -58,7 +58,7 @@ GOLDEN_OUTBOUND_COUNTS = (
     ("sources/agentic-systems/wang2024awm.md", 0),
 )
 
-GOLDEN_TOTAL_LINKS = 20
+GOLDEN_TOTAL_LINKS = 27
 
 
 def _all_outbound_edges(store: LocalFSStore) -> list:
@@ -226,6 +226,7 @@ def test_demo_anchor_page_collects_backlinks_from_index_and_both_entity_pages(te
         "agentic-systems/workflow-induction.md",
         "agentic-systems/workflow-induction.md",
         "index.md",
+        "log.md",
     ]
 
 

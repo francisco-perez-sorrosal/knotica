@@ -68,7 +68,7 @@ def _store_default(vault: Path):
         title=TITLE,
         content=SOURCE_BODY,
         source_url=SOURCE_URL,
-        source_type="pdf",
+        source_type="markdown",
     )
 
 
@@ -94,7 +94,15 @@ def test_source_is_persisted_under_the_sources_tree(template_vault):
 
 
 def test_provenance_records_origin_type_and_body_digest(template_vault):
-    _store_default(template_vault)
+    _store_source(
+        template_vault,
+        topic=TOPIC,
+        citation_key=CITATION_KEY,
+        title=TITLE,
+        content=SOURCE_BODY,
+        source_url=SOURCE_URL,
+        source_type="pdf",
+    )
 
     provenance, body = parse_source_document(_read(template_vault, SOURCE_PATH))
 
@@ -165,6 +173,30 @@ def test_conflicting_restore_fails_with_source_exists_and_writes_nothing(templat
     assert _error_code(result) == "SOURCE_EXISTS"
     assert git_commit_count(template_vault) == after_first
     assert _read(template_vault, SOURCE_PATH) == original
+
+
+def test_store_source_reflows_pdf_line_wraps(template_vault: Path) -> None:
+    wrapped = """\
+# Section
+
+The past two years have witnessed capable language models
+(LLMs) into powerful AI agents.
+"""
+    result = _store_source(
+        template_vault,
+        topic=TOPIC,
+        citation_key="pdf-wrap-test",
+        title="PDF wrap test",
+        content=wrapped,
+        source_url=SOURCE_URL,
+        source_type="pdf",
+    )
+    assert _error_code(result) is None
+    _provenance, body = parse_source_document(
+        _read(template_vault, "sources/agentic-systems/pdf-wrap-test.md")
+    )
+    assert "language models (LLMs) into powerful" in body
+    assert "models\n(LLMs)" not in body
 
 
 # ---------------------------------------------------------------------------

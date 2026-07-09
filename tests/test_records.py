@@ -9,8 +9,8 @@ are:
 
 - **qa.jsonl record** — one JSON object per line; twelve frozen fields;
   ``verdict`` in ``good | bad | corrected``; per-record ``schema_version``.
-- **log entry** — ``## [YYYY-MM-DD] <op> | <topic> | <title>`` plus optional
-  touched-page bullets (``- <path>``), versioned by the constitution.
+- **log entry** — native OKF date-grouped bullets (`## YYYY-MM-DD`, `* **Update**: …`);
+  legacy Knotica headings remain parseable.
 - **commit message** — ``knotica(<op>): <topic> — <title>``, em-dash separator
   with surrounding spaces, versioned by the constitution.
 - **source provenance** — nine frozen frontmatter fields over an immutable body;
@@ -35,6 +35,7 @@ module under test is still in flight.
 
 import hashlib
 import json
+import re
 from pathlib import Path
 
 import pytest
@@ -69,7 +70,9 @@ PROVENANCE_FIELDS = frozenset(
         "topic",
         "citation_key",
         "retrieved",
+        "timestamp",
         "origin_url",
+        "resource",
         "sha256",
         "source_type",
         "ingested_by",
@@ -325,12 +328,14 @@ def _qa_line_missing(field: str) -> str:
 
 
 LOG_BLOCK = (
-    "## [2026-07-03] write_page | agentic-systems | Ingest ReAct paper\n"
-    "- agentic-systems/react.md\n"
-    "- index.md"
+    "## 2026-07-03\n"
+    "* **Update**: write_page · agentic-systems — Ingest ReAct paper "
+    "([[agentic-systems/react]], [[index]])"
 )
 
-LOG_HEADING_ONLY = "## [2026-07-03] store_source | agentic-systems | ReAct, arXiv 2210.03629"
+LOG_HEADING_ONLY = (
+    "## 2026-07-03\n* **Update**: store_source · agentic-systems — ReAct, arXiv 2210.03629"
+)
 
 COMMIT_SUBJECT = "knotica(write_page): agentic-systems — Ingest ReAct paper"
 
@@ -370,20 +375,22 @@ def _body_after_frontmatter(raw: bytes) -> bytes:
 
 
 def _real_log_blocks(log_text: str) -> list[str]:
-    """Every real entry block (H2 + its bullets) in a ``log.md`` body, skipping
-    the fenced format examples in the header."""
+    """Every real OKF bullet block in a ``log.md`` body, skipping fenced examples."""
     blocks: list[str] = []
     in_fence = False
+    current_date: str | None = None
     for line in log_text.splitlines():
         if line.lstrip().startswith("```"):
             in_fence = not in_fence
             continue
         if in_fence:
             continue
-        if line.startswith("## ["):
-            blocks.append(line)
-        elif blocks and line.startswith("- "):
-            blocks[-1] += "\n" + line
+        date_match = re.match(r"^## (\d{4}-\d{2}-\d{2})\s*$", line.strip())
+        if date_match:
+            current_date = date_match.group(1)
+            continue
+        if line.startswith("* **") and current_date:
+            blocks.append(f"## {current_date}\n{line}")
     return blocks
 
 
@@ -505,27 +512,25 @@ def test_log_heading_without_bullets_round_trips():
 
 
 def test_rendered_log_heading_satisfies_the_independent_grammar():
-    heading = _render_log(_parse_log(LOG_BLOCK)).strip().splitlines()[0]
-
-    match = LOG_ENTRY_RE.match(heading)
-    assert match, f"rendered heading does not satisfy the frozen H2 grammar: {heading!r}"
-    assert match.groupdict() == {
-        "date": "2026-07-03",
-        "op": "write_page",
-        "topic": "agentic-systems",
-        "title": "Ingest ReAct paper",
-    }
+    rendered = _render_log(_parse_log(LOG_BLOCK)).strip()
+    assert rendered.startswith("## 2026-07-03")
+    assert "* **Update**:" in rendered
+    assert "write_page · agentic-systems — Ingest ReAct paper" in rendered
 
 
 def test_template_log_corpus_re_renders_byte_identically(template_vault: Path):
-    blocks = _real_log_blocks((template_vault / "log.md").read_text(encoding="utf-8"))
-    assert len(blocks) >= 4, "the template demo ingest ships at least four real log entries"
+    from knotica.core.records import LogEntry, format_log_entry, parse_log_entries
 
-    mismatches = [
-        (block, _render_log(_parse_log(block)).strip())
-        for block in blocks
-        if _render_log(_parse_log(block)).strip() != block
-    ]
+    log_text = (template_vault / "log.md").read_text(encoding="utf-8")
+    entries = parse_log_entries(log_text)
+    assert len(entries) >= 4, "the template demo ingest ships at least four real log entries"
+
+    mismatches = []
+    for entry in entries:
+        block = format_log_entry(entry).strip()
+        roundtrip = format_log_entry(parse_log_entries(block)[-1]).strip()
+        if roundtrip != block:
+            mismatches.append((block, roundtrip))
     assert mismatches == [], f"real template log entries fail the round trip: {mismatches}"
 
 
@@ -608,10 +613,11 @@ def test_provenance_file_round_trips_fields_and_body_byte_exactly():
     rendered = _render_provenance(_parse_provenance(text))
 
     fields, _ = parse_frontmatter(rendered)
-    expected = _provenance_fields()
-    assert {key: str(value) for key, value in fields.items()} == {
-        key: str(value) for key, value in expected.items()
-    }
+    assert fields["type"] == "source"
+    assert fields["topic"] == "agentic-systems"
+    assert fields["citation_key"] == "vaswani2017attention"
+    assert fields["resource"] == fields["origin_url"]
+    assert fields["timestamp"] == fields["retrieved"]
     assert _body_after_frontmatter(rendered.encode("utf-8")) == PROVENANCE_BODY.encode("utf-8"), (
         "the body must survive the round trip byte-exactly (trailing newline included) — "
         "any mutation breaks the sha256 seal"

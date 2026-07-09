@@ -1,12 +1,15 @@
 ---
 type: concept
 topic: agentic-systems
-created: 2026-07-03
-updated: 2026-07-03
+created: "2026-07-03T00:00:00Z"
+updated: "2026-07-03T00:00:00Z"
 confidence: medium
 sources: [wang2024awm]
 status: active
 tags: [demo-sample, memory, agents]
+title: Agent memory
+description: "Agent memory is the idea of giving a language-model agent a persistent, growing store of"
+timestamp: "2026-07-03T00:00:00Z"
 ---
 
 > **Demo sample — delete freely.** This page is part of the template's demo ingest; see

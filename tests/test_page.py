@@ -43,7 +43,7 @@ FRONTMATTER_PAGES = (
 )
 
 #: Template pages authored without frontmatter (reserved structural pages).
-BODY_ONLY_PAGES = ("index.md", "START_HERE.md", "log.md")
+BODY_ONLY_PAGES = ("index.md", "log.md")
 
 #: Frontmatter pages whose authored style matches the serializer's output
 #: exactly (plain scalars + flow lists). The source page is excluded: its

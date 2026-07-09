@@ -1,34 +1,22 @@
-# Operation Log
+# Directory Update Log
 
-Append-only log of vault operations, newest last: one entry per mutating operation, written in
-the same commit as the operation itself. The entry format is frozen by [[SCHEMA]]:
-
-```
-## [YYYY-MM-DD] <op> | <topic> | <title>
-- <touched page path>   (optional bullets, one per touched page)
-```
-
-Example:
+Append-only log of vault operations, newest first: one entry per mutating operation,
+written in the same commit as the operation itself. Native shape follows [[SCHEMA]] §3:
 
 ```
-## [2026-07-03] write_page | agentic-systems | Ingest ReAct paper
-- agentic-systems/react.md
-- index.md
+## YYYY-MM-DD
+* **Update**: <op> · <topic> — <title> ([[touched/path]], [[index]])
 ```
 
-Entries follow below.
+Legacy Knotica headings (`## [YYYY-MM-DD] <op> | <topic> | <title>`) are still
+parseable and are normalized by `knotica okf repair`.
 
-## [2026-07-03] store_source | agentic-systems | Agent Workflow Memory, arXiv 2409.07429 (demo sample)
-- sources/agentic-systems/wang2024awm.md
+## 2026-07-03
 
-## [2026-07-03] write_page | agentic-systems | Agent Workflow Memory (Wang et al., 2024) (demo sample)
-- agentic-systems/agent-workflow-memory.md
-- index.md
+* **Update**: write_page · agentic-systems — Agent memory (demo sample) ([[agentic-systems/agent-memory]], [[index]])
 
-## [2026-07-03] write_page | agentic-systems | Workflow induction (demo sample)
-- agentic-systems/workflow-induction.md
-- index.md
+* **Update**: write_page · agentic-systems — Workflow induction (demo sample) ([[agentic-systems/workflow-induction]], [[index]])
 
-## [2026-07-03] write_page | agentic-systems | Agent memory (demo sample)
-- agentic-systems/agent-memory.md
-- index.md
+* **Update**: write_page · agentic-systems — Agent Workflow Memory (Wang et al., 2024) (demo sample) ([[agentic-systems/agent-workflow-memory]], [[index]])
+
+* **Update**: store_source · agentic-systems — Agent Workflow Memory, arXiv 2409.07429 (demo sample) ([[sources/agentic-systems/wang2024awm]])
