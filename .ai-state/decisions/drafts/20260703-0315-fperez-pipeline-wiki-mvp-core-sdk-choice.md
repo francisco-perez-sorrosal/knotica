@@ -13,6 +13,7 @@ pipeline_tier: standard
 affected_files: [src/knotica/mcp/, pyproject.toml]
 affected_reqs: [REQ-PLUGIN-01, REQ-PROMPT-01]
 dissent: A protocol-heavy Phase 4 (auth providers, CIMD) plus a large MCP-integration test surface would have favored jlowin fastmcp's batteries and in-memory Client(server) transport.
+re_affirmed_by: [dec-draft-9039d858, dec-draft-8591febf, dec-draft-c2ad09bc]
 ---
 
 ## Context

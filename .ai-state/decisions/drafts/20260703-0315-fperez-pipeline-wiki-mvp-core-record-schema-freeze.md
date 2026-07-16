@@ -13,6 +13,7 @@ pipeline_tier: standard
 affected_files: [vault-template/SCHEMA.md, vault-template/agentic-systems/.knotica/datasets/qa.jsonl, src/knotica/core/records.py]
 affected_reqs: [REQ-REC-01, REQ-REC-02, REQ-REC-03, REQ-TOOL-04]
 dissent: Deferring metrics.jsonl and qa.jsonl shapes until their Phase-2/3 consumers exist would let the schemas be designed against real usage, at the cost of a template migration and a rewrite of already-curated examples.
+re_affirmed_by: [dec-draft-229044ae, dec-draft-a6f575c0, dec-draft-d9e00da0]
 ---
 
 ## Context
