@@ -1,12 +1,17 @@
 """Static import-boundary fitness test: the vault has exactly one writer.
 
 The single-writer invariant is what guarantees "one git commit per effective
-mutating operation" for every surface at once: adapters (``cli``, ``mcp_server``)
-must never mutate the vault directly, and exactly one module -- ``core.transaction``
--- may call the mutating git surface. This is enforced *statically* here (AST scan
-over ``src/knotica``) so a regression is caught at test time, not in production.
+mutating operation" for every surface at once: the adapters (``cli``,
+``mcp_server``) and the headless eval subsystem (``evals``) must never mutate the
+vault directly, and exactly one module -- ``core.transaction`` -- may call the
+mutating git surface. ``evals`` joins the bound set because it writes
+``metrics.jsonl`` through ``VaultTransaction`` on a clone, so it is subject to the
+same single-writer rule as the adapters. This is enforced *statically* here (AST
+scan over ``src/knotica``) so a regression is caught at test time, not in
+production.
 
-What the boundary forbids inside every ``cli/`` and ``mcp_server/`` module:
+What the boundary forbids inside every ``cli/``, ``mcp_server/``, and ``evals/``
+module:
 
 - importing ``subprocess`` or using ``os.system`` / ``os.popen`` (an adapter has
   no business shelling out to git) -- with one exemption: ``cli/init.py`` may
@@ -36,9 +41,13 @@ from pathlib import Path
 
 SRC_ROOT = Path(__file__).resolve().parent.parent / "src" / "knotica"
 
-#: Packages that adapt an external surface (MCP, CLI) onto the deterministic core.
-#: Everything under these must route mutation through ``core.transaction``.
-ADAPTER_PACKAGES = ("cli", "mcp_server")
+#: Packages that adapt an external surface (MCP, CLI) or drive a headless
+#: subsystem (``evals``) on top of the deterministic core. Everything under these
+#: must route mutation through ``core.transaction``: ``evals`` appends
+#: ``metrics.jsonl`` via ``VaultTransaction`` on a clone, so it is bound by the
+#: same single-writer rule as the adapters -- ``clone_to`` is a read/checkout
+#: method (absent from ``MUTATING_VCS_METHODS``), so cloning the corpus is allowed.
+ADAPTER_PACKAGES = ("cli", "mcp_server", "evals")
 
 #: The only module permitted to call the mutating git surface.
 SOLE_WRITER = SRC_ROOT / "core" / "transaction.py"
