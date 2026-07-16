@@ -68,7 +68,6 @@ import socket
 from collections.abc import Iterable, Sequence
 from pathlib import Path
 
-import dspy
 import pytest
 
 from knotica.core.records import MetricsRecord, QARecord
@@ -85,6 +84,11 @@ from support.vault import (
     parse_knotica_commit,
     run_git,
 )
+
+# ``dspy`` lives in the eval-only dependency group; skip this whole module (not
+# abort collection) when the base test env has not installed it, so the plain
+# ``uv run pytest`` loop still collects the rest of the suite.
+dspy = pytest.importorskip("dspy")
 
 #: The topic the template vault ships (entity pages + one stored source whose key
 #: ``wang2024awm`` the runner's retrieval and the citation check both resolve).
@@ -314,6 +318,11 @@ def _run_eval(
     harness's global on-disk default cache (content-addressed by ``corpus_sha``,
     which fast identical-golden tests can collide on) -- keeping every test hermetic
     and parallel-safe. The warm-cache case passes its own shared cache to override.
+
+    ``run_eval`` returns an ``EvalRunResult`` (the record plus its clone root); this
+    helper unwraps ``.record`` centrally so the behavioural cases keep asserting on
+    the record directly. The clone-root leg is pinned by the tests that call
+    ``run_eval`` without this helper.
     """
     kwargs: dict[str, object] = {
         "source_root": source_root,
@@ -323,7 +332,7 @@ def _run_eval(
     }
     if config is not None:
         kwargs["config"] = config
-    return run_eval(topic, **kwargs)
+    return run_eval(topic, **kwargs).record
 
 
 def _run_eval_error(topic: str, **kwargs: object) -> BaseException:
@@ -781,4 +790,62 @@ def test_the_run_scores_every_devset_example(template_vault: Path, tmp_path: Pat
     manifest = _read_manifest(clone, record)
     assert _any_list_of_length(manifest, len(golden)), (
         "the manifest records one per-example entry per devset example (reproducibility columns)"
+    )
+
+
+def test_run_eval_hands_dspy_evaluate_the_configured_failure_score(
+    seeded_source: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # The Evaluate failure-score policy is folded into harness_version and written to
+    # the manifest, so the value dspy.Evaluate actually applies must be the configured
+    # one -- otherwise the recorded instrument does not describe the run. A spy that
+    # records the constructor kwargs and delegates to the real Evaluate proves the
+    # non-default value reaches dspy without changing the offline behaviour.
+    captured: dict[str, object] = {}
+    real_evaluate = dspy.Evaluate
+
+    def _spy(**kwargs: object) -> object:
+        captured.update(kwargs)
+        return real_evaluate(**kwargs)
+
+    monkeypatch.setattr(dspy, "Evaluate", _spy)
+
+    _run_eval(
+        TOPIC,
+        source_root=seeded_source,
+        llm_client=_routing_fake(),
+        work_root=tmp_path / "clone",
+        config=DEFAULT_CONFIG.with_overrides(failure_score=0.25),
+    )
+
+    assert captured["failure_score"] == 0.25, (
+        "run_eval must pass the configured failure_score to dspy.Evaluate, not dspy's default"
+    )
+
+
+# --------------------------------------------------------------------------- #
+# The result surfaces the clone root so the clone-relative manifest resolves
+# --------------------------------------------------------------------------- #
+
+
+def test_run_eval_returns_the_clone_root_the_manifest_resolves_against(
+    seeded_source: Path, tmp_path: Path
+) -> None:
+    clone = tmp_path / "eval-clone"
+
+    result = run_eval(
+        TOPIC,
+        source_root=seeded_source,
+        llm_client=_routing_fake(),
+        work_root=clone,
+        cache=ResponseCache(),
+    )
+
+    assert isinstance(result.record, MetricsRecord), "the result carries the appended record"
+    assert result.clone_root == clone, "the result surfaces the clone the run committed to"
+    assert result.record.artifact_ref is not None, "the record references a per-run manifest"
+    resolved = result.clone_root / result.record.artifact_ref
+    assert resolved.exists(), (
+        "the record's clone-relative artifact_ref resolves to a real file under the "
+        "returned clone root -- the manifest a human reviews the eval commit from"
     )

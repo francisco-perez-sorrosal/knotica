@@ -60,7 +60,7 @@ from knotica.evals.golden import (
     bootstrap,
     golden_staging_path,
 )
-from knotica.evals.harness import EvalHarnessError, run_eval
+from knotica.evals.harness import EvalHarnessError, EvalRunResult, run_eval
 from knotica.evals.judge import JudgeParseError
 from knotica.evals.llm import AnthropicClient
 from knotica.evals.runner import MalformedResponseError
@@ -190,7 +190,7 @@ def _run_eval(console: Console, vault: ResolvedVault, args: argparse.Namespace) 
 
     previous_version = _previous_harness_version(vault.path, args.topic)
     try:
-        record = run_eval(args.topic, source_root=vault.path, ref=args.ref, config=run_config)
+        result = run_eval(args.topic, source_root=vault.path, ref=args.ref, config=run_config)
     except GoldenSetMissingError as missing:
         _emit_error(console, missing)
         return EXIT_NO_GOLDEN_SET
@@ -212,8 +212,8 @@ def _run_eval(console: Console, vault: ResolvedVault, args: argparse.Namespace) 
         _emit_instrument_error(console, instrument)
         return EXIT_ERROR
 
-    _warn_instrument_drift(console, previous_version, record)
-    _emit_record(console, args, record)
+    _warn_instrument_drift(console, previous_version, result.record)
+    _emit_record(console, args, result)
     return EXIT_SUCCESS
 
 
@@ -384,22 +384,37 @@ def _render_bootstrap(
     console.data("  into the held-out golden set -- a human-gated step; nothing is auto-accepted.")
 
 
-def _emit_record(console: Console, args: argparse.Namespace, record: MetricsRecord) -> None:
+def _emit_record(console: Console, args: argparse.Namespace, result: EvalRunResult) -> None:
     """Render the appended record as a table or a stable ``--json`` envelope."""
     if args.json:
-        console.data(_json_payload(record))
+        console.data(_json_payload(result.record, result.clone_root))
     else:
-        _render_table(console, record)
+        _render_table(console, result.record, result.clone_root)
 
 
-def _json_payload(record: MetricsRecord) -> str:
+def _resolved_manifest_path(clone_root: Path, record: MetricsRecord) -> str | None:
+    """The run's manifest as a resolvable path (clone root + clone-relative ref).
+
+    The record's ``artifact_ref`` is relative to the throwaway clone, so on its own
+    it is not something a human can open. Anchoring it to ``clone_root`` yields the
+    absolute path the reproducibility manifest actually lives at. ``None`` when the
+    record carries no manifest ref.
+    """
+    if not record.artifact_ref:
+        return None
+    return str(clone_root / record.artifact_ref)
+
+
+def _json_payload(record: MetricsRecord, clone_root: Path) -> str:
     """Build the stable ``--json`` envelope for one eval record.
 
     Carries the record's own fields (scalar, the four components, ``corpus_ref``,
-    ``harness_version``, generation, examples) plus ``artifact_ref`` -- the
-    vault-relative manifest path where the full reproducibility detail (exact
-    token/USD totals, the judge cache hit-rate, the per-example breakdown) is
-    written on the clone.
+    ``harness_version``, generation, examples), the clone-relative ``artifact_ref``,
+    plus the ``clone_root`` the run committed to and the resolved ``manifest_path``
+    (``clone_root`` + ``artifact_ref``) -- the absolute file where the full
+    reproducibility detail (exact token/USD totals, the judge cache hit-rate, the
+    per-example breakdown) is written, and the clone a human reviews the eval commit
+    from.
     """
     import json
 
@@ -420,11 +435,13 @@ def _json_payload(record: MetricsRecord) -> str:
         "n_examples": record.n_examples,
         "corpus_ref": record.corpus_ref,
         "artifact_ref": record.artifact_ref,
+        "clone_root": str(clone_root),
+        "manifest_path": _resolved_manifest_path(clone_root, record),
     }
     return json.dumps(payload, ensure_ascii=False, indent=2)
 
 
-def _render_table(console: Console, record: MetricsRecord) -> None:
+def _render_table(console: Console, record: MetricsRecord, clone_root: Path) -> None:
     """Print the human-readable scalar + components table for one eval record."""
     components = record.components
     console.data(f"knotica eval    topic: {record.topic}")
@@ -439,7 +456,13 @@ def _render_table(console: Console, record: MetricsRecord) -> None:
     console.data(f"  examples           {record.n_examples}")
     console.data(f"  corpus             {record.corpus_ref}")
     console.data(f"  harness version    {record.harness_version}")
-    if record.artifact_ref:
+    console.data(f"  clone              {clone_root}")
+    manifest_path = _resolved_manifest_path(clone_root, record)
+    if manifest_path:
         # The manifest is where the exact token/USD totals and judge cache
         # hit-rate live; the record itself only carries the composed scalar.
-        console.data(f"  manifest           {record.artifact_ref}")
+        console.data(f"  manifest           {manifest_path}")
+    console.data("")
+    console.data("  Review: this run evaluated a throwaway clone at the path above; its one")
+    console.data("  knotica(eval) commit holds the frozen corpus and this manifest. Inspect or")
+    console.data("  diff that clone to review the run -- the live vault was not touched.")

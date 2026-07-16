@@ -89,6 +89,7 @@ from knotica.store import LocalFSStore, VaultStore
 __all__ = [
     "EvalHarnessError",
     "EvalRunError",
+    "EvalRunResult",
     "LiveVaultTargetError",
     "SpendCeilingExceededError",
     "run_eval",
@@ -199,6 +200,22 @@ class EvalRunError(EvalHarnessError):
         self.topic = topic
 
 
+@dataclass(frozen=True, slots=True)
+class EvalRunResult:
+    """One ``run_eval`` outcome: the appended record plus the clone it landed on.
+
+    ``run_eval`` commits its metrics line and per-run manifest to a throwaway
+    frozen-corpus *clone*, so the record's ``artifact_ref`` is clone-relative. This
+    result surfaces ``clone_root`` alongside the record so a caller can (a) resolve
+    the manifest at ``clone_root / record.artifact_ref`` and (b) point a human at
+    the clone to review the eval commit -- the frozen corpus and this run's manifest
+    live only there. The live source vault is untouched.
+    """
+
+    record: MetricsRecord
+    clone_root: Path
+
+
 class _UsageAccountingClient:
     """An :class:`~knotica.evals.llm.LLMClient` proxy that totals exact token usage.
 
@@ -288,7 +305,7 @@ def run_eval(
     cache: ResponseCache | None = None,
     work_root: str | Path | None = None,
     **overrides: object,
-) -> MetricsRecord:
+) -> EvalRunResult:
     """Evaluate ``topic`` against its frozen golden set and append one metrics record.
 
     Clones the source vault at ``ref`` (default HEAD), scores the topic's golden
@@ -324,7 +341,10 @@ def run_eval(
             re-validated onto ``config``.
 
     Returns:
-        The appended :class:`~knotica.core.records.MetricsRecord`.
+        An :class:`EvalRunResult` -- the appended
+        :class:`~knotica.core.records.MetricsRecord` and the ``clone_root`` it was
+        committed to, so a caller can resolve the record's clone-relative
+        ``artifact_ref`` and point a reviewer at the eval commit.
 
     Raises:
         LiveVaultTargetError: If the clone destination is the source vault root.
@@ -393,7 +413,7 @@ def run_eval(
         run_config,
     )
     _persist(clone_store, clone_vcs.root, topic, generation, record, manifest, budget, run_config)
-    return record
+    return EvalRunResult(record=record, clone_root=clone_vcs.root)
 
 
 # --------------------------------------------------------------------------- #
@@ -469,6 +489,12 @@ def _run_evaluate(
     devset size so a per-example failure never aborts the pass early -- the
     harness collects every result and decides on failures itself. The topic
     scalar is recomputed from these triples; ``EvaluationResult.score`` is ignored.
+
+    ``failure_score`` is the configured Evaluate failure policy -- the same value
+    the fingerprint (``runner_config_hash``) and the manifest record -- so the
+    instrument the record describes is the one actually applied. It is inert on a
+    clean pass (:func:`_reject_on_failures` aborts on any failure), but a caller
+    that raised it must see it reach ``dspy.Evaluate``, not dspy's own default.
     """
     devset = [golden.to_example(record) for record in records]
     evaluator = dspy.Evaluate(  # type: ignore[attr-defined]
@@ -477,6 +503,7 @@ def _run_evaluate(
         num_threads=config.num_threads,
         display_progress=False,
         max_errors=len(devset) + 1,
+        failure_score=config.failure_score,
     )
     return list(evaluator(program).results)
 

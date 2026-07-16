@@ -38,7 +38,7 @@ alone. Re-exporting these seams keeps
 the ``evals`` dependency group onto an unrelated path such as the MCP cold start.
 """
 
-from knotica.evals.harness import run_eval
+from knotica.evals.harness import EvalRunResult, run_eval
 from knotica.evals.llm import LLMClient
 from knotica.evals.program import BaselineProgram
 from knotica.evals.runner import BaselineRunner
@@ -47,6 +47,7 @@ from knotica.evals.scorer import build_metric
 __all__ = [
     "BaselineProgram",
     "BaselineRunner",
+    "EvalRunResult",
     "LLMClient",
     "build_metric",
     "run_eval",

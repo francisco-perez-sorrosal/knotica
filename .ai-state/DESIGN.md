@@ -85,9 +85,10 @@ Every tool/prompt honors the `unconfigured` contract (structured result, not an 
 - `build_metric(...)` → the closed-over `score(gold, prediction, trace=None) -> float | bool` — the
   triple-consumer seam: the bounded per-example quality float when `trace is None`, the bool
   `quality >= threshold` when `trace` is set (`dspy.Evaluate`'s 2-arg metric convention).
-- `run_eval(topic, *, source_root=None, ref=None, llm_client=None, config=DEFAULT_CONFIG, ...) -> MetricsRecord`
+- `run_eval(topic, *, source_root=None, ref=None, llm_client=None, config=DEFAULT_CONFIG, ...) -> EvalRunResult`
   — the orchestrator: clone → `golden.load` → `dspy.Evaluate` → compose scalar → one `VaultTransaction` on
-  the clone (source vault byte-identical).
+  the clone (source vault byte-identical). Returns the appended `MetricsRecord` plus the `clone_root` it
+  committed to, so the clone-relative `artifact_ref` resolves and the eval commit is reviewable.
 - `golden.load(store, topic) -> list[QARecord]` (read + `MANIFEST.json` verify) /
   `bootstrap(store, topic, llm_client, snapshot) -> list[dict]` (stage candidates, no commit) /
   `freeze(store, vault_root, topic, accepted) -> FreezeResult` (one commit) — the golden-set read + write sides.

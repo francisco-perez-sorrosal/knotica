@@ -45,6 +45,7 @@ the *real* client so its env-key guard fires authentically before any network.
 """
 
 import json
+import tempfile
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -66,7 +67,7 @@ from knotica.evals.golden import (
     GoldenSetMissingError,
     golden_staging_path,
 )
-from knotica.evals.harness import EvalRunError, SpendCeilingExceededError
+from knotica.evals.harness import EvalRunError, EvalRunResult, SpendCeilingExceededError
 from knotica.evals.judge import JudgeParseError
 from knotica.evals.llm import API_KEY_ENV_VAR, AnthropicClient
 from knotica.evals.runner import MalformedResponseError
@@ -74,6 +75,11 @@ from knotica.evals.runner import MalformedResponseError
 SEED_TOPIC = "agentic-systems"
 SENTINEL_API_KEY = "sk-ant-SENTINEL-must-never-leak-abc123"
 DEFAULT_HARNESS_VERSION = "hv-fingerprint-alpha"
+
+#: A synthetic clone root the stub reports as ``run_eval``'s committed clone -- a
+#: render value only (never touched on disk), so the CLI's clone-root and resolved-
+#: manifest output can be asserted without running the real (vault-cloning) harness.
+STUB_CLONE_ROOT = Path(tempfile.gettempdir()) / "knotica-eval-stub" / "clone"
 
 
 # ---------------------------------------------------------------------------
@@ -130,17 +136,21 @@ class _RunEvalStub:
     """A network-free stand-in for the harness ``run_eval``.
 
     Records every call so a test can assert the harness was (or was not) reached,
-    and replays either a canned ``MetricsRecord`` or a raised exception.
+    and replays either a canned ``MetricsRecord`` (wrapped in the ``EvalRunResult``
+    ``run_eval`` returns, with a synthetic clone root) or a raised exception.
     """
 
     def __init__(self) -> None:
         self.calls: list[tuple[str, dict[str, object]]] = []
         self._result: MetricsRecord | None = None
         self._error: BaseException | None = None
+        self._clone_root: Path = STUB_CLONE_ROOT
 
-    def returns(self, record: MetricsRecord) -> "_RunEvalStub":
+    def returns(self, record: MetricsRecord, *, clone_root: Path | None = None) -> "_RunEvalStub":
         self._result = record
         self._error = None
+        if clone_root is not None:
+            self._clone_root = clone_root
         return self
 
     def raises(self, error: BaseException) -> "_RunEvalStub":
@@ -148,12 +158,12 @@ class _RunEvalStub:
         self._result = None
         return self
 
-    def __call__(self, topic: str, **kwargs: object) -> MetricsRecord:
+    def __call__(self, topic: str, **kwargs: object) -> EvalRunResult:
         self.calls.append((topic, kwargs))
         if self._error is not None:
             raise self._error
         assert self._result is not None, "the stub was invoked before a result was set"
-        return self._result
+        return EvalRunResult(record=self._result, clone_root=self._clone_root)
 
 
 @pytest.fixture
@@ -530,6 +540,51 @@ def test_json_output_round_trips_and_carries_the_record_facts(
         record.components.token_cost,
     ):
         assert expected in leaves, f"the --json envelope must carry {expected!r}; leaves {leaves!r}"
+
+
+# ---------------------------------------------------------------------------
+# Artifact discoverability: the clone root + a resolvable manifest path so the
+# eval commit is reviewable (the run committed to a throwaway clone, not the vault)
+# ---------------------------------------------------------------------------
+
+
+def test_successful_run_surfaces_the_clone_root_and_a_resolvable_manifest_path(
+    vault_config: Path, run_eval_stub: _RunEvalStub, invoke
+):
+    """The clone the run committed to must be discoverable: the table prints the
+    clone root, the manifest as a path resolvable against it (not the bare clone-
+    relative ref), and a review-the-clone handoff — so a human can open the manifest
+    and review the eval commit."""
+    record = _metrics_record()
+    run_eval_stub.returns(record)
+
+    result = invoke("eval", "--topic", SEED_TOPIC)
+
+    assert result.code == EXIT_SUCCESS, result.err
+    assert str(STUB_CLONE_ROOT) in result.out, "the table must name the clone root the run wrote to"
+    resolved_manifest = str(STUB_CLONE_ROOT / record.artifact_ref)
+    assert resolved_manifest in result.out, (
+        "the manifest must be a path resolvable against the clone root, not the bare ref"
+    )
+    assert "Review" in result.out, "the table must include the review-the-clone handoff hint"
+
+
+def test_json_output_carries_the_clone_root_and_the_resolved_manifest_path(
+    vault_config: Path, run_eval_stub: _RunEvalStub, invoke
+):
+    record = _metrics_record()
+    run_eval_stub.returns(record)
+
+    result = invoke("eval", "--topic", SEED_TOPIC, "--json")
+
+    assert result.code == EXIT_SUCCESS, result.err
+    payload = json.loads(result.out)
+    assert payload["clone_root"] == str(STUB_CLONE_ROOT), (
+        "the --json envelope must carry the clone root the run committed to"
+    )
+    assert payload["manifest_path"] == str(STUB_CLONE_ROOT / record.artifact_ref), (
+        "the --json envelope must carry the manifest resolved against the clone root"
+    )
 
 
 # ---------------------------------------------------------------------------
