@@ -20,6 +20,7 @@ __all__ = [
     "EXIT_ERROR",
     "EXIT_MIGRATION_AVAILABLE",
     "EXIT_MISUSE",
+    "EXIT_NO_GOLDEN_SET",
     "EXIT_NOT_CONFIGURED",
     "EXIT_SUCCESS",
     "UNCONFIGURED_MESSAGE",
@@ -36,6 +37,7 @@ EXIT_ERROR = 1  #: a check FAILED or the operation failed.
 EXIT_MISUSE = 2  #: bad arguments / wrong usage (argparse also emits this).
 EXIT_NOT_CONFIGURED = 3  #: no config.toml / vault (mirrors the tool NOT_CONFIGURED).
 EXIT_MIGRATION_AVAILABLE = 4  #: `migrate --check` only; up-to-date is EXIT_SUCCESS.
+EXIT_NO_GOLDEN_SET = 5  #: `eval` only: the topic has no golden set; run `eval --bootstrap`.
 
 #: The unconfigured message, byte-identical in intent across every surface
 #: (interface consistency rule): tools render it in the envelope, the CLI prints

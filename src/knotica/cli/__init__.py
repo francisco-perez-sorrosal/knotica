@@ -38,6 +38,7 @@ COMMAND_NAMES: tuple[str, ...] = (
     "prompt",
     "guillotine",
     "okf",
+    "eval",
 )
 
 
