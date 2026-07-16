@@ -8,10 +8,13 @@ protection for the vault's foreign content -- a concurrent Obsidian edit to an
 unrelated file can never be swept into a knotica commit or destroyed by a
 knotica rollback.
 
-Consumers: ``core.transaction`` only (the single mutation path). Adapters never
-import this module. Commit messages are composed by the caller (the frozen
-grammar lives in the vault constitution and ``core.records``); this module
-treats them as opaque strings.
+Consumers of the **mutating** surface (``commit_paths``/``rollback_paths``):
+``core.transaction`` only (the single mutation path). The read/checkout
+``clone_to`` is additionally called by the eval harness to build an immutable
+frozen-corpus clone -- it creates a fresh tree elsewhere and never touches the
+live vault, so it stays outside the single-mutation-path invariant. Commit
+messages are composed by the caller (the frozen grammar lives in the vault
+constitution and ``core.records``); this module treats them as opaque strings.
 
 Failures surface as :class:`GitError`, which the transaction layer maps to the
 user-facing git-failure contract. Transient ``index.lock`` contention (another
@@ -28,6 +31,15 @@ from pathlib import Path, PurePath
 INDEX_LOCK_RETRY_WAIT_SECONDS = 2.0
 #: Number of retries (beyond the first attempt) on ``index.lock`` contention.
 INDEX_LOCK_RETRIES = 3
+
+#: Committer identity stamped locally on an eval clone. A fresh ``git clone``
+#: inherits no committer identity from the source's *local* config, so on a
+#: machine with no global git identity a later commit would fail with
+#: "Author identity unknown". Stamping a fixed local identity makes eval commits
+#: deterministic and independent of ambient global git config. The ``.invalid``
+#: TLD (RFC 2606) guarantees the address never resolves to a real mailbox.
+_CLONE_COMMITTER_NAME = "knotica eval harness"
+_CLONE_COMMITTER_EMAIL = "eval@knotica.invalid"
 
 _GIT_COMMAND_TIMEOUT_SECONDS = 60.0
 
@@ -105,6 +117,61 @@ class VaultVcs:
             command += ["--", *_normalize_paths(paths)]
         result = self._run(command, optional_locks=False)
         return bool(result.stdout.strip())
+
+    def clone_to(self, dest_root: str | PurePath, ref: str | None = None) -> "VaultVcs":
+        """Clone this vault to ``dest_root`` and return a ``VaultVcs`` on the clone.
+
+        Runs ``git clone <this-root> <dest_root>`` and, when ``ref`` is given,
+        checks that commit-ish out on the clone. The returned wrapper is bound to
+        the clone, which is the same shape as any vault root -- so
+        :class:`~knotica.store.LocalFSStore`, the search backend, and
+        ``VaultTransaction`` all work against it unchanged.
+
+        This is the frozen-corpus mechanism: an eval loop clones the live vault
+        to a throwaway tree, works there, and leaves the source byte-identical.
+        ``clone_to`` is a read/checkout operation -- it only reads the source and
+        writes a fresh tree elsewhere, never mutating the live vault -- which is
+        why it lives here (keeping all git subprocess in one module) rather than
+        in a separate clone module, and why it is absent from the mutating
+        surface the single-mutation-path fitness test guards.
+
+        A fresh clone inherits no committer identity from the source's local git
+        config, so a fixed local identity is stamped on the clone (and gpg
+        signing disabled) -- see :func:`_stamp_committer_identity` -- so a later
+        eval ``VaultTransaction`` commit succeeds regardless of the machine's
+        ambient global git config, and ``head_sha()`` on the returned wrapper
+        yields the pinned corpus SHA.
+
+        Args:
+            dest_root: Where to create the clone. ``git clone`` creates this
+                directory; it must not already exist.
+            ref: Optional commit-ish to check out after cloning. ``None`` leaves
+                the clone on the source's default ``HEAD``.
+
+        Returns:
+            A :class:`VaultVcs` bound to the freshly created clone.
+
+        Raises:
+            GitError: If the clone or the optional checkout fails.
+        """
+        destination = Path(dest_root)
+        self._run(["clone", str(self._root), str(destination)])
+        clone = VaultVcs(destination)
+        clone._stamp_committer_identity()
+        if ref is not None:
+            clone._run(["checkout", ref], retry_index_lock=True)
+        return clone
+
+    def _stamp_committer_identity(self) -> None:
+        """Set a fixed local committer identity and disable gpg signing here.
+
+        Local git config overrides global, so this makes the eval committer
+        identity deterministic on every machine and lets a commit succeed even
+        where no global identity is configured (a fresh clone inherits none).
+        """
+        self._run(["config", "user.name", _CLONE_COMMITTER_NAME])
+        self._run(["config", "user.email", _CLONE_COMMITTER_EMAIL])
+        self._run(["config", "commit.gpgsign", "false"])
 
     def commit_paths(self, paths: Sequence[str | PurePath], message: str) -> str:
         """Stage and commit exactly the given paths; return the new commit SHA.

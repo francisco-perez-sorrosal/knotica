@@ -12,11 +12,18 @@ The contract under test (vault constitution + mutation-discipline design):
    enough; the capability must be structurally absent.
 3. **Commit messages round-trip the frozen grammar** and failures surface as
    the typed ``GitError`` carrying actionable context.
+4. **Cloning yields an independent, committable frozen corpus.** ``clone_to``
+   produces a git clone pinned at the source ``HEAD`` (or an explicit ref) as
+   its own ``VaultVcs``, stamps a clone-local committer identity so a later eval
+   commit succeeds even on a machine with no ambient git identity, and leaves
+   the source byte-identical.
 
 All tests run against real git repositories (the ``template_vault`` fixture);
-nothing about git is mocked.
+nothing about git is mocked, and every clone is a local-path clone (zero
+network).
 """
 
+import os
 from pathlib import Path
 
 import pytest
@@ -284,3 +291,131 @@ def test_is_dirty_scopes_to_the_given_paths(vcs: VaultVcs, template_vault: Path)
 def test_a_missing_vault_root_is_rejected_at_construction(tmp_path: Path) -> None:
     with pytest.raises(NotADirectoryError):
         VaultVcs(tmp_path / "does-not-exist")
+
+
+# ---------------------------------------------------------------------------
+# clone_to: the frozen-corpus mechanism
+# ---------------------------------------------------------------------------
+
+
+def _blind_ambient_git_identity(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Make the process look like a machine with no git identity configured.
+
+    ``VaultVcs._run`` copies ``os.environ`` verbatim -- unlike the suite's
+    ``run_git`` helper, it does not blind git's global/system config. So a
+    commit it drives would otherwise borrow the developer's ambient global
+    identity and silently mask a *missing* clone-local identity. Blinding global
+    + system config and clearing the ``GIT_*_NAME``/``GIT_*_EMAIL`` overrides
+    leaves clone-local config as the only possible source of committer
+    identity -- which only ``clone_to`` stamps. This is what makes the identity
+    carry-forward assertions below bite on a normally-configured machine instead
+    of passing vacuously.
+    """
+    monkeypatch.setenv("GIT_CONFIG_GLOBAL", os.devnull)
+    monkeypatch.setenv("GIT_CONFIG_SYSTEM", os.devnull)
+    for override in (
+        "GIT_AUTHOR_NAME",
+        "GIT_AUTHOR_EMAIL",
+        "GIT_COMMITTER_NAME",
+        "GIT_COMMITTER_EMAIL",
+    ):
+        monkeypatch.delenv(override, raising=False)
+
+
+def test_a_fresh_clone_is_pinned_to_the_source_head(vcs: VaultVcs, tmp_path: Path) -> None:
+    clone_root = tmp_path / "clone"
+
+    clone_vcs = vcs.clone_to(clone_root)
+
+    assert isinstance(clone_vcs, VaultVcs), "clone_to returns a VaultVcs bound to the clone"
+    assert clone_vcs.root == clone_root.resolve(), "the returned wrapper is rooted at the clone"
+    assert clone_vcs.head_sha() == vcs.head_sha(), (
+        "a fresh clone snapshots the source HEAD -- the corpus_ref the eval pins"
+    )
+
+
+def test_clone_at_an_explicit_sha_pins_that_ref_not_the_source_head(
+    vcs: VaultVcs, template_vault: Path, tmp_path: Path
+) -> None:
+    older_sha = vcs.head_sha()
+    (template_vault / "advance.md").write_text("newer state\n", encoding="utf-8")
+    newer_sha = vcs.commit_paths(["advance.md"], A_GRAMMAR_MESSAGE)
+    assert newer_sha != older_sha, "precondition: the source advanced past the pinned ref"
+
+    clone_vcs = vcs.clone_to(tmp_path / "clone", ref=older_sha)
+
+    assert clone_vcs.head_sha() == older_sha, "the clone is checked out at the requested ref"
+    assert clone_vcs.head_sha() != newer_sha, "not the source's newer HEAD"
+
+
+def test_clone_at_an_explicit_branch_pins_that_branch(
+    vcs: VaultVcs, template_vault: Path, tmp_path: Path
+) -> None:
+    pinned_sha = vcs.head_sha()
+    run_git(template_vault, "branch", "eval-pin", pinned_sha)
+    (template_vault / "advance.md").write_text("newer state\n", encoding="utf-8")
+    vcs.commit_paths(["advance.md"], A_GRAMMAR_MESSAGE)
+
+    clone_vcs = vcs.clone_to(tmp_path / "clone", ref="eval-pin")
+
+    assert clone_vcs.head_sha() == pinned_sha, "the clone is checked out at the named branch"
+    assert clone_vcs.head_sha() != vcs.head_sha(), "not the source's advanced HEAD"
+
+
+def test_a_commit_on_the_clone_succeeds_with_no_ambient_git_identity(
+    vcs: VaultVcs, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # A fresh `git clone` inherits no local committer identity; clone_to must
+    # stamp one so a later eval transaction commits cleanly on an identity-less
+    # machine. Blinding the ambient identity is what makes this assertion bite.
+    _blind_ambient_git_identity(monkeypatch)
+    clone_vcs = vcs.clone_to(tmp_path / "clone")
+
+    (clone_vcs.root / "eval-output.md").write_text("written on the clone\n", encoding="utf-8")
+    returned = clone_vcs.commit_paths(["eval-output.md"], A_GRAMMAR_MESSAGE)
+
+    assert returned == clone_vcs.head_sha(), (
+        "the commit landed on clone-local identity alone -- no ambient git identity was available"
+    )
+
+
+def test_a_commit_on_the_clone_never_reaches_the_source_history(
+    vcs: VaultVcs, template_vault: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _blind_ambient_git_identity(monkeypatch)
+    clone_vcs = vcs.clone_to(tmp_path / "clone")
+    source_subjects_before = git_commit_subjects(template_vault)
+
+    (clone_vcs.root / "clone-only.md").write_text("only on the clone\n", encoding="utf-8")
+    clone_vcs.commit_paths(["clone-only.md"], A_GRAMMAR_MESSAGE)
+
+    assert git_commit_subjects(template_vault) == source_subjects_before, (
+        "the clone is an independent repository -- its commits never enter the source's log"
+    )
+
+
+def test_cloning_leaves_the_source_byte_identical(
+    vcs: VaultVcs, template_vault: Path, tmp_path: Path
+) -> None:
+    head_before = vcs.head_sha()
+    count_before = git_commit_count(template_vault)
+    status_before = git_status_porcelain(template_vault)
+
+    vcs.clone_to(tmp_path / "clone")
+
+    assert vcs.head_sha() == head_before, "the source HEAD must not move"
+    assert git_commit_count(template_vault) == count_before, "the source gains no commit"
+    assert git_status_porcelain(template_vault) == status_before, "the source tree is unchanged"
+
+
+def test_cloning_a_non_repository_source_raises_a_typed_git_error(tmp_path: Path) -> None:
+    plain_dir = tmp_path / "not-a-repo"
+    plain_dir.mkdir()
+    non_repo_vcs = VaultVcs(plain_dir)  # an existing directory, but not a git work tree
+
+    with pytest.raises(GitError) as exc_info:
+        non_repo_vcs.clone_to(tmp_path / "clone")
+
+    error = exc_info.value
+    assert error.command, "GitError must carry the failing command for diagnostics"
+    assert error.output, "GitError must carry git's output for diagnostics"
