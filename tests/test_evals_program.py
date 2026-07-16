@@ -54,13 +54,17 @@ import subprocess
 import sys
 from dataclasses import dataclass, field
 
-import dspy
 import pytest
 
 from knotica.evals.llm import Completion, FakeLLMClient, TokenUsage
 from knotica.evals.program import BaselineProgram
 from knotica.evals.runner import MessagesApiRunner, Prediction
 from knotica.store import LocalFSStore
+
+# ``dspy`` lives in the eval-only dependency group; skip this whole module (not
+# abort collection) when the base test env has not installed it, so the plain
+# ``uv run pytest`` loop still collects the rest of the suite.
+dspy = pytest.importorskip("dspy")
 
 #: The template vault's demo topic -- has entity pages and a stored source whose
 #: key the real runner's retrieval feeds to the model.

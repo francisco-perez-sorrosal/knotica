@@ -143,7 +143,9 @@ def test_constructing_the_anthropic_client_with_a_key_present_succeeds(
 ) -> None:
     # A dummy value is enough: construction validates key presence and builds the
     # SDK client, which makes no network call on construction (the autouse guard
-    # would fire on any socket). Requires the `evals` group installed.
+    # would fire on any socket). Requires the `evals` group installed, so skip on
+    # the base test env where `anthropic` is absent (the lazy import would raise).
+    pytest.importorskip("anthropic")
     monkeypatch.setenv(ANTHROPIC_KEY_ENV, "sk-ant-dummy-value-not-real")
 
     client = AnthropicClient()
@@ -159,6 +161,9 @@ def test_constructing_the_anthropic_client_with_a_key_present_succeeds(
 def test_the_client_never_echoes_the_api_key_in_its_repr_or_str(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    # Constructing a real client builds the SDK client (lazy `anthropic` import),
+    # so skip on the base test env where the `evals` group is not installed.
+    pytest.importorskip("anthropic")
     monkeypatch.setenv(ANTHROPIC_KEY_ENV, SENTINEL_KEY)
 
     client = AnthropicClient()

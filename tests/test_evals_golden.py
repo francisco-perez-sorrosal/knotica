@@ -64,7 +64,6 @@ from collections.abc import Iterable
 from dataclasses import replace
 from pathlib import Path
 
-import dspy
 import pytest
 
 from knotica.core.records import QARecord
@@ -82,6 +81,11 @@ from knotica.evals.golden import (
 from knotica.evals.llm import Completion, FakeLLMClient, TokenUsage
 from knotica.store import LocalFSStore
 from support.vault import git_commit_count, git_commit_subjects, parse_knotica_commit
+
+# ``dspy`` lives in the eval-only dependency group; skip this whole module (not
+# abort collection) when the base test env has not installed it, so the plain
+# ``uv run pytest`` loop still collects the rest of the suite.
+dspy = pytest.importorskip("dspy")
 
 # NOTE on deferred imports: the write-side entry points ``bootstrap`` and
 # ``freeze`` are imported *inside* each write-side test body below, never at
