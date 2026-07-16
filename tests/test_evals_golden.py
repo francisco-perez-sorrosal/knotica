@@ -69,12 +69,27 @@ import pytest
 
 from knotica.core.records import QARecord
 from knotica.evals.golden import (
+    EVAL_MIN_GOLDEN,
+    GOLDEN_SPLIT,
     GoldenSetContaminationError,
+    GoldenSetMissingError,
+    golden_dataset_path,
+    golden_manifest_path,
     load,
     to_example,
     verify_disjoint_from_trainset,
 )
+from knotica.evals.llm import Completion, FakeLLMClient, TokenUsage
 from knotica.store import LocalFSStore
+from support.vault import git_commit_count, git_commit_subjects, parse_knotica_commit
+
+# NOTE on deferred imports: the write-side entry points ``bootstrap`` and
+# ``freeze`` are imported *inside* each write-side test body below, never at
+# module top. They do not exist until the bootstrap-workflow step lands, and a
+# top-level import of a missing name would break collection of the 14 already
+# green read-side tests above. Deferring the import keeps those green and lets
+# each write-side test fail in isolation (ImportError) until the implementation
+# arrives -- the standard RED handshake for a file that extends a live suite.
 
 #: The topic whose golden set the happy-path cases build under ``tmp_path``.
 TOPIC = "agentic-systems"
@@ -484,3 +499,331 @@ def test_importing_the_golden_module_imports_neither_dspy_nor_anthropic() -> Non
         f"child stdout={result.stdout!r} stderr={result.stderr!r}"
     )
     assert "IMPORT_ISOLATION_OK" in result.stdout
+
+
+# =========================================================================== #
+# Write side -- interactive bootstrap (synthetic generation) + review-freeze.
+#
+# This half of ``evals.golden`` produces a golden set: a strong model reads the
+# topic's entity pages and proposes candidate QA pairs to a review *staging*
+# file (never committed, never masquerading as the frozen set); a human accepts
+# a subset; ``freeze`` writes the accepted pairs to ``golden.jsonl`` plus a
+# content-addressing ``MANIFEST.json`` through the one mutation path, disjoint
+# from the flywheel trainset. The read side above is the round-trip anchor:
+# whatever ``freeze`` writes, ``load`` must verify and return.
+#
+# PINNED negotiables (reconciliation points if the implementation diverges --
+# the plan proposes these shapes but leaves the concrete write-side API a
+# later-step call; the tests assert observable behaviour, not these choices):
+#
+#   A. Interface names / call shape. Exercised through module-level
+#      ``bootstrap(store, topic, llm_client, snapshot) -> list[dict]`` and
+#      ``freeze(store, vault_root, topic, accepted)``. Imported inside each test
+#      body (see the deferred-import note near the top of this file).
+#   B. Candidate shape. A generated/accepted candidate is a dict carrying one QA
+#      pair's human-reviewable content -- a question, a reference answer, and
+#      reference citations (plan: ``(question, reference_answer,
+#      supporting_pages/citations)``). ``freeze`` stamps the frozen provenance
+#      (``source: curate_example``, id, verdict, model, date) itself. ``_candidate``
+#      is the single seam if the implementation keys these differently.
+#   C. Staging file. ``bootstrap`` persists candidates to a review file distinct
+#      from ``golden.jsonl`` (plan: ``golden.staging.jsonl``) and never commits
+#      it. The tests assert "a new dataset file that is not the frozen set or the
+#      trainset", not a hardcoded staging filename.
+#   D. Commit grammar / op. ``freeze`` commits through one ``VaultTransaction``;
+#      the op slot is the implementer's call (plan default: ``curate_example``).
+#      The tests assert the commit parses under the frozen grammar for the right
+#      topic and that exactly one lands -- never a specific op string.
+#   E. Below-floor surfacing. A freeze below ``EVAL_MIN_GOLDEN`` is permitted
+#      (the human is the gate), not a hard block. The channel the warning travels
+#      (return value / envelope / ``warnings``) is unpinned; the tests pin only
+#      that it does not raise and the small set still freezes and loads.
+# =========================================================================== #
+
+#: A distinctive worker snapshot. Asserting it reaches the fake proves the
+#: caller-supplied snapshot is threaded through to the generation call, not a
+#: hardcoded default substituted somewhere inside ``bootstrap``.
+BOOTSTRAP_SNAPSHOT = "worker-snapshot-SENTINEL-00000000"
+
+#: The candidate keys the freeze side reads as human-reviewable content (seam B).
+_CANDIDATE_FIELDS = frozenset({"question", "reference_answer", "citations"})
+
+
+def _candidate(
+    *,
+    question: str,
+    reference_answer: str = "Reusable task strategies persisted and reused across episodes.",
+    citations: tuple[str, ...] = ("wang2024awm",),
+    supporting_pages: tuple[str, ...] = ("agent-workflow-memory",),
+) -> dict[str, object]:
+    """One human-reviewable candidate QA pair (see PINNED negotiable B)."""
+    return {
+        "question": question,
+        "reference_answer": reference_answer,
+        "citations": list(citations),
+        "supporting_pages": list(supporting_pages),
+    }
+
+
+def _completion_for(candidate: dict[str, object]) -> Completion:
+    """A canned worker completion whose text is one candidate, in the runner's JSON shape."""
+    return Completion(
+        text=json.dumps(candidate),
+        usage=TokenUsage(input_tokens=140, output_tokens=70),
+    )
+
+
+def _distinct_completions(count: int) -> list[Completion]:
+    """A sequence of distinct canned candidates -- one per generation call, distinct questions."""
+    return [
+        _completion_for(_candidate(question=f"Synthetic golden question {index}?"))
+        for index in range(count)
+    ]
+
+
+def _staging_files(vault_root: Path, topic: str) -> list[Path]:
+    """Dataset ``.jsonl`` files bootstrap may have staged: not the frozen set, not the trainset."""
+    reserved = {
+        Path(golden_dataset_path(topic)).name,
+        Path(golden_manifest_path(topic)).name,
+        "qa.jsonl",
+    }
+    return [
+        path
+        for path in sorted(_datasets_dir(vault_root, topic).glob("*.jsonl"))
+        if path.is_file() and path.name not in reserved
+    ]
+
+
+def _carries_candidate_fields(candidate: object) -> bool:
+    """Whether ``candidate`` is a mapping carrying the human-reviewable QA fields (seam B)."""
+    return isinstance(candidate, dict) and _CANDIDATE_FIELDS <= set(candidate)
+
+
+def _all_calls_used(fake: FakeLLMClient, *, snapshot: str, temperature: float) -> bool:
+    """Whether every recorded generation call used the given snapshot and temperature."""
+    return all(call.snapshot == snapshot and call.temperature == temperature for call in fake.calls)
+
+
+# --------------------------------------------------------------------------- #
+# bootstrap -- synthesise candidates to a review staging file, never freeze
+# --------------------------------------------------------------------------- #
+
+
+def test_bootstrap_stages_candidates_without_freezing_a_golden_set(
+    template_vault: Path, isolated_home: Path
+) -> None:
+    from knotica.evals.golden import bootstrap
+
+    store = LocalFSStore(template_vault)
+    fake = FakeLLMClient(_distinct_completions(5))
+    commits_before = git_commit_count(template_vault)
+
+    candidates = bootstrap(store, TOPIC, fake, BOOTSTRAP_SNAPSHOT)
+
+    assert candidates, "bootstrap synthesises at least one candidate from the topic's entity pages"
+    assert _staging_files(template_vault, TOPIC), (
+        "the candidates land in a review staging file distinct from the frozen golden set"
+    )
+    assert not store.exists(golden_dataset_path(TOPIC)), (
+        "bootstrap stages only -- it never writes golden.jsonl directly"
+    )
+    assert not store.exists(golden_manifest_path(TOPIC)), "bootstrap writes no MANIFEST.json"
+    assert git_commit_count(template_vault) == commits_before, (
+        "staging is never auto-committed -- the human review-and-freeze gate owns the commit"
+    )
+
+
+def test_bootstrap_calls_the_worker_at_temperature_zero_with_the_supplied_snapshot(
+    template_vault: Path, isolated_home: Path
+) -> None:
+    from knotica.evals.golden import bootstrap
+
+    store = LocalFSStore(template_vault)
+    fake = FakeLLMClient(_distinct_completions(5))
+
+    bootstrap(store, TOPIC, fake, BOOTSTRAP_SNAPSHOT)
+
+    assert fake.call_count > 0, "non-vacuity: bootstrap actually reaches the worker model at all"
+    assert _all_calls_used(fake, snapshot=BOOTSTRAP_SNAPSHOT, temperature=0.0), (
+        "every generation call is deterministic (temperature 0) and uses the caller-supplied "
+        "snapshot, not a hardcoded default"
+    )
+
+
+def test_bootstrap_candidates_carry_a_question_reference_answer_and_citations(
+    template_vault: Path, isolated_home: Path
+) -> None:
+    from knotica.evals.golden import bootstrap
+
+    store = LocalFSStore(template_vault)
+    fake = FakeLLMClient(_distinct_completions(5))
+
+    candidates = bootstrap(store, TOPIC, fake, BOOTSTRAP_SNAPSHOT)
+
+    assert candidates, "non-vacuity: bootstrap produced candidates whose shape can be checked"
+    assert all(_carries_candidate_fields(candidate) for candidate in candidates), (
+        "each staged candidate carries the human-reviewable QA content -- a question, a reference "
+        f"answer, and reference citations; got {candidates!r}"
+    )
+
+
+def test_a_bootstrapped_but_unfrozen_topic_still_reports_no_golden_set(
+    template_vault: Path, isolated_home: Path
+) -> None:
+    from knotica.evals.golden import bootstrap
+
+    store = LocalFSStore(template_vault)
+    fake = FakeLLMClient(_distinct_completions(5))
+
+    bootstrap(store, TOPIC, fake, BOOTSTRAP_SNAPSHOT)
+
+    # The staging file must never masquerade as a frozen golden set: with only
+    # staged candidates present, load still reports the set as absent.
+    with pytest.raises(GoldenSetMissingError):
+        load(store, TOPIC)
+
+
+# --------------------------------------------------------------------------- #
+# freeze -- accepted pairs become a content-addressed, held-out golden set
+# --------------------------------------------------------------------------- #
+
+
+def test_freeze_writes_a_content_addressed_golden_set_that_load_verifies(
+    template_vault: Path, isolated_home: Path
+) -> None:
+    from knotica.evals.golden import freeze
+
+    store = LocalFSStore(template_vault)
+    accepted = [
+        _candidate(question="What is workflow memory?"),
+        _candidate(question="How are induced workflows reused?"),
+        _candidate(question="What grounds a cited agent claim?"),
+    ]
+
+    freeze(store, template_vault, TOPIC, accepted)
+
+    # The round-trip anchor: load succeeds only if the sibling MANIFEST verifies.
+    loaded = load(store, TOPIC)
+    assert len(loaded) == len(accepted), "every accepted pair is frozen into the golden set"
+    assert all(record.source == "curate_example" for record in loaded), (
+        "human review is a curation act -- frozen records carry source 'curate_example'"
+    )
+
+    golden_text = (template_vault / golden_dataset_path(TOPIC)).read_text(encoding="utf-8")
+    manifest = json.loads(
+        (template_vault / golden_manifest_path(TOPIC)).read_text(encoding="utf-8")
+    )
+    assert manifest["sha256"] == _sha256(golden_text), (
+        "MANIFEST.json content-addresses the exact frozen golden.jsonl bytes"
+    )
+    assert manifest["split"] == GOLDEN_SPLIT, "the frozen set is marked held-out, never a trainset"
+    assert manifest["size"] == len(loaded), "MANIFEST size matches the frozen record count"
+
+
+def test_freeze_lands_exactly_one_commit_in_the_frozen_grammar(
+    template_vault: Path, isolated_home: Path
+) -> None:
+    from knotica.evals.golden import freeze
+
+    store = LocalFSStore(template_vault)
+    commits_before = git_commit_count(template_vault)
+
+    freeze(store, template_vault, TOPIC, [_candidate(question="What is workflow memory?")])
+
+    assert git_commit_count(template_vault) == commits_before + 1, (
+        "freezing a golden set is exactly one commit through the single mutation path"
+    )
+    subject = git_commit_subjects(template_vault)[0]
+    parsed = parse_knotica_commit(subject)
+    assert parsed is not None, "the freeze commit uses the frozen knotica(<op>) grammar"
+    assert parsed["topic"] == TOPIC, "the freeze commit records the evaluated topic"
+
+
+def test_freeze_writes_only_the_reviewer_accepted_subset(
+    template_vault: Path, isolated_home: Path
+) -> None:
+    from knotica.evals.golden import freeze
+
+    store = LocalFSStore(template_vault)
+    generated = [
+        _candidate(question="Accepted question one?"),
+        _candidate(question="Rejected question?"),
+        _candidate(question="Accepted question two?"),
+    ]
+    accepted = [generated[0], generated[2]]  # the reviewer drops the middle candidate
+
+    freeze(store, template_vault, TOPIC, accepted)
+
+    loaded = load(store, TOPIC)
+    assert sorted(record.query for record in loaded) == [
+        "Accepted question one?",
+        "Accepted question two?",
+    ], (
+        "only the reviewer-accepted pairs are frozen; the rejected candidate never reaches golden.jsonl"
+    )
+
+
+def test_freeze_refuses_a_candidate_already_in_the_flywheel_trainset(
+    template_vault: Path, isolated_home: Path
+) -> None:
+    from knotica.evals.golden import freeze
+
+    shared_question = "What distinguishes an agentic workflow memory?"
+    _write_flywheel(template_vault, TOPIC, [_qa_record(record_id="qa-0001", query=shared_question)])
+    store = LocalFSStore(template_vault)
+    commits_before = git_commit_count(template_vault)
+
+    with pytest.raises(GoldenSetContaminationError):
+        freeze(store, template_vault, TOPIC, [_candidate(question=shared_question)])
+
+    # Disjointness is verified pre-freeze: a contaminated set writes nothing --
+    # no golden.jsonl, no MANIFEST.json, no commit -- so there is no partial state.
+    assert not store.exists(golden_dataset_path(TOPIC)), (
+        "a contaminated freeze writes no golden.jsonl"
+    )
+    assert not store.exists(golden_manifest_path(TOPIC)), "a contaminated freeze writes no MANIFEST"
+    assert git_commit_count(template_vault) == commits_before, "a refused freeze lands no commit"
+
+
+def test_freezing_below_the_minimum_floor_succeeds_rather_than_blocking(
+    template_vault: Path, isolated_home: Path
+) -> None:
+    from knotica.evals.golden import freeze
+
+    store = LocalFSStore(template_vault)
+    # Far fewer than EVAL_MIN_GOLDEN: the human is the gate, so a small set is a
+    # permitted (warn-worthy) freeze, never a hard block.
+    accepted = [_candidate(question=f"Below-floor question {index}?") for index in range(3)]
+    assert len(accepted) < EVAL_MIN_GOLDEN, "precondition: the set is below the recommended floor"
+
+    freeze(store, template_vault, TOPIC, accepted)  # must not raise -- a small set is permitted
+
+    loaded = load(store, TOPIC)
+    assert len(loaded) == len(accepted), "the below-floor set is still frozen and loadable"
+
+
+# --------------------------------------------------------------------------- #
+# End to end -- the generate -> review -> freeze pipeline connects
+# --------------------------------------------------------------------------- #
+
+
+def test_bootstrapped_candidates_freeze_and_load_end_to_end(
+    template_vault: Path, isolated_home: Path
+) -> None:
+    from knotica.evals.golden import bootstrap, freeze
+
+    store = LocalFSStore(template_vault)
+    fake = FakeLLMClient(_distinct_completions(5))
+
+    candidates = bootstrap(store, TOPIC, fake, BOOTSTRAP_SNAPSHOT)
+    freeze(store, template_vault, TOPIC, candidates)
+
+    loaded = load(store, TOPIC)
+    assert len(loaded) == len(candidates), (
+        "the whole generate -> review -> freeze pipeline connects: every bootstrapped candidate "
+        "freezes into a loadable golden record"
+    )
+    assert all(record.source == "curate_example" for record in loaded), (
+        "frozen records carry the curation provenance regardless of their synthetic origin"
+    )
