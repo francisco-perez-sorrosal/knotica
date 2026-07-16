@@ -42,9 +42,12 @@ CANDIDATE_KEYS = ("question", "reference_answer", "citations", "pages_used")
 class ReviewState:
     """Immutable-per-launch view of everything the UI needs."""
 
-    def __init__(self, vault: Path, topic: str) -> None:
+    def __init__(self, vault: Path, topic: str, vault_name: str | None = None) -> None:
         self.vault = vault
         self.topic = topic
+        #: Obsidian's registered vault name (Advanced URI needs it); defaults to
+        #: the directory basename, overridable when the registered name differs.
+        self.vault_name = vault_name or vault.name
         datasets = vault / topic / ".knotica" / "datasets"
         self.staging_path = datasets / STAGING_NAME
         self.reviewed_path = datasets / REVIEWED_NAME
@@ -59,10 +62,11 @@ class ReviewState:
                 " `knotica eval --bootstrap` for this topic first."
             )
         candidates = _read_jsonl(source)
+        self._enrich_support_offsets(candidates)
         source_keys = sorted(p.stem for p in self.sources_dir.glob("*.md"))
         return {
             "topic": self.topic,
-            "vault_name": self.vault.name,
+            "vault_name": self.vault_name,
             "candidates": candidates,
             "pages": self._page_provenance(candidates),
             "citation_links": {
@@ -108,6 +112,32 @@ class ReviewState:
             "relative": str(path.relative_to(self.vault)),
             "obsidian_uri": "obsidian://open?path=" + urllib.parse.quote(str(path), safe=""),
         }
+
+    def _enrich_support_offsets(self, candidates: list[dict]) -> None:
+        """Relocate each support quote in the CURRENT page file, char-precise.
+
+        Generation-time line spans go stale the moment a page is edited, and
+        Advanced URI's ``offset`` parameter (cursor at a character count from
+        file start) is finer than any line jump -- so links are built from a
+        fresh server-side relocation at review time. Each verified-or-not entry
+        gains a ``current`` sub-object when the quote is found in the file as
+        it exists now; entries that no longer match simply get none.
+        """
+        raw_cache: dict[str, str | None] = {}
+        for candidate in candidates:
+            for entry in candidate.get("support", []) or []:
+                page = str(entry.get("page", "")).strip()
+                quote = str(entry.get("quote", ""))
+                if not page or not quote:
+                    continue
+                if page not in raw_cache:
+                    info = self._resolve_page(page)
+                    path = self.vault / info["relative"]
+                    raw_cache[page] = path.read_text(encoding="utf-8") if info["exists"] else None
+                raw = raw_cache[page]
+                located = _locate_quote(raw, quote) if raw is not None else None
+                if located:
+                    entry["current"] = located
 
     def save(self, accepted: list[dict]) -> dict:
         rows = [_normalized_candidate(row) for row in accepted]
@@ -159,6 +189,54 @@ def _normalized_candidate(row: dict) -> dict:
     if isinstance(support, list) and support:
         normalized["support"] = support
     return normalized
+
+
+def _locate_quote(raw: str, quote: str) -> dict | None:
+    """Find ``quote`` in ``raw``: exact first, then whitespace-normalized.
+
+    Returns 0-based character offsets (``char_start`` inclusive, ``char_end``
+    exclusive) plus 1-based inclusive line numbers, or ``None`` when the quote
+    does not appear in the text as it exists now. First occurrence wins.
+    """
+    start = raw.find(quote)
+    end = start + len(quote)
+    if start == -1:
+        normalized_raw, offset_map = _normalize_with_offsets(raw)
+        normalized_quote, _ = _normalize_with_offsets(quote)
+        if not normalized_quote:
+            return None
+        hit = normalized_raw.find(normalized_quote)
+        if hit == -1:
+            return None
+        start = offset_map[hit]
+        end = offset_map[hit + len(normalized_quote) - 1] + 1
+    return {
+        "char_start": start,
+        "char_end": end,
+        "line_start": raw.count("\n", 0, start) + 1,
+        "line_end": raw.count("\n", 0, max(start, end - 1)) + 1,
+    }
+
+
+def _normalize_with_offsets(text: str) -> tuple[str, list[int]]:
+    """Collapse whitespace runs to single spaces, mapping each kept char home."""
+    chars: list[str] = []
+    offsets: list[int] = []
+    in_space = False
+    for index, char in enumerate(text):
+        if char.isspace():
+            if chars and not in_space:
+                chars.append(" ")
+                offsets.append(index)
+            in_space = True
+        else:
+            chars.append(char)
+            offsets.append(index)
+            in_space = False
+    if chars and chars[-1] == " ":
+        chars.pop()
+        offsets.pop()
+    return "".join(chars), offsets
 
 
 def _atomic_write(path: Path, payload: str) -> None:
@@ -241,10 +319,14 @@ def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--topic", required=True, help="topic whose staging file to review")
     parser.add_argument("--vault", help="vault root (default: knotica config)")
+    parser.add_argument(
+        "--vault-name",
+        help="Obsidian's registered vault name for deep links (default: folder name)",
+    )
     parser.add_argument("--port", type=int, default=8765)
     parser.add_argument("--no-browser", action="store_true", help="do not open a browser tab")
     args = parser.parse_args()
-    state = ReviewState(_resolve_vault(args.vault), args.topic)
+    state = ReviewState(_resolve_vault(args.vault), args.topic, vault_name=args.vault_name)
     state.load()  # fail fast on a missing/broken staging file before serving
     serve(state, args.port, open_browser=not args.no_browser)
 
@@ -417,9 +499,12 @@ function citeBadges(card, citations) {
   }
 }
 
-function advUri(pageInfo, line) {
+function advUri(pageInfo, positionParams) {
+  // viewmode=live: cursor placement is invisible in reading view, so force an
+  // editing view. Advanced URI positions the cursor; it has no highlight param.
   return "obsidian://adv-uri?vault=" + encodeURIComponent(model.vault_name) +
-    "&filepath=" + encodeURIComponent(pageInfo.relative) + "&line=" + line;
+    "&filepath=" + encodeURIComponent(pageInfo.relative) +
+    "&" + positionParams + "&viewmode=live";
 }
 
 function renderSupport(card, cand) {
@@ -439,15 +524,23 @@ function renderSupport(card, cand) {
     const meta = document.createElement("div");
     meta.className = "meta";
     const pageInfo = model.pages[s.page];
-    if (s.verified && pageInfo && pageInfo.exists) {
+    const current = s.current;
+    if (pageInfo && pageInfo.exists && (current || s.verified)) {
       const label = document.createElement("span");
-      label.textContent = s.page + ", lines " + s.line_start + "\u2013" +
-        s.line_end + " \u00b7 ";
+      const lineStart = current ? current.line_start : s.line_start;
+      const lineEnd = current ? current.line_end : s.line_end;
+      label.textContent = s.page + ", " +
+        (lineStart === lineEnd ? "line " + lineStart
+                               : "lines " + lineStart + "\u2013" + lineEnd) +
+        (current ? " \u00b7 char " + current.char_start : " (at generation)") +
+        " \u00b7 ";
       const jump = document.createElement("a");
-      jump.href = advUri(pageInfo, s.line_start);
-      jump.textContent = "\u2197 jump to line";
-      jump.title =
-        "positions the cursor on the line (requires the Advanced URI plugin)";
+      jump.href = current
+        ? advUri(pageInfo, "offset=" + current.char_start)
+        : advUri(pageInfo, "line=" + s.line_start + "&column=1");
+      jump.textContent = "\u2197 jump to quote";
+      jump.title = "places the cursor at the quote in live-preview mode " +
+        "(Advanced URI plugin; the plugin cannot visually highlight text)";
       const open = document.createElement("a");
       open.href = pageInfo.obsidian_uri;
       open.textContent = "open page";
