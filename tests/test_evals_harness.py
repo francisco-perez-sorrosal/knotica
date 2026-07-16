@@ -163,7 +163,11 @@ class _RoutingLLMClient:
         messages: list[object],
         temperature: float = 0.0,
         max_tokens: int,
+        json_schema: dict[str, object] | None = None,
     ) -> Completion:
+        # `json_schema` is accepted to honor the LLMClient structured-outputs
+        # contract (the runner passes it, the judge does not); routing is on the
+        # system prompt, so the schema does not affect which canned reply is served.
         if _JUDGE_MARKER in system:
             self.judge_calls += 1
             return self._judge

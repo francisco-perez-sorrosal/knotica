@@ -82,6 +82,15 @@ SENTINEL_KEY = "sk-ant-api03-SENTINEL-do-not-leak-0000000000"
 #: echoed on any path. NOT a real credential.
 SENTINEL_OAUTH_TOKEN = "sk-ant-oat01-SENTINEL-do-not-leak-0000000000"
 
+#: A minimal, distinctive JSON schema for the structured-outputs pass-through
+#: tests -- its identity is asserted verbatim inside ``output_config``.
+_TEST_JSON_SCHEMA: dict[str, object] = {
+    "type": "object",
+    "properties": {"answer": {"type": "string"}},
+    "required": ["answer"],
+    "additionalProperties": False,
+}
+
 
 @pytest.fixture(autouse=True)
 def _scrub_eval_credentials(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -223,6 +232,83 @@ def _complete_once(client: AnthropicClient) -> None:
         system="system",
         messages=[Message(role="user", content="question")],
         max_tokens=16,
+    )
+
+
+class _RecordingMessages:
+    """A stub ``messages`` resource that records the kwargs passed to ``create``.
+
+    ``create`` returns a minimal well-formed response (one text block + a usage
+    object) so :meth:`AnthropicClient.complete` maps text and usage without a
+    network call -- the autouse socket guard would fire on any real socket.
+    """
+
+    def __init__(self) -> None:
+        self.received_kwargs: dict[str, object] = {}
+
+    def create(self, **kwargs: object) -> SimpleNamespace:
+        self.received_kwargs = dict(kwargs)
+        return SimpleNamespace(
+            content=[SimpleNamespace(type="text", text="ok")],
+            usage=SimpleNamespace(input_tokens=1, output_tokens=1),
+        )
+
+
+def _recording_client(
+    monkeypatch: pytest.MonkeyPatch,
+) -> tuple[AnthropicClient, _RecordingMessages]:
+    """An offline AnthropicClient whose SDK stub records the ``create()`` kwargs."""
+    pytest.importorskip("anthropic")
+    monkeypatch.setenv(ANTHROPIC_KEY_ENV, "sk-ant-dummy-value-not-real")
+    client = AnthropicClient()
+    messages = _RecordingMessages()
+    monkeypatch.setattr(client, "_client", SimpleNamespace(messages=messages))
+    return client, messages
+
+
+# ---------------------------------------------------------------------------
+# Structured outputs -- a json_schema constrains the request via output_config
+# ---------------------------------------------------------------------------
+
+
+def test_complete_sends_output_config_when_a_json_schema_is_provided(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # A schema on the call must reach the SDK as the canonical `output_config`
+    # structured-outputs parameter, shaped exactly {"format": {"type":
+    # "json_schema", "schema": <schema>}} -- the surface that guarantees the model
+    # emits schema-valid JSON rather than a hand-formatted (and fallible) blob.
+    client, messages = _recording_client(monkeypatch)
+
+    client.complete(
+        snapshot="snapshot-under-test",
+        system="system",
+        messages=[Message(role="user", content="question")],
+        max_tokens=16,
+        json_schema=_TEST_JSON_SCHEMA,
+    )
+
+    assert messages.received_kwargs.get("output_config") == {
+        "format": {"type": "json_schema", "schema": _TEST_JSON_SCHEMA}
+    }, "a provided json_schema must land as the canonical output_config structured-outputs param"
+
+
+def test_complete_omits_output_config_when_no_json_schema_is_provided(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # Without a schema the request must be byte-for-byte the pre-existing call: no
+    # output_config key at all, so existing unconstrained callers stay unchanged.
+    client, messages = _recording_client(monkeypatch)
+
+    client.complete(
+        snapshot="snapshot-under-test",
+        system="system",
+        messages=[Message(role="user", content="question")],
+        max_tokens=16,
+    )
+
+    assert "output_config" not in messages.received_kwargs, (
+        "an unconstrained call must send no output_config, leaving existing callers unchanged"
     )
 
 
@@ -460,6 +546,37 @@ def test_fake_client_preserves_exact_token_counts_without_conversion() -> None:
     # usage is carried as-is, never rounded or hand-converted across models.
     assert result.usage.input_tokens == 17
     assert result.usage.output_tokens == 42
+
+
+def test_fake_client_records_the_json_schema_passed_on_the_call() -> None:
+    # The fake records the structured-output schema so a runner test can assert the
+    # schema pass-through that would reach the real client's output_config.
+    client = _fake([_completion()])
+
+    client.complete(
+        snapshot="worker-snapshot",
+        system="",
+        messages=[Message(role="user", content="q")],
+        max_tokens=8,
+        json_schema=_TEST_JSON_SCHEMA,
+    )
+
+    assert client.calls[0].json_schema == _TEST_JSON_SCHEMA, (
+        "the fake must record the exact schema it was called with, for pass-through assertions"
+    )
+
+
+def test_fake_client_records_no_json_schema_when_the_call_is_unconstrained() -> None:
+    client = _fake([_completion()])
+
+    client.complete(
+        snapshot="worker-snapshot",
+        system="",
+        messages=[Message(role="user", content="q")],
+        max_tokens=8,
+    )
+
+    assert client.calls[0].json_schema is None, "an unconstrained call records no schema"
 
 
 def test_fake_client_satisfies_the_llm_client_protocol() -> None:

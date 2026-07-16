@@ -98,6 +98,17 @@ AUTH_MODE_API_KEY = "api_key"
 _OAUTH_BETA_HEADER_NAME = "anthropic-beta"
 _OAUTH_BETA_HEADER_VALUE = "oauth-2025-04-20"
 
+#: The canonical Messages API structured-outputs parameter and its inner format
+#: discriminator. Verified against the installed ``anthropic`` 0.116 SDK source
+#: (2026-07-16): ``messages.create`` accepts ``output_config: OutputConfigParam``,
+#: whose ``format`` is a ``JSONOutputFormatParam`` == ``{"type": "json_schema",
+#: "schema": <dict>}`` with *both* inner fields required. ``output_config`` is the
+#: canonical parameter -- the deprecated ``output_format`` is merely merged into it
+#: by the SDK. Passing this is what *guarantees* a schema-valid JSON response, so a
+#: structured completion cannot be unparseable short of a truncation or refusal.
+_OUTPUT_CONFIG_KWARG = "output_config"
+_JSON_SCHEMA_FORMAT_TYPE = "json_schema"
+
 
 @dataclass(frozen=True, slots=True)
 class TokenUsage:
@@ -159,12 +170,19 @@ class LLMClient(Protocol):
         messages: list[Message],
         temperature: float = 0.0,
         max_tokens: int,
+        json_schema: dict[str, object] | None = None,
     ) -> Completion:
         """Return one :class:`Completion` for the given system + message turns.
 
         ``snapshot`` is the exact dated model id; ``temperature`` defaults to
         ``0.0`` for determinism; ``max_tokens`` is required (the API demands it).
         The returned completion carries the response's exact :class:`TokenUsage`.
+
+        ``json_schema`` is optional: when provided, the completion is constrained to
+        that JSON schema via the Messages API structured-outputs surface, so the
+        response is schema-valid JSON at the source (see :data:`_OUTPUT_CONFIG_KWARG`).
+        Omitting it leaves the call unconstrained -- the additive default keeps every
+        existing caller unchanged.
         """
         ...
 
@@ -280,24 +298,33 @@ class AnthropicClient:
         messages: list[Message],
         temperature: float = 0.0,
         max_tokens: int,
+        json_schema: dict[str, object] | None = None,
     ) -> Completion:
         """Call the Messages API and return the text + exact usage as a Completion.
+
+        When ``json_schema`` is provided, the request carries an ``output_config``
+        that constrains the model to emit schema-valid JSON (see
+        :data:`_OUTPUT_CONFIG_KWARG`); when it is ``None`` no ``output_config`` is
+        sent, so an unconstrained call is byte-for-byte the pre-existing request.
 
         SDK transport failures (rate limits, auth rejections, server errors,
         network drops) are re-raised as typed :class:`KnoticaError`s carrying the
         active auth mode -- adapters render the envelope, never a raw traceback.
         """
         anthropic = _import_anthropic()
+        create_kwargs: dict[str, object] = {
+            "model": snapshot,
+            "system": system,
+            "messages": [
+                {"role": message.role, "content": message.content} for message in messages
+            ],
+            "temperature": temperature,
+            "max_tokens": max_tokens,
+        }
+        if json_schema is not None:
+            create_kwargs[_OUTPUT_CONFIG_KWARG] = _structured_output_config(json_schema)
         try:
-            response = self._client.messages.create(
-                model=snapshot,
-                system=system,
-                messages=[
-                    {"role": message.role, "content": message.content} for message in messages
-                ],
-                temperature=temperature,
-                max_tokens=max_tokens,
-            )
+            response = self._client.messages.create(**create_kwargs)
         except anthropic.APIStatusError as exc:  # type: ignore[attr-defined]
             raise _llm_api_error(exc, self.auth_mode) from exc
         except anthropic.APIConnectionError as exc:  # type: ignore[attr-defined]
@@ -330,6 +357,17 @@ def _build_sdk_client(anthropic: object, auth_mode: str, credential: str) -> obj
             default_headers={_OAUTH_BETA_HEADER_NAME: _OAUTH_BETA_HEADER_VALUE},
         )
     return anthropic.Anthropic(api_key=credential)  # type: ignore[attr-defined]
+
+
+def _structured_output_config(json_schema: dict[str, object]) -> dict[str, object]:
+    """Wrap a JSON schema as the Messages API ``output_config`` for structured outputs.
+
+    Shapes ``{"format": {"type": "json_schema", "schema": <schema>}}`` -- the exact
+    ``OutputConfigParam`` shape the installed ``anthropic`` 0.116 SDK expects (see
+    :data:`_OUTPUT_CONFIG_KWARG`). With it, the model emits schema-valid JSON, so a
+    structured completion cannot be unparseable short of a truncation or refusal.
+    """
+    return {"format": {"type": _JSON_SCHEMA_FORMAT_TYPE, "schema": json_schema}}
 
 
 def _llm_api_error(exc: Exception, auth_mode: str) -> KnoticaError:
@@ -401,13 +439,19 @@ def _usage_from_response(usage: object) -> TokenUsage:
 
 @dataclass(frozen=True, slots=True)
 class FakeCall:
-    """One recorded invocation of :meth:`FakeLLMClient.complete`, for assertions."""
+    """One recorded invocation of :meth:`FakeLLMClient.complete`, for assertions.
+
+    ``json_schema`` records the structured-output schema the caller passed (``None``
+    when the call was unconstrained), so a test can assert the schema pass-through
+    that reaches the real client's ``output_config``.
+    """
 
     snapshot: str
     system: str
     messages: tuple[Message, ...]
     temperature: float
     max_tokens: int
+    json_schema: dict[str, object] | None = None
 
 
 class FakeLLMClient:
@@ -437,6 +481,7 @@ class FakeLLMClient:
         messages: list[Message],
         temperature: float = 0.0,
         max_tokens: int,
+        json_schema: dict[str, object] | None = None,
     ) -> Completion:
         """Record the call and return the next canned completion (clamped to the last)."""
         self.calls.append(
@@ -446,6 +491,7 @@ class FakeLLMClient:
                 messages=tuple(messages),
                 temperature=temperature,
                 max_tokens=max_tokens,
+                json_schema=json_schema,
             )
         )
         index = min(len(self.calls) - 1, len(self._completions) - 1)

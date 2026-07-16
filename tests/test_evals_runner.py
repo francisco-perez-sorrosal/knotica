@@ -44,7 +44,12 @@ import pytest
 from knotica.core.errors import ErrorCode, KnoticaError
 from knotica.core.prompts import resolve_prompt
 from knotica.evals.llm import Completion, FakeCall, FakeLLMClient, TokenUsage
-from knotica.evals.runner import MalformedResponseError, MessagesApiRunner, Prediction
+from knotica.evals.runner import (
+    _SYNTHESIS_JSON_SCHEMA,
+    MalformedResponseError,
+    MessagesApiRunner,
+    Prediction,
+)
 from knotica.store import LocalFSStore
 
 #: The template vault's demo topic, with entity pages and a stored source
@@ -250,6 +255,37 @@ def test_every_model_call_uses_the_caller_supplied_snapshot(template_vault) -> N
         "every model call must use the caller-supplied snapshot (no hardcoded "
         f"model string); recorded snapshots were {[call.snapshot for call in fake.calls]}"
     )
+
+
+# ---------------------------------------------------------------------------
+# Structured outputs: the synthesis call carries the strict answer/citations schema
+# ---------------------------------------------------------------------------
+
+
+def test_the_synthesis_call_enforces_the_structured_output_schema(template_vault) -> None:
+    # The baseline JSON must be schema-valid at the source, not hand-formatted: the
+    # runner must pass its strict answer+citations schema on the single synthesis
+    # call so the Messages API constrains the model. Asserted via the fake's record.
+    fake = FakeLLMClient(_structured_completion(answer="a", citations=[]))
+
+    _runner(fake).run(_store(template_vault), TOPIC, RETRIEVAL_QUESTION)
+
+    assert fake.call_count == 1, "the runner drives exactly one synthesis call"
+    assert fake.calls[0].json_schema == _SYNTHESIS_JSON_SCHEMA, (
+        "the synthesis call must carry the runner's strict structured-output schema"
+    )
+
+
+def test_the_structured_output_schema_requires_answer_and_citations_and_forbids_extras() -> None:
+    # Pin the schema contract so a silent weakening (dropping a required field or
+    # allowing extra properties) is caught: the schema must exactly mirror the shape
+    # `_parse_structured_answer` accepts -- string answer, array-of-strings citations.
+    assert _SYNTHESIS_JSON_SCHEMA["type"] == "object"
+    assert set(_SYNTHESIS_JSON_SCHEMA["required"]) == {"answer", "citations"}
+    assert _SYNTHESIS_JSON_SCHEMA["additionalProperties"] is False
+    properties = _SYNTHESIS_JSON_SCHEMA["properties"]
+    assert properties["answer"] == {"type": "string"}
+    assert properties["citations"] == {"type": "array", "items": {"type": "string"}}
 
 
 # ---------------------------------------------------------------------------

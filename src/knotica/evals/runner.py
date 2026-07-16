@@ -76,6 +76,25 @@ DEFAULT_MAX_TOKENS = 1024
 _ANSWER_KEY = "answer"
 _CITATIONS_KEY = "citations"
 
+#: The strict JSON schema the synthesis call enforces via the Messages API
+#: structured-outputs surface (:meth:`~knotica.evals.llm.LLMClient.complete`'s
+#: ``json_schema``): an object with a required string ``answer`` and a required
+#: array-of-strings ``citations``, and no other properties. It mirrors exactly the
+#: shape :func:`_parse_structured_answer` requires, so the model's response is
+#: schema-valid JSON at the source -- making the malformed-response class
+#: near-impossible. The tolerant parse + :class:`MalformedResponseError` below stay
+#: as defense-in-depth: structured outputs can still be short-circuited by a
+#: ``max_tokens`` truncation or a refusal, and the parser keeps that visible.
+_SYNTHESIS_JSON_SCHEMA: dict[str, object] = {
+    "type": "object",
+    "properties": {
+        _ANSWER_KEY: {"type": "string"},
+        _CITATIONS_KEY: {"type": "array", "items": {"type": "string"}},
+    },
+    "required": [_ANSWER_KEY, _CITATIONS_KEY],
+    "additionalProperties": False,
+}
+
 _CODE_FENCE = "```"
 
 #: The synthesis directive appended after the vault's ``query.md`` body and schema.
@@ -183,13 +202,19 @@ class MessagesApiRunner:
         question: str,
         pages: list[Page],
     ) -> Completion:
-        """Make the single synthesis call at ``temperature=0`` and return its completion."""
+        """Make the single synthesis call at ``temperature=0`` and return its completion.
+
+        Passes :data:`_SYNTHESIS_JSON_SCHEMA` so the Messages API constrains the
+        model to schema-valid JSON at the source; the tolerant parse downstream
+        remains as defense-in-depth for the residual truncation/refusal cases.
+        """
         return self._llm.complete(
             snapshot=self._worker_snapshot,
             system=_assemble_system(query_prompt, schema),
             messages=[Message(role="user", content=_assemble_user(topic, question, pages))],
             temperature=0.0,
             max_tokens=DEFAULT_MAX_TOKENS,
+            json_schema=_SYNTHESIS_JSON_SCHEMA,
         )
 
 

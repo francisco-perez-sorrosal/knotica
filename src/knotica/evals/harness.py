@@ -253,14 +253,22 @@ class _UsageAccountingClient:
         messages: list[Message],
         temperature: float = 0.0,
         max_tokens: int,
+        json_schema: dict[str, object] | None = None,
     ) -> Completion:
-        """Delegate the call and accumulate its exact per-snapshot token usage."""
+        """Delegate the call and accumulate its exact per-snapshot token usage.
+
+        ``json_schema`` is forwarded verbatim so the proxy stays transparent to the
+        structured-outputs contract: the baseline runner passes its answer/citations
+        schema, the judge passes none, and either way the wrapped client's request
+        shape is unchanged by the proxy.
+        """
         completion = self._inner.complete(
             snapshot=snapshot,
             system=system,
             messages=messages,
             temperature=temperature,
             max_tokens=max_tokens,
+            json_schema=json_schema,
         )
         totals = self._by_snapshot.setdefault(snapshot, [0, 0])
         totals[0] += completion.usage.input_tokens
