@@ -18,9 +18,14 @@ trace); the CLI performs no vault mutation of its own (the single-writer
 invariant, enforced by the import-boundary fitness test -- ``run_eval`` routes
 its one commit through ``core.transaction`` on the clone).
 
-The evaluator's ``ANTHROPIC_API_KEY`` is read from the environment only (the
-trust boundary lives in ``evals.llm``); this adapter never reads, passes, or
-echoes it. An absent key surfaces as the clean "eval is not configured" error.
+The evaluator's LLM credential is resolved from the environment only (the trust
+boundary lives in ``evals.llm``), **OAuth-first**: a ``CLAUDE_CODE_OAUTH_TOKEN``
+(subscription; no metered spend) is preferred, falling back to the metered
+``ANTHROPIC_API_KEY`` only when it is absent. This adapter never reads, passes, or
+echoes either credential; it does surface the library's metered-fallback warning
+as a visible ``WARNING:`` stderr line (on both the eval and the ``--bootstrap``
+path) so metered spend is never silent. Neither credential set surfaces as the
+clean "eval is not configured" error naming both variables.
 
 Exit codes (documented interface -- hooks and scripts branch on these):
 
@@ -30,12 +35,16 @@ Exit codes (documented interface -- hooks and scripts branch on these):
   instrument failure, the internal live-vault guard, or (with ``--bootstrap``) a
   malformed synthesis response.
 * ``2`` misuse -- an invalid config override (e.g. ``--num-threads 2``).
-* ``3`` not configured -- no vault, or ``ANTHROPIC_API_KEY`` unset (the key value
-  is never echoed) -- on both the eval and the ``--bootstrap`` path.
+* ``3`` not configured -- no vault, or neither ``CLAUDE_CODE_OAUTH_TOKEN`` nor
+  ``ANTHROPIC_API_KEY`` set (no credential value is ever echoed) -- on both the
+  eval and the ``--bootstrap`` path.
 * ``5`` the topic has no golden set -- run ``knotica eval --bootstrap`` first.
 """
 
 import argparse
+import warnings
+from collections.abc import Iterator
+from contextlib import contextmanager
 from pathlib import Path
 
 from knotica.cli.common import (
@@ -62,7 +71,7 @@ from knotica.evals.golden import (
 )
 from knotica.evals.harness import EvalHarnessError, EvalRunResult, run_eval
 from knotica.evals.judge import JudgeParseError
-from knotica.evals.llm import AnthropicClient
+from knotica.evals.llm import AnthropicClient, MeteredApiKeyFallbackWarning
 from knotica.evals.runner import MalformedResponseError
 from knotica.store import LocalFSStore
 
@@ -92,6 +101,27 @@ _OVERRIDE_FIELDS: tuple[str, ...] = (
     "n_judge_samples",
     "num_threads",
 )
+
+
+@contextmanager
+def _surfacing_metered_fallback(console: Console) -> Iterator[None]:
+    """Render the library's metered-API-key fallback warning as a stderr ``WARNING:`` line.
+
+    ``evals.llm`` emits a :class:`~knotica.evals.llm.MeteredApiKeyFallbackWarning`
+    when it resolves to the metered ``ANTHROPIC_API_KEY`` because
+    ``CLAUDE_CODE_OAUTH_TOKEN`` is unset. Turning that warning into a visible line
+    makes metered spend impossible to miss on both the eval and the ``--bootstrap``
+    path. Surfaced even when the wrapped call then fails: the metered credential was
+    already selected and spend may have begun, so the operator must still see it.
+    """
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always", MeteredApiKeyFallbackWarning)
+        try:
+            yield
+        finally:
+            for entry in caught:
+                if issubclass(entry.category, MeteredApiKeyFallbackWarning):
+                    console.warn(f"WARNING: {entry.message}")
 
 
 def configure(subparsers: argparse._SubParsersAction) -> argparse.ArgumentParser:
@@ -190,7 +220,8 @@ def _run_eval(console: Console, vault: ResolvedVault, args: argparse.Namespace) 
 
     previous_version = _previous_harness_version(vault.path, args.topic)
     try:
-        result = run_eval(args.topic, source_root=vault.path, ref=args.ref, config=run_config)
+        with _surfacing_metered_fallback(console):
+            result = run_eval(args.topic, source_root=vault.path, ref=args.ref, config=run_config)
     except GoldenSetMissingError as missing:
         _emit_error(console, missing)
         return EXIT_NO_GOLDEN_SET
@@ -236,12 +267,14 @@ def _run_bootstrap(console: Console, vault: ResolvedVault, args: argparse.Namesp
         return EXIT_MISUSE
 
     try:
-        # The API key is resolved (env-only) inside AnthropicClient construction,
-        # which raises the clean not-configured error *before* any network call.
-        client = AnthropicClient()
-        candidates = bootstrap(
-            LocalFSStore(vault.path), args.topic, client, run_config.worker_snapshot
-        )
+        # The credential is resolved (env-only, OAuth-first) inside AnthropicClient
+        # construction, which raises the clean not-configured error *before* any
+        # network call and emits the metered-fallback warning surfaced here.
+        with _surfacing_metered_fallback(console):
+            client = AnthropicClient()
+            candidates = bootstrap(
+                LocalFSStore(vault.path), args.topic, client, run_config.worker_snapshot
+            )
     except KnoticaError as not_configured:
         # Absent ANTHROPIC_API_KEY / missing eval group: a clean what+fix, exit 3;
         # the key value never appears in the message.

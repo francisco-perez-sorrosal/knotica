@@ -7,19 +7,28 @@ module a **trust boundary** the rest of the codebase does not have.
 
 Three rules hold that boundary:
 
-* **Env-only key.** :class:`AnthropicClient` reads ``ANTHROPIC_API_KEY`` from the
-  process environment and nowhere else -- never ``config.toml``, never the vault,
-  never a constructor argument. The key is handed straight to the SDK client;
-  knotica keeps no copy of its own on the instance and never logs it or echoes it
-  in an error message. It does remain reachable through the SDK client object
-  (which must hold it to authenticate), so the boundary this module guarantees is
-  that *knotica never surfaces or persists the key itself*, not that the process
-  cannot reach it at all.
-* **Fail before the network.** A missing key raises a typed, actionable error
-  (the house :class:`~knotica.core.errors.KnoticaError` ``NOT_CONFIGURED``
-  contract shape) *before* the SDK client is constructed and before any request
-  is made -- so an offline test run never reaches the network even if a real key
-  happens to be exported.
+* **Env-only credential, subscription-first.** :class:`AnthropicClient` resolves
+  its credential from the process environment and nowhere else -- never
+  ``config.toml``, never the vault, never a constructor argument. Resolution is
+  **OAuth-first**: a ``CLAUDE_CODE_OAUTH_TOKEN`` (a Claude subscription bearer
+  token; no metered spend) is preferred; only when it is absent does the harness
+  fall back to the metered ``ANTHROPIC_API_KEY``, and that fallback is **noisy**
+  (a :class:`MeteredApiKeyFallbackWarning`) so metered API-credit spend is never
+  silent. Whichever credential wins is handed straight to the SDK client; knotica
+  keeps no copy of its own on the instance and never logs it or echoes it in an
+  error message. It does remain reachable through the SDK client object (which
+  must hold it to authenticate), so the boundary this module guarantees is that
+  *knotica never surfaces or persists the credential itself*, not that the process
+  cannot reach it at all. Only the resolved auth **mode** (``"oauth"`` /
+  ``"api_key"`` -- never secret) is kept, on :attr:`AnthropicClient.auth_mode`.
+* **Fail before the network.** A missing credential (neither variable set) raises
+  a typed, actionable error (the house :class:`~knotica.core.errors.KnoticaError`
+  ``NOT_CONFIGURED`` contract shape) naming *both* variables (the OAuth one as
+  preferred) *before* the SDK client is constructed and before any request is
+  made -- so an offline test run never reaches the network even if a real
+  credential happens to be exported. An OAuth ``401``/``403`` at call time is a
+  typed, actionable failure to fix or unset the token -- never silently retried on
+  the metered key.
 * **Lazy dependency.** ``anthropic`` lives in the optional ``evals`` dependency
   group, off the ``uvx --from ... knotica mcp`` cold-start path. It is imported
   lazily inside :class:`AnthropicClient` construction, so ``import
@@ -36,7 +45,9 @@ snapshots are always **arguments** to :meth:`LLMClient.complete` (its
 ``evals.config``.
 """
 
+import logging
 import os
+import warnings
 from collections.abc import Sequence
 from dataclasses import dataclass
 from typing import Protocol, runtime_checkable
@@ -45,17 +56,47 @@ from knotica.core.errors import ErrorCode, KnoticaError
 
 __all__ = [
     "API_KEY_ENV_VAR",
+    "AUTH_MODE_API_KEY",
+    "AUTH_MODE_OAUTH",
+    "OAUTH_TOKEN_ENV_VAR",
     "AnthropicClient",
     "Completion",
     "FakeLLMClient",
     "LLMClient",
     "Message",
+    "MeteredApiKeyFallbackWarning",
     "TokenUsage",
 ]
 
-#: The single environment variable the evaluator authenticates with. Read from
-#: the process environment only -- never from ``config.toml`` or the vault.
+_LOGGER = logging.getLogger(__name__)
+
+#: The **preferred** credential env var: a Claude subscription OAuth bearer token
+#: (the same one Claude Code exports). Present -> OAuth mode, no metered spend.
+#: Read from the process environment only -- never ``config.toml``, never the vault.
+OAUTH_TOKEN_ENV_VAR = "CLAUDE_CODE_OAUTH_TOKEN"
+
+#: The **fallback** credential env var: a metered Anthropic API key. Used only when
+#: :data:`OAUTH_TOKEN_ENV_VAR` is absent, and its selection is announced loudly (a
+#: :class:`MeteredApiKeyFallbackWarning`) because it spends real API credits. Read
+#: from the process environment only -- never ``config.toml`` or the vault.
 API_KEY_ENV_VAR = "ANTHROPIC_API_KEY"
+
+#: The resolved auth-mode markers -- the *mode* is not secret and is recorded in
+#: the per-run manifest; the credential itself never is.
+AUTH_MODE_OAUTH = "oauth"
+AUTH_MODE_API_KEY = "api_key"
+
+#: The beta flag that unlocks ``Authorization: Bearer`` (OAuth) auth on the
+#: Messages API. Verified against the installed ``anthropic`` 0.116 SDK source
+#: (2026-07-16): the ``auth_token=`` constructor path emits only
+#: ``Authorization: Bearer <token>`` and does **not** add this header -- the SDK
+#: injects it only on its own credentials-provider path, which no-ops the moment a
+#: static ``auth_token`` is set. So an OAuth bearer token is accepted on
+#: ``/v1/messages`` only if this header is added explicitly, which is what
+#: :func:`_build_sdk_client` does. (The SDK's own constant docstring states this
+#: flag "unlocks ``Authorization: Bearer`` auth at all".)
+_OAUTH_BETA_HEADER_NAME = "anthropic-beta"
+_OAUTH_BETA_HEADER_VALUE = "oauth-2025-04-20"
 
 
 @dataclass(frozen=True, slots=True)
@@ -128,27 +169,60 @@ class LLMClient(Protocol):
         ...
 
 
-def _require_api_key() -> str:
-    """Return the env API key, or raise the typed clean error before any network.
+class MeteredApiKeyFallbackWarning(UserWarning):
+    """The harness fell back to the metered ``ANTHROPIC_API_KEY``.
 
-    Read from the environment only. The raised error names *what* is missing and
-    *how* to fix it, and never echoes the key value.
+    Emitted (not raised) at credential resolution when
+    :data:`OAUTH_TOKEN_ENV_VAR` is absent but :data:`API_KEY_ENV_VAR` is set:
+    the run proceeds, but on metered API credits rather than the (free)
+    subscription OAuth token. The warning makes that spend impossible to miss --
+    an adapter surfaces it as a visible stderr line. Named after the
+    ``GoldenSetFloorWarning`` house convention.
     """
-    key = os.environ.get(API_KEY_ENV_VAR)
-    if not key:
-        raise KnoticaError(
-            ErrorCode.NOT_CONFIGURED,
-            (
-                f"Eval is not configured: the {API_KEY_ENV_VAR} environment variable "
-                "is not set, so the eval harness cannot authenticate its LLM calls."
-            ),
-            fix=(
-                f"Set {API_KEY_ENV_VAR} in your environment before running eval "
-                "(it is read from the environment only, never from config.toml or "
-                "the vault)."
-            ),
-        )
-    return key
+
+
+def _resolve_credential() -> tuple[str, str]:
+    """Resolve ``(auth_mode, credential)`` OAuth-first, or raise before any network.
+
+    Resolution is **absence-based** at resolution time: a present
+    :data:`OAUTH_TOKEN_ENV_VAR` wins (OAuth mode, no metered spend); otherwise a
+    present :data:`API_KEY_ENV_VAR` is used and a :class:`MeteredApiKeyFallbackWarning`
+    is emitted (loud, because it spends credits); otherwise the typed
+    ``NOT_CONFIGURED`` error naming *both* variables is raised before any SDK
+    import or network attempt. The credential value is returned but never logged,
+    echoed, or stored beyond the caller's immediate hand-off to the SDK client.
+    """
+    oauth_token = os.environ.get(OAUTH_TOKEN_ENV_VAR)
+    if oauth_token:
+        return AUTH_MODE_OAUTH, oauth_token
+    api_key = os.environ.get(API_KEY_ENV_VAR)
+    if api_key:
+        warnings.warn(_metered_fallback_message(), MeteredApiKeyFallbackWarning, stacklevel=2)
+        return AUTH_MODE_API_KEY, api_key
+    raise KnoticaError(
+        ErrorCode.NOT_CONFIGURED,
+        (
+            f"Eval is not configured: neither {OAUTH_TOKEN_ENV_VAR} (preferred) nor "
+            f"{API_KEY_ENV_VAR} is set, so the eval harness cannot authenticate its "
+            "LLM calls."
+        ),
+        fix=(
+            f"Set {OAUTH_TOKEN_ENV_VAR} to authenticate with your Claude subscription "
+            f"(no metered spend), or {API_KEY_ENV_VAR} to use metered API credits. "
+            "Both are read from the environment only, never from config.toml or the "
+            "vault."
+        ),
+    )
+
+
+def _metered_fallback_message() -> str:
+    """The loud metered-fallback warning text (names the unset OAuth var + the spend)."""
+    return (
+        f"Falling back to the metered {API_KEY_ENV_VAR}: {OAUTH_TOKEN_ENV_VAR} is not "
+        "set, so this eval run will spend metered Anthropic API credits. Set "
+        f"{OAUTH_TOKEN_ENV_VAR} to authenticate with your Claude subscription "
+        "(no metered spend) instead."
+    )
 
 
 def _import_anthropic() -> object:
@@ -172,22 +246,49 @@ def _import_anthropic() -> object:
 
 
 class AnthropicClient:
-    """The default :class:`LLMClient`: the Anthropic Messages API, env-key-guarded.
+    """The default :class:`LLMClient`: the Anthropic Messages API, env-credential-guarded.
 
-    Construction resolves ``ANTHROPIC_API_KEY`` from the environment (raising the
-    typed clean error if absent, *before* the SDK client exists or any request is
-    made), then lazily imports ``anthropic`` and builds the SDK client the key is
-    handed to. knotica keeps no copy of the key on the instance of its own; it is
-    reachable only through the SDK client, which must hold it to authenticate.
+    Construction resolves the credential from the environment **OAuth-first**
+    (:func:`_resolve_credential` -- raising the typed clean error naming both
+    variables if neither is set, *before* the SDK client exists or any request is
+    made; warning loudly when it falls back to the metered key), then lazily
+    imports ``anthropic`` and builds the SDK client the credential is handed to.
+    knotica keeps no copy of the credential on the instance of its own; it is
+    reachable only through the SDK client, which must hold it to authenticate. The
+    resolved auth *mode* (``"oauth"`` / ``"api_key"`` -- not secret) is kept on
+    :attr:`auth_mode` for the per-run manifest.
     """
 
     def __init__(self) -> None:
-        key = _require_api_key()
+        auth_mode, credential = _resolve_credential()
         anthropic = _import_anthropic()
-        # The key flows to the SDK client only; knotica keeps no copy of its own
-        # on `self`, and never logs it or puts it in an error message. It stays
-        # reachable through the SDK client, which must hold it to authenticate.
-        self._client = anthropic.Anthropic(api_key=key)
+        #: The resolved auth mode -- not secret; recorded in the run manifest. The
+        #: credential itself never lands on ``self``: it flows to the SDK client
+        #: only, which must hold it to authenticate.
+        self.auth_mode = auth_mode
+        self._client = _build_sdk_client(anthropic, auth_mode, credential)
+        if auth_mode == AUTH_MODE_OAUTH:
+            # One INFO line naming the mode (never any token material) so an OAuth
+            # run's provenance is visible without echoing the credential.
+            _LOGGER.info("eval LLM auth: OAuth subscription mode (no metered API-credit spend)")
+
+
+def _build_sdk_client(anthropic: object, auth_mode: str, credential: str) -> object:
+    """Build the Anthropic SDK client for the resolved ``auth_mode`` + ``credential``.
+
+    OAuth mode authenticates with a bearer token via the SDK's ``auth_token=``
+    mechanism, *plus* the ``anthropic-beta: oauth-2025-04-20`` header the SDK does
+    not add for a static ``auth_token`` (see :data:`_OAUTH_BETA_HEADER_VALUE`) --
+    without it the Messages API rejects the bearer token. API-key mode hands the
+    key to ``api_key=`` unchanged. Either way the credential lands only on the SDK
+    client; knotica keeps no copy.
+    """
+    if auth_mode == AUTH_MODE_OAUTH:
+        return anthropic.Anthropic(  # type: ignore[attr-defined]
+            auth_token=credential,
+            default_headers={_OAUTH_BETA_HEADER_NAME: _OAUTH_BETA_HEADER_VALUE},
+        )
+    return anthropic.Anthropic(api_key=credential)  # type: ignore[attr-defined]
 
     def complete(
         self,

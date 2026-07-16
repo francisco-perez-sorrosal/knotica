@@ -106,6 +106,10 @@ RESOLVING_CITATION = "wang2024awm"
 #: its presence in any run artifact would be a genuine leak, not an expected write.
 SENTINEL_API_KEY = "sk-ant-SENTINEL-DO-NOT-LEAK-abcdef0123456789"
 
+#: The subscription OAuth-token sentinel -- the preferred credential is just as
+#: secret; its presence in any run artifact would be a genuine leak.
+SENTINEL_OAUTH_TOKEN = "sk-ant-oat01-SENTINEL-DO-NOT-LEAK-abcdef0123456789"
+
 #: The judge system prompt's stable signature phrase -- the routing fake's
 #: worker-vs-judge discriminator (the worker system prompt never contains it).
 _JUDGE_MARKER = "impartial grader"
@@ -658,14 +662,27 @@ def test_the_per_run_manifest_records_the_cache_hit_rate(
 
 
 # --------------------------------------------------------------------------- #
-# No key leakage -- the API-key sentinel appears in no run artifact
+# No credential leakage -- neither credential sentinel appears in any run artifact,
+# and the manifest records the (non-secret) resolved auth mode
 # --------------------------------------------------------------------------- #
 
 
-def test_no_run_artifact_contains_the_api_key_sentinel(
-    seeded_source: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+@pytest.mark.parametrize(
+    "env_var, sentinel",
+    [
+        ("ANTHROPIC_API_KEY", SENTINEL_API_KEY),
+        ("CLAUDE_CODE_OAUTH_TOKEN", SENTINEL_OAUTH_TOKEN),
+    ],
+    ids=["api-key", "oauth-token"],
+)
+def test_no_run_artifact_contains_the_credential_sentinel(
+    seeded_source: Path,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    env_var: str,
+    sentinel: str,
 ) -> None:
-    monkeypatch.setenv("ANTHROPIC_API_KEY", SENTINEL_API_KEY)
+    monkeypatch.setenv(env_var, sentinel)
     clone = tmp_path / "eval-clone"
 
     record = _run_eval(
@@ -673,9 +690,25 @@ def test_no_run_artifact_contains_the_api_key_sentinel(
     )
 
     manifest = _read_manifest(clone, record)
-    assert SENTINEL_API_KEY not in json.dumps(manifest), "the manifest must not capture the API key"
-    leaked = _files_containing(clone, SENTINEL_API_KEY.encode("utf-8"))
-    assert leaked == [], f"the API key sentinel leaked into run artifacts: {leaked}"
+    assert sentinel not in json.dumps(manifest), "the manifest must not capture the credential"
+    leaked = _files_containing(clone, sentinel.encode("utf-8"))
+    assert leaked == [], f"the {env_var} sentinel leaked into run artifacts: {leaked}"
+
+
+def test_the_manifest_records_the_resolved_auth_mode(seeded_source: Path, tmp_path: Path) -> None:
+    # The per-run manifest carries an ``auth_mode`` column so a reader knows whether
+    # ``cost_usd`` is a real bill (``api_key``) or notional (``oauth``). An injected
+    # fake resolves no real credential, so the recorded mode is honestly ``None`` --
+    # the field's *presence* is what the manifest contract guarantees.
+    clone = tmp_path / "eval-clone"
+
+    record = _run_eval(
+        TOPIC, source_root=seeded_source, llm_client=_routing_fake(), work_root=clone
+    )
+
+    manifest = _read_manifest(clone, record)
+    assert "auth_mode" in manifest, "the manifest must record the resolved auth mode column"
+    assert manifest["auth_mode"] is None, "an injected fake client resolves no real auth mode"
 
 
 # --------------------------------------------------------------------------- #

@@ -46,6 +46,7 @@ the *real* client so its env-key guard fires authentically before any network.
 
 import json
 import tempfile
+import warnings
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -69,11 +70,17 @@ from knotica.evals.golden import (
 )
 from knotica.evals.harness import EvalRunError, EvalRunResult, SpendCeilingExceededError
 from knotica.evals.judge import JudgeParseError
-from knotica.evals.llm import API_KEY_ENV_VAR, AnthropicClient
+from knotica.evals.llm import (
+    API_KEY_ENV_VAR,
+    OAUTH_TOKEN_ENV_VAR,
+    AnthropicClient,
+    MeteredApiKeyFallbackWarning,
+)
 from knotica.evals.runner import MalformedResponseError
 
 SEED_TOPIC = "agentic-systems"
 SENTINEL_API_KEY = "sk-ant-SENTINEL-must-never-leak-abc123"
+SENTINEL_OAUTH_TOKEN = "sk-ant-oat01-SENTINEL-must-never-leak-abc123"
 DEFAULT_HARNESS_VERSION = "hv-fingerprint-alpha"
 
 #: A synthetic clone root the stub reports as ``run_eval``'s committed clone -- a
@@ -265,11 +272,12 @@ def _seed_previous_metrics(vault: Path, topic: str, *, harness_version: str) -> 
 
 
 def _missing_key_error() -> KnoticaError:
-    """Capture the real absent-key error the harness raises (network-free).
+    """Capture the real no-credential error the harness raises (network-free).
 
-    ``AnthropicClient()`` checks ``ANTHROPIC_API_KEY`` before importing the SDK, so
-    with the key absent it raises the exact house error the eval path would — no
-    hardcoded wording, no network. The caller must have cleared the key first.
+    ``AnthropicClient()`` resolves its credential (OAuth-first) before importing
+    the SDK, so with *both* ``CLAUDE_CODE_OAUTH_TOKEN`` and ``ANTHROPIC_API_KEY``
+    absent it raises the exact house error the eval path would — no hardcoded
+    wording, no network. The caller must have cleared both variables first.
     """
     try:
         AnthropicClient()
@@ -421,6 +429,10 @@ def test_instrument_parse_error_is_rendered_not_crashed(
 def test_absent_api_key_reports_the_eval_not_configured_message(
     vault_config: Path, run_eval_stub: _RunEvalStub, invoke, monkeypatch: pytest.MonkeyPatch
 ):
+    # Both credentials must be absent for the not-configured error: this
+    # environment exports a real CLAUDE_CODE_OAUTH_TOKEN that would otherwise
+    # resolve to OAuth mode and never raise.
+    monkeypatch.delenv(OAUTH_TOKEN_ENV_VAR, raising=False)
     monkeypatch.delenv(API_KEY_ENV_VAR, raising=False)
     run_eval_stub.raises(_missing_key_error())
 
@@ -460,6 +472,102 @@ def test_a_configured_api_key_value_never_appears_in_output(
 
     assert SENTINEL_API_KEY not in result.out, "the API key must never reach stdout"
     assert SENTINEL_API_KEY not in result.err, "the API key must never reach stderr"
+
+
+@pytest.mark.parametrize(
+    "outcome",
+    ["success", "failure"],
+    ids=["success-path", "error-path"],
+)
+def test_a_configured_oauth_token_value_never_appears_in_output(
+    vault_config: Path,
+    run_eval_stub: _RunEvalStub,
+    invoke,
+    monkeypatch: pytest.MonkeyPatch,
+    outcome: str,
+):
+    """The subscription OAuth token is just as secret as the API key: with it set in
+    the environment, its sentinel value must never leak into stdout or stderr."""
+    monkeypatch.setenv(OAUTH_TOKEN_ENV_VAR, SENTINEL_OAUTH_TOKEN)
+    if outcome == "success":
+        run_eval_stub.returns(_metrics_record())
+    else:
+        run_eval_stub.raises(GoldenSetIntegrityError(SEED_TOPIC, "sha256 mismatch"))
+
+    result = invoke("eval", "--topic", SEED_TOPIC, "--verbose")
+
+    assert SENTINEL_OAUTH_TOKEN not in result.out, "the OAuth token must never reach stdout"
+    assert SENTINEL_OAUTH_TOKEN not in result.err, "the OAuth token must never reach stderr"
+
+
+# ---------------------------------------------------------------------------
+# Noisy metered-fallback warning surfaced as a visible stderr WARNING line
+# ---------------------------------------------------------------------------
+
+#: A distinctive fallback-warning message used to prove the CLI passes the library's
+#: warning text through verbatim (its exact wording is pinned in the library tests).
+_FALLBACK_MESSAGE = (
+    "metered ANTHROPIC_API_KEY fallback: CLAUDE_CODE_OAUTH_TOKEN is unset, spending credits"
+)
+
+
+def test_metered_fallback_warning_is_surfaced_on_the_eval_path(
+    vault_config: Path, invoke, monkeypatch: pytest.MonkeyPatch
+):
+    """When the library falls back to the metered key on the eval path, the CLI must
+    surface the warning as a visible ``WARNING:`` stderr line so spend is never
+    silent."""
+
+    def _warn_then_return(topic: str, **kwargs: object) -> EvalRunResult:
+        warnings.warn(_FALLBACK_MESSAGE, MeteredApiKeyFallbackWarning, stacklevel=2)
+        return EvalRunResult(record=_metrics_record(), clone_root=STUB_CLONE_ROOT)
+
+    monkeypatch.setattr("knotica.cli.eval.run_eval", _warn_then_return)
+
+    result = invoke("eval", "--topic", SEED_TOPIC)
+
+    assert result.code == EXIT_SUCCESS, result.err
+    assert "WARNING:" in result.err, "the metered-fallback warning must show as a WARNING line"
+    assert _FALLBACK_MESSAGE in result.err, "the CLI must pass the library warning text through"
+
+
+def test_metered_fallback_warning_is_surfaced_on_the_bootstrap_path(
+    vault_config: Path, run_eval_stub: _RunEvalStub, invoke, monkeypatch: pytest.MonkeyPatch
+):
+    """The bootstrap path resolves the credential inside ``AnthropicClient``; a
+    metered fallback there must be surfaced by the CLI as a ``WARNING:`` line too."""
+
+    def _warning_client_factory() -> object:
+        warnings.warn(_FALLBACK_MESSAGE, MeteredApiKeyFallbackWarning, stacklevel=2)
+        return object()
+
+    monkeypatch.setattr("knotica.cli.eval.AnthropicClient", _warning_client_factory)
+    monkeypatch.setattr(
+        "knotica.cli.eval.bootstrap",
+        lambda store, topic, client, snapshot: [
+            {"question": "q", "reference_answer": "a", "citations": []}
+        ],
+    )
+
+    result = invoke("eval", "--bootstrap", "--topic", SEED_TOPIC)
+
+    assert result.code == EXIT_SUCCESS, result.err
+    assert run_eval_stub.calls == [], "--bootstrap must not run the metrics eval"
+    assert "WARNING:" in result.err, "the metered-fallback warning must show on the bootstrap path"
+    assert _FALLBACK_MESSAGE in result.err, "the CLI must pass the library warning text through"
+
+
+def test_oauth_mode_run_emits_no_metered_warning(
+    vault_config: Path, run_eval_stub: _RunEvalStub, invoke
+):
+    """An ordinary run that resolves OAuth (or any run that does not fall back) emits
+    no fallback warning: the CLI must not print a spurious ``WARNING:`` line."""
+    run_eval_stub.returns(_metrics_record())
+
+    result = invoke("eval", "--topic", SEED_TOPIC)
+
+    assert result.code == EXIT_SUCCESS, result.err
+    assert "WARNING:" not in result.err, "no fallback means no metered-spend WARNING line"
 
 
 # ---------------------------------------------------------------------------
@@ -631,9 +739,10 @@ def test_bootstrap_threads_the_worker_snapshot_to_the_generator(
 def test_bootstrap_absent_api_key_reports_the_eval_not_configured_message(
     vault_config: Path, run_eval_stub: _RunEvalStub, invoke, monkeypatch: pytest.MonkeyPatch
 ):
-    """With no ``ANTHROPIC_API_KEY`` the bootstrap path reports the clean
+    """With neither credential set the bootstrap path reports the clean
     not-configured error (exit 3) before any synthesis is attempted — the real
-    client's env-key guard fires before the generator is ever reached."""
+    client's env-credential guard fires before the generator is ever reached."""
+    monkeypatch.delenv(OAUTH_TOKEN_ENV_VAR, raising=False)
     monkeypatch.delenv(API_KEY_ENV_VAR, raising=False)
 
     def _never_reached(*args: object, **kwargs: object) -> object:

@@ -234,6 +234,17 @@ class _UsageAccountingClient:
         # snapshot -> [input_tokens, output_tokens], accumulated across calls.
         self._by_snapshot: dict[str, list[int]] = {}
 
+    @property
+    def auth_mode(self) -> str | None:
+        """The wrapped client's resolved auth mode (``"oauth"`` / ``"api_key"``), or ``None``.
+
+        Delegates to the real :class:`~knotica.evals.llm.AnthropicClient`, which
+        records the mode (never the credential) for the run manifest. An injected
+        fake exposes no auth mode, so the mode is ``None`` on a zero-network test
+        run -- honest: no real credential was resolved.
+        """
+        return getattr(self._inner, "auth_mode", None)
+
     def complete(
         self,
         *,
@@ -805,9 +816,11 @@ def _build_manifest(
 
     Captures the reproducibility columns the frozen record cannot hold -- the
     dataset digest, weights/lambda/tau, ``T``/``T_target``, exact token usage,
-    ``cost_usd``, the judge cache hit-rate, per-example scores, the ``dspy``
-    version + Evaluate config -- with no secret material (and the transaction's
-    scrub is the safety net).
+    ``cost_usd``, the resolved ``auth_mode`` (``"oauth"``/``"api_key"``, so a
+    reader knows whether ``cost_usd`` is a real bill or notional), the judge cache
+    hit-rate, per-example scores, the ``dspy`` version + Evaluate config -- with no
+    secret material (and the transaction's scrub is the safety net; the auth mode
+    is not secret, the credential never enters the manifest).
     """
     payload: dict[str, object] = {
         "topic": topic,
@@ -825,7 +838,11 @@ def _build_manifest(
         "T": budget.T,
         "T_target": budget.T_target,
         "cost_factor": record.components.token_cost,
+        "auth_mode": client.auth_mode,
         "token_usage": {"total": client.total_tokens, "by_snapshot": client.usage_summary()},
+        # ``cost_usd`` is pricing-table-derived. In OAuth (subscription) mode
+        # (``auth_mode == "oauth"``) there is no per-call USD bill, so this figure
+        # is *notional* -- the token ceiling remains the hard, mode-independent guard.
         "cost_usd": client.cost_usd(_MODEL_PRICING_USD_PER_MTOK),
         "judge": {
             "snapshot": config.judge_snapshot,

@@ -4,14 +4,19 @@ The eval harness is the first knotica-owned LLM access, and its credential is a
 new trust boundary. These tests pin that boundary and the dependency-injection
 seam that keeps the whole suite offline:
 
-- **Env-only credential.** ``AnthropicClient`` reads ``ANTHROPIC_API_KEY`` from
-  the process environment and nowhere else -- never a ``config.toml``, never the
-  vault. An absent key raises the typed, actionable "not configured" error
-  *before any network attempt*, so an offline test run can never reach the wire
-  even on a machine that happens to export a real key.
-- **No credential leak.** The key value never appears in the client's ``repr``
-  or ``str`` -- a client committed into a clone's git history (or logged) must
-  not carry the secret.
+- **Env-only credential, OAuth-first.** ``AnthropicClient`` resolves its
+  credential from the process environment and nowhere else -- never a
+  ``config.toml``, never the vault. Resolution prefers a subscription
+  ``CLAUDE_CODE_OAUTH_TOKEN`` (no metered spend); it falls back to the metered
+  ``ANTHROPIC_API_KEY`` only when the OAuth token is absent, and that fallback is
+  loud (a ``MeteredApiKeyFallbackWarning``). Neither set raises the typed,
+  actionable "not configured" error naming *both* variables *before any network
+  attempt*, so an offline test run can never reach the wire even on a machine that
+  happens to export a real credential.
+- **No credential leak.** Neither the OAuth token nor the API key ever appears in
+  the client's ``repr`` or ``str`` (or in an error message) -- a client committed
+  into a clone's git history (or logged) must not carry the secret; only the
+  non-secret auth *mode* is kept.
 - **Injectable fake.** ``FakeLLMClient`` conforms to the ``complete`` protocol
   and replays canned completions with synthetic token usage preserved exactly
   (no rounding, no cross-model conversion), so every downstream eval test runs
@@ -42,6 +47,7 @@ checkpoint, not a silent wrong value -- reconcile there.
 import socket
 import subprocess
 import sys
+import warnings
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -49,31 +55,43 @@ import pytest
 
 from knotica.core.errors import KnoticaError
 from knotica.evals.llm import (
+    AUTH_MODE_API_KEY,
+    AUTH_MODE_OAUTH,
     AnthropicClient,
     Completion,
     FakeLLMClient,
     Message,
+    MeteredApiKeyFallbackWarning,
     TokenUsage,
     _extract_text,
     _usage_from_response,
 )
 
-#: The env var the client authenticates with -- the single credential source.
+#: The fallback (metered) credential env var.
 ANTHROPIC_KEY_ENV = "ANTHROPIC_API_KEY"
 
-#: A synthetic, structurally-plausible sentinel used to prove the key value is
+#: The preferred (subscription) credential env var -- OAuth wins when present.
+OAUTH_TOKEN_ENV = "CLAUDE_CODE_OAUTH_TOKEN"
+
+#: A synthetic, structurally-plausible sentinel used to prove the API-key value is
 #: never echoed and never sourced from a config file. NOT a real credential.
 SENTINEL_KEY = "sk-ant-api03-SENTINEL-do-not-leak-0000000000"
 
+#: The OAuth-token sentinel -- proves the subscription token is likewise never
+#: echoed on any path. NOT a real credential.
+SENTINEL_OAUTH_TOKEN = "sk-ant-oat01-SENTINEL-do-not-leak-0000000000"
+
 
 @pytest.fixture(autouse=True)
-def _scrub_anthropic_key(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Start every test from the absent-key state.
+def _scrub_eval_credentials(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Start every test from the no-credential state (both variables absent).
 
-    A real ``ANTHROPIC_API_KEY`` exported on the dev machine must never leak
-    into these tests: it would both mask the absent-key contract and risk a real
-    API call. Tests that need a key present set it explicitly.
+    A real ``CLAUDE_CODE_OAUTH_TOKEN`` (which this very environment exports) or
+    ``ANTHROPIC_API_KEY`` on the dev machine must never leak into these tests: it
+    would mask the resolution contract and risk a real API call. Tests that need a
+    credential present set it explicitly.
     """
+    monkeypatch.delenv(OAUTH_TOKEN_ENV, raising=False)
     monkeypatch.delenv(ANTHROPIC_KEY_ENV, raising=False)
 
 
@@ -154,6 +172,66 @@ def test_constructing_the_anthropic_client_with_a_key_present_succeeds(
 
 
 # ---------------------------------------------------------------------------
+# OAuth-first credential resolution (subscription preferred, metered fallback loud)
+# ---------------------------------------------------------------------------
+
+
+def test_oauth_token_present_resolves_oauth_mode_with_no_metered_warning(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # Both credentials present: the subscription OAuth token must win, and no
+    # metered-spend warning may fire (there is no metered spend). Construction
+    # builds the SDK client (lazy `anthropic` import), so skip on the base env.
+    pytest.importorskip("anthropic")
+    monkeypatch.setenv(OAUTH_TOKEN_ENV, "oat-dummy-value-not-real")
+    monkeypatch.setenv(ANTHROPIC_KEY_ENV, "sk-ant-dummy-value-not-real")
+
+    with warnings.catch_warnings():
+        warnings.simplefilter("error", MeteredApiKeyFallbackWarning)
+        client = AnthropicClient()
+
+    assert client.auth_mode == AUTH_MODE_OAUTH, (
+        "a present OAuth token must resolve OAuth mode and win over the metered key"
+    )
+
+
+def test_only_api_key_present_warns_about_metered_spend_and_resolves_api_key_mode(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # OAuth token absent (autouse scrub) but the metered key present: resolution
+    # must fall back to the metered key AND announce it loudly with the exact
+    # spend language, so metered API-credit spend is never silent.
+    pytest.importorskip("anthropic")
+    monkeypatch.setenv(ANTHROPIC_KEY_ENV, "sk-ant-dummy-value-not-real")
+
+    with pytest.warns(MeteredApiKeyFallbackWarning) as caught:
+        client = AnthropicClient()
+
+    assert client.auth_mode == AUTH_MODE_API_KEY, (
+        "an OAuth-absent metered key resolves api_key mode"
+    )
+    message = str(caught[0].message)
+    assert "metered" in message.lower(), "the warning must name the metered spend plainly"
+    assert OAUTH_TOKEN_ENV in message, "the warning must name the unset OAuth token to set instead"
+
+
+def test_no_credential_present_raises_a_typed_error_naming_both_variables() -> None:
+    # Neither credential set (autouse scrub): the typed not-configured error must
+    # name BOTH variables (the OAuth one as preferred) so the fix is self-evident.
+    with pytest.raises(KnoticaError) as excinfo:
+        AnthropicClient()
+
+    err = excinfo.value
+    actionable = f"{err.message} {err.fix}"
+    assert OAUTH_TOKEN_ENV in actionable, (
+        f"the not-configured error must name the preferred OAuth var; got {actionable!r}"
+    )
+    assert ANTHROPIC_KEY_ENV in actionable, (
+        f"the not-configured error must name the fallback API-key var; got {actionable!r}"
+    )
+
+
+# ---------------------------------------------------------------------------
 # The credential is never echoed
 # ---------------------------------------------------------------------------
 
@@ -170,6 +248,49 @@ def test_the_client_never_echoes_the_api_key_in_its_repr_or_str(
 
     assert SENTINEL_KEY not in repr(client), "the key value must not appear in repr(client)"
     assert SENTINEL_KEY not in str(client), "the key value must not appear in str(client)"
+
+
+def test_the_client_never_echoes_the_oauth_token_in_its_repr_or_str(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # The subscription OAuth token is just as secret as the API key: it must not
+    # appear in repr/str either (the no-echo discipline extends to both credentials).
+    pytest.importorskip("anthropic")
+    monkeypatch.setenv(OAUTH_TOKEN_ENV, SENTINEL_OAUTH_TOKEN)
+
+    client = AnthropicClient()
+
+    assert SENTINEL_OAUTH_TOKEN not in repr(client), (
+        "the OAuth token must not appear in repr(client)"
+    )
+    assert SENTINEL_OAUTH_TOKEN not in str(client), "the OAuth token must not appear in str(client)"
+
+
+@pytest.mark.parametrize(
+    "env_var, sentinel",
+    [(ANTHROPIC_KEY_ENV, SENTINEL_KEY), (OAUTH_TOKEN_ENV, SENTINEL_OAUTH_TOKEN)],
+    ids=["api-key", "oauth-token"],
+)
+def test_a_missing_eval_group_error_never_echoes_the_credential(
+    monkeypatch: pytest.MonkeyPatch, env_var: str, sentinel: str
+) -> None:
+    # With a credential present, construction gets past resolution and reaches the
+    # lazy import; a `None` entry in sys.modules makes `import anthropic` raise,
+    # reshaped into the house typed error -- which must never carry the secret, for
+    # either credential. (The api-key case also warns during resolution; suppress
+    # it here -- the warning text is pinned elsewhere, this pins the no-leak.)
+    monkeypatch.setenv(env_var, sentinel)
+    monkeypatch.setitem(sys.modules, "anthropic", None)
+
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore", MeteredApiKeyFallbackWarning)
+        with pytest.raises(KnoticaError) as excinfo:
+            AnthropicClient()
+
+    err = excinfo.value
+    assert sentinel not in f"{err.message} {err.fix}", (
+        "a missing-eval-group error must never echo the credential value"
+    )
 
 
 # ---------------------------------------------------------------------------
