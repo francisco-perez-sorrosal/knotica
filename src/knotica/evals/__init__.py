@@ -25,18 +25,20 @@ optimizer / SIA loops) depend on:
   metric needs are bound up front by this factory);
 * :class:`~knotica.evals.runner.BaselineRunner` and
   :func:`~knotica.evals.program.BaselineProgram` -- the headless-query and
-  DSPy-adapter seams.
+  DSPy-adapter seams;
+* :func:`~knotica.evals.harness.run_eval` -- the orchestrator entry point the
+  ``knotica eval`` CLI drives, where every seam above composes.
 
-``run_eval`` (the orchestrator entry point) joins this surface once
-:mod:`knotica.evals.harness` lands. Concrete implementation and DI types (the
-Anthropic client, the test fake, the message/usage dataclasses, the runner's
-``Prediction``) are imported from their defining submodule directly, keeping
-this surface to the cross-subsystem names alone. Re-exporting these seams keeps
+Concrete implementation and DI types (the Anthropic client, the test fake, the
+message/usage dataclasses, the runner's ``Prediction``) are imported from their
+defining submodule directly, keeping this surface to the cross-subsystem names
+alone. Re-exporting these seams keeps
 ``import knotica.evals`` cheap: every one is defined in a module that imports
 ``anthropic``/``dspy`` lazily (or not at all), so the package import never forces
 the ``evals`` dependency group onto an unrelated path such as the MCP cold start.
 """
 
+from knotica.evals.harness import run_eval
 from knotica.evals.llm import LLMClient
 from knotica.evals.program import BaselineProgram
 from knotica.evals.runner import BaselineRunner
@@ -47,4 +49,5 @@ __all__ = [
     "BaselineRunner",
     "LLMClient",
     "build_metric",
+    "run_eval",
 ]
