@@ -59,7 +59,7 @@ from knotica.cli.common import (
     unconfigured,
 )
 from knotica.core.config import ConfigDiagnosis, ConfigState, ResolvedVault, diagnose
-from knotica.core.errors import KnoticaError
+from knotica.core.errors import ErrorCode, KnoticaError
 from knotica.core.records import MetricsRecord, RecordParseError
 from knotica.evals.config import DEFAULT_CONFIG, HarnessConfig
 from knotica.evals.golden import (
@@ -231,11 +231,13 @@ def _run_eval(console: Console, vault: ResolvedVault, args: argparse.Namespace) 
         # cleanly (message + fix, never a stack trace).
         _emit_error(console, failure)
         return EXIT_ERROR
-    except KnoticaError as not_configured:
-        # The eval-not-configured case (absent ANTHROPIC_API_KEY / missing eval
-        # group): a clean what+fix, exit 3; the key value is never in the message.
-        _emit_error(console, not_configured)
-        return EXIT_NOT_CONFIGURED
+    except KnoticaError as failure:
+        # A clean what+fix envelope, never a traceback; the credential value is
+        # never in the message. Exit 3 is reserved for the not-configured case
+        # (absent credentials / missing eval group); every other typed failure
+        # (e.g. a live LLM transport error) is a run error, exit 1.
+        _emit_error(console, failure)
+        return EXIT_NOT_CONFIGURED if failure.code is ErrorCode.NOT_CONFIGURED else EXIT_ERROR
     except (MalformedResponseError, JudgeParseError) as instrument:
         # A defensive belt: the harness wraps instrument failures into an
         # ``EvalRunError`` above, but if a raw parse error ever escapes it still
@@ -275,11 +277,12 @@ def _run_bootstrap(console: Console, vault: ResolvedVault, args: argparse.Namesp
             candidates = bootstrap(
                 LocalFSStore(vault.path), args.topic, client, run_config.worker_snapshot
             )
-    except KnoticaError as not_configured:
-        # Absent ANTHROPIC_API_KEY / missing eval group: a clean what+fix, exit 3;
-        # the key value never appears in the message.
-        _emit_error(console, not_configured)
-        return EXIT_NOT_CONFIGURED
+    except KnoticaError as failure:
+        # A clean what+fix envelope, never a traceback; the credential value never
+        # appears in the message. Exit 3 only for the not-configured case; other
+        # typed failures (e.g. a live LLM transport error mid-bootstrap) exit 1.
+        _emit_error(console, failure)
+        return EXIT_NOT_CONFIGURED if failure.code is ErrorCode.NOT_CONFIGURED else EXIT_ERROR
     except GoldenCandidateError as malformed:
         # A page's synthesis response did not parse into a candidate triple.
         _emit_bootstrap_parse_error(console, malformed)

@@ -53,7 +53,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from knotica.core.errors import KnoticaError
+from knotica.core.errors import ErrorCode, KnoticaError
 from knotica.evals.llm import (
     AUTH_MODE_API_KEY,
     AUTH_MODE_OAUTH,
@@ -193,6 +193,83 @@ def test_real_and_fake_clients_conform_to_the_llm_client_protocol(
     )
     assert isinstance(FakeLLMClient(completions=canned), LLMClient), (
         "FakeLLMClient must satisfy the LLMClient protocol"
+    )
+
+
+def _client_with_sdk_raising(monkeypatch: pytest.MonkeyPatch, status_code: int) -> AnthropicClient:
+    """An offline AnthropicClient whose SDK stub raises a real APIStatusError."""
+    anthropic_sdk = pytest.importorskip("anthropic")
+    httpx = pytest.importorskip("httpx")
+    client = AnthropicClient()
+    request = httpx.Request("POST", "https://api.anthropic.com/v1/messages")
+    response = httpx.Response(status_code, request=request)
+    sdk_error = anthropic_sdk.APIStatusError("Error", response=response, body=None)
+
+    class _RaisingMessages:
+        @staticmethod
+        def create(**_kwargs: object) -> object:
+            raise sdk_error
+
+    class _RaisingSdkClient:
+        messages = _RaisingMessages()
+
+    monkeypatch.setattr(client, "_client", _RaisingSdkClient())
+    return client
+
+
+def _complete_once(client: AnthropicClient) -> None:
+    client.complete(
+        snapshot="snapshot-under-test",
+        system="system",
+        messages=[Message(role="user", content="question")],
+        max_tokens=16,
+    )
+
+
+def test_metered_rate_limit_surfaces_as_retryable_typed_error_naming_the_mode(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # A live 429 must land in the typed envelope (never a raw SDK traceback),
+    # carry the active auth mode for diagnosability, be retryable, and leak no
+    # credential material.
+    monkeypatch.setenv(ANTHROPIC_KEY_ENV, "sk-ant-dummy-value-not-real")
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore", MeteredApiKeyFallbackWarning)
+        client = _client_with_sdk_raising(monkeypatch, 429)
+
+    with pytest.raises(KnoticaError) as caught:
+        _complete_once(client)
+
+    error = caught.value
+    assert error.code is ErrorCode.LLM_API_ERROR, "SDK failures map to the LLM_API_ERROR code"
+    assert error.retryable is True, "a rate limit clears on its own -- retryable"
+    assert "api_key mode" in error.message, "the active auth mode makes the failure diagnosable"
+    assert "sk-ant-dummy-value-not-real" not in error.message + error.fix, (
+        "credential material must never appear in the envelope"
+    )
+
+
+def test_oauth_throttle_fix_text_names_the_token_fallback_path(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # An opaque 429/401 in OAuth mode is the token-not-accepted signature: the
+    # fix must point at unsetting CLAUDE_CODE_OAUTH_TOKEN to fall back, so the
+    # operator is never left guessing which credential produced the failure.
+    monkeypatch.setenv(OAUTH_TOKEN_ENV, "oat-dummy-value-not-real")
+    monkeypatch.setenv(ANTHROPIC_KEY_ENV, "sk-ant-dummy-value-not-real")
+    client = _client_with_sdk_raising(monkeypatch, 429)
+
+    with pytest.raises(KnoticaError) as caught:
+        _complete_once(client)
+
+    error = caught.value
+    assert error.code is ErrorCode.LLM_API_ERROR
+    assert "oauth mode" in error.message, "the OAuth mode must be named in the message"
+    assert "CLAUDE_CODE_OAUTH_TOKEN" in error.fix, (
+        "the fix must name the exact fallback action for a rejected subscription token"
+    )
+    assert "oat-dummy-value-not-real" not in error.message + error.fix, (
+        "token material must never appear in the envelope"
     )
 
 

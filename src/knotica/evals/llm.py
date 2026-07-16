@@ -281,14 +281,33 @@ class AnthropicClient:
         temperature: float = 0.0,
         max_tokens: int,
     ) -> Completion:
-        """Call the Messages API and return the text + exact usage as a Completion."""
-        response = self._client.messages.create(
-            model=snapshot,
-            system=system,
-            messages=[{"role": message.role, "content": message.content} for message in messages],
-            temperature=temperature,
-            max_tokens=max_tokens,
-        )
+        """Call the Messages API and return the text + exact usage as a Completion.
+
+        SDK transport failures (rate limits, auth rejections, server errors,
+        network drops) are re-raised as typed :class:`KnoticaError`s carrying the
+        active auth mode -- adapters render the envelope, never a raw traceback.
+        """
+        anthropic = _import_anthropic()
+        try:
+            response = self._client.messages.create(
+                model=snapshot,
+                system=system,
+                messages=[
+                    {"role": message.role, "content": message.content} for message in messages
+                ],
+                temperature=temperature,
+                max_tokens=max_tokens,
+            )
+        except anthropic.APIStatusError as exc:  # type: ignore[attr-defined]
+            raise _llm_api_error(exc, self.auth_mode) from exc
+        except anthropic.APIConnectionError as exc:  # type: ignore[attr-defined]
+            raise KnoticaError(
+                ErrorCode.LLM_API_ERROR,
+                f"eval LLM call failed in {self.auth_mode} mode because the network"
+                " connection to the Messages API dropped before a response.",
+                fix="Check connectivity and re-run; the SDK already retried with backoff.",
+                retryable=True,
+            ) from exc
         return Completion(
             text=_extract_text(response.content),
             usage=_usage_from_response(response.usage),
@@ -311,6 +330,54 @@ def _build_sdk_client(anthropic: object, auth_mode: str, credential: str) -> obj
             default_headers={_OAUTH_BETA_HEADER_NAME: _OAUTH_BETA_HEADER_VALUE},
         )
     return anthropic.Anthropic(api_key=credential)  # type: ignore[attr-defined]
+
+
+def _llm_api_error(exc: Exception, auth_mode: str) -> KnoticaError:
+    """Map an SDK ``APIStatusError`` to the typed envelope error, auth-mode-tagged.
+
+    The auth mode in the message is what makes a live failure diagnosable: an
+    opaque 429 in OAuth mode reads very differently from a metered-tier rate
+    limit. Transient statuses (429/5xx/529) are retryable; auth rejections are
+    not. Error bodies carry no secrets; the credential never appears here.
+    """
+    status = getattr(exc, "status_code", None)
+    request_id = getattr(exc, "request_id", None)
+    detail = str(getattr(exc, "message", "") or exc)[:200]
+    suffix = f" (request_id: {request_id})" if request_id else ""
+    message = (
+        f"eval LLM call failed in {auth_mode} mode because the Messages API"
+        f" returned HTTP {status}: {detail}{suffix}"
+    )
+    if auth_mode == AUTH_MODE_OAUTH and status in (401, 403, 429):
+        return KnoticaError(
+            ErrorCode.LLM_API_ERROR,
+            message,
+            fix=(
+                "A rejected or throttled subscription token: Claude Code OAuth tokens"
+                " may not be accepted for direct Messages API calls. Unset"
+                " CLAUDE_CODE_OAUTH_TOKEN to fall back to the metered"
+                " ANTHROPIC_API_KEY (the spend warning will fire), or wait and re-run."
+            ),
+            retryable=status == 429,
+        )
+    if status in (401, 403):
+        return KnoticaError(
+            ErrorCode.LLM_API_ERROR,
+            message,
+            fix="Check that ANTHROPIC_API_KEY is valid and has model access.",
+            retryable=False,
+        )
+    if status == 429:
+        return KnoticaError(
+            ErrorCode.LLM_API_ERROR,
+            message,
+            fix=(
+                "Your API tier's rate limit; the SDK already retried with backoff."
+                " Wait a minute and re-run -- completed judge scores are cached."
+            ),
+            retryable=True,
+        )
+    return KnoticaError(ErrorCode.LLM_API_ERROR, message, retryable=True)
 
 
 def _extract_text(blocks: list) -> str:

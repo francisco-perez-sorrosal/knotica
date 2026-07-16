@@ -44,6 +44,10 @@ RETRYABLE_BY_CODE = {
     "LOCK_BUSY": True,
     "GIT_ERROR": False,
     "INVALID_CURSOR": False,
+    # Eval-harness LLM transport failures (rate limit / server error / network):
+    # transient by default -- raisers pass retryable=False explicitly for
+    # non-transient statuses such as auth rejections.
+    "LLM_API_ERROR": True,
 }
 
 ERROR_CODE_NAMES = frozenset(RETRYABLE_BY_CODE)
@@ -131,7 +135,7 @@ def _render_envelope(errors, err) -> dict:
 # ---------------------------------------------------------------------------
 
 
-def test_the_code_enum_carries_exactly_the_ten_contract_codes():
+def test_the_code_enum_matches_the_contract_code_set_exactly():
     errors = _errors_module()
     members = set(_code_enum(errors).__members__)
     assert members == ALL_CODE_NAMES, (

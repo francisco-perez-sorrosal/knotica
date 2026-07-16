@@ -59,7 +59,7 @@ from knotica.cli.common import (
     EXIT_SUCCESS,
     UNCONFIGURED_MESSAGE,
 )
-from knotica.core.errors import KnoticaError
+from knotica.core.errors import ErrorCode, KnoticaError
 from knotica.core.records import MetricsComponents, MetricsRecord
 from knotica.evals.config import WORKER_SNAPSHOT
 from knotica.evals.golden import (
@@ -306,6 +306,12 @@ _HOUSE_ERRORS = [
     GoldenSetContaminationError(SEED_TOPIC, ("what is an agent?",)),
     SpendCeilingExceededError(SEED_TOPIC, "run crossed the per-run token ceiling"),
     EvalRunError(SEED_TOPIC, "3 of 24 examples failed with an instrument error"),
+    # A live LLM transport failure (e.g. a 429) must render the envelope and exit
+    # the generic-error code -- never the not-configured code, never a traceback.
+    KnoticaError(
+        ErrorCode.LLM_API_ERROR,
+        "eval LLM call failed in api_key mode because the Messages API returned HTTP 429: Error",
+    ),
 ]
 
 _PARSE_ERRORS = [
