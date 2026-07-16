@@ -15,16 +15,36 @@ and are imported lazily by the modules that need them, so ``import
 knotica.evals`` never forces the eval group onto an unrelated import path such
 as the MCP cold start.
 
-The package's public seam is the injectable :class:`~knotica.evals.llm.LLMClient`
-protocol. As later modules land, the curated cross-subsystem surface grows to
-include ``score`` (the triple-consumer metric), ``run_eval`` (the orchestrator),
-and the ``BaselineRunner`` / ``BaselineProgram`` seams. Concrete implementation
-types (the Anthropic client, the test fake, the message/usage dataclasses) are
-imported from :mod:`knotica.evals.llm` directly.
+The package's public seam is the curated cross-subsystem surface -- the names
+other subsystems (the ``knotica eval`` CLI, ``dspy.Evaluate``, the later
+optimizer / SIA loops) depend on:
+
+* :class:`~knotica.evals.llm.LLMClient` -- the injectable LLM boundary;
+* :func:`~knotica.evals.scorer.build_metric` -- binds the triple-consumer
+  ``score`` metric (there is no free-standing ``score``: the collaborators the
+  metric needs are bound up front by this factory);
+* :class:`~knotica.evals.runner.BaselineRunner` and
+  :func:`~knotica.evals.program.BaselineProgram` -- the headless-query and
+  DSPy-adapter seams.
+
+``run_eval`` (the orchestrator entry point) joins this surface once
+:mod:`knotica.evals.harness` lands. Concrete implementation and DI types (the
+Anthropic client, the test fake, the message/usage dataclasses, the runner's
+``Prediction``) are imported from their defining submodule directly, keeping
+this surface to the cross-subsystem names alone. Re-exporting these seams keeps
+``import knotica.evals`` cheap: every one is defined in a module that imports
+``anthropic``/``dspy`` lazily (or not at all), so the package import never forces
+the ``evals`` dependency group onto an unrelated path such as the MCP cold start.
 """
 
 from knotica.evals.llm import LLMClient
+from knotica.evals.program import BaselineProgram
+from knotica.evals.runner import BaselineRunner
+from knotica.evals.scorer import build_metric
 
 __all__ = [
+    "BaselineProgram",
+    "BaselineRunner",
     "LLMClient",
+    "build_metric",
 ]
