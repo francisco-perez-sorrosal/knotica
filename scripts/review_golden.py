@@ -75,7 +75,11 @@ class ReviewState:
     def _page_provenance(self, candidates: list[dict]) -> dict[str, dict]:
         """Existence + Obsidian deep link for every page any candidate cites.
 
-        The ``obsidian://open?path=`` form takes an absolute file path and lets
+        ``pages_used`` values vary by producer: the bootstrap records bare
+        topic-relative slugs (``agent-memory``) while curated examples carry
+        vault-relative paths (``agentic-systems/agent-memory``) -- so resolution
+        tries the topic directory first, then the vault root. The
+        ``obsidian://open?path=`` form takes an absolute file path and lets
         Obsidian resolve which vault owns it -- no dependence on the vault's
         registered display name.
         """
@@ -85,14 +89,17 @@ class ReviewState:
                 name = str(page).strip()
                 if not name or name in pages:
                     continue
-                relative = name if name.endswith(".md") else f"{name}.md"
-                path = self.vault / relative
-                pages[name] = {
-                    "exists": path.is_file(),
-                    "obsidian_uri": "obsidian://open?path="
-                    + urllib.parse.quote(str(path), safe=""),
-                }
+                pages[name] = self._resolve_page(name)
         return pages
+
+    def _resolve_page(self, name: str) -> dict:
+        relative = name if name.endswith(".md") else f"{name}.md"
+        topic_first = (self.vault / self.topic / relative, self.vault / relative)
+        path = next((p for p in topic_first if p.is_file()), topic_first[0])
+        return {
+            "exists": path.is_file(),
+            "obsidian_uri": "obsidian://open?path=" + urllib.parse.quote(str(path), safe=""),
+        }
 
     def save(self, accepted: list[dict]) -> dict:
         rows = [_normalized_candidate(row) for row in accepted]
