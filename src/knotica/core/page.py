@@ -34,6 +34,7 @@ __all__ = [
     "TopicNotFoundError",
     "normalize_page_name",
     "page_path",
+    "resolve_read_path",
     "parse_frontmatter_block",
     "parse_page",
     "read_page",
@@ -65,6 +66,7 @@ _FRONTMATTER_FENCE = "---"
 _KEY_VALUE_RE = re.compile(r"^(?P<key>[A-Za-z_][A-Za-z0-9_-]*):(?:\s+(?P<value>.*))?$")
 _PLAIN_SCALAR_SAFE_RE = re.compile(r"^[A-Za-z0-9._/@+-][A-Za-z0-9 ._/@+-]*$")
 _MAX_PAGE_SUGGESTIONS = 3
+_SOURCES_PREFIX = "sources/"
 
 
 class FrontmatterParseError(ValueError):
@@ -153,6 +155,73 @@ def page_path(topic: str, page: str) -> str:
     return f"{cleaned_topic}/{normalize_page_name(page)}"
 
 
+def resolve_read_path(topic: str, page: str) -> str:
+    """Map a ``read_page`` reference to a vault-relative ``.md`` path.
+
+    Accepts topic-relative page names (``agent-memory``), vault-relative topic
+    pages (``agentic-systems/agent-memory``), stored sources
+    (``sources/<topic>/<citation-key>``), and bare citation keys when the
+    reference has no ``/``. For ``sources/...`` paths the ``topic`` argument
+    always selects the owning topic directory under ``sources/``, so a mistyped
+    middle segment (``sources/agentic-system/...`` with topic ``agentic-systems``)
+    still resolves correctly.
+    """
+    cleaned_topic = _validate_bare_topic(topic)
+    stripped = page.strip()
+    normalized = normalize_page_name(stripped)
+
+    if stripped.startswith(_SOURCES_PREFIX):
+        return _source_path(cleaned_topic, normalized)
+
+    if normalized.startswith(f"{cleaned_topic}/"):
+        return normalized
+
+    if "/" not in stripped.removesuffix(".md"):
+        return f"{cleaned_topic}/{normalized}"
+
+    return f"{cleaned_topic}/{normalized}"
+
+
+def _validate_bare_topic(topic: str) -> str:
+    cleaned_topic = topic.strip()
+    if not cleaned_topic:
+        raise ValueError("Topic must not be empty.")
+    if "/" in cleaned_topic or cleaned_topic.startswith("."):
+        raise ValueError(f"Topic must be a bare top-level directory name, got: {topic!r}")
+    return cleaned_topic
+
+
+def _source_path(topic: str, normalized: str) -> str:
+    parts = normalized.split("/")
+    if len(parts) < 3 or parts[0] != "sources":
+        raise ValueError(f"Source path must be sources/<topic>/<citation-key>, got: {normalized!r}")
+    return f"{_SOURCES_PREFIX}{topic}/{parts[-1]}"
+
+
+def _read_path_candidates(topic: str, page: str) -> list[str]:
+    """Candidate vault paths to try, most likely first."""
+    stripped = page.strip()
+    normalized = normalize_page_name(stripped)
+    if stripped.startswith(_SOURCES_PREFIX):
+        return [_source_path(topic, normalized)]
+    if normalized.startswith(f"{topic}/"):
+        candidates = [normalized]
+    else:
+        candidates = [f"{topic}/{normalized}"]
+    if "/" not in stripped.removesuffix(".md"):
+        source_path = f"{_SOURCES_PREFIX}{topic}/{normalized}"
+        if source_path not in candidates:
+            candidates.append(source_path)
+    return candidates
+
+
+def _topic_for_path(path: str, fallback: str) -> str:
+    if path.startswith(_SOURCES_PREFIX):
+        parts = path.split("/")
+        return parts[1] if len(parts) >= 3 else fallback
+    return path.split("/", 1)[0] if "/" in path else fallback
+
+
 def parse_page(text: str) -> tuple[dict[str, object] | None, str | None, str]:
     """Split ``text`` into ``(frontmatter, frontmatter_error, body)``.
 
@@ -214,15 +283,29 @@ def read_page(store: VaultStore, topic: str, page: str) -> Page:
     :class:`PageNotFoundError` (with nearest-match suggestions from the topic's
     existing pages) when the page file is absent.
     """
-    path = page_path(topic, page)
-    if not store.exists(topic.strip()):
-        raise TopicNotFoundError(topic.strip())
+    cleaned_topic = _validate_bare_topic(topic)
+    if not store.exists(cleaned_topic):
+        raise TopicNotFoundError(cleaned_topic)
+
+    path = next(
+        (
+            candidate
+            for candidate in _read_path_candidates(cleaned_topic, page)
+            if store.exists(candidate)
+        ),
+        resolve_read_path(cleaned_topic, page),
+    )
     if not store.exists(path):
-        raise PageNotFoundError(topic.strip(), page, _suggest_pages(store, topic.strip(), page))
+        raise PageNotFoundError(
+            cleaned_topic,
+            page,
+            _suggest_pages(store, cleaned_topic, page),
+        )
     raw = store.read_text(path)
     frontmatter, error, body = parse_page(raw)
+    effective_topic = _topic_for_path(path, cleaned_topic)
     return Page(
-        topic=topic.strip(),
+        topic=effective_topic,
         path=path,
         frontmatter=frontmatter,
         frontmatter_error=error,
@@ -412,13 +495,30 @@ def _serialize_string(value: str) -> str:
 
 
 def _suggest_pages(store: VaultStore, topic: str, page: str) -> tuple[str, ...]:
-    """Nearest-match page names in ``topic`` for a missing ``page`` reference."""
+    """Nearest-match page names for a missing ``page`` reference."""
+    stripped = page.strip()
+    wanted = stripped.removesuffix(".md")
+    if "/" in wanted:
+        wanted = wanted.rsplit("/", 1)[-1]
+
+    stems: list[str] = []
     try:
         entries = store.list_dir(topic)
+        stems.extend(name[: -len(".md")] for name in entries if name.endswith(".md"))
     except (FileNotFoundError, NotADirectoryError):
-        return ()
-    stems = [name[: -len(".md")] for name in entries if name.endswith(".md")]
-    wanted = page.strip().removesuffix(".md")
+        pass
+
+    source_dir = f"{_SOURCES_PREFIX}{topic}"
+    try:
+        entries = store.list_dir(source_dir)
+        stems.extend(
+            f"{_SOURCES_PREFIX}{topic}/{name[: -len('.md')]}"
+            for name in entries
+            if name.endswith(".md")
+        )
+    except (FileNotFoundError, NotADirectoryError):
+        pass
+
     return tuple(difflib.get_close_matches(wanted, stems, n=_MAX_PAGE_SUGGESTIONS, cutoff=0.4))
 
 

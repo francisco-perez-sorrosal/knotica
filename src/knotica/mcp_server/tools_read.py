@@ -35,7 +35,6 @@ from knotica.core.lint import RESERVED_TOP_LEVEL_NAMES, lint_vault
 from knotica.core.page import (
     PageNotFoundError,
     TopicNotFoundError,
-    page_path,
 )
 from knotica.core.page import read_page as read_page_core
 from knotica.core.schema import overlay_path
@@ -49,7 +48,10 @@ _READ_PAGE_DESCRIPTION = (
     "Read one wiki page and return its raw markdown plus parsed frontmatter. Does NOT "
     "resolve or follow wikilinks (use list_links) and does NOT search (use search). "
     "Precondition: the page exists under the given topic; call search or list_topics first "
-    "if unsure. Returns the full page body — call this only for pages you have decided to read."
+    "if unsure. The page argument accepts a topic-relative name (agent-memory), a "
+    "vault-relative path from search (sources/<topic>/<citation-key> or "
+    "<topic>/reports/...), or a bare citation key for a stored source. Returns the full "
+    "page body — call this only for pages you have decided to read."
 )
 
 _LIST_TOPICS_DESCRIPTION = (
@@ -206,8 +208,8 @@ def _collect_links(store: VaultStore, topic: str, page: str, direction: str) -> 
     ``TOPIC_NOT_FOUND`` / ``PAGE_NOT_FOUND`` semantics, including nearest-match
     suggestions) so a missing target is an actionable envelope, not empty output.
     """
-    read_page_core(store, topic, page)
-    path = page_path(topic, page)
+    parsed = read_page_core(store, topic, page)
+    path = parsed.path
     result: dict[str, Any] = {"page": path, "direction": direction}
     if direction in ("out", "both"):
         result["out"] = [_render_outbound(link) for link in outbound_links(store, path)]

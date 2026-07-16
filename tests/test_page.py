@@ -307,6 +307,35 @@ def test_topic_must_be_a_bare_top_level_directory_name(topic):
 # ---------------------------------------------------------------------------
 
 
+def test_read_page_resolves_vault_relative_source_path(template_vault):
+    store = LocalFSStore(template_vault)
+    page = read_page(
+        store,
+        "agentic-systems",
+        "sources/agentic-systems/wang2024awm",
+    )
+    assert page.path == "sources/agentic-systems/wang2024awm.md"
+    assert page.topic == "agentic-systems"
+    assert page.frontmatter is not None
+    assert page.frontmatter["type"] == "source"
+
+
+def test_read_page_rewrites_wrong_source_topic_segment(template_vault):
+    store = LocalFSStore(template_vault)
+    page = read_page(
+        store,
+        "agentic-systems",
+        "sources/agentic-system/wang2024awm",
+    )
+    assert page.path == "sources/agentic-systems/wang2024awm.md"
+
+
+def test_read_page_reads_bare_citation_key_from_sources(template_vault):
+    store = LocalFSStore(template_vault)
+    page = read_page(store, "agentic-systems", "wang2024awm")
+    assert page.path == "sources/agentic-systems/wang2024awm.md"
+
+
 def test_read_page_returns_raw_and_body_with_parsed_frontmatter(template_vault):
     store = LocalFSStore(template_vault)
     page = read_page(store, "agentic-systems", "agent-workflow-memory")
