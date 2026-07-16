@@ -78,7 +78,8 @@ Every tool/prompt honors the `unconfigured` contract (structured result, not an 
   vault (optionally at `ref`) into a throwaway tree; the frozen-corpus mechanism (a read/checkout method,
   never a mutation, so `evals/` may call it directly).
 - `LLMClient.complete(*, snapshot, system, messages, temperature=0.0, max_tokens) -> Completion` — the one
-  network seam (a Protocol); `AnthropicClient` (real, env-only `ANTHROPIC_API_KEY`) and `FakeLLMClient`
+  network seam (a Protocol); `AnthropicClient` (real; env-only credential, OAuth-first: `CLAUDE_CODE_OAUTH_TOKEN`
+  preferred, noisy fallback to the metered `ANTHROPIC_API_KEY` — user override 2026-07-16) and `FakeLLMClient`
   (zero-network) implement it.
 - `BaselineProgram(store, topic, runner)` with `forward(question: str) -> dspy.Prediction` — the
   `dspy.Module` the metric runs over; calls `runner.run` only (no `dspy.LM`, so `dspy.settings.lm` stays unset).

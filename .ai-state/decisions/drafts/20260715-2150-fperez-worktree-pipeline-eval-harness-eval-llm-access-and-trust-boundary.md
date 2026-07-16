@@ -4,13 +4,12 @@ title: Eval LLM access — direct Messages API, pinned judge, and a new knotica-
 status: proposed
 category: architectural
 date: 2026-07-15
-summary: The eval harness reaches Anthropic via the direct Messages API behind a BaselineRunner interface (baseline answerer) and a pinned Opus-class judge; it authenticates with a knotica-owned ANTHROPIC_API_KEY read from the environment only. This is the first knotica-owned LLM access — a new trust boundary distinct from client-as-brain, confined to the headless eval CLI and never on the MCP server launch path.
-tags: [evals, phase-2, llm, anthropic, judge, trust-boundary, security, cost-accounting, auth]
-made_by: agent
-agent_type: systems-architect
+summary: The eval harness reaches Anthropic via the direct Messages API behind a BaselineRunner interface (baseline answerer) and a pinned Opus-class judge; it authenticates from the environment only, OAuth-first per a 2026-07-16 user override — CLAUDE_CODE_OAUTH_TOKEN (subscription, no metered spend) preferred, noisy fallback to the metered ANTHROPIC_API_KEY only when the OAuth token is absent. This is the first knotica-owned LLM access — a new trust boundary distinct from client-as-brain, confined to the headless eval CLI and never on the MCP server launch path.
+tags: [evals, phase-2, llm, anthropic, judge, trust-boundary, security, cost-accounting, auth, oauth, user-override]
+made_by: user
 branch: worktree-pipeline-eval-harness
 pipeline_tier: standard
-affected_files: [src/knotica/evals/llm.py, src/knotica/evals/runner.py, src/knotica/evals/judge.py, src/knotica/evals/cache.py, pyproject.toml]
+affected_files: [src/knotica/evals/llm.py, src/knotica/evals/runner.py, src/knotica/evals/judge.py, src/knotica/evals/cache.py, src/knotica/evals/harness.py, src/knotica/cli/eval.py, pyproject.toml]
 affected_reqs: [REQ-RUN-01, REQ-RUN-02, REQ-RUN-03, REQ-JUDGE-01, REQ-JUDGE-02, REQ-JUDGE-03, REQ-JUDGE-04]
 dissent: The Claude Agent SDK (SIA's own SDK, subscription-credit capable) would avoid provisioning a knotica-owned API key and align the eval runner with the Phase-3b SIA runtime, at the cost of coarse per-run cost accounting (a credit pool hides per-run USD) and lower determinism — a poor trade for an objective function whose whole point is a stable, cost-bearing scalar.
 re_affirms: dec-draft-6ea4e4f3
@@ -31,7 +30,14 @@ The evaluator is the **first knotica-owned LLM access** (research: zero referenc
 
 Pin exact **dated** snapshots (never a floating alias); fetch the exact strings from the live model list at build time (the researcher confirmed lineup/pricing 2026-07-15 but not dated snapshot IDs — the `claude-ecosystem` snapshot lags live). Never hand-convert token counts across models (tokenizer differences); always use each call's own `usage`.
 
-## Considered Options
+## User Override (2026-07-16)
+
+At post-verification the **user overrode the credential-resolution sub-decision**: the harness now authenticates **OAuth-first** instead of `ANTHROPIC_API_KEY`-only. `made_by` is set to `user` to record the decision authority (the architecture above — Messages API, pinned judge, env-only trust boundary — is unchanged; only which env credential wins changed).
+
+- **Resolution order (absence-based, at resolution time):** `CLAUDE_CODE_OAUTH_TOKEN` present → OAuth mode (subscription bearer token; no metered spend). Else `ANTHROPIC_API_KEY` present → metered API-key mode. Else → the typed `NOT_CONFIGURED` error, now naming **both** variables with the OAuth one as preferred. Resolution is deliberately **not error-based**: an OAuth `401`/`403` at call time surfaces as a typed, actionable failure (fix or unset the token) and is **never silently retried on the metered key** — a broken subscription token must not turn into surprise API-credit spend.
+- **Noisy fallback (required):** resolving to the metered key emits a dedicated `MeteredApiKeyFallbackWarning` (library layer) stating plainly that API credits will be spent because `CLAUDE_CODE_OAUTH_TOKEN` is unset; the CLI surfaces it as a visible stderr `WARNING:` line on both the eval and `--bootstrap` paths. OAuth mode logs one INFO line naming the mode; no token material ever.
+- **SDK mechanics (verified against the installed `anthropic` 0.116 source, not memory):** OAuth uses the SDK's `auth_token=` bearer mechanism **plus an explicit `anthropic-beta: oauth-2025-04-20` default header** — the SDK injects that beta flag only on its own credentials-provider path (`lib/credentials/_auth.py`), which no-ops when a static `auth_token` is set, so without the explicit header the Messages API would reject the bearer token.
+- **Boundary preserved:** env-only resolution, fail-before-network, lazy `anthropic` import, and the no-echo/no-persist discipline all extend to the OAuth token (sentinel tests cover both variables). Only the non-secret auth *mode* (`oauth`/`api_key`) is kept — recorded as a new manifest column (not part of `harness_version`: auth does not alter model behavior; `cost_usd` is notional in OAuth mode).
 
 ### Option A — direct Messages API behind BaselineRunner + pinned judge (chosen)
 - **Pros:** exact per-call `usage` → faithful `cost_usd`/token term; `temperature=0` + pinned snapshot → best determinism; cleanest Phase-3a swap (DSPy calls the same API); minimal dependency (`anthropic` only, isolated); the API-key trust boundary is anticipated by the brief.
