@@ -26,6 +26,7 @@ import json
 import os
 import tempfile
 import threading
+import urllib.parse
 import webbrowser
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
@@ -61,6 +62,7 @@ class ReviewState:
         return {
             "topic": self.topic,
             "candidates": candidates,
+            "pages": self._page_provenance(candidates),
             "source_keys": sorted(p.stem for p in self.sources_dir.glob("*.md")),
             "qa_questions": sorted(_qa_questions(self.qa_path)),
             "floor": FLOOR,
@@ -69,6 +71,28 @@ class ReviewState:
             "loaded_from": str(source),
             "reviewed_path": str(self.reviewed_path),
         }
+
+    def _page_provenance(self, candidates: list[dict]) -> dict[str, dict]:
+        """Existence + Obsidian deep link for every page any candidate cites.
+
+        The ``obsidian://open?path=`` form takes an absolute file path and lets
+        Obsidian resolve which vault owns it -- no dependence on the vault's
+        registered display name.
+        """
+        pages: dict[str, dict] = {}
+        for candidate in candidates:
+            for page in candidate.get("pages_used", []):
+                name = str(page).strip()
+                if not name or name in pages:
+                    continue
+                relative = name if name.endswith(".md") else f"{name}.md"
+                path = self.vault / relative
+                pages[name] = {
+                    "exists": path.is_file(),
+                    "obsidian_uri": "obsidian://open?path="
+                    + urllib.parse.quote(str(path), safe=""),
+                }
+        return pages
 
     def save(self, accepted: list[dict]) -> dict:
         rows = [_normalized_candidate(row) for row in accepted]
@@ -253,7 +277,10 @@ PAGE = """<!doctype html>
   .cite.bad { background:#ffebe9; color:var(--bad); }
   .chips { display:flex; gap:6px; flex-wrap:wrap; margin-top:2px; }
   .chip { font:12px ui-monospace,monospace; background:var(--bg); padding:1px 8px;
-          border-radius:999px; color:var(--muted); }
+          border-radius:999px; color:var(--muted); text-decoration:none; }
+  a.chip.ok { background:#dafbe1; color:var(--ok); }
+  a.chip.ok:hover { outline:1px solid var(--ok); }
+  .chip.bad { background:#ffebe9; color:var(--bad); }
   .row { display:flex; justify-content:flex-end; margin-top:10px; }
   button.toggle { background:#fff; border:1px solid var(--line); border-radius:6px;
                   padding:5px 12px; cursor:pointer; }
@@ -332,7 +359,7 @@ function render() {
       '<textarea class="a"></textarea>' +
       '<label>Citations (comma-separated stored-source keys)</label>' +
       '<input type="text" class="c"><div class="badges"></div>' +
-      '<label>Pages used (read-only)</label><div class="chips"></div>' +
+      '<label>Pages used (click to verify in Obsidian)</label><div class="chips"></div>' +
       '<div class="row"><button class="toggle"></button></div>';
     const q = card.querySelector(".q"), a = card.querySelector(".a");
     const c = card.querySelector(".c"), toggle = card.querySelector(".toggle");
@@ -340,8 +367,20 @@ function render() {
     c.value = cand.citations.join(", ");
     toggle.textContent = cand._kept ? "Discard" : "Restore";
     for (const page of cand.pages_used) {
-      const chip = document.createElement("span");
-      chip.className = "chip"; chip.textContent = page;
+      const info = model.pages[page] || { exists: false };
+      let chip;
+      if (info.exists) {
+        chip = document.createElement("a");
+        chip.className = "chip ok";
+        chip.href = info.obsidian_uri;
+        chip.title = "open in Obsidian to verify the extraction";
+        chip.textContent = "\\u2713 " + page;
+      } else {
+        chip = document.createElement("span");
+        chip.className = "chip bad";
+        chip.title = "no such page in the vault";
+        chip.textContent = "\\u2717 " + page;
+      }
       card.querySelector(".chips").appendChild(chip);
     }
     citeBadges(card, cand.citations); dupFlag(card, cand.question);
