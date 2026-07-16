@@ -65,6 +65,7 @@ from typing import Protocol
 
 from knotica.evals import citations, judge
 from knotica.evals.cache import ResponseCache
+from knotica.evals.config import DEFAULT_THRESHOLD, W_CITE, W_QA
 from knotica.evals.llm import LLMClient
 from knotica.store import VaultStore
 
@@ -77,20 +78,14 @@ __all__ = [
     "build_metric",
 ]
 
-#: v1 per-example quality weight on the judge-assessed QA accuracy leg. The
-#: dominant term: answer correctness matters more than citation bookkeeping.
-W_QA = 0.7
-
-#: v1 per-example quality weight on the deterministic citation-validity leg.
-#: Complements :data:`W_QA` -- the two sum to ``1.0`` so the blend stays in ``[0, 1]``.
-W_CITE = 0.3
-
-#: v1 bool-branch cutoff: ``quality >= DEFAULT_THRESHOLD`` marks an example as a
-#: "good enough" demonstration for the DSPy bootstrap contract. Exercised only on
-#: the Phase-3a optimizer path (``trace is not None``); untuned and overridable.
-#: A later step relocates the packaged default into the eval config layer; this
-#: local default keeps the seam self-contained until then.
-DEFAULT_THRESHOLD = 0.5
+# The per-example quality weights (:data:`W_QA`, :data:`W_CITE`) and the
+# bool-branch cutoff (:data:`DEFAULT_THRESHOLD`) are owned by
+# :mod:`knotica.evals.config` -- the single packaged-defaults surface -- and
+# imported above. They are re-exported here (see ``__all__``) so the scorer's own
+# constants remain the read surface for the composition, while the values thread
+# from config so a CLI override reaches both the scorer's default weights and the
+# recorded harness fingerprint from one place. ``config -> scorer`` never imports
+# back, so the arrow stays one-way (scorer -> config) with no cycle.
 
 
 class GoldExample(Protocol):
