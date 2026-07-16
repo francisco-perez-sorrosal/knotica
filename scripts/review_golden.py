@@ -59,11 +59,18 @@ class ReviewState:
                 " `knotica eval --bootstrap` for this topic first."
             )
         candidates = _read_jsonl(source)
+        source_keys = sorted(p.stem for p in self.sources_dir.glob("*.md"))
         return {
             "topic": self.topic,
+            "vault_name": self.vault.name,
             "candidates": candidates,
             "pages": self._page_provenance(candidates),
-            "source_keys": sorted(p.stem for p in self.sources_dir.glob("*.md")),
+            "citation_links": {
+                key: "obsidian://open?path="
+                + urllib.parse.quote(str(self.sources_dir / f"{key}.md"), safe="")
+                for key in source_keys
+            },
+            "source_keys": source_keys,
             "qa_questions": sorted(_qa_questions(self.qa_path)),
             "floor": FLOOR,
             "target_high": TARGET_HIGH,
@@ -98,6 +105,7 @@ class ReviewState:
         path = next((p for p in topic_first if p.is_file()), topic_first[0])
         return {
             "exists": path.is_file(),
+            "relative": str(path.relative_to(self.vault)),
             "obsidian_uri": "obsidian://open?path=" + urllib.parse.quote(str(path), safe=""),
         }
 
@@ -140,12 +148,17 @@ def _normalized_candidate(row: dict) -> dict:
         raise ValueError("candidate question and reference_answer must be non-empty")
     citations = [str(key).strip() for key in row["citations"] if str(key).strip()]
     pages = [str(page).strip() for page in row["pages_used"] if str(page).strip()]
-    return {
+    normalized = {
         "question": question,
         "reference_answer": answer,
         "citations": citations,
         "pages_used": pages,
     }
+    # Provenance spans ride through review untouched (freeze ignores them).
+    support = row.get("support")
+    if isinstance(support, list) and support:
+        normalized["support"] = support
+    return normalized
 
 
 def _atomic_write(path: Path, payload: str) -> None:
@@ -282,6 +295,13 @@ PAGE = """<!doctype html>
   .cite { font:12px ui-monospace,monospace; padding:1px 8px; border-radius:999px; }
   .cite.ok { background:#dafbe1; color:var(--ok); }
   .cite.bad { background:#ffebe9; color:var(--bad); }
+  .quotes { margin-top:4px; }
+  .quote { border-left:3px solid var(--line); margin:8px 0; padding:2px 12px; }
+  .quote blockquote { margin:0; font-size:13px; color:#333; white-space:pre-wrap; }
+  .quote .meta { font-size:12px; color:var(--muted); margin-top:2px; }
+  .quote .meta a { color:#0969da; text-decoration:none; }
+  .quote .meta a:hover { text-decoration:underline; }
+  .unlocated { color:var(--warn); font-weight:600; }
   .chips { display:flex; gap:6px; flex-wrap:wrap; margin-top:2px; }
   .chip { font:12px ui-monospace,monospace; background:var(--bg); padding:1px 8px;
           border-radius:999px; color:var(--muted); text-decoration:none; }
@@ -337,12 +357,60 @@ function citeBadges(card, citations) {
   const wrap = card.querySelector(".badges");
   wrap.innerHTML = "";
   for (const key of citations) {
-    const badge = document.createElement("span");
     const ok = model.source_keys.includes(key);
+    const badge = document.createElement(ok ? "a" : "span");
     badge.className = "cite " + (ok ? "ok" : "bad");
     badge.textContent = (ok ? "\\u2713 " : "\\u2717 ") + key;
-    badge.title = ok ? "resolves to sources/" : "no such stored source";
+    if (ok) {
+      badge.href = model.citation_links[key];
+      badge.title = "open the stored source in Obsidian";
+      badge.style.textDecoration = "none";
+    } else {
+      badge.title = "no such stored source";
+    }
     wrap.appendChild(badge);
+  }
+}
+
+function advUri(pageInfo, line) {
+  return "obsidian://adv-uri?vault=" + encodeURIComponent(model.vault_name) +
+    "&filepath=" + encodeURIComponent(pageInfo.relative) + "&line=" + line;
+}
+
+function renderSupport(card, cand) {
+  const wrap = card.querySelector(".quotes");
+  const entries = cand.support || [];
+  if (!entries.length) { wrap.style.display = "none"; return; }
+  for (const s of entries) {
+    const box = document.createElement("div");
+    box.className = "quote";
+    const quote = document.createElement("blockquote");
+    quote.textContent = s.quote;
+    box.appendChild(quote);
+    const meta = document.createElement("div");
+    meta.className = "meta";
+    const pageInfo = model.pages[s.page];
+    if (s.verified && pageInfo && pageInfo.exists) {
+      const label = document.createElement("span");
+      label.textContent = s.page + ", lines " + s.line_start + "\\u2013" + s.line_end + " \\u00b7 ";
+      const jump = document.createElement("a");
+      jump.href = advUri(pageInfo, s.line_start);
+      jump.textContent = "\\u2197 jump to line";
+      jump.title = "positions the cursor on the line (requires the Advanced URI plugin)";
+      const open = document.createElement("a");
+      open.href = pageInfo.obsidian_uri;
+      open.textContent = "open page";
+      open.title = "open in Obsidian (no plugin needed)";
+      meta.append(label, jump, document.createTextNode(" \\u00b7 "), open);
+    } else {
+      const flag = document.createElement("span");
+      flag.className = "unlocated";
+      flag.textContent = "\\u26a0 quote not located verbatim in " + (s.page || "the page");
+      flag.title = "the model returned this quote but it was not found in the page text";
+      meta.appendChild(flag);
+    }
+    box.appendChild(meta);
+    wrap.appendChild(box);
   }
 }
 
@@ -367,6 +435,7 @@ function render() {
       '<label>Citations (comma-separated stored-source keys)</label>' +
       '<input type="text" class="c"><div class="badges"></div>' +
       '<label>Pages used (click to verify in Obsidian)</label><div class="chips"></div>' +
+      '<label>Supporting quotes (generation provenance)</label><div class="quotes"></div>' +
       '<div class="row"><button class="toggle"></button></div>';
     const q = card.querySelector(".q"), a = card.querySelector(".a");
     const c = card.querySelector(".c"), toggle = card.querySelector(".toggle");
@@ -391,6 +460,10 @@ function render() {
       card.querySelector(".chips").appendChild(chip);
     }
     citeBadges(card, cand.citations); dupFlag(card, cand.question);
+    renderSupport(card, cand);
+    if (!(cand.support || []).length) {
+      card.querySelectorAll("label")[3].style.display = "none";
+    }
     q.addEventListener("input", () => { cand.question = q.value; dupFlag(card, q.value); setDirty(true); });
     a.addEventListener("input", () => { cand.reference_answer = a.value; setDirty(true); });
     c.addEventListener("input", () => {
