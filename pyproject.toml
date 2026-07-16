@@ -22,6 +22,15 @@ dev = [
     "pytest",
     "ruff",
 ]
+# PEP 735 dependency-group (never in the built wheel's install metadata) — keeps
+# `anthropic` + `dspy` off the `uvx --from … knotica mcp` cold-start path, giving
+# strictly stronger isolation than an optional-extra. Repo-dev/CI/local-maintainer
+# only; end users do not run eval in the MVP. Mirrors the `dev`-group precedent.
+# Install with `uv sync --group evals`.
+evals = [
+    "anthropic>=0.116",
+    "dspy>=3.2",
+]
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/knotica"]
