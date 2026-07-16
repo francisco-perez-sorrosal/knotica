@@ -256,83 +256,127 @@ PAGE = """<!doctype html>
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Golden-set review</title>
 <style>
-  :root { --ok:#1a7f37; --bad:#b42318; --warn:#9a6700; --line:#d0d7de;
-          --muted:#57606a; --bg:#f6f8fa; }
-  * { box-sizing:border-box; }
-  body { margin:0; font:15px/1.5 ui-sans-serif,system-ui,sans-serif;
-         background:var(--bg); color:#1f2328; }
-  header { position:sticky; top:0; z-index:2; background:#fff;
-           border-bottom:1px solid var(--line); padding:10px 20px;
-           display:flex; gap:16px; align-items:center; flex-wrap:wrap; }
-  header h1 { font-size:16px; margin:0; }
-  .band { padding:2px 10px; border-radius:999px; font-weight:600; }
-  .band.low { background:#fff1e5; color:var(--warn); }
-  .band.good { background:#dafbe1; color:var(--ok); }
-  .band.high { background:#ddf4ff; color:#0969da; }
-  .dirty { color:var(--warn); font-weight:600; visibility:hidden; }
+  /* Solarized-light theme, ported from the AIE findings design system.
+     Self-contained: no webfonts, system stack only. */
+  :root {
+    --bg: #fdf6e3; --surface: #fbf3df; --surface-2: #eee8d5; --border: #ddd6c1;
+    --text: #3b4b51; --muted: #6b7a80; --heading: #073642;
+    --accent: #268bd2; --accent-strong: #1a6fb0;
+    --good: #4f7a00; --good-fill: #859900; --bad: #c0392b; --bad-fill: #dc322f;
+    --warn: #b58900; --hack: #cb4b16; --violet: #6c71c4; --cyan: #2aa198;
+    --mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+    --sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, sans-serif;
+    --fs-small: 13px;
+    --shadow: 0 1px 3px rgba(7,54,66,.07), 0 6px 24px rgba(7,54,66,.05);
+  }
+  * { box-sizing: border-box; }
+  body { margin:0; background:var(--bg); color:var(--text); font-family:var(--sans);
+         font-size:15px; line-height:1.6; -webkit-font-smoothing:antialiased; }
+  a { color: var(--accent); }
+
+  header { position:sticky; top:0; z-index:5; background:var(--surface);
+           border-bottom:1px solid var(--border); box-shadow:var(--shadow);
+           padding:14px 28px; display:flex; gap:18px; align-items:center; flex-wrap:wrap; }
+  .eyebrow { font-family:var(--mono); font-size:var(--fs-small); letter-spacing:.12em;
+             text-transform:uppercase; color:var(--accent-strong); margin:0; }
+  .eyebrow b { color:var(--heading); }
+  .kpi { display:flex; align-items:baseline; gap:8px; padding:4px 14px;
+         border:1px solid var(--border); border-radius:999px; background:var(--surface-2); }
+  .kpi .v { font-weight:700; font-variant-numeric:tabular-nums; color:var(--heading); }
+  .kpi .k { font-size:var(--fs-small); color:var(--muted); text-transform:uppercase;
+            letter-spacing:.05em; }
+  .kpi.low .v { color:var(--warn); } .kpi.good .v { color:var(--good); }
+  .kpi.high .v { color:var(--accent-strong); }
+  .dirty { color:var(--warn); font-weight:600; font-size:var(--fs-small);
+           visibility:hidden; }
   .dirty.on { visibility:visible; }
-  button.primary { background:#1f883d; color:#fff; border:0; padding:8px 16px;
-                   border-radius:6px; font-weight:600; cursor:pointer; }
-  button.primary:disabled { background:#94d3a2; cursor:default; }
-  #guide { max-width:900px; margin:14px auto 0; padding:0 20px; color:var(--muted);
-           font-size:14px; }
-  #cards { max-width:900px; margin:0 auto; padding:8px 20px 80px; }
-  .card { background:#fff; border:1px solid var(--line); border-radius:8px;
-          padding:14px 16px; margin:14px 0; }
-  .card.discarded { opacity:.45; }
+  button.primary { background:var(--accent); color:#fff; border:0; padding:9px 20px;
+                   border-radius:999px; font:inherit; font-weight:600; cursor:pointer;
+                   transition:background .15s; }
+  button.primary:hover { background:var(--accent-strong); }
+  button.primary:disabled { opacity:.5; cursor:default; }
+
+  main { max-width: 980px; margin: 0 auto; padding: 20px 28px 90px; }
+  .callout { border:1px solid var(--border); border-radius:12px; background:var(--surface-2);
+             padding:14px 20px; margin:16px 0; font-size:14px; }
+  .callout.lesson { border-left:4px solid var(--violet); }
+  .callout.saved { border-left:4px solid var(--good-fill); background:#f3f6e0;
+                   display:none; }
+  .callout b { color:var(--heading); }
+
+  .card { background:var(--surface); border:1px solid var(--border);
+          border-left:4px solid var(--accent); border-radius:12px; padding:18px 22px;
+          margin:18px 0; box-shadow:var(--shadow); transition:opacity .2s; }
+  .card.discarded { opacity:.42; border-left-color:var(--bad-fill); filter:grayscale(.4); }
   .card .top { display:flex; justify-content:space-between; gap:10px;
-               align-items:baseline; margin-bottom:6px; }
-  .idx { color:var(--muted); font-size:13px; }
-  .flag { font-size:12px; font-weight:700; padding:1px 8px; border-radius:999px; }
-  .flag.dup { background:#ffebe9; color:var(--bad); }
-  label { display:block; font-size:12px; font-weight:600; color:var(--muted);
-          margin:10px 0 2px; text-transform:uppercase; letter-spacing:.04em; }
-  textarea, input[type=text] { width:100%; border:1px solid var(--line);
-          border-radius:6px; padding:8px 10px; font:inherit; background:#fff; }
-  textarea:focus, input:focus { outline:2px solid #0969da33; }
-  textarea.q { min-height:38px; } textarea.a { min-height:96px; }
-  .badges { margin-top:4px; display:flex; gap:6px; flex-wrap:wrap; }
-  .cite { font:12px ui-monospace,monospace; padding:1px 8px; border-radius:999px; }
-  .cite.ok { background:#dafbe1; color:var(--ok); }
-  .cite.bad { background:#ffebe9; color:var(--bad); }
-  .quotes { margin-top:4px; }
-  .quote { border-left:3px solid var(--line); margin:8px 0; padding:2px 12px; }
-  .quote blockquote { margin:0; font-size:13px; color:#333; white-space:pre-wrap; }
-  .quote .meta { font-size:12px; color:var(--muted); margin-top:2px; }
-  .quote .meta a { color:#0969da; text-decoration:none; }
+               align-items:baseline; margin-bottom:2px; }
+  .idx { font-family:var(--mono); font-size:12px; letter-spacing:.12em;
+         text-transform:uppercase; color:var(--accent-strong); }
+  .flag { font-family:var(--mono); font-size:12px; font-weight:700; padding:2px 10px;
+          border-radius:999px; background:#fbeae7; color:var(--hack);
+          border:1px solid #e6b8ae; }
+  label { display:block; font-family:var(--mono); font-size:12px; font-weight:600;
+          color:var(--muted); margin:14px 0 4px; text-transform:uppercase;
+          letter-spacing:.08em; }
+  textarea, input[type=text] { width:100%; border:1px solid var(--border);
+          border-radius:8px; padding:9px 12px; font:inherit; font-size:14px;
+          background:#fffdf5; color:var(--text); }
+  textarea:focus, input:focus { outline:none; border-color:var(--accent);
+          box-shadow:0 0 0 3px rgba(38,139,210,.15); }
+  textarea.q { min-height:40px; } textarea.a { min-height:104px; }
+
+  .badges, .chips { display:flex; gap:7px; flex-wrap:wrap; margin-top:6px; }
+  .cite, .chip { display:inline-block; font-family:var(--mono); font-size:12px;
+          padding:2px 11px; border-radius:999px; border:1px solid var(--border);
+          background:var(--surface-2); text-decoration:none; color:var(--muted); }
+  .cite.ok, a.chip.ok { color:var(--good); border-color:#b9c46a; background:#f3f6e0; }
+  a.cite.ok:hover, a.chip.ok:hover { border-color:var(--good-fill);
+          text-decoration:none; box-shadow:0 0 0 3px rgba(133,153,0,.15); }
+  .cite.bad, .chip.bad { color:var(--bad); border-color:#e6b8ae; background:#fbeae7; }
+
+  .quotes { margin-top:2px; }
+  .quote { background:var(--surface-2); border:1px solid var(--border);
+           border-left:4px solid var(--cyan); border-radius:10px;
+           padding:10px 16px; margin:8px 0; }
+  .quote blockquote { margin:0; font-size:13.5px; color:var(--text);
+           white-space:pre-wrap; }
+  .quote .meta { font-family:var(--mono); font-size:12px; color:var(--muted);
+           margin-top:6px; }
+  .quote .meta a { color:var(--accent); text-decoration:none; }
   .quote .meta a:hover { text-decoration:underline; }
   .unlocated { color:var(--warn); font-weight:600; }
-  .chips { display:flex; gap:6px; flex-wrap:wrap; margin-top:2px; }
-  .chip { font:12px ui-monospace,monospace; background:var(--bg); padding:1px 8px;
-          border-radius:999px; color:var(--muted); text-decoration:none; }
-  a.chip.ok { background:#dafbe1; color:var(--ok); }
-  a.chip.ok:hover { outline:1px solid var(--ok); }
-  .chip.bad { background:#ffebe9; color:var(--bad); }
-  .row { display:flex; justify-content:flex-end; margin-top:10px; }
-  button.toggle { background:#fff; border:1px solid var(--line); border-radius:6px;
-                  padding:5px 12px; cursor:pointer; }
-  #done { display:none; max-width:900px; margin:10px auto; padding:12px 20px;
-          background:#dafbe1; border:1px solid var(--ok); border-radius:8px; }
+
+  .row { display:flex; justify-content:flex-end; margin-top:14px; }
+  button.toggle { font:inherit; font-size:var(--fs-small); background:var(--surface);
+          border:1px solid var(--border); border-radius:999px; padding:6px 16px;
+          cursor:pointer; color:var(--muted); transition:all .15s; }
+  button.toggle:hover { border-color:var(--bad); color:var(--bad); }
+  .card.discarded button.toggle:hover { border-color:var(--good-fill);
+          color:var(--good); }
+  @media (max-width: 640px) { main, header { padding-left:16px; padding-right:16px; } }
 </style>
 </head>
 <body>
 <header>
-  <h1>Golden-set review</h1>
-  <span id="counts" class="band good"></span>
+  <p class="eyebrow">Golden-set review \u00b7 <b id="topic"></b></p>
+  <span id="counts" class="kpi good"><span class="v"></span><span class="k"></span></span>
   <span id="dirty" class="dirty">unsaved changes</span>
   <span style="flex:1"></span>
   <button id="save" class="primary">Save reviewed set</button>
 </header>
-<div id="guide">
-  Keep 20&ndash;30 strong candidates. For each card: is the <b>question</b> specific and
-  answerable from the wiki? Does the <b>reference answer</b> say exactly what a correct
-  answer must contain (tighten it &mdash; it is the judge's ground truth)? Do the
-  <b>citations</b> resolve (green) and genuinely support the answer? Discard weak or
-  redundant candidates; a red <b>duplicate</b> flag means the question already exists in
-  the flywheel trainset and must be discarded or reworded.
+<main>
+<div class="callout lesson">
+  Keep <b>20\u201330</b> strong candidates. For each card: is the <b>question</b> specific
+  and answerable from the wiki? Does the <b>reference answer</b> state exactly what a
+  correct answer must contain \u2014 it is the judge\u2019s ground truth? Do the
+  <b>citations</b> resolve (green, click to open the stored source) and genuinely support
+  the answer? Do the <b>supporting quotes</b> really appear in the linked pages? Discard
+  weak or redundant candidates; an orange <b>duplicate</b> flag means the question already
+  exists in the flywheel trainset \u2014 discard or reword it.
 </div>
-<div id="done"></div>
+<div id="done" class="callout saved"></div>
 <div id="cards"></div>
+</main>
 <script>
 "use strict";
 let model = null, dirty = false;
@@ -346,11 +390,13 @@ function keptRows() { return model.candidates.filter(c => c._kept); }
 
 function refreshHeader() {
   const n = keptRows().length, el = document.getElementById("counts");
-  el.textContent = n + " kept of " + model.candidates.length;
-  el.className = "band " + (n < model.floor ? "low" : n <= model.target_high ? "good" : "high");
+  el.querySelector(".v").textContent = n + " / " + model.candidates.length;
+  el.querySelector(".k").textContent = "kept";
+  el.className = "kpi " +
+    (n < model.floor ? "low" : n <= model.target_high ? "good" : "high");
   el.title = n < model.floor
     ? "below the " + model.floor + "-candidate stability floor"
-    : "target band is " + model.floor + "\\u2013" + model.target_high;
+    : "target band is " + model.floor + "\u2013" + model.target_high;
 }
 
 function citeBadges(card, citations) {
@@ -360,11 +406,10 @@ function citeBadges(card, citations) {
     const ok = model.source_keys.includes(key);
     const badge = document.createElement(ok ? "a" : "span");
     badge.className = "cite " + (ok ? "ok" : "bad");
-    badge.textContent = (ok ? "\\u2713 " : "\\u2717 ") + key;
+    badge.textContent = (ok ? "\u2713 " : "\u2717 ") + key;
     if (ok) {
       badge.href = model.citation_links[key];
       badge.title = "open the stored source in Obsidian";
-      badge.style.textDecoration = "none";
     } else {
       badge.title = "no such stored source";
     }
@@ -380,7 +425,11 @@ function advUri(pageInfo, line) {
 function renderSupport(card, cand) {
   const wrap = card.querySelector(".quotes");
   const entries = cand.support || [];
-  if (!entries.length) { wrap.style.display = "none"; return; }
+  if (!entries.length) {
+    wrap.style.display = "none";
+    card.querySelector("label.support-label").style.display = "none";
+    return;
+  }
   for (const s of entries) {
     const box = document.createElement("div");
     box.className = "quote";
@@ -392,21 +441,25 @@ function renderSupport(card, cand) {
     const pageInfo = model.pages[s.page];
     if (s.verified && pageInfo && pageInfo.exists) {
       const label = document.createElement("span");
-      label.textContent = s.page + ", lines " + s.line_start + "\\u2013" + s.line_end + " \\u00b7 ";
+      label.textContent = s.page + ", lines " + s.line_start + "\u2013" +
+        s.line_end + " \u00b7 ";
       const jump = document.createElement("a");
       jump.href = advUri(pageInfo, s.line_start);
-      jump.textContent = "\\u2197 jump to line";
-      jump.title = "positions the cursor on the line (requires the Advanced URI plugin)";
+      jump.textContent = "\u2197 jump to line";
+      jump.title =
+        "positions the cursor on the line (requires the Advanced URI plugin)";
       const open = document.createElement("a");
       open.href = pageInfo.obsidian_uri;
       open.textContent = "open page";
       open.title = "open in Obsidian (no plugin needed)";
-      meta.append(label, jump, document.createTextNode(" \\u00b7 "), open);
+      meta.append(label, jump, document.createTextNode(" \u00b7 "), open);
     } else {
       const flag = document.createElement("span");
       flag.className = "unlocated";
-      flag.textContent = "\\u26a0 quote not located verbatim in " + (s.page || "the page");
-      flag.title = "the model returned this quote but it was not found in the page text";
+      flag.textContent = "\u26a0 quote not located verbatim in " +
+        (s.page || "the page");
+      flag.title =
+        "the model returned this quote but it was not found in the page text";
       meta.appendChild(flag);
     }
     box.appendChild(meta);
@@ -427,16 +480,19 @@ function render() {
     const card = document.createElement("div");
     card.className = "card" + (cand._kept ? "" : " discarded");
     card.innerHTML =
-      '<div class="top"><span class="idx">candidate ' + (i + 1) + "</span>" +
-      '<span class="flag dup">duplicate of a qa.jsonl question</span></div>' +
-      '<label>Question</label><textarea class="q"></textarea>' +
-      '<label>Reference answer (the judge\\u2019s ground truth)</label>' +
-      '<textarea class="a"></textarea>' +
-      '<label>Citations (comma-separated stored-source keys)</label>' +
-      '<input type="text" class="c"><div class="badges"></div>' +
-      '<label>Pages used (click to verify in Obsidian)</label><div class="chips"></div>' +
-      '<label>Supporting quotes (generation provenance)</label><div class="quotes"></div>' +
-      '<div class="row"><button class="toggle"></button></div>';
+      "<div class='top'><span class='idx'>candidate " + (i + 1) + " / " +
+      model.candidates.length + "</span>" +
+      "<span class='flag'>duplicate of a qa.jsonl question</span></div>" +
+      "<label>Question</label><textarea class='q'></textarea>" +
+      "<label>Reference answer (the judge\\u2019s ground truth)</label>" +
+      "<textarea class='a'></textarea>" +
+      "<label>Citations (comma-separated stored-source keys)</label>" +
+      "<input type='text' class='c'><div class='badges'></div>" +
+      "<label>Pages used (click to verify in Obsidian)</label>" +
+      "<div class='chips'></div>" +
+      "<label class='support-label'>Supporting quotes (generation provenance)" +
+      "</label><div class='quotes'></div>" +
+      "<div class='row'><button class='toggle'></button></div>";
     const q = card.querySelector(".q"), a = card.querySelector(".a");
     const c = card.querySelector(".c"), toggle = card.querySelector(".toggle");
     q.value = cand.question; a.value = cand.reference_answer;
@@ -450,22 +506,23 @@ function render() {
         chip.className = "chip ok";
         chip.href = info.obsidian_uri;
         chip.title = "open in Obsidian to verify the extraction";
-        chip.textContent = "\\u2713 " + page;
+        chip.textContent = "\u2713 " + page;
       } else {
         chip = document.createElement("span");
         chip.className = "chip bad";
         chip.title = "no such page in the vault";
-        chip.textContent = "\\u2717 " + page;
+        chip.textContent = "\u2717 " + page;
       }
       card.querySelector(".chips").appendChild(chip);
     }
     citeBadges(card, cand.citations); dupFlag(card, cand.question);
     renderSupport(card, cand);
-    if (!(cand.support || []).length) {
-      card.querySelectorAll("label")[3].style.display = "none";
-    }
-    q.addEventListener("input", () => { cand.question = q.value; dupFlag(card, q.value); setDirty(true); });
-    a.addEventListener("input", () => { cand.reference_answer = a.value; setDirty(true); });
+    q.addEventListener("input", () => {
+      cand.question = q.value; dupFlag(card, q.value); setDirty(true);
+    });
+    a.addEventListener("input", () => {
+      cand.reference_answer = a.value; setDirty(true);
+    });
     c.addEventListener("input", () => {
       cand.citations = c.value.split(",").map(s => s.trim()).filter(Boolean);
       citeBadges(card, cand.citations); setDirty(true);
@@ -496,8 +553,12 @@ async function save() {
     setDirty(false);
     const done = document.getElementById("done");
     done.style.display = "block";
-    done.textContent = "Saved " + result.count + " candidates to " + result.written +
-      " \\u2014 tell Claude the review is done and it will run the freeze.";
+    done.innerHTML = "";
+    const strong = document.createElement("b");
+    strong.textContent = "Saved " + result.count + " candidates";
+    done.append(strong, document.createTextNode(
+      " to " + result.written +
+      " \u2014 tell Claude the review is done and it will run the freeze."));
   } catch (error) {
     alert("save failed: " + error.message);
   } finally {
@@ -508,6 +569,7 @@ async function save() {
 async function boot() {
   model = await (await fetch("/api/state")).json();
   model.candidates.forEach(c => { c._kept = true; });
+  document.getElementById("topic").textContent = model.topic;
   document.getElementById("save").addEventListener("click", save);
   window.addEventListener("beforeunload", (event) => {
     if (dirty) event.preventDefault();
@@ -515,7 +577,8 @@ async function boot() {
   if (model.resumed) {
     const done = document.getElementById("done");
     done.style.display = "block";
-    done.textContent = "Resumed from a previously saved review (" + model.loaded_from + ").";
+    done.textContent =
+      "Resumed from a previously saved review (" + model.loaded_from + ").";
   }
   render();
 }
