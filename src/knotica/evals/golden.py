@@ -24,9 +24,11 @@ This module owns the deterministic read side:
 The module also owns the interactive write side that *produces* a golden set:
 
 * :func:`bootstrap` reads a topic's entity pages and asks the injected LLM to
-  synthesize candidate ``(question, reference_answer, citations)`` triples,
-  writing them to an *uncommitted* review staging file for a human to edit and
-  accept -- it never writes ``golden.jsonl`` and never commits.
+  synthesize candidate ``(question, reference_answer, citations)`` triples --
+  each carrying the verbatim support quotes it was grounded in, located back to
+  deterministic 1-based line ranges -- writing them to an *uncommitted* review
+  staging file for a human to edit and accept; it never writes ``golden.jsonl``
+  and never commits.
 * :func:`freeze` turns the human-accepted candidates into ``QARecord``s and
   writes the frozen ``golden.jsonl`` + sibling ``MANIFEST.json`` through one
   :class:`~knotica.core.transaction.VaultTransaction` (one commit), after
@@ -410,6 +412,25 @@ _ANSWER_KEY = "reference_answer"
 _CITATIONS_KEY = "citations"
 _PAGES_KEY = "pages_used"
 
+#: The model-supplied synthesis field carrying 1-3 short verbatim excerpts the
+#: reference answer is grounded in; the parser turns these into located
+#: :data:`_SUPPORT_KEY` provenance entries. Absent when the model omits it.
+_SUPPORT_QUOTES_KEY = "support_quotes"
+
+#: The candidate key carrying the located provenance spans (the review-app
+#: contract). Omitted entirely when the model returned no usable quote -- the
+#: app treats absence and an empty list identically via ``candidate.get(...)``.
+_SUPPORT_KEY = "support"
+
+#: Field names of one located/unlocated support entry. A located entry carries
+#: all five; an unlocated one carries only quote/page/verified (``verified``
+#: ``False``, no line numbers) -- never a guessed range.
+_SUPPORT_QUOTE_KEY = "quote"
+_SUPPORT_PAGE_KEY = "page"
+_SUPPORT_LINE_START_KEY = "line_start"
+_SUPPORT_LINE_END_KEY = "line_end"
+_SUPPORT_VERIFIED_KEY = "verified"
+
 #: The topic's schema overlay -- structural, not an entity page, so it is excluded
 #: from bootstrap generation (mirrors ``harness``'s content-page rule; kept a local
 #: constant per the convention of not importing a sibling module's private symbol).
@@ -434,10 +455,16 @@ _BOOTSTRAP_SYSTEM_PROMPT = (
     "sources the page cites (its `sources` frontmatter values), such that "
     "`sources/<topic>/<key>.md` holds that source. Use an empty list if the page "
     "cites no stored source.\n"
+    "- List 1 to 3 SHORT support quotes: verbatim excerpts copied "
+    "character-for-character from the page above that the reference answer is "
+    "grounded in. Copy each one exactly as it appears (do not paraphrase, "
+    "summarize, re-wrap, or fix typos) and keep each to a single sentence or "
+    "phrase.\n"
     "\n"
     "Respond with a single JSON object and nothing else, of exactly this shape:\n"
     '{"question": "<one question>", "reference_answer": "<grounded answer>", '
-    '"citations": ["<source-key>", ...]}\n'
+    '"citations": ["<source-key>", ...], '
+    '"support_quotes": ["<verbatim excerpt>", ...]}\n'
     "\n"
     "Do not wrap the JSON in code fences or add any prose around it."
 )
@@ -491,8 +518,10 @@ def bootstrap(
 
     For each of the topic's entity pages, asks the injected LLM (at
     ``temperature=0`` with ``snapshot``) to synthesize one candidate
-    ``(question, reference_answer, citations)`` triple grounded in that page. The
-    candidates are written to the *uncommitted* review staging file
+    ``(question, reference_answer, citations)`` triple grounded in that page,
+    plus verbatim support quotes located back to deterministic 1-based line
+    ranges (an optional ``support`` list) so a reviewer can see and deep-link the
+    evidence. The candidates are written to the *uncommitted* review staging file
     (:func:`golden_staging_path`) for a human to edit and accept, and also
     returned so the caller can surface them. This never writes ``golden.jsonl``
     and never commits -- only the human-gated :func:`freeze` does that.
@@ -605,7 +634,7 @@ def _synthesize_candidate(
         temperature=0.0,
         max_tokens=_BOOTSTRAP_MAX_TOKENS,
     )
-    return _parse_candidate(completion.text, _page_name(topic, page))
+    return _parse_candidate(completion.text, _page_name(topic, page), page.raw)
 
 
 def _render_page_prompt(topic: str, page: Page) -> str:
@@ -618,22 +647,129 @@ def _page_name(topic: str, page: Page) -> str:
     return page.path.removeprefix(f"{topic}/").removesuffix(".md")
 
 
-def _parse_candidate(text: str, page_name: str) -> dict[str, object]:
+def _parse_candidate(text: str, page_name: str, page_raw: str) -> dict[str, object]:
     """Parse one synthesis response into a candidate dict, or raise a typed error.
 
     Adds ``pages_used`` deterministically (the entity page the candidate was
-    generated from) -- the model supplies only the question/answer/citations.
+    generated from) -- the model supplies only the question/answer/citations and
+    the raw support quotes. Each supplied quote is located in ``page_raw`` and
+    turned into a :data:`_SUPPORT_KEY` provenance entry with a deterministic,
+    1-based inclusive line range (model-supplied line numbers are never trusted);
+    the key is omitted when the model returned no usable quote.
     """
     payload = _load_candidate_json(text)
     question = _required_candidate_str(payload, _QUESTION_KEY)
     reference_answer = _required_candidate_str(payload, _ANSWER_KEY)
     citations = _optional_candidate_str_list(payload, _CITATIONS_KEY)
-    return {
+    candidate: dict[str, object] = {
         _QUESTION_KEY: question,
         _ANSWER_KEY: reference_answer,
         _CITATIONS_KEY: citations,
         _PAGES_KEY: [page_name],
     }
+    support = _build_support(payload, page_name, page_raw)
+    if support:
+        candidate[_SUPPORT_KEY] = support
+    return candidate
+
+
+def _build_support(
+    payload: Mapping[str, object], page_name: str, page_raw: str
+) -> list[dict[str, object]]:
+    """Locate each model-supplied support quote in ``page_raw`` (best-effort provenance).
+
+    Tolerant on both axes: an absent or non-list ``support_quotes`` yields no
+    entries, and a malformed individual entry (a non-string or blank quote) is
+    skipped rather than raising -- provenance is a nice-to-have that must never
+    fail an otherwise-good candidate. A quote that cannot be located is kept as a
+    ``verified: False`` entry (never guessed, never dropped silently); only shape
+    noise is discarded.
+    """
+    quotes = payload.get(_SUPPORT_QUOTES_KEY)
+    if not isinstance(quotes, (list, tuple)):
+        return []
+    return [
+        _support_entry(quote, page_name, page_raw)
+        for quote in quotes
+        if isinstance(quote, str) and quote.strip()
+    ]
+
+
+def _support_entry(quote: str, page_name: str, page_raw: str) -> dict[str, object]:
+    """One located/unlocated provenance entry for ``quote`` (the review-app contract)."""
+    span = _locate_span(page_raw, quote)
+    if span is None:
+        return {
+            _SUPPORT_QUOTE_KEY: quote,
+            _SUPPORT_PAGE_KEY: page_name,
+            _SUPPORT_VERIFIED_KEY: False,
+        }
+    line_start, line_end = span
+    return {
+        _SUPPORT_QUOTE_KEY: quote,
+        _SUPPORT_PAGE_KEY: page_name,
+        _SUPPORT_LINE_START_KEY: line_start,
+        _SUPPORT_LINE_END_KEY: line_end,
+        _SUPPORT_VERIFIED_KEY: True,
+    }
+
+
+def _locate_span(raw: str, quote: str) -> tuple[int, int] | None:
+    """Locate ``quote`` in ``raw`` and return its 1-based inclusive line range.
+
+    A two-rung matching ladder, first-occurrence-wins on each rung: an exact
+    substring hit first; then a whitespace-normalized hit (runs of whitespace and
+    newlines collapsed to a single space on both sides), which recovers a quote
+    the model copied across a soft-wrapped line boundary, mapped back to the real
+    offsets in ``raw``. Returns ``None`` when neither rung matches -- the caller
+    records that as an unverified entry rather than guessing a range.
+    """
+    exact = raw.find(quote)
+    if exact != -1:
+        return _line_range(raw, exact, exact + len(quote) - 1)
+    normalized_quote = _normalize_whitespace(quote)
+    if not normalized_quote:
+        return None
+    normalized_raw, offsets = _normalize_whitespace_with_offsets(raw)
+    hit = normalized_raw.find(normalized_quote)
+    if hit == -1:
+        return None
+    last = hit + len(normalized_quote) - 1
+    return _line_range(raw, offsets[hit], offsets[last])
+
+
+def _line_range(raw: str, first_index: int, last_index: int) -> tuple[int, int]:
+    """The 1-based inclusive ``(start, end)`` lines spanning ``raw``'s [first, last] chars."""
+    return raw.count("\n", 0, first_index) + 1, raw.count("\n", 0, last_index) + 1
+
+
+def _normalize_whitespace(text: str) -> str:
+    """Collapse every run of whitespace (newlines included) to one space; strip the ends."""
+    return " ".join(text.split())
+
+
+def _normalize_whitespace_with_offsets(raw: str) -> tuple[str, list[int]]:
+    """Whitespace-normalize ``raw``, returning the result and a per-char index map.
+
+    ``offsets[i]`` is the index in ``raw`` of the character that produced
+    ``normalized[i]``; a collapsed whitespace run maps to the index of its first
+    whitespace character. The map lets :func:`_locate_span` translate a
+    normalized-space match back to real ``raw`` offsets for the line-range count.
+    """
+    normalized: list[str] = []
+    offsets: list[int] = []
+    in_whitespace = False
+    for index, char in enumerate(raw):
+        if char.isspace():
+            if not in_whitespace:
+                normalized.append(" ")
+                offsets.append(index)
+                in_whitespace = True
+            continue
+        normalized.append(char)
+        offsets.append(index)
+        in_whitespace = False
+    return "".join(normalized), offsets
 
 
 def _load_candidate_json(text: str) -> dict[str, object]:

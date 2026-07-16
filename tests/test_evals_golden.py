@@ -610,6 +610,61 @@ def _all_calls_used(fake: FakeLLMClient, *, snapshot: str, temperature: float) -
 
 
 # --------------------------------------------------------------------------- #
+# Support-quote provenance builders (located spans in the review staging file)
+# --------------------------------------------------------------------------- #
+
+#: A throwaway entity page with fully known line structure, planted so a located
+#: span asserts a *fixed* 1-based range independent of the demo template's drift.
+_LOCATOR_PAGE_NAME = "locator-fixture"
+_LOCATOR_PAGE_BODY = (
+    "# Locator Fixture\n"  # line 1
+    "\n"  # line 2
+    "The reference answer is grounded in this exact sentence.\n"  # line 3
+    "\n"  # line 4
+    "A trailing paragraph rounds out the page.\n"  # line 5
+)
+#: The verbatim quote the model "returns"; it is the whole of line 3 above.
+_LOCATOR_QUOTE = "The reference answer is grounded in this exact sentence."
+
+
+def _completion_with_support(
+    *,
+    question: str,
+    support_quotes: tuple[str, ...],
+    reference_answer: str = "Reusable task strategies persisted and reused across episodes.",
+    citations: tuple[str, ...] = ("wang2024awm",),
+) -> Completion:
+    """A canned worker completion whose JSON carries model-supplied ``support_quotes``."""
+    payload = {
+        "question": question,
+        "reference_answer": reference_answer,
+        "citations": list(citations),
+        "support_quotes": list(support_quotes),
+    }
+    return Completion(
+        text=json.dumps(payload), usage=TokenUsage(input_tokens=140, output_tokens=70)
+    )
+
+
+def _write_entity_page(vault_root: Path, topic: str, name: str, body: str) -> None:
+    """Plant one extra entity page in ``topic`` (untracked; bootstrap reads, never commits)."""
+    (vault_root / topic / f"{name}.md").write_text(body, encoding="utf-8")
+
+
+def _candidate_for_page(candidates: list[dict[str, object]], page_name: str) -> dict[str, object]:
+    """The single bootstrap candidate generated from ``page_name`` (kept out of test bodies)."""
+    matches = [candidate for candidate in candidates if candidate.get("pages_used") == [page_name]]
+    assert matches, f"no candidate was generated for page {page_name!r}; got {candidates!r}"
+    return matches[0]
+
+
+def _support(candidate: dict[str, object]) -> object:
+    """The candidate's located support entries; asserts the optional key is present."""
+    assert "support" in candidate, f"candidate carries located support entries; got {candidate!r}"
+    return candidate["support"]
+
+
+# --------------------------------------------------------------------------- #
 # bootstrap -- synthesise candidates to a review staging file, never freeze
 # --------------------------------------------------------------------------- #
 
@@ -830,4 +885,215 @@ def test_bootstrapped_candidates_freeze_and_load_end_to_end(
     )
     assert all(record.source == "curate_example" for record in loaded), (
         "frozen records carry the curation provenance regardless of their synthetic origin"
+    )
+
+
+# =========================================================================== #
+# Support-quote provenance -- verbatim excerpts located to 1-based line spans.
+#
+# A staged candidate may carry an optional ``support`` list: each entry is a
+# verbatim quote the model returned, located back to a deterministic 1-based
+# inclusive line range in the page's raw text so the review app can display and
+# deep-link the evidence. Model-supplied line numbers are never trusted -- the
+# range is recomputed here. ``_locate_span`` is the pure locator; the bootstrap
+# legs assert it is wired through the parser onto the candidate.
+# =========================================================================== #
+
+
+# --------------------------------------------------------------------------- #
+# _locate_span -- the pure locator (direct unit tests over controlled raw text)
+# --------------------------------------------------------------------------- #
+
+
+def test_locate_span_returns_the_single_line_of_an_exact_hit() -> None:
+    from knotica.evals.golden import _locate_span
+
+    raw = "alpha beta gamma\ndelta epsilon\n"
+
+    assert _locate_span(raw, "beta gamma") == (1, 1), (
+        "a hit within one line reports that line as both start and end"
+    )
+
+
+def test_locate_span_spans_first_to_last_line_of_a_multiline_hit() -> None:
+    from knotica.evals.golden import _locate_span
+
+    raw = "intro line\nkey fact one\nkey fact two\noutro line\n"
+
+    assert _locate_span(raw, "key fact one\nkey fact two") == (2, 3), (
+        "a quote containing a real newline spans from its first line to its last"
+    )
+
+
+def test_locate_span_matches_a_quote_across_a_soft_wrapped_line_break() -> None:
+    from knotica.evals.golden import _locate_span
+
+    # In the page the phrase wraps across a newline; the model copied it with a
+    # single space. Whitespace-normalized matching recovers it and maps the span
+    # back to the real line range (start line of "soft", end line of "phrase").
+    raw = "line one\nsecond line has a soft\nwrapped phrase here\nlast line\n"
+
+    assert _locate_span(raw, "soft wrapped phrase") == (2, 3), (
+        "collapsing whitespace recovers a quote the model copied across a soft wrap"
+    )
+
+
+def test_locate_span_returns_none_for_an_absent_quote() -> None:
+    from knotica.evals.golden import _locate_span
+
+    raw = "some content here\nmore content there\n"
+
+    assert _locate_span(raw, "a phrase that is simply not present") is None, (
+        "an unlocatable quote returns None -- the caller records it unverified, never guessed"
+    )
+
+
+def test_locate_span_locates_a_hit_at_the_file_start_on_line_one() -> None:
+    from knotica.evals.golden import _locate_span
+
+    raw = "first line here\nsecond line here\n"
+
+    assert _locate_span(raw, "first line here") == (1, 1), (
+        "a quote at the very start of the file is line one"
+    )
+
+
+def test_locate_span_locates_a_hit_at_the_file_end_on_the_last_line() -> None:
+    from knotica.evals.golden import _locate_span
+
+    raw = "first line here\nlast line here"  # no trailing newline
+
+    assert _locate_span(raw, "last line here") == (2, 2), (
+        "a quote at the end of the file (no trailing newline) is the last line"
+    )
+
+
+def test_locate_span_returns_the_first_occurrence_of_duplicated_text() -> None:
+    from knotica.evals.golden import _locate_span
+
+    raw = "alpha\nrepeat\nbeta\nrepeat\ngamma\n"
+
+    assert _locate_span(raw, "repeat") == (2, 2), (
+        "duplicated text resolves to its first occurrence (documented tie-break)"
+    )
+
+
+# --------------------------------------------------------------------------- #
+# bootstrap -- support quotes flow through the parser onto the candidate
+# --------------------------------------------------------------------------- #
+
+
+def test_bootstrap_locates_support_quotes_to_1_based_line_spans(
+    template_vault: Path, isolated_home: Path
+) -> None:
+    from knotica.evals.golden import bootstrap
+
+    _write_entity_page(template_vault, TOPIC, _LOCATOR_PAGE_NAME, _LOCATOR_PAGE_BODY)
+    store = LocalFSStore(template_vault)
+    fake = FakeLLMClient(
+        _completion_with_support(
+            question="What grounds the answer?", support_quotes=(_LOCATOR_QUOTE,)
+        )
+    )
+
+    candidates = bootstrap(store, TOPIC, fake, BOOTSTRAP_SNAPSHOT)
+
+    located = _candidate_for_page(candidates, _LOCATOR_PAGE_NAME)
+    assert _support(located) == [
+        {
+            "quote": _LOCATOR_QUOTE,
+            "page": _LOCATOR_PAGE_NAME,
+            "line_start": 3,
+            "line_end": 3,
+            "verified": True,
+        }
+    ], "a verbatim quote lands as a located, verified entry with its exact 1-based line range"
+
+
+def test_bootstrap_marks_an_unlocatable_support_quote_unverified(
+    template_vault: Path, isolated_home: Path
+) -> None:
+    from knotica.evals.golden import bootstrap
+
+    store = LocalFSStore(template_vault)
+    absent_quote = "this exact phrase appears in no entity page whatsoever zzz"
+    fake = FakeLLMClient(
+        _completion_with_support(
+            question="What grounds the answer?", support_quotes=(absent_quote,)
+        )
+    )
+
+    candidates = bootstrap(store, TOPIC, fake, BOOTSTRAP_SNAPSHOT)
+
+    assert candidates, "non-vacuity: bootstrap produced candidates to inspect"
+    first = candidates[0]
+    assert _support(first) == [
+        {"quote": absent_quote, "page": first["pages_used"][0], "verified": False}
+    ], "an unlocatable quote is kept as a verified-False entry carrying no line numbers"
+
+
+def test_bootstrap_tolerates_a_completion_that_omits_support_quotes(
+    template_vault: Path, isolated_home: Path
+) -> None:
+    from knotica.evals.golden import bootstrap
+
+    store = LocalFSStore(template_vault)
+    # ``_distinct_completions`` emits question/reference_answer/citations with no
+    # ``support_quotes`` field at all -- the model simply omitted it.
+    fake = FakeLLMClient(_distinct_completions(5))
+
+    candidates = bootstrap(store, TOPIC, fake, BOOTSTRAP_SNAPSHOT)
+
+    assert candidates, "non-vacuity: bootstrap produced candidates to inspect"
+    assert all("support" not in candidate for candidate in candidates), (
+        "a model that omits support_quotes yields candidates without a support key -- "
+        "absence is tolerated, not an error"
+    )
+
+
+# --------------------------------------------------------------------------- #
+# freeze -- a support-carrying accepted candidate freezes to an unchanged record
+# --------------------------------------------------------------------------- #
+
+
+def test_freeze_tolerates_a_support_carrying_accepted_candidate(
+    template_vault: Path, isolated_home: Path
+) -> None:
+    from knotica.evals.golden import freeze
+
+    store = LocalFSStore(template_vault)
+    accepted = {
+        "question": "What does the reviewer accept?",
+        "reference_answer": "The reviewer accepts a grounded, cited answer.",
+        "citations": ["wang2024awm"],
+        "pages_used": ["agent-workflow-memory"],
+        "support": [
+            {
+                "quote": "AWM induces commonly reused routines",
+                "page": "agent-workflow-memory",
+                "line_start": 31,
+                "line_end": 31,
+                "verified": True,
+            }
+        ],
+    }
+
+    freeze(store, template_vault, TOPIC, [accepted])  # unknown 'support' key must be ignored
+
+    loaded = load(store, TOPIC)
+    assert len(loaded) == 1, "the support-carrying candidate freezes into exactly one record"
+    record = loaded[0]
+    # The frozen QARecord is a fixed-field dataclass: the support provenance is a
+    # review-time concern that never reaches the frozen set. The record's content
+    # is exactly what a support-less candidate with the same fields would produce.
+    assert record.query == accepted["question"]
+    assert record.answer == accepted["reference_answer"]
+    assert record.citations == ("wang2024awm",)
+    assert record.pages_used == ("agent-workflow-memory",)
+    assert record.source == "curate_example"
+    assert record.verdict == "good"
+
+    golden_text = (template_vault / golden_dataset_path(TOPIC)).read_text(encoding="utf-8")
+    assert "line_start" not in golden_text, (
+        "the support provenance never leaks into the frozen golden.jsonl bytes"
     )
