@@ -60,6 +60,7 @@ from knotica.evals.llm import (
     AnthropicClient,
     Completion,
     FakeLLMClient,
+    LLMClient,
     Message,
     MeteredApiKeyFallbackWarning,
     TokenUsage,
@@ -169,6 +170,30 @@ def test_constructing_the_anthropic_client_with_a_key_present_succeeds(
     client = AnthropicClient()
 
     assert client is not None, "a present key lets construction succeed offline"
+
+
+def test_real_and_fake_clients_conform_to_the_llm_client_protocol(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # Runtime-checkable protocol conformance: isinstance() verifies the `complete`
+    # method genuinely exists on each class. This pins the seam against structural
+    # regressions (e.g. a method orphaned out of the class body by a mis-placed
+    # helper) that zero-network tests cannot observe through call sites.
+    pytest.importorskip("anthropic")
+    monkeypatch.setenv(ANTHROPIC_KEY_ENV, "sk-ant-dummy-value-not-real")
+
+    assert isinstance(AnthropicClient(), LLMClient), (
+        "AnthropicClient must satisfy the LLMClient protocol"
+    )
+    canned = Completion(
+        text="canned",
+        usage=TokenUsage(
+            input_tokens=1, output_tokens=1, cache_read_tokens=0, cache_creation_tokens=0
+        ),
+    )
+    assert isinstance(FakeLLMClient(completions=canned), LLMClient), (
+        "FakeLLMClient must satisfy the LLMClient protocol"
+    )
 
 
 # ---------------------------------------------------------------------------

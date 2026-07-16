@@ -272,24 +272,6 @@ class AnthropicClient:
             # run's provenance is visible without echoing the credential.
             _LOGGER.info("eval LLM auth: OAuth subscription mode (no metered API-credit spend)")
 
-
-def _build_sdk_client(anthropic: object, auth_mode: str, credential: str) -> object:
-    """Build the Anthropic SDK client for the resolved ``auth_mode`` + ``credential``.
-
-    OAuth mode authenticates with a bearer token via the SDK's ``auth_token=``
-    mechanism, *plus* the ``anthropic-beta: oauth-2025-04-20`` header the SDK does
-    not add for a static ``auth_token`` (see :data:`_OAUTH_BETA_HEADER_VALUE`) --
-    without it the Messages API rejects the bearer token. API-key mode hands the
-    key to ``api_key=`` unchanged. Either way the credential lands only on the SDK
-    client; knotica keeps no copy.
-    """
-    if auth_mode == AUTH_MODE_OAUTH:
-        return anthropic.Anthropic(  # type: ignore[attr-defined]
-            auth_token=credential,
-            default_headers={_OAUTH_BETA_HEADER_NAME: _OAUTH_BETA_HEADER_VALUE},
-        )
-    return anthropic.Anthropic(api_key=credential)  # type: ignore[attr-defined]
-
     def complete(
         self,
         *,
@@ -311,6 +293,24 @@ def _build_sdk_client(anthropic: object, auth_mode: str, credential: str) -> obj
             text=_extract_text(response.content),
             usage=_usage_from_response(response.usage),
         )
+
+
+def _build_sdk_client(anthropic: object, auth_mode: str, credential: str) -> object:
+    """Build the Anthropic SDK client for the resolved ``auth_mode`` + ``credential``.
+
+    OAuth mode authenticates with a bearer token via the SDK's ``auth_token=``
+    mechanism, *plus* the ``anthropic-beta: oauth-2025-04-20`` header the SDK does
+    not add for a static ``auth_token`` (see :data:`_OAUTH_BETA_HEADER_VALUE`) --
+    without it the Messages API rejects the bearer token. API-key mode hands the
+    key to ``api_key=`` unchanged. Either way the credential lands only on the SDK
+    client; knotica keeps no copy.
+    """
+    if auth_mode == AUTH_MODE_OAUTH:
+        return anthropic.Anthropic(  # type: ignore[attr-defined]
+            auth_token=credential,
+            default_headers={_OAUTH_BETA_HEADER_NAME: _OAUTH_BETA_HEADER_VALUE},
+        )
+    return anthropic.Anthropic(api_key=credential)  # type: ignore[attr-defined]
 
 
 def _extract_text(blocks: list) -> str:
