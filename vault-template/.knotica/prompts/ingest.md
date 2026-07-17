@@ -7,6 +7,31 @@ cognitive work (fetching, converting, reading, writing prose). Follow the steps 
 **Arguments**: `source` — URL or citation of the material to ingest; `topic` — optional
 explicit topic (may be empty).
 
+## 0. Make the ingest visible (dashboard)
+
+The knotica dashboard **Ingest** pane streams progress from an activity journal.
+Keep the user informed — and **emit stages in protocol order** (never report
+`plan` after you have already called `store_source`):
+
+1. At the start, call `ingest_progress` with `stage=resolve_topic`,
+   `status=started`, a short `title`, and an empty `run_id` — **save the returned
+   `run_id`** and pass it on every later `ingest_progress` call for this ingest.
+2. Emit cognitive stages **before** the work they describe, in this exact order:
+   `read_schema` → `fetch` → `parse` → **`plan`** → then begin `store_source`.
+3. **Plan before store.** Call `ingest_progress(stage=plan, …)` with the page
+   list *before* the first `store_source`. Do not postpone planning until after
+   sources are stored.
+4. Mutating tools (`store_source`, `write_page`, `create_topic`) auto-log
+   server-side — you do not need to duplicate those, but you **may** emit a
+   `started` event just before a long `store_source`/`write_page`.
+5. When the ingest itself is finished, call `ingest_progress` with
+   `stage=complete`, `status=ok` **before** offering curation. On hard failure,
+   call it with `stage=error`, `status=error`. Curation is a **separate**
+   dashboard workflow — `curate_example` auto-logs its own short run; do not
+   emit ingest `curate` stages.
+
+Titles should be human-readable (e.g. "Fetching ar5iv HTML", "Planning 6 pages").
+
 ## 1. Resolve the topic
 
 > **Topic-inference policy.** Call `list_topics`. If the caller passed an explicit
@@ -143,11 +168,13 @@ A successful write may carry a `warnings` list. `SECRET_SCRUBBED` means secret-l
 spans were redacted before commit — show the reported spans to the user before relying
 on the page.
 
-## 7. Finish — report, then offer to curate
+## 7. Finish — complete ingest, then offer to curate
 
 Report what was ingested: the stored source, each page written (path + commit sha), and
-any scrub warnings. Then **always end by offering, in one keystroke, to save this ingest
-as a curated example** — the wiki's operations improve only from curated examples. If
-the user accepts, call `curate_example` with the resolved `topic`, the ingest request as
+any scrub warnings. Call `ingest_progress(stage=complete)` so the Ingest rail closes.
+Then **always end by offering, in one keystroke, to save this ingest as a curated
+example** — the wiki's operations improve only from curated examples. If the user
+accepts, call `curate_example` with the resolved `topic`, the ingest request as
 `query`, the pages you wrote as `pages_used`, your ingest summary as `answer`, and the
-user's `verdict` (`good` or `bad`).
+user's `verdict` (`good` or `bad`). That opens a separate Curate workflow on the
+dashboard; do not keep the ingest run open for it.

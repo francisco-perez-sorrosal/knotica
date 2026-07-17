@@ -47,6 +47,7 @@ failures raise ``KnoticaError(GIT_ERROR)``; any other exception propagates
 unchanged after the rollback has restored the transaction's own paths.
 """
 
+from collections.abc import Sequence
 from contextlib import AbstractContextManager
 from dataclasses import dataclass
 from datetime import UTC, datetime
@@ -330,6 +331,58 @@ class VaultTransaction:
             title=self._title,
             pages=pages,
         )
+
+
+def restore_worktree_paths(
+    vault_root: str | PurePath,
+    paths: Sequence[str | PurePath],
+    *,
+    lock_timeout: float = DEFAULT_ACQUIRE_TIMEOUT_SECONDS,
+) -> list[str]:
+    """Path-scoped restore of worktree paths to ``HEAD`` under the vault lock.
+
+    The sole-writer seam for doctor repair: adapters never call
+    :meth:`VaultVcs.rollback_paths` directly. Restores exactly ``paths`` and
+    leaves every other file (including concurrent Obsidian edits) untouched.
+    Does not create a commit — it only discards local modifications to the
+    named paths.
+
+    Returns the normalized paths that were restored.
+
+    Raises:
+        ValueError: If ``paths`` is empty.
+        KnoticaError: ``LOCK_BUSY`` or ``GIT_ERROR``.
+    """
+    # Allows log.md — doctor repair may need to restore the operation log.
+    normalized = [_normalize_restore_path(path) for path in paths]
+    if not normalized:
+        raise ValueError("restore_worktree_paths() requires at least one path")
+    vcs = VaultVcs(vault_root)
+    lock = vault_lock(vcs.root, timeout=lock_timeout)
+    try:
+        lock.__enter__()
+    except LockBusyError as error:
+        raise KnoticaError(ErrorCode.LOCK_BUSY, str(error)) from error
+    try:
+        try:
+            vcs.rollback_paths(normalized, "HEAD")
+        except GitError as error:
+            raise KnoticaError(
+                ErrorCode.GIT_ERROR,
+                f"doctor repair failed because git restore failed: {error}",
+                fix="Re-run `knotica doctor repair --dry-run` and apply only still-dirty paths.",
+            ) from error
+        return normalized
+    finally:
+        lock.__exit__(None, None, None)
+
+
+def _normalize_restore_path(path: str | PurePath) -> str:
+    """Normalize a restore target path (vault-relative; absolute rejected)."""
+    pure = PurePath(path)
+    if pure.is_absolute():
+        raise ValueError(f"Vault paths must be relative to the vault root: {path}")
+    return pure.as_posix()
 
 
 def _normalize_write_path(path: str | PurePath) -> str:

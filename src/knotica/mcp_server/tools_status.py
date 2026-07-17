@@ -7,7 +7,8 @@ thin MCP adapter (dec-003).
 
 Result shapes (the observable contract; feed TS type generation in M3):
 
-* ``wiki_status``  -> ``{schema_version, vault, compile_ready_threshold, topics,
+* ``wiki_status``  -> ``{schema_version, vault, vault_name, vault_path,
+  default_vault, available_vaults, compile_ready_threshold, topics,
   totals, last_lint, unpushed, gate, loop}``
 * ``metrics_read`` -> ``{topic, records, has_more, next_before_generation,
   skipped_malformed}``
@@ -20,7 +21,7 @@ from typing import Any
 from mcp.server.fastmcp import FastMCP
 from mcp.types import CallToolResult
 
-from knotica.core.config import resolve
+from knotica.core.config import ResolvedVault, list_vaults, resolve
 from knotica.core.errors import ErrorCode, KnoticaError
 from knotica.core.metrics import (
     DEFAULT_METRICS_LIMIT,
@@ -34,20 +35,21 @@ from knotica.search import InvalidCursorError
 from knotica.store import LocalFSStore, VaultStore
 
 _WIKI_STATUS_DESCRIPTION = (
-    "Report deterministic vault status for the dashboard: per-topic page/curated/"
-    "lint counts, compile-ready progress, last eval scalar (if any), and gate/"
-    "loop stage. Pass topic to scope to one topic; omit or pass empty for the "
-    "whole vault. Read-only — no commits, no lock. Gate becomes pass/fail once "
-    "the loop runner freezes a baseline in loop-state.json; otherwise state is "
-    "'unknown'."
+    "Report deterministic vault status for the dashboard: active vault name and "
+    "path, configured vaults (for switching), per-topic page/curated/lint counts, "
+    "compile-ready progress, last eval scalar (if any), and gate/loop stage. "
+    "Pass topic to scope to one topic; omit or pass empty for the whole vault. "
+    "Pass vault to select a configured vault name (default: config default_vault). "
+    "Read-only — no commits, no lock."
 )
 
 _METRICS_READ_DESCRIPTION = (
     "Read a window of metrics.jsonl eval-history records for one topic, for "
     "scalar-over-generations charting. Returns records in ascending generation "
     "order. Pass before_generation to page into older history; has_more / "
-    "next_before_generation support cursor-style windows. Malformed lines are "
-    "skipped and counted in skipped_malformed. Read-only."
+    "next_before_generation support cursor-style windows. Pass vault to select "
+    "a configured vault name. Malformed lines are skipped and counted in "
+    "skipped_malformed. Read-only."
 )
 
 ToolResult = CallToolResult
@@ -64,9 +66,12 @@ def register_status_tools(mcp: FastMCP) -> None:
     """Register ``wiki_status`` and ``metrics_read`` on ``mcp``."""
 
     @mcp.tool(name="wiki_status", description=_WIKI_STATUS_DESCRIPTION)
-    def wiki_status(topic: str = "") -> ToolResult:
+    def wiki_status(topic: str = "", vault: str = "") -> ToolResult:
         return _read(
-            lambda store, root: envelope.read_ok(gather_wiki_status(store, root, topic=topic))
+            vault,
+            lambda store, resolved: envelope.read_ok(
+                _wiki_payload(store, resolved.path, resolved.name, topic=topic)
+            ),
         )
 
     @mcp.tool(name="metrics_read", description=_METRICS_READ_DESCRIPTION)
@@ -74,12 +79,26 @@ def register_status_tools(mcp: FastMCP) -> None:
         topic: str,
         limit: int = DEFAULT_METRICS_LIMIT,
         before_generation: int | None = None,
+        vault: str = "",
     ) -> ToolResult:
         return _read(
-            lambda store, _root: envelope.read_ok(
+            vault,
+            lambda store, _resolved: envelope.read_ok(
                 _metrics_payload(store, topic, limit=limit, before_generation=before_generation)
-            )
+            ),
         )
+
+
+def _wiki_payload(store: VaultStore, vault_path: Path, vault_name: str, *, topic: str) -> dict[str, Any]:
+    catalog = list_vaults()
+    return gather_wiki_status(
+        store,
+        vault_path,
+        topic=topic,
+        vault_name=vault_name,
+        default_vault=str(catalog.get("default_vault") or vault_name),
+        available_vaults=list(catalog.get("vaults") or []),
+    )
 
 
 def _metrics_payload(
@@ -118,15 +137,23 @@ def _metrics_payload(
     )
 
 
-def _read(operation: Callable[[VaultStore, Path], dict[str, Any]]) -> ToolResult:
+def _read(
+    vault_name: str,
+    operation: Callable[[VaultStore, ResolvedVault], dict[str, Any]],
+) -> ToolResult:
     """Resolve the vault per call and run ``operation``, envelope-ing every outcome."""
     try:
-        vault = resolve()
+        vault = resolve(vault=_vault_arg(vault_name))
     except KnoticaError as error:
         return envelope.error_envelope(error)
     store = LocalFSStore(vault.path)
     try:
-        payload = operation(store, vault.path)
+        payload = operation(store, vault)
     except _READ_EXCEPTIONS as exc:
         return envelope.map_read_exception(exc)
     return envelope.success_result(payload)
+
+
+def _vault_arg(vault: str) -> str | None:
+    cleaned = vault.strip()
+    return cleaned or None

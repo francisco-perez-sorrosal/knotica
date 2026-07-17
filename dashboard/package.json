@@ -8,6 +8,7 @@
     "dev": "vite"
   },
   "dependencies": {
+    "@modelcontextprotocol/ext-apps": "^1.7.4",
     "@modelcontextprotocol/sdk": "^1.28.1",
     "@preact/signals": "^2.0.1",
     "preact": "^10.27.2",

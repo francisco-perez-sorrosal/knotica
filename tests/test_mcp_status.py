@@ -156,6 +156,13 @@ def test_wiki_status_reports_template_topic_counts(vault_config: Path) -> None:
     body = assert_success(call_tool("wiki_status", {}))
     assert body["schema_version"] == 1
     assert body["compile_ready_threshold"] == 20
+    assert body["vault_name"]
+    assert body["vault_path"]
+    assert body["vault_path"] == body["vault"]
+    assert isinstance(body["available_vaults"], list)
+    assert body["available_vaults"]
+    assert body["available_vaults"][0]["name"] == body["vault_name"]
+    assert body["available_vaults"][0]["ready"] is True
     assert "gate" in body and body["gate"]["state"] == "unknown"
     assert body["gate"]["baseline"] is None
     assert body["loop"]["stage"] is None

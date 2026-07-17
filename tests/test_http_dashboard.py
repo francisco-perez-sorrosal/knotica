@@ -2,7 +2,8 @@
 
 from starlette.testclient import TestClient
 
-from knotica.mcp_server.http_app import create_http_app, dashboard_html
+from knotica.dashboard import dashboard_html
+from knotica.mcp_server.http_app import create_http_app
 
 
 def test_dashboard_artifact_is_packaged_and_has_an_application_root() -> None:

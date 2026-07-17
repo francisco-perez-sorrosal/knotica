@@ -67,11 +67,15 @@ export function LoopPane({
 
   const stage = status?.loop.stage ?? "idle";
   return (
-    <main>
+    <main class="pane-main">
       <section class="summary" aria-label="Loop summary">
         <div>
           <p class="eyebrow">Composition loop</p>
-          <h1>knotica</h1>
+          <h2 class="loop-heading">Scalar gate</h2>
+          <p class="muted">
+            Topic progress and eval history for the active vault. Gate state is unknown until the
+            loop runner freezes a baseline.
+          </p>
         </div>
         <div class={`gate gate-${status?.gate.state ?? "unknown"}`}>
           <span>Gate</span>
@@ -94,7 +98,11 @@ export function LoopPane({
             <output>{status.gate.last_scalar.toFixed(4)}</output>
           )}
         </header>
-        {records.length > 0 ? <div class="chart" ref={chartHost} /> : <div class="empty-chart">Awaiting metrics</div>}
+        {records.length > 0 ? (
+          <div class="chart" ref={chartHost} />
+        ) : (
+          <div class="empty-chart">Awaiting metrics</div>
+        )}
       </section>
 
       <section class="stages" aria-label="Loop stage">
@@ -106,6 +114,17 @@ export function LoopPane({
           </article>
         ))}
       </section>
+
+      {(status?.loop.candidate_branch || status?.loop.last_decision) && (
+        <p class="muted loop-detail">
+          {status.loop.candidate_branch
+            ? `Candidate ${status.loop.candidate_branch}`
+            : "No active candidate"}
+          {status.loop.last_decision ? ` · last decision ${status.loop.last_decision}` : ""}
+          {" · trigger a cycle from the Vault pane or "}
+          <code>loop_runner.py --once</code>
+        </p>
+      )}
     </main>
   );
 }

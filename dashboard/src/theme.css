@@ -28,9 +28,16 @@
   --good: var(--green);
   --bad: var(--red);
   --warn: var(--yellow);
-  --shadow: 0 1px 3px rgb(7 54 66 / 8%), 0 8px 24px rgb(7 54 66 / 5%);
-  --sans: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-  --mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  --shadow: 0 1px 2px rgb(7 54 66 / 6%), 0 12px 32px rgb(7 54 66 / 6%);
+  --glow: color-mix(in srgb, var(--cyan) 22%, transparent);
+
+  /* Distinctive stacks — no external font fetch (MCP App CSP-safe). */
+  --display: "Iowan Old Style", "Palatino Linotype", Palatino, "Book Antiqua", Georgia, serif;
+  --sans: "Avenir Next", "Segoe UI", "Helvetica Neue", sans-serif;
+  --mono: "SF Mono", "JetBrains Mono", ui-monospace, Menlo, Consolas, monospace;
+
+  --radius: 2px;
+  --chrome-pad: max(1.25rem, calc((100vw - 1040px) / 2));
 }
 
 @media (prefers-color-scheme: dark) {
@@ -42,7 +49,8 @@
     --heading: var(--base2);
     --muted: var(--base1);
     --line: #1c4b54;
-    --shadow: 0 1px 3px rgb(0 0 0 / 24%);
+    --shadow: 0 1px 2px rgb(0 0 0 / 28%), 0 16px 40px rgb(0 0 0 / 28%);
+    --glow: color-mix(in srgb, var(--cyan) 28%, transparent);
   }
 }
 
@@ -54,15 +62,33 @@
   --heading: var(--base2);
   --muted: var(--base1);
   --line: #1c4b54;
-  --shadow: 0 1px 3px rgb(0 0 0 / 24%);
+  --shadow: 0 1px 2px rgb(0 0 0 / 28%), 0 16px 40px rgb(0 0 0 / 28%);
+  --glow: color-mix(in srgb, var(--cyan) 28%, transparent);
 }
 
 * { box-sizing: border-box; }
+
+html {
+  background: var(--bg);
+}
+
 body {
   margin: 0;
   min-width: 320px;
-  background: var(--bg);
+  min-height: 100vh;
   color: var(--text);
-  font: 15px/1.5 var(--sans);
+  font: 15px/1.55 var(--sans);
+  background:
+    radial-gradient(900px 420px at 8% -10%, var(--glow), transparent 55%),
+    radial-gradient(700px 360px at 92% 0%, color-mix(in srgb, var(--accent) 14%, transparent), transparent 50%),
+    linear-gradient(180deg, color-mix(in srgb, var(--surface) 55%, var(--bg)), var(--bg) 42%);
+  background-attachment: fixed;
+  -webkit-font-smoothing: antialiased;
 }
+
 button { font: inherit; }
+a { color: var(--accent); }
+::selection {
+  background: color-mix(in srgb, var(--cyan) 35%, var(--surface));
+  color: var(--heading);
+}

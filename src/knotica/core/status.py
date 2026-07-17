@@ -72,20 +72,33 @@ def gather_wiki_status(
     vault_path: Path,
     *,
     topic: str = "",
+    vault_name: str = "",
+    default_vault: str = "",
+    available_vaults: list[dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
     """Build the ``wiki_status`` payload for the whole vault or one topic.
 
     Raises :class:`~knotica.core.page.TopicNotFoundError` when ``topic`` is
     non-empty and does not name an existing topic directory.
+
+    ``vault`` remains the absolute path (compat). Prefer ``vault_name`` /
+    ``vault_path`` for new surfaces. ``available_vaults`` feeds a future
+    multi-vault switcher (entries from :func:`knotica.core.config.list_vaults`).
     """
     scope = topic.strip()
     topics = _topic_statuses(store, scope=scope or None)
     last_lint = _last_lint(store)
     unpushed = _unpushed(vault_path)
     gate, loop = _gate_and_loop(store, topics)
+    path = str(vault_path)
+    name = vault_name or vault_path.name
     return {
         "schema_version": STATUS_SCHEMA_VERSION,
-        "vault": str(vault_path),
+        "vault": path,
+        "vault_name": name,
+        "vault_path": path,
+        "default_vault": default_vault or name,
+        "available_vaults": list(available_vaults or []),
         "compile_ready_threshold": COMPILE_READY_MIN_EXAMPLES,
         "topics": [row.render() for row in topics],
         "totals": {

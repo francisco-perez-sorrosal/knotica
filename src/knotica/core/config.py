@@ -170,6 +170,54 @@ def _load_toml(file: Path) -> dict[str, Any] | str:
         return f"Config file {file} is not valid TOML ({error})."
 
 
+def list_vaults(
+    config_path: str | os.PathLike[str] | None = None,
+) -> dict[str, Any]:
+    """List configured vaults for UI switchers (name, path, readiness).
+
+    Returns ``{default_vault, vaults: [{name, path, ready, detail}, …]}``.
+    Paths are expanded absolute strings. Does not raise for unconfigured hosts —
+    returns an empty ``vaults`` list and empty ``default_vault`` instead.
+    """
+    file = config_file_path(config_path)
+    config = _load_toml(file)
+    if isinstance(config, str):
+        return {"default_vault": "", "vaults": []}
+
+    default = config.get("default_vault")
+    default_vault = default if isinstance(default, str) else ""
+    vaults_table = config.get("vaults")
+    if not isinstance(vaults_table, dict):
+        return {"default_vault": default_vault, "vaults": []}
+
+    rows: list[dict[str, Any]] = []
+    for name in sorted(vaults_table):
+        if not isinstance(name, str) or not name:
+            continue
+        raw_path = _vault_path_entry(config, name)
+        if raw_path is None:
+            rows.append(
+                {
+                    "name": name,
+                    "path": "",
+                    "ready": False,
+                    "detail": f"no path configured under [vaults.{name}]",
+                }
+            )
+            continue
+        root = Path(os.path.expandvars(raw_path)).expanduser()
+        problem = _vault_problem(root)
+        rows.append(
+            {
+                "name": name,
+                "path": str(root),
+                "ready": problem is None,
+                "detail": "" if problem is None else problem,
+            }
+        )
+    return {"default_vault": default_vault, "vaults": rows}
+
+
 def _vault_path_entry(config: dict[str, Any], vault_name: str) -> str | None:
     """Return the raw ``[vaults.<name>] path`` string, or None if absent/invalid."""
     vaults = config.get("vaults")

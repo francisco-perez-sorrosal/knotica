@@ -8,9 +8,9 @@ vault is absent. The CLI (`knotica mcp`) imports :data:`mcp` (or calls
 :func:`build_server`) to run the stdio transport.
 
 The full surface is wired here: read tools, write tools, dashboard status
-tools, the operation-guide tool, resources, and prompts all register onto the
-one instance through :func:`build_server`, each a pure registration that touches
-no vault at startup.
+tools, the MCP-App ``ui://`` dashboard mount, the operation-guide tool,
+resources, and prompts all register onto the one instance through
+:func:`build_server`, each a pure registration that touches no vault at startup.
 
 Server ``instructions`` are set so the client's model is told, up front, that
 ingest/query/lint/curate are multi-step protocols and to load one via
@@ -21,11 +21,15 @@ UI does not surface MCP prompts.
 
 from mcp.server.fastmcp import FastMCP
 
+from knotica.mcp_server.app_ui import register_dashboard_app
 from knotica.mcp_server.prompts import register_prompts
 from knotica.mcp_server.resources import register_resources
+from knotica.mcp_server.tools_golden import register_golden_tools
 from knotica.mcp_server.tools_guide import register_guide_tools
+from knotica.mcp_server.tools_ingest import register_ingest_tools
 from knotica.mcp_server.tools_read import register_read_tools
 from knotica.mcp_server.tools_status import register_status_tools
+from knotica.mcp_server.tools_vault import register_vault_tools
 from knotica.mcp_server.tools_write import register_write_tools
 
 #: Server display name (the client sees this in ``initialize``).
@@ -62,6 +66,10 @@ def _build_server(*, stateless_http: bool = False) -> FastMCP:
     register_read_tools(mcp)
     register_write_tools(mcp)
     register_status_tools(mcp)
+    register_vault_tools(mcp)
+    register_golden_tools(mcp)
+    register_ingest_tools(mcp)
+    register_dashboard_app(mcp)
     register_guide_tools(mcp)
     register_resources(mcp)
     register_prompts(mcp)

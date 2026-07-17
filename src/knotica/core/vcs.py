@@ -118,6 +118,35 @@ class VaultVcs:
         result = self._run(command, optional_locks=False)
         return bool(result.stdout.strip())
 
+    def list_dirty_entries(self) -> list[dict[str, str | bool]]:
+        """Return porcelain dirty entries as path-scoped repair candidates.
+
+        Read-only. Each entry is ``{path, code, tracked, untracked}`` where
+        ``code`` is the two-letter porcelain status (e.g. `` M``, ``??``).
+        Rename lines use the destination path. Never mutates.
+        """
+        result = self._run(["status", "--porcelain"], optional_locks=False)
+        entries: list[dict[str, str | bool]] = []
+        for line in result.stdout.splitlines():
+            if len(line) < 4:
+                continue
+            code = line[:2]
+            rest = line[3:]
+            path = rest.split(" -> ", 1)[1] if " -> " in rest else rest
+            path = path.strip().strip('"')
+            if not path:
+                continue
+            untracked = code == "??"
+            entries.append(
+                {
+                    "path": PurePath(path).as_posix(),
+                    "code": code,
+                    "tracked": not untracked,
+                    "untracked": untracked,
+                }
+            )
+        return entries
+
     def clone_to(self, dest_root: str | PurePath, ref: str | None = None) -> "VaultVcs":
         """Clone this vault to ``dest_root`` and return a ``VaultVcs`` on the clone.
 
