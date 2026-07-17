@@ -31,3 +31,30 @@ def test_http_dashboard_serves_html_and_cors_preflight() -> None:
     )
     assert preflight.status_code == 200
     assert preflight.headers["access-control-allow-origin"] == "*"
+
+
+def test_mcp_initialize_over_streamable_http_succeeds() -> None:
+    """Streamable HTTP must initialize — regression for the lost-lifespan 500."""
+    # TestClient must enter the app lifespan so the session manager task group starts.
+    with TestClient(create_http_app()) as client:
+        response = client.post(
+            "/mcp",
+            json={
+                "jsonrpc": "2.0",
+                "id": 0,
+                "method": "initialize",
+                "params": {
+                    "protocolVersion": "2025-03-26",
+                    "capabilities": {},
+                    "clientInfo": {"name": "test", "version": "0.0.1"},
+                },
+            },
+            headers={
+                "Accept": "application/json, text/event-stream",
+                "Content-Type": "application/json",
+                "Host": "127.0.0.1:8765",
+            },
+        )
+    assert response.status_code == 200, response.text
+    body = response.text
+    assert "knotica" in body or "serverInfo" in body or "protocolVersion" in body
