@@ -50,7 +50,10 @@ Riskiest assumption shifts from Buildkite setup (resolved GO, now moot) to **a l
 clearing baseline on stage** — mitigated by pre-generated variants, warm caches, and the honest
 no-winner → revert fallback. Detail doc rewritten in place (`.ai-work/hackathon-loop-ideas/IDEA_DETAIL.md`).
 
-## Addendum 2026-07-17 — Knotica Console + MCP Apps (ext-apps) scoping
+## Addendum 2026-07-17 — Knotica Dashboard + MCP Apps (ext-apps) scoping
+
+*(Surface renamed "dashboard" — one name, one artifact: `scripts/loop_dashboard.py` is the umbrella;
+the loop pane is its first pane.)*
 
 User addition: a central console managing all wiki functionality, ideally embedded as an MCP App
 (modelcontextprotocol/ext-apps). Researcher spike verdict (sources in the ephemeral RESEARCH_FINDINGS.md):
@@ -63,12 +66,23 @@ User addition: a central console managing all wiki functionality, ideally embedd
 - **Python/FastMCP path unproven** (no example exists; protocol is language-agnostic) — real risk,
   bounded by scoping.
 
-Scoping decision: the console is the **localhost web app** (`knotica_console.py`, umbrella over the
-loop dashboard, arena, golden review, vault status panes) — Claude Code sees it via the Browser pane.
+Scoping decision: the dashboard is the **localhost web app** (`loop_dashboard.py`, umbrella over the
+loop, arena, golden review, and vault status panes) — Claude Code sees it via the Browser pane.
 A minimal Desktop-only `ui://` status card (one read-only pane + one `wiki_status` tool, 45-min
-timebox, cut without ceremony) proves the MCP-App path. The full MCP-App console is a post-hackathon
-roadmap item; the console's data layer is written behind a thin fetch adapter so the later swap to
+timebox, cut without ceremony) proves the MCP-App path. The full MCP-App dashboard is a post-hackathon
+roadmap item; the dashboard's data layer is written behind a thin fetch adapter so the later swap to
 bridge tool-calls is mechanical ("same HTML, two mounts").
+
+**Frontend authoring decision (second spike, 2026-07-17): vanilla JS on the stdlib server — not
+TypeScript.** Evidence: `@modelcontextprotocol/ext-apps` has no CDN/no-bundler path (npm + Vite +
+`vite-plugin-singlefile` is the documented pattern; 1.5–3 h toolchain-from-zero in this uv-only repo),
+while Claude Code — the primary surface — cannot render MCP Apps regardless. The Python serving path
+is now **proven** (ext-apps examples include Python FastMCP servers serving prebuilt JS bundles as
+resource strings), retiring the earlier "unproven" risk. Hosts pass theme/displayMode/CSS vars with no
+enforcement, so Solarized adapts cheaply (native dark twin). The status-card stretch hand-rolls its
+one-`callTool` postMessage bridge; TS + ext-apps SDK is deferred until a full MCP-App dashboard earns
+a toolchain. Landscape note for a future dec-007 re-evaluation (not a hackathon action): PrefectHQ
+`fastmcp` 3.2 ships native `ui://` Apps support — the package dec-007 rejected on cold-start grounds.
 
 ## Candidates considered
 
