@@ -27,10 +27,15 @@ Design constraints, each load-bearing:
 * **No secrets.** Entries carry only the supplied inputs and the computed value.
   Nothing is read from the process environment here.
 
-The primary consumer is the LLM-as-judge, which stores a per-example median
-score (a bounded float) keyed on ``(judge_snapshot, judge_prompt_hash,
-question, candidate, reference)``. The cache itself is value-agnostic: it stores
-any JSON-serializable value, so the stored shape is the caller's choice.
+Two consumers share one per-run instance. The LLM-as-judge stores a per-example
+median score (a bounded float) keyed on ``(judge_snapshot, judge_prompt_hash,
+question, candidate, reference)``; the baseline runner stores its synthesis
+completion (a ``{text, usage}`` dict) keyed on ``(worker_snapshot,
+synthesis_prompt_hash, user_message)``. The two keyspaces never collide (distinct
+snapshots and prompt hashes), so a single cache serves both. The cache itself is
+value-agnostic: it stores any JSON-serializable value, so the stored shape is the
+caller's choice. An optional per-lookup ``namespace`` lets that one shared cache
+report each consumer's hit-rate separately (see :meth:`ResponseCache.stats_for`).
 """
 
 import hashlib
@@ -38,9 +43,10 @@ import json
 import os
 import tempfile
 from collections.abc import Callable
+from dataclasses import dataclass
 from pathlib import Path
 
-__all__ = ["ResponseCache", "cache_key"]
+__all__ = ["CacheStats", "ResponseCache", "cache_key"]
 
 #: A JSON-serializable value -- what the cache stores. The judge stores a bounded
 #: float score; the cache accepts any JSON value so the shape is the caller's.
@@ -77,6 +83,26 @@ def cache_key(snapshot: str, prompt_hash: str, inputs: object) -> str:
     return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
 
 
+@dataclass(frozen=True, slots=True)
+class CacheStats:
+    """One consumer's hit/miss counts, with the derived hit-rate.
+
+    Returned by :meth:`ResponseCache.stats_for` so the harness can record a
+    per-consumer cache breakdown in the run manifest: the runner's synthesis cache
+    and the judge's score cache report their own hit-rates even though they share a
+    single cache instance.
+    """
+
+    hits: int
+    misses: int
+
+    @property
+    def hit_rate(self) -> float:
+        """Fraction of this consumer's lookups served from the cache, or ``0.0`` if none."""
+        total = self.hits + self.misses
+        return self.hits / total if total else 0.0
+
+
 class ResponseCache:
     """A content-addressed cache with an optional on-disk backing.
 
@@ -96,6 +122,8 @@ class ResponseCache:
         self._memory: dict[str, JsonValue] = {}
         self._hits = 0
         self._misses = 0
+        # namespace -> [hits, misses]: per-consumer counters for a shared cache.
+        self._namespace_stats: dict[str, list[int]] = {}
 
     @property
     def hits(self) -> int:
@@ -120,23 +148,47 @@ class ResponseCache:
         prompt_hash: str,
         inputs: object,
         compute: Callable[[], JsonValue],
+        namespace: str | None = None,
     ) -> JsonValue:
         """Return the cached value for the key, or compute, store, and return it.
 
         On a hit (memory or disk), ``compute`` is never called -- the whole point,
         so a warm re-run pays nothing. On a miss, ``compute`` is called exactly
         once and its result is stored in memory and (if configured) on disk.
+
+        ``namespace`` optionally tags the lookup for :meth:`stats_for`, so one
+        shared cache can report each consumer's hit-rate separately. It never
+        participates in the key -- two consumers with colliding keys would still
+        share the value; only the per-namespace counters are segmented. Aggregate
+        counters advance regardless, so an unlabeled lookup is still counted.
         """
         key = cache_key(snapshot, prompt_hash, inputs)
         cached = self._lookup(key)
         if cached is not _MISS:
             self._hits += 1
+            self._record_namespace(namespace, hit=True)
             return cached
         self._misses += 1
+        self._record_namespace(namespace, hit=False)
         value = compute()
         self._memory[key] = value
         self._write_disk(key, value)
         return value
+
+    def _record_namespace(self, namespace: str | None, *, hit: bool) -> None:
+        """Advance the per-namespace hit/miss counter when a namespace is supplied."""
+        if namespace is None:
+            return
+        counts = self._namespace_stats.setdefault(namespace, [0, 0])
+        if hit:
+            counts[0] += 1
+        else:
+            counts[1] += 1
+
+    def stats_for(self, namespace: str) -> CacheStats:
+        """Return the :class:`CacheStats` recorded under ``namespace`` (zeros if unseen)."""
+        hits, misses = self._namespace_stats.get(namespace, (0, 0))
+        return CacheStats(hits=hits, misses=misses)
 
     def _lookup(self, key: str) -> JsonValue | object:
         """Return the stored value for ``key``, or :data:`_MISS`.

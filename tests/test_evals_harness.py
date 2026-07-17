@@ -74,7 +74,7 @@ from knotica.core.records import MetricsRecord, QARecord
 from knotica.evals.cache import ResponseCache
 from knotica.evals.config import DEFAULT_CONFIG, HarnessConfig
 from knotica.evals.golden import GoldenSetContaminationError, GoldenSetMissingError
-from knotica.evals.harness import LiveVaultTargetError, run_eval
+from knotica.evals.harness import LiveVaultTargetError, SpendCeilingExceededError, run_eval
 from knotica.evals.llm import Completion, TokenUsage
 from support.vault import (
     git_commit_count,
@@ -145,8 +145,8 @@ class _RoutingLLMClient:
     for a bounded ``{"score"}`` grade). A single canned completion cannot serve both,
     so this fake dispatches on the system prompt: the judge's system prompt carries a
     stable signature phrase the worker's never does. Worker and judge invocations are
-    counted separately, so a test can prove a warm cache made zero *judge* calls even
-    though the (uncached) runner ran again.
+    counted separately, so a test can prove a warm shared cache made zero *worker* and
+    zero *judge* calls on a re-run -- both consumers cache through the same per-run cache.
     """
 
     def __init__(self, *, worker: Completion, judge: Completion) -> None:
@@ -552,7 +552,7 @@ def test_a_second_run_reproduces_the_scalar_bit_for_bit(
     )
 
 
-def test_a_warm_shared_cache_makes_zero_additional_judge_calls(
+def test_a_warm_shared_cache_makes_zero_additional_worker_or_judge_calls(
     seeded_source: Path, tmp_path: Path
 ) -> None:
     fake = _routing_fake()
@@ -565,7 +565,11 @@ def test_a_warm_shared_cache_makes_zero_additional_judge_calls(
         work_root=tmp_path / "clone-1",
         cache=cache,
     )
+    worker_calls_after_cold_run = fake.worker_calls
     judge_calls_after_cold_run = fake.judge_calls
+    assert worker_calls_after_cold_run > 0, (
+        "non-vacuity: the runner must actually call the worker model on the first (cold) run"
+    )
     assert judge_calls_after_cold_run > 0, (
         "non-vacuity: the judge must actually be called on the first (cold) run"
     )
@@ -578,6 +582,10 @@ def test_a_warm_shared_cache_makes_zero_additional_judge_calls(
         cache=cache,
     )
 
+    assert fake.worker_calls == worker_calls_after_cold_run, (
+        "a warm shared cache serves every synthesis from storage -- the frozen re-run "
+        "makes zero additional worker LLM calls (the runner is cached, not just the judge)"
+    )
     assert fake.judge_calls == judge_calls_after_cold_run, (
         "a warm shared cache serves every judge tuple from storage -- the frozen re-run "
         "makes zero additional judge LLM calls"
@@ -648,7 +656,7 @@ def test_a_tiny_token_ceiling_hard_aborts_before_committing_metrics(
     assert not (seeded_source / METRICS_PATH).exists(), "the source is untouched by an aborted run"
 
 
-def test_the_per_run_manifest_records_the_cache_hit_rate(
+def test_the_per_run_manifest_records_both_the_runner_and_judge_cache_hit_rates(
     seeded_source: Path, tmp_path: Path
 ) -> None:
     clone = tmp_path / "eval-clone"
@@ -659,9 +667,64 @@ def test_the_per_run_manifest_records_the_cache_hit_rate(
 
     manifest = _read_manifest(clone, record)
     # A silent cache failure (unstable keys -> 100% miss -> surprise spend) is made
-    # visible by recording the run's hit-rate in the manifest.
-    assert "hit" in json.dumps(manifest).lower(), (
-        "the per-run manifest records the response-cache hit-rate so a silent cache failure shows"
+    # visible by recording each consumer's hit-rate in the manifest -- the runner's
+    # synthesis cache alongside the judge's score cache, off the one shared cache.
+    assert "cache_hit_rate" in manifest["judge"], "the judge cache hit-rate is recorded"
+    assert "cache_hit_rate" in manifest["worker"], (
+        "the runner (worker) cache hit-rate is recorded alongside the judge's, so a "
+        "silent runner-cache failure is just as visible"
+    )
+
+
+#: A per-run token ceiling above the warm re-run's zero billed tokens but below the
+#: cold run's real spend (worker 3x180 + judge 9x220 = 2520): the cold run breaches
+#: it, the warm re-run (all cache hits, zero billed) passes it.
+_CEILING_WARM_PASSES_COLD_BREACHES = 1_000
+
+
+def test_a_warm_re_run_under_a_ceiling_the_cold_run_breached_succeeds(
+    seeded_source: Path, tmp_path: Path
+) -> None:
+    # The accounting split, end to end: a cache hit bills nothing. A cold run spends
+    # real tokens and breaches a tight ceiling (but still populates the shared cache
+    # before the post-run abort); a warm re-run over the SAME cache makes zero model
+    # calls, so it bills zero tokens and passes the very ceiling the cold run breached.
+    cache = ResponseCache()
+    tight_ceiling = DEFAULT_CONFIG.with_overrides(
+        max_total_tokens=_CEILING_WARM_PASSES_COLD_BREACHES
+    )
+
+    cold_error = _run_eval_error(
+        TOPIC,
+        source_root=seeded_source,
+        llm_client=_routing_fake(),
+        work_root=tmp_path / "clone-cold",
+        cache=cache,
+        config=tight_ceiling,
+    )
+    assert isinstance(cold_error, SpendCeilingExceededError), (
+        "non-vacuity: the cold run must actually breach the ceiling (real tokens spent); "
+        f"got {type(cold_error).__name__}"
+    )
+
+    warm_clone = tmp_path / "clone-warm"
+    record = _run_eval(
+        TOPIC,
+        source_root=seeded_source,
+        llm_client=_routing_fake(),
+        work_root=warm_clone,
+        cache=cache,
+        config=tight_ceiling,
+    )
+
+    assert record.n_examples == len(_GOLDEN_QUERIES), (
+        "the warm re-run completed and committed a record for every golden example, "
+        "under a ceiling that hard-aborted the cold run"
+    )
+    manifest = _read_manifest(warm_clone, record)
+    assert manifest["token_usage"]["total"] == 0, (
+        "a warm re-run bills zero tokens -- every synthesis and judge lookup is a cache "
+        "hit that never reaches the usage-accounting client, so spend accounting excludes hits"
     )
 
 

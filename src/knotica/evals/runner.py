@@ -28,6 +28,19 @@ Two design rules hold this seam:
 across models, because that ``usage`` is the ground truth for the scalar's cost
 term.
 
+**The synthesis call is cached, usage and all.** When a :class:`~knotica.evals.cache.ResponseCache`
+is injected, each synthesis completion is memoized on ``(worker_snapshot,
+synthesis_prompt_hash, user_message)`` -- the same shared per-run cache the judge
+uses. The stored value carries the completion *text and its exact
+:class:`~knotica.evals.llm.TokenUsage`*, so a warm-cache hit rebuilds the
+completion verbatim: the replayed usage keeps the scalar's per-item token measure
+``T`` identical between a cold and a warm run, while the hit -- because the cache
+sits *above* the injected client -- never reaches the (billed) model call, so it
+costs zero against the run's spend accounting. The ``synthesis_prompt_hash`` folds
+the full system prompt (the vault's ``query.md`` body and effective schema,
+verbatim) and the output schema, so an evolved ``query.md`` or a schema change is a
+cold cache -- never a stale reuse.
+
 :class:`BaselineRunner` is the swap point: Phase 2 uses :class:`MessagesApiRunner`;
 a later compiled program can replace it behind the same protocol, driven by the
 same devset and metric.
@@ -41,19 +54,23 @@ visible failure rather than a silently empty answer, so a broken run scores zero
 for that example instead of masking the problem.
 """
 
+import hashlib
 import json
+from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Protocol, runtime_checkable
+from typing import Protocol, cast, runtime_checkable
 
 from knotica.core.page import Page, read_page
 from knotica.core.prompts import resolve_prompt
 from knotica.core.schema import resolve_schema
+from knotica.evals.cache import JsonValue, ResponseCache
 from knotica.evals.llm import Completion, LLMClient, Message, TokenUsage
 from knotica.search import RipgrepBackend
 from knotica.store import VaultStore
 
 __all__ = [
+    "RUNNER_CACHE_NAMESPACE",
     "BaselineRunner",
     "MalformedResponseError",
     "MessagesApiRunner",
@@ -75,6 +92,15 @@ DEFAULT_MAX_TOKENS = 1024
 #: Keys of the JSON object the model returns (see the module docstring).
 _ANSWER_KEY = "answer"
 _CITATIONS_KEY = "citations"
+
+#: The response-cache namespace the runner tags its synthesis lookups with, so a
+#: shared cache reports the runner's hit-rate separately from the judge's (see
+#: :meth:`knotica.evals.cache.ResponseCache.stats_for`).
+RUNNER_CACHE_NAMESPACE = "runner"
+
+#: Keys of the cached synthesis value: the completion text and its replayed usage.
+_CACHE_TEXT_KEY = "text"
+_CACHE_USAGE_KEY = "usage"
 
 #: The strict JSON schema the synthesis call enforces via the Messages API
 #: structured-outputs surface (:meth:`~knotica.evals.llm.LLMClient.complete`'s
@@ -168,11 +194,24 @@ class MessagesApiRunner:
         worker_snapshot: The exact dated model snapshot to synthesize with. Always
             an argument (never hardcoded) so the pinned default lives in
             ``evals.config``.
+        cache: The shared per-run :class:`~knotica.evals.cache.ResponseCache`. When
+            supplied, each synthesis completion is memoized (text + verbatim usage),
+            so a warm re-run of the same frozen corpus reuses it -- reproducing the
+            scalar's per-item token measure ``T`` without a second (billed) model
+            call. ``None`` uses a fresh single-call cache (no cross-call reuse), so
+            an unshared runner calls the model on every ``run`` exactly as before.
     """
 
-    def __init__(self, llm_client: LLMClient, worker_snapshot: str) -> None:
+    def __init__(
+        self,
+        llm_client: LLMClient,
+        worker_snapshot: str,
+        *,
+        cache: ResponseCache | None = None,
+    ) -> None:
         self._llm = llm_client
         self._worker_snapshot = worker_snapshot
+        self._cache = cache
 
     def run(self, store: VaultStore, topic: str, question: str) -> Prediction:
         """Drive the clone's ``query.md`` headlessly and return a :class:`Prediction`.
@@ -202,20 +241,48 @@ class MessagesApiRunner:
         question: str,
         pages: list[Page],
     ) -> Completion:
-        """Make the single synthesis call at ``temperature=0`` and return its completion.
+        """Return the synthesis completion, from the cache or a single fresh call.
 
-        Passes :data:`_SYNTHESIS_JSON_SCHEMA` so the Messages API constrains the
-        model to schema-valid JSON at the source; the tolerant parse downstream
-        remains as defense-in-depth for the residual truncation/refusal cases.
+        Memoizes the completion on ``(worker_snapshot, synthesis_prompt_hash,
+        user_message)`` in the injected cache: a warm hit rebuilds the completion
+        (text + verbatim usage) without a model call, while a miss makes the single
+        ``temperature=0`` call. :data:`_SYNTHESIS_JSON_SCHEMA` constrains that call
+        to schema-valid JSON at the source; the tolerant parse downstream remains
+        as defense-in-depth for the residual truncation/refusal cases.
         """
-        return self._llm.complete(
+        system = _assemble_system(query_prompt, schema)
+        user = _assemble_user(topic, question, pages)
+        active_cache = self._cache if self._cache is not None else ResponseCache()
+        value = active_cache.get_or_compute(
             snapshot=self._worker_snapshot,
-            system=_assemble_system(query_prompt, schema),
-            messages=[Message(role="user", content=_assemble_user(topic, question, pages))],
-            temperature=0.0,
-            max_tokens=DEFAULT_MAX_TOKENS,
-            json_schema=_SYNTHESIS_JSON_SCHEMA,
+            prompt_hash=_synthesis_prompt_hash(system),
+            inputs=user,
+            compute=self._synthesis_compute(system, user),
+            namespace=RUNNER_CACHE_NAMESPACE,
         )
+        return _completion_from_cache_value(value)
+
+    def _synthesis_compute(self, system: str, user: str) -> Callable[[], JsonValue]:
+        """Build the cache-miss callback: make the single synthesis call and serialize it.
+
+        Returned as a thunk so :meth:`~knotica.evals.cache.ResponseCache.get_or_compute`
+        invokes it only on a miss -- the whole point of caching, so a warm run makes
+        no model call and bills nothing. The stored value carries the completion's
+        text and exact usage so a later hit replays both verbatim.
+        """
+
+        def compute() -> JsonValue:
+            completion = self._llm.complete(
+                snapshot=self._worker_snapshot,
+                system=system,
+                messages=[Message(role="user", content=user)],
+                temperature=0.0,
+                max_tokens=DEFAULT_MAX_TOKENS,
+                json_schema=_SYNTHESIS_JSON_SCHEMA,
+            )
+            return _completion_to_cache_value(completion)
+
+        return compute
 
 
 def _store_root(store: VaultStore) -> Path:
@@ -268,6 +335,60 @@ def _format_page(page: Page) -> str:
     asks it to weigh and flag.
     """
     return f"### {page.path}\n\n{page.raw.strip()}"
+
+
+def _synthesis_prompt_hash(system: str) -> str:
+    """Hash the runner's synthesis instrument: the full system prompt + output schema.
+
+    ``system`` already carries the vault's ``query.md`` body and effective schema
+    verbatim (see :func:`_assemble_system`), so an evolved ``query.md`` or a schema
+    change rotates this hash -- a cold cache, as a correctness change demands.
+    Folding in the structured-output schema serialization rotates it on an
+    output-contract change too. Uses the codebase's ``sha256`` prompt-hash scheme
+    (cf. ``judge.JUDGE_PROMPT_HASH``), not a second hashing convention.
+    """
+    schema_json = json.dumps(_SYNTHESIS_JSON_SCHEMA, sort_keys=True, separators=(",", ":"))
+    return hashlib.sha256(f"{system}\n{schema_json}".encode()).hexdigest()
+
+
+def _completion_to_cache_value(completion: Completion) -> JsonValue:
+    """Serialize a synthesis completion for the cache: its text plus full token usage.
+
+    Stores every :class:`~knotica.evals.llm.TokenUsage` field so a warm hit rebuilds
+    the completion *verbatim* -- the replayed usage is what keeps the scalar's
+    per-item token measure ``T`` identical between a cold and a warm run.
+    """
+    usage = completion.usage
+    return {
+        _CACHE_TEXT_KEY: completion.text,
+        _CACHE_USAGE_KEY: {
+            "input_tokens": usage.input_tokens,
+            "output_tokens": usage.output_tokens,
+            "cache_read_tokens": usage.cache_read_tokens,
+            "cache_creation_tokens": usage.cache_creation_tokens,
+        },
+    }
+
+
+def _completion_from_cache_value(value: JsonValue) -> Completion:
+    """Rebuild a synthesis completion from its cached ``{text, usage}`` shape.
+
+    The inverse of :func:`_completion_to_cache_value`: reconstructs the exact
+    :class:`~knotica.evals.llm.Completion` (text + verbatim :class:`~knotica.evals.llm.TokenUsage`)
+    a cold run produced, so a warm hit feeds the scoring path an identical
+    prediction and usage.
+    """
+    data = cast("dict[str, object]", value)
+    usage = cast("dict[str, int]", data[_CACHE_USAGE_KEY])
+    return Completion(
+        text=cast(str, data[_CACHE_TEXT_KEY]),
+        usage=TokenUsage(
+            input_tokens=usage["input_tokens"],
+            output_tokens=usage["output_tokens"],
+            cache_read_tokens=usage["cache_read_tokens"],
+            cache_creation_tokens=usage["cache_creation_tokens"],
+        ),
+    )
 
 
 def _parse_structured_answer(text: str) -> tuple[str, list[str]]:

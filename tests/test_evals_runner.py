@@ -43,9 +43,11 @@ import pytest
 
 from knotica.core.errors import ErrorCode, KnoticaError
 from knotica.core.prompts import resolve_prompt
+from knotica.evals.cache import ResponseCache
 from knotica.evals.llm import Completion, FakeCall, FakeLLMClient, TokenUsage
 from knotica.evals.runner import (
     _SYNTHESIS_JSON_SCHEMA,
+    _synthesis_prompt_hash,
     MalformedResponseError,
     MessagesApiRunner,
     Prediction,
@@ -338,4 +340,85 @@ def test_a_typed_llm_error_propagates_uncaught(template_vault) -> None:
     assert excinfo.value.code is ErrorCode.NOT_CONFIGURED, (
         "the runner must let the typed trust-boundary error propagate unchanged, "
         "not mask it as a generic mid-run failure"
+    )
+
+
+# ---------------------------------------------------------------------------
+# The synthesis call is cached: a warm hit replays the completion, no re-billing
+# ---------------------------------------------------------------------------
+
+
+def _cached_runner(fake: FakeLLMClient, cache: ResponseCache) -> MessagesApiRunner:
+    return MessagesApiRunner(llm_client=fake, worker_snapshot=WORKER_SNAPSHOT, cache=cache)
+
+
+def test_a_second_identical_run_through_a_shared_cache_makes_no_second_model_call(
+    template_vault,
+) -> None:
+    # The runner re-bills its whole synthesis on every re-run unless completions are
+    # cached. With a shared cache, a second identical run must serve from the cache:
+    # zero additional model calls, and a prediction whose text AND usage replay the
+    # first run's verbatim (usage is the scalar's per-item token measure -- it must
+    # be identical cold vs warm or the warm scalar drifts).
+    canned = _structured_completion(
+        answer="Agent memory distils abstracted routines from past experience.",
+        citations=[RETRIEVED_SOURCE_KEY],
+        usage=_usage(input_tokens=17, output_tokens=42),
+    )
+    fake = FakeLLMClient(canned)
+    runner = _cached_runner(fake, ResponseCache())
+    store = _store(template_vault)
+
+    first = runner.run(store, TOPIC, RETRIEVAL_QUESTION)
+    second = runner.run(store, TOPIC, RETRIEVAL_QUESTION)
+
+    assert fake.call_count == 1, (
+        "the warm synthesis cache serves the second identical run with zero "
+        f"additional model calls; the fake was called {fake.call_count} times"
+    )
+    assert second.answer == first.answer, "the cache hit replays the answer text verbatim"
+    assert second.citations == first.citations, "the cache hit replays the citations verbatim"
+    assert second.usage == first.usage, (
+        "the cache hit replays the original token usage verbatim -- the scalar's "
+        "per-item token measure T must be identical cold vs warm"
+    )
+    assert second.usage.total_tokens == 59, "the replayed usage is the exact reported total (17+42)"
+
+
+def test_a_changed_question_misses_the_shared_cache_and_makes_a_fresh_call(
+    template_vault,
+) -> None:
+    # Cache correctness: a different question changes the rendered user message (the
+    # cache inputs), so the runner must MISS and make a fresh model call -- never
+    # serve a stale answer for a new question.
+    fake = FakeLLMClient(
+        [
+            _structured_completion(answer="first", citations=[]),
+            _structured_completion(answer="second", citations=[]),
+        ]
+    )
+    runner = _cached_runner(fake, ResponseCache())
+    store = _store(template_vault)
+
+    runner.run(store, TOPIC, RETRIEVAL_QUESTION)
+    runner.run(store, TOPIC, "What entirely different thing does the wiki say about evaluation?")
+
+    assert fake.call_count == 2, (
+        "a changed question changes the cached inputs, so the runner misses and "
+        f"makes a fresh model call; the fake was called {fake.call_count} times"
+    )
+
+
+def test_the_synthesis_prompt_hash_rotates_when_the_system_prompt_changes() -> None:
+    # The cache key's prompt component must fold the full system prompt, which carries
+    # the vault's query.md body and effective schema verbatim -- so an evolved query.md
+    # or a schema change rotates the key (a cold cache), never reuses a stale entry.
+    base = _synthesis_prompt_hash("the vault query.md body and effective schema")
+    evolved = _synthesis_prompt_hash(
+        "the vault query.md body -- now edited -- and effective schema"
+    )
+
+    assert base != evolved, (
+        "a changed system prompt (an evolved query.md or schema) must rotate the "
+        "runner's synthesis prompt hash, so an evolved instrument is a cold cache"
     )

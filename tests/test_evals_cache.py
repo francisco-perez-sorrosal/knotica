@@ -201,9 +201,58 @@ def test_hit_and_miss_counters_advance_with_each_lookup(cache_root: Path) -> Non
     )
 
 
+def test_namespaced_lookups_report_separate_per_consumer_stats(cache_root: Path) -> None:
+    # One shared cache serves two consumers (runner + judge); each tags its lookups
+    # with a namespace so the manifest can report their hit-rates separately. A
+    # namespace's stats_for must count only that namespace's lookups -- a hit under one
+    # never bleeds into the other's figure.
+    cache = ResponseCache(cache_root)
+    cache.get_or_compute(**_key(snapshot="runner-snap"), compute=_Recorder(0.1), namespace="runner")
+    cache.get_or_compute(**_key(snapshot="runner-snap"), compute=_never_called, namespace="runner")
+    cache.get_or_compute(**_key(snapshot="judge-snap"), compute=_Recorder(0.2), namespace="judge")
+
+    runner_stats = cache.stats_for("runner")
+    judge_stats = cache.stats_for("judge")
+
+    assert (runner_stats.hits, runner_stats.misses) == (1, 1), "runner: one miss then one hit"
+    assert runner_stats.hit_rate == 0.5, "the runner hit-rate reflects only runner-tagged lookups"
+    assert (judge_stats.hits, judge_stats.misses) == (0, 1), "judge: one miss, no hit yet"
+    assert judge_stats.hit_rate == 0.0, "the judge hit-rate is independent of the runner's"
+    assert cache.stats_for("unseen").hit_rate == 0.0, (
+        "stats_for is total -- an unseen namespace reports zeros, never raising"
+    )
+
+
 # ---------------------------------------------------------------------------
 # Key stability across process boundaries (canonical serialization)
 # ---------------------------------------------------------------------------
+
+
+def test_a_nested_completion_value_round_trips_through_the_on_disk_backing(
+    cache_root: Path,
+) -> None:
+    # The judge stores a bare float, but the runner stores a nested {text, usage}
+    # completion dict. Pin that a structured value survives a store + a fresh-instance
+    # reload byte-for-byte: the runner's warm-cache replay depends on the completion
+    # (and its exact token usage) coming back unchanged, not just floats round-tripping.
+    completion_value = {
+        "text": '{"answer": "a cited answer", "citations": ["k"]}',
+        "usage": {
+            "input_tokens": 17,
+            "output_tokens": 42,
+            "cache_read_tokens": 0,
+            "cache_creation_tokens": 0,
+        },
+    }
+    ResponseCache(cache_root).get_or_compute(**_key(), compute=lambda: completion_value)
+
+    reopened = ResponseCache(cache_root)
+    value = reopened.get_or_compute(**_key(), compute=_never_called)
+
+    assert value == completion_value, (
+        "a nested {text, usage} completion value must round-trip through the on-disk "
+        "backing unchanged -- the runner's warm-cache replay depends on byte-faithful storage"
+    )
 
 
 def test_a_fresh_cache_over_the_same_root_reuses_a_persisted_entry(

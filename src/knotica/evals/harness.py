@@ -29,11 +29,17 @@ The data flow, in one pass:
    score) surfaces in ``.results`` as an empty prediction; the harness detects
    any such failure and aborts loudly rather than diluting the scalar with a
    silent ``0.0``.
-4. **Account every token.** The injected LLM client is wrapped in a proxy that
-   accumulates exact per-call usage across the runner *and* the judge, so a
-   per-run token or USD ceiling can hard-abort a runaway before its record is
-   committed. The judge response cache's hit-rate is recorded, so a silent cache
-   failure (unstable keys -> 100% miss -> surprise spend) is visible.
+4. **Account every billed token; a cache hit bills nothing.** The injected LLM
+   client is wrapped in a proxy that accumulates exact per-call usage across the
+   runner *and* the judge, so a per-run token or USD ceiling can hard-abort a
+   runaway before its record is committed. Both the runner's synthesis cache and
+   the judge's score cache sit *above* this proxy: a warm-cache hit never reaches
+   ``complete``, so it contributes zero to the billed total (the ceiling and
+   ``cost_usd``) while its replayed usage still feeds the scalar's per-item token
+   measure ``T``. This is the accounting split that lets a warm re-run reproduce
+   ``T`` bit-for-bit yet pass a ceiling a cold run breached. Each cache's hit-rate
+   is recorded per consumer, so a silent cache failure (unstable keys -> 100% miss
+   -> surprise spend) is visible.
 5. **Compose the scalar** from the mean per-example quality, the topic's lint
    violation count, and the per-item median total tokens ``T`` against a
    budget ``T_target`` (``tau * median(T)`` frozen at generation 0 in the
@@ -82,7 +88,7 @@ from knotica.evals.config import (
 )
 from knotica.evals.llm import AnthropicClient, Completion, LLMClient, Message
 from knotica.evals.program import BaselineProgram
-from knotica.evals.runner import MessagesApiRunner
+from knotica.evals.runner import RUNNER_CACHE_NAMESPACE, MessagesApiRunner
 from knotica.evals.scorer import build_metric
 from knotica.store import LocalFSStore, VaultStore
 
@@ -223,10 +229,12 @@ class _UsageAccountingClient:
     accumulating each response's exact input/output tokens per model snapshot.
     The harness passes one proxy instance to *both* the baseline runner and the
     judge, so every billed call -- worker synthesis and judge sampling -- is
-    accounted through a single accumulator (a warm judge-cache hit makes no
-    ``complete`` call and is correctly not counted). That total drives the
-    per-run spend ceilings and the manifest's ``cost_usd``; the proxy never sees
-    or stores the API key (it holds no key of its own).
+    accounted through a single accumulator. Both consumers cache *above* this
+    proxy, so a warm runner- or judge-cache hit makes no ``complete`` call and is
+    correctly not counted -- the replayed usage still feeds the scalar's ``T``, but
+    the billed total (and thus the ceiling and ``cost_usd``) sees only fresh calls.
+    That total drives the per-run spend ceilings and the manifest's ``cost_usd``;
+    the proxy never sees or stores the API key (it holds no key of its own).
     """
 
     def __init__(self, inner: LLMClient) -> None:
@@ -395,7 +403,7 @@ def run_eval(
     run_cache = cache if cache is not None else _default_cache(corpus_sha)
     client = _UsageAccountingClient(llm_client if llm_client is not None else AnthropicClient())
     program = BaselineProgram(
-        clone_store, topic, MessagesApiRunner(client, run_config.worker_snapshot)
+        clone_store, topic, MessagesApiRunner(client, run_config.worker_snapshot, cache=run_cache)
     )
     metric = build_metric(
         client,
@@ -825,11 +833,14 @@ def _build_manifest(
     Captures the reproducibility columns the frozen record cannot hold -- the
     dataset digest, weights/lambda/tau, ``T``/``T_target``, exact token usage,
     ``cost_usd``, the resolved ``auth_mode`` (``"oauth"``/``"api_key"``, so a
-    reader knows whether ``cost_usd`` is a real bill or notional), the judge cache
-    hit-rate, per-example scores, the ``dspy`` version + Evaluate config -- with no
-    secret material (and the transaction's scrub is the safety net; the auth mode
-    is not secret, the credential never enters the manifest).
+    reader knows whether ``cost_usd`` is a real bill or notional), the runner and
+    judge cache hit-rates (recorded per consumer off the one shared cache), per-example
+    scores, the ``dspy`` version + Evaluate config -- with no secret material (and
+    the transaction's scrub is the safety net; the auth mode is not secret, the
+    credential never enters the manifest).
     """
+    judge_cache = run_cache.stats_for(judge.JUDGE_CACHE_NAMESPACE)
+    runner_cache = run_cache.stats_for(RUNNER_CACHE_NAMESPACE)
     payload: dict[str, object] = {
         "topic": topic,
         "generation": generation,
@@ -856,11 +867,16 @@ def _build_manifest(
             "snapshot": config.judge_snapshot,
             "n_samples": config.n_judge_samples,
             "prompt_hash": judge.JUDGE_PROMPT_HASH,
-            "cache_hits": run_cache.hits,
-            "cache_misses": run_cache.misses,
-            "cache_hit_rate": run_cache.hit_rate,
+            "cache_hits": judge_cache.hits,
+            "cache_misses": judge_cache.misses,
+            "cache_hit_rate": judge_cache.hit_rate,
         },
-        "worker": {"snapshot": config.worker_snapshot},
+        "worker": {
+            "snapshot": config.worker_snapshot,
+            "cache_hits": runner_cache.hits,
+            "cache_misses": runner_cache.misses,
+            "cache_hit_rate": runner_cache.hit_rate,
+        },
         "evaluate": {"num_threads": config.num_threads, "failure_score": config.failure_score},
         "held_out_delta": None,
         "ceilings": {"max_total_tokens": config.max_total_tokens, "max_usd": config.max_usd},

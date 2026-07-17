@@ -51,6 +51,7 @@ from knotica.evals.llm import LLMClient, Message
 
 __all__ = [
     "DEFAULT_N_JUDGE_SAMPLES",
+    "JUDGE_CACHE_NAMESPACE",
     "JUDGE_MAX_TOKENS",
     "JUDGE_PROMPT",
     "JUDGE_PROMPT_HASH",
@@ -59,6 +60,11 @@ __all__ = [
     "JudgeParseError",
     "grade",
 ]
+
+#: The response-cache namespace the judge tags its lookups with, so a shared cache
+#: reports the judge's hit-rate separately from the runner's (see
+#: :meth:`knotica.evals.cache.ResponseCache.stats_for`).
+JUDGE_CACHE_NAMESPACE = "judge"
 
 #: Default number of judge samples per example. Odd so the median is always an
 #: actual sample; kept small because the cache means the cost is paid once per
@@ -184,6 +190,7 @@ def grade(
         prompt_hash=JUDGE_PROMPT_HASH,
         inputs=[question, candidate, reference],
         compute=_median_of_samples(llm_client, judge_snapshot, question, candidate, reference, n),
+        namespace=JUDGE_CACHE_NAMESPACE,
     )
     return cast(float, result)
 
