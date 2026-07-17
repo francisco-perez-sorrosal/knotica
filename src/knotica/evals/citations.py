@@ -80,9 +80,17 @@ def integrity(store: VaultStore, topic: str, prediction: CitingPrediction) -> fl
 
 
 def _source_exists(store: VaultStore, topic: str, key: str) -> bool:
-    """Whether ``sources/<topic>/<key>.md`` exists; an escaping path reads as absent."""
+    """Whether ``sources/<topic>/<key>.md`` exists; an impossible path reads as absent.
+
+    ``key`` is model-generated text and can be anything -- a path that escapes the
+    vault, or one the filesystem cannot even represent (e.g. a multi-paragraph
+    string producing ``ENAMETOOLONG``). Every such key is simply an unresolved
+    citation, never a raised error: the checker must be total over arbitrary
+    strings because a garbage citation should cost the candidate its citation
+    score, not crash the instrument.
+    """
     source_path = f"{_SOURCES_DIR}/{topic}/{key}.md"
     try:
         return store.exists(source_path)
-    except (PathOutsideVaultError, ValueError):
+    except (PathOutsideVaultError, ValueError, OSError):
         return False

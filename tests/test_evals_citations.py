@@ -126,6 +126,31 @@ def test_no_citation_resolving_to_a_stored_source_scores_zero(template_vault: Pa
     )
 
 
+@pytest.mark.parametrize(
+    "garbage",
+    [
+        pytest.param("an entire essay " * 300, id="filename-too-long"),
+        pytest.param("../../escape/attempt", id="path-escape"),
+        pytest.param("multi\nline\ncitation", id="embedded-newlines"),
+    ],
+)
+def test_a_citation_the_filesystem_cannot_represent_counts_as_unresolved(
+    template_vault: Path, garbage: str
+) -> None:
+    # A model-generated citation can be ANY string -- a whole passage stuffed into
+    # the citations array produces a path the OS rejects (ENAMETOOLONG, observed
+    # live). Such a citation is simply unresolved evidence: the checker stays
+    # total and never lets an OSError crash the instrument mid-run.
+    _plant_sources(template_vault, ["stored2020a"])
+    prediction = _prediction(["stored2020a", garbage])
+
+    score = integrity(_store(template_vault), TOPIC, prediction)
+
+    assert score == pytest.approx(0.5), (
+        f"the garbage citation must count as unresolved (0.5 of two), not raise; got {score!r}"
+    )
+
+
 # ---------------------------------------------------------------------------
 # A mix -> the exact resolved fraction
 # ---------------------------------------------------------------------------
