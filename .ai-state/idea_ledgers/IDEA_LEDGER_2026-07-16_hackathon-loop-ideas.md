@@ -35,8 +35,8 @@ candidates, built as three rungs with a cut line at each boundary:
 `.ai-work/hackathon-loop-ideas/IDEA_PROPOSAL.md`): Self-Healing Wiki (24/25), Prompt Evolution
 Arena (22), Regression Sentinel (21), Golden-Set Grower (20), Loop Cockpit (19), External-Source
 Ingest Loop (19 — strongest sponsor honesty, rejected for two-external-platform schedule risk),
-Cost/Quality Pareto Optimizer (16). The selected synthesis composes #1's brain + #2's corrective
-+ #5's spine.
+Cost/Quality Pareto Optimizer (16). The selected synthesis composes the brain of #1, the corrective
+of #2, and the spine of #5.
 
 ## Build-session pointers (tomorrow)
 
