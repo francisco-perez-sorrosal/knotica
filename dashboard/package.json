@@ -1,0 +1,22 @@
+{
+  "name": "knotica-dashboard",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "build": "tsc --noEmit && vite build && node scripts/package-artifact.mjs",
+    "dev": "vite"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.28.1",
+    "@preact/signals": "^2.0.1",
+    "preact": "^10.27.2",
+    "uplot": "^1.6.31"
+  },
+  "devDependencies": {
+    "@preact/preset-vite": "^2.10.1",
+    "typescript": "^5.9.3",
+    "vite": "^7.1.7",
+    "vite-plugin-singlefile": "^2.3.0"
+  }
+}

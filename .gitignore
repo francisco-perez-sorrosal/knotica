@@ -15,6 +15,9 @@ build/
 .mypy_cache/
 tmp/
 
+# Dashboard author dependencies (the generated single-file artifact is tracked).
+dashboard/node_modules/
+
 # Ephemeral agent pipeline documents (never commit; .ai-state/ IS committed)
 .ai-work/
 

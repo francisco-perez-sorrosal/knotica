@@ -1,0 +1,27 @@
+name: Dashboard
+
+on:
+  pull_request:
+    paths:
+      - "dashboard/**"
+      - "src/knotica/dashboard/app.html"
+  push:
+    paths:
+      - "dashboard/**"
+      - "src/knotica/dashboard/app.html"
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: dashboard/package-lock.json
+      - run: npm ci
+        working-directory: dashboard
+      - run: npm run build
+        working-directory: dashboard
+      - run: git diff --exit-code -- dashboard/dist/index.html src/knotica/dashboard/app.html
