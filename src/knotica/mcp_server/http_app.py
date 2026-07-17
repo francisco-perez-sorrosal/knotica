@@ -50,6 +50,8 @@ def create_http_app(server: FastMCP | None = None) -> Any:
     obtains all dynamic data by calling those MCP tools over ``/mcp``.
     """
     http_server = server if server is not None else build_http_server()
+    # FastMCP's streamable app already owns ``/mcp``. Mount it at ``/`` so that
+    # path is preserved; the Route above claims exact ``GET /`` first.
     app = Starlette(
         routes=[
             Route("/", _dashboard, methods=["GET"]),

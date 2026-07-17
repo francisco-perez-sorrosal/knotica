@@ -21,6 +21,24 @@ export function LoopPane({
     const host = chartHost.current;
     if (!host || records.length === 0) return;
 
+    const generations = records.map((record) => record.generation);
+    const scalars = records.map((record) => record.scalar);
+    const series: uPlot.Options["series"] = [
+      {},
+      { label: "Scalar", stroke: "var(--accent)", width: 2, points: { show: true, size: 6 } },
+    ];
+    const data: uPlot.AlignedData = [generations, scalars];
+    if (baseline !== null) {
+      series.push({
+        label: "Gate baseline",
+        stroke: "var(--warn)",
+        width: 1,
+        dash: [6, 4],
+        points: { show: false, size: 0 },
+      });
+      data.push(records.map(() => baseline));
+    }
+
     const chart = new uPlot(
       {
         width: host.clientWidth,
@@ -34,17 +52,9 @@ export function LoopPane({
             values: (_, values) => values.map((value) => value.toFixed(3)),
           },
         ],
-        series: [
-          {},
-          { label: "Scalar", stroke: "var(--accent)", width: 2, points: { show: true, size: 6 } },
-          { label: "Gate baseline", stroke: "var(--warn)", width: 1, dash: [6, 4], points: { show: false } },
-        ],
+        series,
       },
-      [
-        records.map((record) => record.generation),
-        records.map((record) => record.scalar),
-        records.map(() => baseline),
-      ],
+      data,
       host,
     );
     const resize = new ResizeObserver(() => chart.setSize({ width: host.clientWidth, height: 260 }));

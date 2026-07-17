@@ -28,6 +28,7 @@ output { color: var(--accent); font: 1.5rem var(--mono); }
 .stage strong { display: block; margin-top: .25rem; font-size: .8rem; text-transform: capitalize; }
 .stage small { color: var(--accent); font: .65rem var(--mono); text-transform: uppercase; }
 .dot { display: block; width: .5rem; height: .5rem; border-radius: 50%; background: var(--muted); }
-.stage.current { border-color: var(--accent); color: var(--heading); box-shadow: inset 0 2px 0 var(--accent); }.stage.current .dot { background: var(--accent); }
+.stage.current { border-color: var(--accent); color: var(--heading); box-shadow: inset 0 2px 0 var(--accent); }
+.stage.current .dot { background: var(--accent); }
 aside { max-width: 980px; margin: 1rem auto 0; padding: .75rem 1.25rem; border-left: 4px solid var(--red); background: color-mix(in srgb, var(--red) 12%, var(--bg)); color: var(--heading); }
 @media (max-width: 640px) { .stages { grid-template-columns: repeat(2, 1fr); } .summary { align-items: start; } }
