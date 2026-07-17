@@ -161,10 +161,14 @@ FAILURE_SCORE = 0.0
 # otherwise run up a surprise API bill with no ceiling.
 # --------------------------------------------------------------------------- #
 
-#: Per-run total-token hard-abort ceiling. Generous headroom for a ~20-30 example
-#: golden set at N judge samples, sized to catch a runaway loop rather than a normal
-#: run. Enforced by the harness; a non-positive override is rejected by validation.
-MAX_TOTAL_TOKENS_PER_RUN = 2_000_000
+#: Per-run total-token hard-abort ceiling. Sized to fit a legitimate reference-topic
+#: run with headroom, not to trip a normal one: the first full live eval -- 25 golden
+#: questions over a real topic with large pages -- measured ~2.14M tokens cold, so the
+#: former 2M default aborted a legitimate reference-topic run. Raised to 5M so such a
+#: run fits comfortably while a genuine runaway loop still trips it; the USD ceiling
+#: (:data:`MAX_USD_PER_RUN`) remains the tighter, mode-independent guard. Enforced by
+#: the harness; a non-positive override is rejected by validation.
+MAX_TOTAL_TOKENS_PER_RUN = 5_000_000
 
 #: Per-run USD hard-abort ceiling. Same intent as :data:`MAX_TOTAL_TOKENS_PER_RUN`
 #: on the cost axis -- a normal run stays well under it; a runaway trips it and

@@ -190,6 +190,17 @@ def test_the_spend_ceilings_default_to_positive_values() -> None:
     assert MAX_USD_PER_RUN > 0, "the per-run USD ceiling must be a positive bound"
 
 
+def test_the_default_token_ceiling_fits_a_real_reference_topic_run() -> None:
+    # The first full live eval (25 golden questions over a real topic with large
+    # pages) measured ~2.14M tokens cold, so the former 2M default aborted a
+    # legitimate run. Pin the recalibrated 5M default so a real reference-topic run
+    # fits with headroom while a genuine runaway still trips it.
+    assert MAX_TOTAL_TOKENS_PER_RUN == 5_000_000, (
+        "the default token ceiling must fit a real reference-topic run (~2.14M cold "
+        "measured) with headroom -- pinned at 5M"
+    )
+
+
 def test_a_nonpositive_token_ceiling_is_rejected() -> None:
     with pytest.raises((ValueError, KnoticaError)):
         HarnessConfig(max_total_tokens=0)
