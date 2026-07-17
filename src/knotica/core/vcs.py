@@ -217,6 +217,108 @@ class VaultVcs:
         if created_since_ref:
             self._remove_created_paths(created_since_ref)
 
+    # ------------------------------------------------------------------
+    # Branch lifecycle (loop runner). Not part of the path-scoped write
+    # surface — adapters must still never call these; the loop orchestrator
+    # and tests are the intended callers.
+    # ------------------------------------------------------------------
+
+    def list_branch_tips(self, prefix: str = "loop/") -> list[tuple[str, str]]:
+        """Return ``(branch_name, tip_sha)`` for local heads under ``prefix``.
+
+        Read-only. Empty when no matching branches exist. ``prefix`` may be empty
+        to list every local head (``refs/heads/*``).
+        """
+        pattern = f"refs/heads/{prefix}*" if prefix else "refs/heads/*"
+        result = self._run(
+            ["for-each-ref", "--format=%(refname:short)\t%(objectname)", pattern],
+            check=False,
+            optional_locks=False,
+        )
+        if result.returncode != 0 or not result.stdout.strip():
+            return []
+        tips: list[tuple[str, str]] = []
+        for line in result.stdout.splitlines():
+            name, _, sha = line.partition("\t")
+            if name and sha:
+                tips.append((name.strip(), sha.strip()))
+        return tips
+
+    def branch_exists(self, name: str) -> bool:
+        """Return whether local branch ``name`` exists."""
+        result = self._run(
+            ["show-ref", "--verify", "--quiet", f"refs/heads/{name}"],
+            check=False,
+            optional_locks=False,
+        )
+        return result.returncode == 0
+
+    def default_branch(self) -> str:
+        """Best-effort default branch name (``main`` / ``master`` / current)."""
+        symbolic = self._run(
+            ["symbolic-ref", "--short", "refs/remotes/origin/HEAD"],
+            check=False,
+            optional_locks=False,
+        )
+        if symbolic.returncode == 0:
+            remote_head = symbolic.stdout.strip()  # e.g. origin/main
+            if "/" in remote_head:
+                return remote_head.split("/", 1)[1]
+        for candidate in ("main", "master"):
+            probe = self._run(
+                ["show-ref", "--verify", "--quiet", f"refs/heads/{candidate}"],
+                check=False,
+                optional_locks=False,
+            )
+            if probe.returncode == 0:
+                return candidate
+        current = self.current_branch()
+        if current is not None:
+            return current
+        raise GitError("could not determine the vault's default branch")
+
+    def create_branch(self, name: str, start_ref: str = "HEAD") -> None:
+        """Create local branch ``name`` at ``start_ref`` (does not switch)."""
+        self._run(["branch", name, start_ref], retry_index_lock=True)
+
+    def checkout_branch(self, name: str) -> None:
+        """Switch the work tree to local branch ``name``."""
+        self._run(["checkout", name], retry_index_lock=True)
+
+    def delete_branch(self, name: str, *, force: bool = True) -> None:
+        """Delete local branch ``name`` (force by default — discard a failed candidate)."""
+        flag = "-D" if force else "-d"
+        self._run(["branch", flag, name], retry_index_lock=True)
+
+    def fetch_ref_from(self, other_root: str | Path, source_ref: str, dest_ref: str) -> None:
+        """Fetch ``source_ref`` from another local repo into ``dest_ref`` here.
+
+        Used to pull an eval clone's tip back onto the source as a result branch
+        without a network remote.
+        """
+        self._run(
+            ["fetch", str(Path(other_root)), f"{source_ref}:{dest_ref}"],
+            retry_index_lock=True,
+        )
+
+    def merge_branch(self, branch: str, *, ff_only: bool = False) -> str:
+        """Merge ``branch`` into ``HEAD``; return the new tip SHA.
+
+        ``ff_only=True`` refuses non-fast-forward merges. The loop runner uses
+        a regular merge by default because mid-cycle ``loop-state.json`` commits
+        on the default branch can diverge from a candidate that branched earlier.
+        """
+        args = ["merge", "--no-edit"]
+        if ff_only:
+            args.append("--ff-only")
+        args.append(branch)
+        self._run(args, retry_index_lock=True)
+        return self.head_sha()
+
+    def push(self, remote: str, refspec: str) -> None:
+        """Push ``refspec`` to ``remote`` (e.g. ``main`` or ``loop/result/abc``)."""
+        self._run(["push", remote, refspec], retry_index_lock=True)
+
     def _remove_created_paths(self, paths: list[str]) -> None:
         """Unstage and delete paths that did not exist at the rollback ref."""
         self._run(
