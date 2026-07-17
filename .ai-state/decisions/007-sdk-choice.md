@@ -1,7 +1,7 @@
 ---
-id: dec-draft-6ea4e4f3
+id: dec-007
 title: MCP SDK — official mcp 1.28.1 over jlowin fastmcp 3.4.2
-status: proposed
+status: accepted
 category: architectural
 date: 2026-07-03
 summary: Use the official mcp SDK (mcp.server.fastmcp.FastMCP) rather than jlowin fastmcp v3; dep-weight shrinks the cold uvx start and canonicity de-risks Phase-4 HTTP+OAuth.
@@ -13,7 +13,7 @@ pipeline_tier: standard
 affected_files: [src/knotica/mcp/, pyproject.toml]
 affected_reqs: [REQ-PLUGIN-01, REQ-PROMPT-01]
 dissent: A protocol-heavy Phase 4 (auth providers, CIMD) plus a large MCP-integration test surface would have favored jlowin fastmcp's batteries and in-memory Client(server) transport.
-re_affirmed_by: [dec-draft-9039d858, dec-draft-8591febf, dec-draft-c2ad09bc]
+re_affirmed_by: [dec-008, dec-014, dec-013]
 ---
 
 ## Context

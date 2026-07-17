@@ -1,7 +1,7 @@
 ---
-id: dec-draft-11700457
+id: dec-003
 title: Tool decomposition — thin deterministic tools with a write_page fat-write exception
-status: proposed
+status: accepted
 category: architectural
 date: 2026-07-03
 summary: Expose ~10 thin deterministic tools (no progressive disclosure), consolidate list_links/backlinks into one direction-parameterized tool, and make write_page a single transactional fat-write (scrub+write+commit+log+optional root-index upsert); reserved bookkeeping files (index.md/log.md/SCHEMA.md) are never direct write targets.

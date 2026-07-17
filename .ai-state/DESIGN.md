@@ -53,7 +53,7 @@ Rendered diagram pending: `docs/diagrams/architecture/rendered/components.svg`.
 | `src/knotica/search/` | `SearchBackend` protocol + `RipgrepBackend` — read-only full-text search | store paths | Built |
 | `src/knotica/core/` | Vault semantics: `config`, `schema` (root+overlay), `page`/`links`, `lint`, `vcs` (subprocess git), `lock` (fcntl.flock), `scrub`, `records`, `template` (read-only packaged-template locator, shared by `cli.init` + `operations.migrate`), **`transaction.VaultTransaction`**, `operations.*` (four ops config-agnostic: `(store, vault_root, *semantic_args)` — no `core.config` import) | store, search | Built |
 | `src/knotica/cli/` | `knotica` entry point: `init`, `mcp`, `doctor`, `status`, `migrate`, `prompt`, `guillotine`, `okf`, `eval` — thin, self-registering registry; mutations delegate to `core.operations`; never writes the vault directly. `eval` (Phase 2) resolves config and delegates to `evals.harness.run_eval` / `evals.golden.bootstrap` — it never mutates the vault itself | core | Built |
-| `src/knotica/mcp_server/` | `FastMCP` server: tools, resources (schemas + index), prompts (static name / lazy body) — thin; stateless. *Named `mcp_server` (not `mcp`) to avoid shadowing the `mcp` SDK; per-concern modules `server`/`envelope`/`tools_read`/`tools_write`/`resources`/`prompts` (dec-draft-8d8c18a1)* | core | Built |
+| `src/knotica/mcp_server/` | `FastMCP` server: tools, resources (schemas + index), prompts (static name / lazy body) — thin; stateless. *Named `mcp_server` (not `mcp`) to avoid shadowing the `mcp` SDK; per-concern modules `server`/`envelope`/`tools_read`/`tools_write`/`resources`/`prompts` (dec-009)* | core | Built |
 | `src/knotica/programs/` | DSPy modules (`query` first) — Phase 3a | core | Planned |
 | `src/knotica/agent/` | Headless runners — Phase 3a+ | core | Planned |
 | `src/knotica/evals/` | **Frozen-corpus evaluator (Phase 2):** hand-rolled `score(gold, pred, trace=None)` metric seam **run by `dspy.Evaluate`** over the golden devset (user override 2026-07-15; runner only — no optimizers/`dspy.LM`), via a `BaselineProgram(dspy.Module)` wrapping `BaselineRunner` (direct Messages API driving the clone's `query.md`). LLM-as-judge (pinned Opus, N-median, cached), deterministic citation integrity, hinged budget-relative cost-penalty scalar, golden-set bootstrap/freeze. Writes `metrics.jsonl` via `core.transaction` **on a clone** (never the live vault). `anthropic` + `dspy` isolated in the `evals` dep group (off the MCP launch path); LLM auth via env-only `ANTHROPIC_API_KEY`. *As-built modules: `llm` (LLMClient DI seam), `runner` (baseline query runner), `citations`+`scalar` (deterministic scoring), `cache`+`judge` (cached N-median LLM-as-judge), `scorer` (the `score` seam), `program` (BaselineProgram), `golden` (devset load/verify + bootstrap/freeze), `config` (packaged defaults + `harness_version` fingerprint), `harness` (`run_eval`); `cli/eval.py` is the `knotica eval` entry.* | core, `core.vcs.clone_to`, `evals` dep group (`anthropic`, `dspy`) | Built |
@@ -117,7 +117,7 @@ drives the clone's query.md + in-process search/read_page → judge (Opus, N-med
 citation integrity → hinged budget-relative scalar → MetricsRecord → VaultTransaction(clone, "eval") one
 commit + log.md → source vault untouched, eval branch returned`. Runs on a knotica-owned
 `ANTHROPIC_API_KEY` (env-only; never on the server launch path) — a new trust boundary distinct from
-client-as-brain (`dec-draft-8591febf`).
+client-as-brain (`dec-014`).
 
 **Unconfigured boot:** server registers tools/prompts/resources with zero vault access; first call resolves
 config and returns `unconfigured` until `init`/`setup` writes `config.toml` (picked up per call, no restart).
@@ -131,7 +131,7 @@ Dev group: `pytest`, `ruff`. **Eval group** (Phase 2, PEP 735 `[dependency-group
 `dspy>=3.2`** (`dspy.Evaluate` as the per-example runner — user override 2026-07-15; 3.2.1 verified PyPI, requires-python
 `<3.15`) — both declared **only** in the dependency-group so the built wheel never ships them and
 `uvx --from … knotica mcp` never resolves them (so even dspy's heavy tree, incl. litellm, never touches the launch
-path), protecting the 24.4 s cold start (`dec-draft-c2ad09bc`). Phase-3a adds DSPy optimizers to the same group.
+path), protecting the 24.4 s cold start (`dec-013`). Phase-3a adds DSPy optimizers to the same group.
 Build backend: `hatchling` (src layout; repo-root `vault-template/`
 force-included into the wheel as `knotica/vault-template` for `knotica init`; editable/dev installs
 fall back to the repo-root copy). `git` and `uv`/`uvx` are user-machine prerequisites, not project
@@ -158,32 +158,32 @@ Locked invariants (from `CLAUDE.md` / `docs/PRE_PLAN.md` — do not violate with
 
 Draft ADRs (`.ai-state/decisions/drafts/`, finalized to `dec-NNN` at merge):
 
-- **dec-draft-6ea4e4f3** — MCP SDK: official `mcp` 1.28.1 over jlowin `fastmcp` v3 (cold-start dep-weight;
+- **dec-007** — MCP SDK: official `mcp` 1.28.1 over jlowin `fastmcp` v3 (cold-start dep-weight;
   canonicity; swap confined to `mcp/`).
-- **dec-draft-9039d858** — Module boundaries + single vault-mutation path (`VaultTransaction`; one writer;
+- **dec-008** — Module boundaries + single vault-mutation path (`VaultTransaction`; one writer;
   import-boundary fitness test).
-- **dec-draft-6ab0db31** — Config schema + unconfigured contract (per-call resolution; three-state machine).
-- **dec-draft-e5cf9cf1** — Freeze record schemas at Phase 0 (qa/metrics/log/commit/provenance; per-record
+- **dec-004** — Config schema + unconfigured contract (per-call resolution; three-state machine).
+- **dec-006** — Freeze record schemas at Phase 0 (qa/metrics/log/commit/provenance; per-record
   `schema_version`; documented in root `SCHEMA.md`).
-- **dec-draft-75ee2605** — uvx cold-start pre-warm (setup foreground + background-idempotent SessionStart
+- **dec-005** — uvx cold-start pre-warm (setup foreground + background-idempotent SessionStart
   hook; never `alwaysLoad`).
 
 Phase 2 — eval harness (this pipeline, `eval-harness`):
 
-- **dec-draft-6fd2cfdf** — Hand-rolled `score()` metric core, **run by `dspy.Evaluate` as the per-example
+- **dec-012** — Hand-rolled `score()` metric core, **run by `dspy.Evaluate` as the per-example
   runner now** (user override 2026-07-15; runner only — no optimizers/`dspy.LM`); trace-branch float/bool.
-- **dec-draft-8591febf** — Eval LLM access: direct Messages API behind `BaselineRunner` + pinned Opus judge;
+- **dec-014** — Eval LLM access: direct Messages API behind `BaselineRunner` + pinned Opus judge;
   knotica-owned `ANTHROPIC_API_KEY` (env-only) = a new trust boundary distinct from client-as-brain.
-- **dec-draft-229044ae** — Scalar = hinged, budget-relative, multiplicative `Q·(1−λ·hinge)`; citation
+- **dec-016** — Scalar = hinged, budget-relative, multiplicative `Q·(1−λ·hinge)`; citation
   validity deterministic-only (faithfulness deferred). Re-affirms record shape, revises additive formula clause.
-- **dec-draft-d9e00da0** — Golden set: synthetic-from-pages + human review-freeze; held-out split from day
+- **dec-018** — Golden set: synthetic-from-pages + human review-freeze; held-out split from day
   one (`golden.jsonl` disjoint from `qa.jsonl`); `source: curate_example` (no enum change).
-- **dec-draft-a6f575c0** — `metrics.jsonl` via `VaultTransaction` on the clone (`eval` op + log);
+- **dec-015** — `metrics.jsonl` via `VaultTransaction` on the clone (`eval` op + log);
   reproducibility via `artifact_ref`→per-run manifest + `harness_version` fingerprint (no schema bump);
   fitness test extended to `evals/`.
-- **dec-draft-c2ad09bc** — Eval deps in a PEP 735 `[dependency-groups] evals` (not an optional-extra) to
+- **dec-013** — Eval deps in a PEP 735 `[dependency-groups] evals` (not an optional-extra) to
   guard the uvx cold start.
-- **dec-draft-ee0f5832** — Frozen-corpus mechanism: `VaultVcs.clone_to` + SHA-pin + MANIFEST + determinism kit.
-- **dec-draft-75eb597e** — Eval-harness module landing order: corrects the plan's Group B/C/D hints to the
+- **dec-017** — Frozen-corpus mechanism: `VaultVcs.clone_to` + SHA-pin + MANIFEST + determinism kit.
+- **dec-019** — Eval-harness module landing order: corrects the plan's Group B/C/D hints to the
   import-dependency graph (`cache` before `judge`, `scorer` after `judge`, `golden` split into read-side
   then bootstrap/freeze) so every module imports only already-landed siblings (no interface change).

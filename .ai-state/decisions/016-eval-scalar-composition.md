@@ -1,7 +1,7 @@
 ---
-id: dec-draft-229044ae
+id: dec-016
 title: Eval scalar — hinged budget-relative multiplicative cost penalty; citation validity deterministic-only
-status: proposed
+status: accepted
 category: architectural
 date: 2026-07-15
 summary: Compose the per-topic eval scalar as quality · (1 − λ·max(0,(T−T_target)/T_target)), a hinged, budget-relative, multiplicative cost discount over a dimensionless [0,1] quality composite (QA accuracy + citation validity + lint cleanliness). Citation validity is deterministic integrity only for v1; judge-based faithfulness is deferred. Revises the illustrative additive formula noted in the record-schema-freeze ADR without changing the frozen record shape.
@@ -12,13 +12,13 @@ branch: worktree-pipeline-eval-harness
 pipeline_tier: standard
 affected_files: [src/knotica/evals/scalar.py, src/knotica/evals/scorer.py, src/knotica/evals/citations.py]
 affected_reqs: [REQ-SCALAR-01, REQ-SCALAR-02, REQ-SCALAR-04]
-dissent: Additive quality − λ·cost is simpler to read and is the shape the PRE_PLAN §Model policy and dec-draft-e5cf9cf1 sketched; it is defensible if every term is carefully unit-matched, but it is the formulation most prone to the cost penalty swamping the quality signal when token scale and quality are not commensurable.
-re_affirms: dec-draft-e5cf9cf1
+dissent: Additive quality − λ·cost is simpler to read and is the shape the PRE_PLAN §Model policy and dec-006 sketched; it is defensible if every term is carefully unit-matched, but it is the formulation most prone to the cost penalty swamping the quality signal when token scale and quality are not commensurable.
+re_affirms: dec-006
 ---
 
 ## Context
 
-The success criterion is "a stable scalar on the frozen corpus," and the scalar will later be *optimized against* (DSPy) and *gated on* (SIA keep/discard). PRE_PLAN §Model policy describes the scalar as "QA accuracy + citation validity + lint violations − token-cost penalty," and `dec-draft-e5cf9cf1` (record-schema-freeze) restated an illustrative additive form `scalar = qa_accuracy + citation_validity − lint_violation_penalty − token_cost_penalty`. The research (Q6) surveyed cost-penalty precedents (Lagrangian `R−λC`; CATP-LLM compute-adjusted fitness; overthinking penalties) and found additive absolute penalties can swamp quality when `C` and `R` are not commensurable. The `MetricsRecord` shape is **frozen** (`components{qa_accuracy, citation_validity, lint_violations, token_cost}`) — but *how the scalar is computed from those components* is not part of the frozen field contract. Separately, citation validity splits into cheap deterministic integrity (a `CITATION_UNRESOLVED` lint check already exists, `dec-draft-c4e9a1b7`) and subjective judge-based faithfulness.
+The success criterion is "a stable scalar on the frozen corpus," and the scalar will later be *optimized against* (DSPy) and *gated on* (SIA keep/discard). PRE_PLAN §Model policy describes the scalar as "QA accuracy + citation validity + lint violations − token-cost penalty," and `dec-006` (record-schema-freeze) restated an illustrative additive form `scalar = qa_accuracy + citation_validity − lint_violation_penalty − token_cost_penalty`. The research (Q6) surveyed cost-penalty precedents (Lagrangian `R−λC`; CATP-LLM compute-adjusted fitness; overthinking penalties) and found additive absolute penalties can swamp quality when `C` and `R` are not commensurable. The `MetricsRecord` shape is **frozen** (`components{qa_accuracy, citation_validity, lint_violations, token_cost}`) — but *how the scalar is computed from those components* is not part of the frozen field contract. Separately, citation validity splits into cheap deterministic integrity (a `CITATION_UNRESOLVED` lint check already exists, `dec-011`) and subjective judge-based faithfulness.
 
 ## Decision
 
@@ -66,4 +66,4 @@ Three properties defeat swamping: **hinge** (`max(0,…)` — no penalty at/unde
 
 ## Prior Decision
 
-Re-affirms `dec-draft-e5cf9cf1` for the **record shape**: `MetricsRecord` / `MetricsComponents` fields are unchanged and remain frozen. This ADR revises only the *illustrative scalar formula* that e5cf9cf1 restated from PRE_PLAN §Model policy — that formula was a description of components, not part of the frozen field contract. The authoritative scalar composition is defined here; e5cf9cf1's freeze of the record fields stands.
+Re-affirms `dec-006` for the **record shape**: `MetricsRecord` / `MetricsComponents` fields are unchanged and remain frozen. This ADR revises only the *illustrative scalar formula* that e5cf9cf1 restated from PRE_PLAN §Model policy — that formula was a description of components, not part of the frozen field contract. The authoritative scalar composition is defined here; e5cf9cf1's freeze of the record fields stands.

@@ -1,7 +1,7 @@
 ---
-id: dec-draft-c4e9a1b7
+id: dec-011
 title: Deterministic source-citation integrity as a lint/doctor check
-status: proposed
+status: accepted
 category: behavioral
 date: 2026-07-04
 summary: A page may cite only sources the vault actually stores; lint flags any citation (declared or inline) that resolves to no stored source, so claims cannot silently outrun their evidence.

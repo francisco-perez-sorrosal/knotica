@@ -1,7 +1,7 @@
 ---
-id: dec-draft-9039d858
+id: dec-008
 title: Module boundaries and a single vault-mutation path
-status: proposed
+status: accepted
 category: architectural
 date: 2026-07-03
 summary: Hexagonal core with one VaultTransaction context manager; all mutating ops (MCP tools, CLI, future loops) route through core.operations; store/search are protocols; mcp/cli adapters never write the vault directly.
@@ -13,7 +13,7 @@ pipeline_tier: standard
 affected_files: [src/knotica/core/, src/knotica/store/, src/knotica/search/, src/knotica/mcp/, src/knotica/cli/]
 affected_reqs: [REQ-MUT-01, REQ-MUT-02, REQ-MUT-03, REQ-MUT-04, REQ-MUT-05, REQ-TOOL-02]
 dissent: A mutation-service object injected into adapters (rather than a core context manager the adapters call by function) would give richer lifecycle hooks for the Phase-3 loops, at the cost of a wider, more mockable seam.
-re_affirms: dec-draft-6ea4e4f3
+re_affirms: dec-007
 ---
 
 ## Context

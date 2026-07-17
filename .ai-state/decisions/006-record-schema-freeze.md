@@ -1,7 +1,7 @@
 ---
-id: dec-draft-e5cf9cf1
+id: dec-006
 title: Freeze machine-record schemas at Phase 0
-status: proposed
+status: accepted
 category: architectural
 date: 2026-07-03
 summary: Freeze qa.jsonl, metrics.jsonl, log-entry, commit-message, and source-provenance record shapes now (each with schema_version), documented in root SCHEMA.md, so Phase 2/3 consumers need no template migration.
@@ -13,7 +13,7 @@ pipeline_tier: standard
 affected_files: [vault-template/SCHEMA.md, vault-template/agentic-systems/.knotica/datasets/qa.jsonl, src/knotica/core/records.py]
 affected_reqs: [REQ-REC-01, REQ-REC-02, REQ-REC-03, REQ-TOOL-04]
 dissent: Deferring metrics.jsonl and qa.jsonl shapes until their Phase-2/3 consumers exist would let the schemas be designed against real usage, at the cost of a template migration and a rewrite of already-curated examples.
-re_affirmed_by: [dec-draft-229044ae, dec-draft-a6f575c0, dec-draft-d9e00da0]
+re_affirmed_by: [dec-016, dec-015, dec-018]
 ---
 
 ## Context

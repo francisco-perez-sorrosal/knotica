@@ -1,7 +1,7 @@
 ---
-id: dec-draft-189be0f4
+id: dec-002
 title: Search pagination — opaque cursor envelope over offset implementation
-status: proposed
+status: accepted
 category: architectural
 date: 2026-07-03
 summary: search exposes an opaque next_cursor/has_more/total_count envelope (offset-encoded at MVP) rather than raw offset/limit, so the contract survives the Phase-5 vector-backend swap unchanged.

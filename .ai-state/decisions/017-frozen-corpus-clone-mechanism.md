@@ -1,7 +1,7 @@
 ---
-id: dec-draft-ee0f5832
+id: dec-017
 title: Frozen-corpus mechanism — VaultVcs.clone_to plus a determinism kit
-status: proposed
+status: accepted
 category: architectural
 date: 2026-07-15
 summary: Add a clone_to(dest, ref=None) -> VaultVcs method to core/vcs.py so the eval harness runs against a fresh git clone pinned at a SHA (corpus_ref = git:<sha>), never the live vault. Keep all git surface in one module; the clone root is the same shape as the live vault so existing store/search/transaction primitives work unchanged. Pin SHA + MANIFEST + temperature 0 + seeded RNG for a reproducible harness.
@@ -23,7 +23,7 @@ The "immutable harness" half of the autoresearch triad literally has no infrastr
 
 Add `VaultVcs.clone_to(dest_root: Path, ref: str | None = None) -> VaultVcs` to `core/vcs.py` (all git subprocess stays in one module). It performs `git clone <source> <dest>` and, if `ref` is given, checks it out; it returns a `VaultVcs` bound to the clone. Because `VaultVcs`'s constructor already accepts an arbitrary git-work-tree root, the clone root is the *same shape* as the live vault — `LocalFSStore(clone)`, `RipgrepBackend(clone)`, and `VaultTransaction(clone_store, clone, "eval", …)` all work unchanged against it. The eval flow: config-resolve the **source** vault → `clone_to(tmp)` at HEAD (or `--ref`) → set `corpus_ref = "git:" + clone.head_sha()` → run the evaluator against the clone → append metrics via `VaultTransaction` (one `eval` commit on the clone) → leave the source byte-identical.
 
-`clone_to` is a **read/checkout** method, deliberately **not** added to `MUTATING_VCS_METHODS` (it does not mutate the live vault — it creates a fresh tree elsewhere), so `evals/` may call it under the extended fitness test (`dec-draft-a6f575c0`).
+`clone_to` is a **read/checkout** method, deliberately **not** added to `MUTATING_VCS_METHODS` (it does not mutate the live vault — it creates a fresh tree elsewhere), so `evals/` may call it under the extended fitness test (`dec-015`).
 
 **Determinism kit** for the "stable scalar on a frozen corpus" success criterion: pin the SHA (corpus_ref), seed all RNG, `temperature=0` on every model call, and record `deterministic: true` plus the golden-set `MANIFEST` (`sha256`, `version`, `source`, `split`) in the per-run manifest so a run is fully reconstructable from `{corpus_ref, dataset_sha, harness_version}`.
 

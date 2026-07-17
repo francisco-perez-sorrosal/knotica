@@ -1,7 +1,7 @@
 ---
-id: dec-draft-6ab0db31
+id: dec-004
 title: Config schema and the unconfigured-state contract
-status: proposed
+status: accepted
 category: architectural
 date: 2026-07-03
 summary: config.toml (schema_version + default_vault + named vaults) resolved per tool call; a three-state machine (UNCONFIGURED/CONFIGURED_NO_VAULT/READY) collapsing to one user-facing unconfigured result with specific remediation.

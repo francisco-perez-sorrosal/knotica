@@ -1,7 +1,7 @@
 ---
-id: dec-draft-6fd2cfdf
+id: dec-012
 title: Hand-rolled metric core, run by dspy.Evaluate (user override)
-status: proposed
+status: accepted
 category: architectural
 date: 2026-07-15
 summary: The eval metric core stays a single hand-rolled pure callable score(gold, pred, trace=None) -> float|bool (the DSPy metric contract). Per a 2026-07-15 user override at the architecture checkpoint, dspy.Evaluate is adopted NOW as the per-example runner over that metric (not deferred to Phase 3a) — runner only, no optimizers/compilation and no dspy.LM/litellm; LLMClient, judge, and BaselineRunner are unchanged.
@@ -28,13 +28,13 @@ Phase 2's evaluator must serve three consumers over its lifetime (the "triple-co
 
 ## User Override (2026-07-15)
 
-The systems-architect drafted this ADR originally recommending a hand-rolled devset for-loop with `dspy.Evaluate` deferred to Phase 3a (to keep Phase 2 dspy-free). At the architecture checkpoint the **user overrode the build-vs-adopt sub-decision**: adopt `dspy.Evaluate` as the runner **now**, with `dspy` added to the `evals` dependency group (`dec-draft-c2ad09bc`). The metric core stays hand-rolled; only the loop mechanism and the timing of the dspy dependency changed. `made_by` is set to `user` to record the decision authority. The health-guard spirit is preserved: no DSPy program/optimizer is written, and the artifact under test is unchanged — only the "no dspy dependency in Phase 2" clause is lifted.
+The systems-architect drafted this ADR originally recommending a hand-rolled devset for-loop with `dspy.Evaluate` deferred to Phase 3a (to keep Phase 2 dspy-free). At the architecture checkpoint the **user overrode the build-vs-adopt sub-decision**: adopt `dspy.Evaluate` as the runner **now**, with `dspy` added to the `evals` dependency group (`dec-013`). The metric core stays hand-rolled; only the loop mechanism and the timing of the dspy dependency changed. `made_by` is set to `user` to record the decision authority. The health-guard spirit is preserved: no DSPy program/optimizer is written, and the artifact under test is unchanged — only the "no dspy dependency in Phase 2" clause is lifted.
 
 ## Considered Options
 
 ### Option A — hand-rolled metric core + `dspy.Evaluate` as the runner now (chosen, user override)
 - **Pros:** the DSPy metric leg is *exercised* now (not just shape-compatible) and the Phase-3a optimizer reuses the exact runner + metric; parallel devset eval + result collection for free; the metric core is still hand-rolled (no control inversion of the objective function — dspy calls our `score`); Phase-3a swap is a drop-in behind the `program` seam.
-- **Cons:** pulls `dspy` (large transitive tree incl. litellm) into the `evals` group now — mitigated because the group is off the built wheel (cold start untouched, `dec-draft-c2ad09bc`); binds Phase 2 to the dspy 3.x `Evaluate` API surface.
+- **Cons:** pulls `dspy` (large transitive tree incl. litellm) into the `evals` group now — mitigated because the group is off the built wheel (cold start untouched, `dec-013`); binds Phase 2 to the dspy 3.x `Evaluate` API surface.
 
 ### Option B — hand-rolled metric core + hand-rolled devset for-loop; defer dspy to Phase 3a (original architect recommendation)
 - **Pros:** Phase 2 dspy-free (no large tree, no API-drift exposure); the for-loop is ~5 lines.

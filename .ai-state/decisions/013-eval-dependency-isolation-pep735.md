@@ -1,7 +1,7 @@
 ---
-id: dec-draft-c2ad09bc
+id: dec-013
 title: Eval dependency isolation via PEP 735 dependency-group, not an optional-extra
-status: proposed
+status: accepted
 category: architectural
 date: 2026-07-15
 summary: Place anthropic and dspy (dspy adopted now per the 2026-07-15 user override) in a PEP 735 [dependency-groups] evals rather than [project.optional-dependencies], so the built wheel that uvx --from resolves for the MCP server never declares the eval deps, giving strictly stronger cold-start isolation and matching the existing dev-group precedent.
@@ -13,12 +13,12 @@ pipeline_tier: standard
 affected_files: [pyproject.toml]
 affected_reqs: [REQ-DEP-01]
 dissent: An optional-extra (pip install knotica[evals]) would make the eval tooling installable by an end user via standard packaging, which a dependency-group cannot; if end-user-run eval is ever in scope, the group choice has to be revisited or supplemented.
-re_affirms: dec-draft-6ea4e4f3
+re_affirms: dec-007
 ---
 
 ## Context
 
-The MVP's single measured operational risk is the cold `uvx --from ${CLAUDE_PLUGIN_ROOT} knotica mcp` env resolution (24.4 s with fastmcp-class deps; the whole `dec-draft-6ea4e4f3` SDK choice was made to shrink it). Phase 2 adds `anthropic` **and `dspy`** (dspy adopted now per the 2026-07-15 user override, `dec-draft-6fd2cfdf`; `dspy` pulls a large transitive tree incl. litellm) — deps that must **not** touch that launch path. The codebase sets no precedent for optional-extras: `pyproject.toml` has `[dependency-groups] dev` (PEP 735) and no `[project.optional-dependencies]` section at all. Two mechanisms are available under the `hatchling` backend: `[project.optional-dependencies] evals` (end-user-installable via `pip install knotica[evals]`; excluded from the base `uvx --from` resolution) or `[dependency-groups] evals` (PEP 735; dev-tooling-only, never shipped in the built distribution). The decision hinges on "who runs `knotica eval`?"
+The MVP's single measured operational risk is the cold `uvx --from ${CLAUDE_PLUGIN_ROOT} knotica mcp` env resolution (24.4 s with fastmcp-class deps; the whole `dec-007` SDK choice was made to shrink it). Phase 2 adds `anthropic` **and `dspy`** (dspy adopted now per the 2026-07-15 user override, `dec-012`; `dspy` pulls a large transitive tree incl. litellm) — deps that must **not** touch that launch path. The codebase sets no precedent for optional-extras: `pyproject.toml` has `[dependency-groups] dev` (PEP 735) and no `[project.optional-dependencies]` section at all. Two mechanisms are available under the `hatchling` backend: `[project.optional-dependencies] evals` (end-user-installable via `pip install knotica[evals]`; excluded from the base `uvx --from` resolution) or `[dependency-groups] evals` (PEP 735; dev-tooling-only, never shipped in the built distribution). The decision hinges on "who runs `knotica eval`?"
 
 ## Decision
 
@@ -47,4 +47,4 @@ Use **PEP 735 `[dependency-groups] evals = ["anthropic>=0.116", "dspy>=3.2"]`**,
 
 ## Prior Decision
 
-Re-affirms `dec-draft-6ea4e4f3`: that decision minimized the *server* dependency env to shrink the cold start; this decision keeps the new eval deps out of the server env **entirely**, extending the same cold-start-protection rationale to the Phase-2 addition rather than eroding it.
+Re-affirms `dec-007`: that decision minimized the *server* dependency env to shrink the cold start; this decision keeps the new eval deps out of the server env **entirely**, extending the same cold-start-protection rationale to the Phase-2 addition rather than eroding it.

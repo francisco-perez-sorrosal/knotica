@@ -1,7 +1,7 @@
 ---
-id: dec-draft-75eb597e
+id: dec-019
 title: Eval harness module landing order corrects SYSTEMS_PLAN Group B/C/D hints to match the import dependency graph
-status: proposed
+status: accepted
 category: implementation
 date: 2026-07-16
 summary: Step decomposition reorders scorer.py/cache.py/judge.py and splits golden.py into two landing steps so every module's import-time dependencies already exist when it lands.

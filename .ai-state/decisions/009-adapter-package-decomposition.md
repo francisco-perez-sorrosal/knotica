@@ -1,7 +1,7 @@
 ---
-id: dec-draft-8d8c18a1
+id: dec-009
 title: Adapter/operations package decomposition and `mcp_server` module naming
-status: proposed
+status: accepted
 category: implementation
 date: 2026-07-03
 summary: MCP adapter lives at src/knotica/mcp_server/ (avoids shadowing the `mcp` SDK) with per-concern registration modules; core.operations and cli are packages with one module per op/command.
@@ -20,7 +20,7 @@ affected_files:
 
 ## Context
 
-The architecture (dec-draft-9039d858, D2) draws the module boundary — hexagonal core, thin `mcp`/`cli`
+The architecture (dec-008, D2) draws the module boundary — hexagonal core, thin `mcp`/`cli`
 adapters — but leaves intra-adapter layout to the planner. Two concrete issues surfaced at step
 decomposition: (1) `SYSTEMS_PLAN.md`/`DESIGN.md` name the adapter `src/knotica/mcp/`, which shadows the
 official `mcp` SDK package name inside the project tree — harmless to Python 3 absolute imports but a

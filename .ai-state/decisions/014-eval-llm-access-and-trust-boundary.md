@@ -1,7 +1,7 @@
 ---
-id: dec-draft-8591febf
+id: dec-014
 title: Eval LLM access — direct Messages API, pinned judge, and a new knotica-owned trust boundary
-status: proposed
+status: accepted
 category: architectural
 date: 2026-07-15
 summary: The eval harness reaches Anthropic via the direct Messages API behind a BaselineRunner interface (baseline answerer) and a pinned Opus-class judge; it authenticates from the environment only, OAuth-first per a 2026-07-16 user override — CLAUDE_CODE_OAUTH_TOKEN (subscription, no metered spend) preferred, noisy fallback to the metered ANTHROPIC_API_KEY only when the OAuth token is absent. This is the first knotica-owned LLM access — a new trust boundary distinct from client-as-brain, confined to the headless eval CLI and never on the MCP server launch path.
@@ -12,7 +12,7 @@ pipeline_tier: standard
 affected_files: [src/knotica/evals/llm.py, src/knotica/evals/runner.py, src/knotica/evals/judge.py, src/knotica/evals/cache.py, src/knotica/evals/harness.py, src/knotica/cli/eval.py, pyproject.toml]
 affected_reqs: [REQ-RUN-01, REQ-RUN-02, REQ-RUN-03, REQ-JUDGE-01, REQ-JUDGE-02, REQ-JUDGE-03, REQ-JUDGE-04]
 dissent: The Claude Agent SDK (SIA's own SDK, subscription-credit capable) would avoid provisioning a knotica-owned API key and align the eval runner with the Phase-3b SIA runtime, at the cost of coarse per-run cost accounting (a credit pool hides per-run USD) and lower determinism — a poor trade for an objective function whose whole point is a stable, cost-bearing scalar.
-re_affirms: dec-draft-6ea4e4f3
+re_affirms: dec-007
 ---
 
 ## Context
@@ -64,4 +64,4 @@ At post-verification the **user overrode the credential-resolution sub-decision*
 
 ## Prior Decision
 
-Re-affirms `dec-draft-6ea4e4f3` (MCP SDK = official `mcp`, cold-start-minimal) in spirit: that decision keeps the *server* dependency env minimal; this decision keeps the new LLM dependency **out of the server env entirely** (isolated to the `evals` group per `dec-draft-c2ad09bc`), so the cold-start rationale of 6ea4e4f3 is preserved, not eroded, by adding `anthropic`.
+Re-affirms `dec-007` (MCP SDK = official `mcp`, cold-start-minimal) in spirit: that decision keeps the *server* dependency env minimal; this decision keeps the new LLM dependency **out of the server env entirely** (isolated to the `evals` group per `dec-013`), so the cold-start rationale of 6ea4e4f3 is preserved, not eroded, by adding `anthropic`.

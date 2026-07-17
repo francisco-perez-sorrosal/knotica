@@ -1,7 +1,7 @@
 ---
-id: dec-draft-a6f575c0
+id: dec-015
 title: metrics.jsonl write path — VaultTransaction on the clone; reproducibility via artifact_ref + harness_version
-status: proposed
+status: accepted
 category: architectural
 date: 2026-07-15
 summary: Write metrics.jsonl through core.transaction.VaultTransaction on the eval clone (one knotica(eval) commit + log entry), never the live vault. Resolve the MetricsRecord reproducibility gap by encoding a harness fingerprint into harness_version and pointing artifact_ref at a per-run manifest — no schema bump. Extend the import-boundary fitness test to cover evals/.
@@ -13,7 +13,7 @@ pipeline_tier: standard
 affected_files: [src/knotica/evals/harness.py, src/knotica/evals/config.py, tests/test_architecture_boundaries.py]
 affected_reqs: [REQ-METRICS-01, REQ-METRICS-02, REQ-METRICS-03, REQ-CORPUS-03]
 dissent: Bumping metrics.jsonl schema_version to add first-class dataset_sha / judge_prompt_hash / model_snapshot / cost_usd columns would make every reproducibility field queryable in one flat record, at the cost of a template/constitution migration and breaking the record-schema-freeze promise that Phase 2 is a pure addition.
-re_affirms: dec-draft-e5cf9cf1
+re_affirms: dec-006
 ---
 
 ## Context
@@ -38,7 +38,7 @@ re_affirms: dec-draft-e5cf9cf1
 
 ### Option B — bump `metrics.jsonl` schema_version, add first-class reproducibility columns
 - **Pros:** every reproducibility field is directly on the record and queryable without opening a manifest.
-- **Cons:** a template/constitution migration + a `migrate` step — the exact friction `dec-draft-e5cf9cf1` froze the schema to avoid; commits the record to a wide column set before the ledger's real shape is proven.
+- **Cons:** a template/constitution migration + a `migrate` step — the exact friction `dec-006` froze the schema to avoid; commits the record to a wide column set before the ledger's real shape is proven.
 
 ### Option C — write metrics.jsonl directly (bypass VaultTransaction), since it is only a clone
 - **Pros:** simpler; no transaction ceremony for a disposable clone.
@@ -57,4 +57,4 @@ re_affirms: dec-draft-e5cf9cf1
 
 ## Prior Decision
 
-Formally re-affirms `dec-draft-e5cf9cf1` (record shape frozen — `artifact_ref`/`harness_version` absorb the reproducibility columns, no field added). It also **extends** `dec-draft-9039d858` (single vault-mutation path) by applying it to `evals/` via the fitness test, keeping `core.transaction` the sole writer — an application of that invariant to a new surface, not a re-opening of it. Neither prior decision is superseded.
+Formally re-affirms `dec-006` (record shape frozen — `artifact_ref`/`harness_version` absorb the reproducibility columns, no field added). It also **extends** `dec-008` (single vault-mutation path) by applying it to `evals/` via the fitness test, keeping `core.transaction` the sole writer — an application of that invariant to a new surface, not a re-opening of it. Neither prior decision is superseded.

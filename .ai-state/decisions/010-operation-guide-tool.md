@@ -1,7 +1,7 @@
 ---
-id: dec-draft-a7f3c2e1
+id: dec-010
 title: Serve operation protocols as a tool (read_protocol) + set server instructions
-status: proposed
+status: accepted
 category: architectural
 date: 2026-07-04
 summary: Add a read_protocol tool + FastMCP instructions so plain natural-language requests complete multi-step operations on clients that do not surface MCP prompts.

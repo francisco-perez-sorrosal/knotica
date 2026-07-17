@@ -1,7 +1,7 @@
 ---
-id: dec-draft-d9e00da0
+id: dec-018
 title: Golden set — synthetic-from-pages + human review-freeze, held-out split from day one
-status: proposed
+status: accepted
 category: architectural
 date: 2026-07-15
 summary: Bootstrap each topic's eval-scalar set by generating synthetic QA pairs from entity pages, then human review-and-freeze into a held-out golden.jsonl (~20-30 pairs) with a sha256 MANIFEST, kept disjoint from the flywheel qa.jsonl (future DSPy trainset) from the start. Frozen records use source: curate_example (no enum change).
@@ -13,7 +13,7 @@ pipeline_tier: standard
 affected_files: [src/knotica/evals/golden.py, src/knotica/cli/eval.py]
 affected_reqs: [REQ-GOLDEN-01, REQ-GOLDEN-02, REQ-GOLDEN-03, REQ-GOLDEN-04]
 dissent: Deferring the trainset/held-out split until Phase 3a (when DSPy actually consumes qa.jsonl) would keep Phase 2 tighter to its scope, at the real risk of retrofitting a split after examples accumulate — which risks leakage that silently contaminates the eval scalar the whole loop trusts.
-re_affirms: dec-draft-e5cf9cf1
+re_affirms: dec-006
 ---
 
 ## Context
@@ -34,7 +34,7 @@ The golden-set cold start is not hypothetical: the only non-empty `qa.jsonl` in 
 
 ### Option B — add a `synthetic` value to `QARecord.source`
 - **Pros:** honest provenance in the record itself.
-- **Cons:** an additive enum change touches the frozen record + root `SCHEMA.md` → a template migration, the exact friction `dec-draft-e5cf9cf1` exists to avoid; provenance already lives in the MANIFEST.
+- **Cons:** an additive enum change touches the frozen record + root `SCHEMA.md` → a template migration, the exact friction `dec-006` exists to avoid; provenance already lives in the MANIFEST.
 
 ### Option C — defer the trainset/held-out split to Phase 3a
 - **Pros:** keeps Phase 2 tighter to scope; the split meets its DSPy consumer.
@@ -42,7 +42,7 @@ The golden-set cold start is not hypothetical: the only non-empty `qa.jsonl` in 
 
 ## Consequences
 
-- **Positive:** every evaluated topic gets a reproducible, content-addressed, human-vetted held-out set; the eval scalar is contamination-safe by construction before DSPy ever runs; no schema/template churn; `golden.jsonl` is generated per-topic during Phase 2 (not shipped in the template), so the template stays as `dec-draft-e5cf9cf1` froze it (empty `qa.jsonl`, no `metrics.jsonl`).
+- **Positive:** every evaluated topic gets a reproducible, content-addressed, human-vetted held-out set; the eval scalar is contamination-safe by construction before DSPy ever runs; no schema/template churn; `golden.jsonl` is generated per-topic during Phase 2 (not shipped in the template), so the template stays as `dec-006` froze it (empty `qa.jsonl`, no `metrics.jsonl`).
 - **Negative:** human review gates every topic's onboarding to eval; `curate_example` now labels both live-curation and reviewed-synthetic records (disambiguated only via the MANIFEST).
 
 ## Disconfirmation
@@ -53,4 +53,4 @@ The golden-set cold start is not hypothetical: the only non-empty `qa.jsonl` in 
 
 ## Prior Decision
 
-Re-affirms `dec-draft-e5cf9cf1`: the `QARecord` shape and `QA_SOURCES` enum are unchanged; the golden set reuses the frozen `curate_example` source and introduces no field. `golden.jsonl` + `MANIFEST.json` are new *per-topic generated data* under loop-owned `.knotica/datasets/`, not template files, so the Phase-0 freeze (empty `qa.jsonl`, no shipped `metrics.jsonl`) still holds.
+Re-affirms `dec-006`: the `QARecord` shape and `QA_SOURCES` enum are unchanged; the golden set reuses the frozen `curate_example` source and introduces no field. `golden.jsonl` + `MANIFEST.json` are new *per-topic generated data* under loop-owned `.knotica/datasets/`, not template files, so the Phase-0 freeze (empty `qa.jsonl`, no shipped `metrics.jsonl`) still holds.

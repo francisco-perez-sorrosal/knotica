@@ -1,7 +1,7 @@
 ---
-id: dec-draft-14fe025b
+id: dec-001
 title: Agent error grammar (structured, in-result) + idempotency-by-result-state
-status: proposed
+status: accepted
 category: architectural
 date: 2026-07-03
 summary: MCP tools return a structured {code,message,fix,retryable} error object in the tool result (not a transport exception); all mutating tools are idempotent by resulting vault state with no client-managed keys.

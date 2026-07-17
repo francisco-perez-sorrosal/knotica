@@ -1,7 +1,7 @@
 ---
-id: dec-draft-75ee2605
+id: dec-005
 title: uvx cold-start pre-warm strategy
-status: proposed
+status: accepted
 category: configuration
 date: 2026-07-03
 summary: Keep both pre-warm points but replace the SessionStart cold-cache detector with an unconditional backgrounded, idempotent pre-warm; setup foreground-pre-warms; never alwaysLoad.
