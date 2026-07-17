@@ -1,8 +1,8 @@
 """Deterministic vault status aggregation — shared by CLI and MCP tools.
 
 Pure reads over a :class:`~knotica.store.VaultStore`: page/curated counts,
-live lint violation counts, last eval scalar, and (until the M2 loop runner
-persists one) an honest ``unknown`` gate. No LLM, no mutation, no lock.
+live lint violation counts, last eval scalar, and gate/loop stage from
+persisted :mod:`knotica.core.loop_state`. No LLM, no mutation, no lock.
 """
 
 from __future__ import annotations
@@ -14,6 +14,7 @@ from typing import Any
 
 from knotica.core.links import iter_page_paths
 from knotica.core.lint import LOG_PATH, RESERVED_TOP_LEVEL_NAMES, lint_vault
+from knotica.core.loop_state import compute_gate, read_loop_state
 from knotica.core.metrics import last_eval_summary, read_last_metrics
 from knotica.core.operations.create_topic import qa_dataset_path
 from knotica.core.page import TopicNotFoundError
@@ -81,7 +82,7 @@ def gather_wiki_status(
     topics = _topic_statuses(store, scope=scope or None)
     last_lint = _last_lint(store)
     unpushed = _unpushed(vault_path)
-    gate = _gate_from_topics(topics)
+    gate, loop = _gate_and_loop(store, topics)
     return {
         "schema_version": STATUS_SCHEMA_VERSION,
         "vault": str(vault_path),
@@ -96,7 +97,7 @@ def gather_wiki_status(
         "last_lint": last_lint,
         "unpushed": unpushed,
         "gate": gate,
-        "loop": {"stage": None},
+        "loop": loop,
     }
 
 
@@ -131,26 +132,35 @@ def _lint_counts_by_topic(store: VaultStore, *, scope: str | None) -> Counter[st
         if topic and not topic.startswith("."):
             counts[topic] += 1
         elif scope:
-            # Vault-root findings (reserved names, etc.) attribute to scope.
             counts[scope] += 1
     return counts
 
 
-def _gate_from_topics(topics: list[TopicStatus]) -> dict[str, Any]:
-    """Derive gate readout.
+def _gate_and_loop(
+    store: VaultStore, topics: list[TopicStatus]
+) -> tuple[dict[str, Any], dict[str, Any]]:
+    """Combine metrics + persisted loop-state into gate and loop readouts.
 
-    Until the M2 loop runner persists a baseline, ``state`` is always
-    ``unknown`` and ``baseline`` is ``null``. ``last_scalar`` still surfaces
-    from the scoped topic's latest eval (or the sole topic when vault-wide).
+    Gate/loop are meaningful for a single topic scope (one row). With multiple
+    topics, report an honest unknown gate and a null stage.
     """
-    last_scalar: float | None = None
-    if len(topics) == 1 and topics[0].last_eval is not None:
-        last_scalar = float(topics[0].last_eval["scalar"])
-    return {
-        "state": "unknown",
-        "baseline": None,
-        "last_scalar": last_scalar,
+    if len(topics) != 1:
+        return (
+            {"state": "unknown", "baseline": None, "last_scalar": None},
+            {"stage": None},
+        )
+
+    row = topics[0]
+    state = read_loop_state(store, row.topic)
+    last_scalar = float(row.last_eval["scalar"]) if row.last_eval else None
+    last_harness = str(row.last_eval["harness_version"]) if row.last_eval else None
+    gate = compute_gate(state, last_scalar=last_scalar, last_harness_version=last_harness)
+    loop = {
+        "stage": state.stage.value if state is not None else None,
+        "candidate_branch": state.candidate_branch if state is not None else None,
+        "last_decision": state.last_decision.value if state is not None else None,
     }
+    return gate, loop
 
 
 def _topic_directories(store: VaultStore) -> list[str]:

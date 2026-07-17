@@ -159,6 +159,8 @@ def test_wiki_status_reports_template_topic_counts(vault_config: Path) -> None:
     assert "gate" in body and body["gate"]["state"] == "unknown"
     assert body["gate"]["baseline"] is None
     assert body["loop"]["stage"] is None
+    assert body["loop"].get("last_decision") is None
+    assert body["loop"].get("candidate_branch") is None
     topics = {t["topic"]: t for t in body["topics"]}
     assert TOPIC in topics
     row = topics[TOPIC]

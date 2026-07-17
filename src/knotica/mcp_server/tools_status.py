@@ -37,8 +37,9 @@ _WIKI_STATUS_DESCRIPTION = (
     "Report deterministic vault status for the dashboard: per-topic page/curated/"
     "lint counts, compile-ready progress, last eval scalar (if any), and gate/"
     "loop stage. Pass topic to scope to one topic; omit or pass empty for the "
-    "whole vault. Read-only — no commits, no lock. Gate baseline is null and "
-    "state is 'unknown' until the loop runner persists one."
+    "whole vault. Read-only — no commits, no lock. Gate becomes pass/fail once "
+    "the loop runner freezes a baseline in loop-state.json; otherwise state is "
+    "'unknown'."
 )
 
 _METRICS_READ_DESCRIPTION = (
