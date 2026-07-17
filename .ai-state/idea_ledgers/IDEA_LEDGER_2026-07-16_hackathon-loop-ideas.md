@@ -82,18 +82,40 @@ and an MCP streamable-HTTP implementation (browser mount: localhost now, the Pha
 OAuth 2.1 deploy later; Claude Code views this mount in its Browser pane); (3) **TypeScript in a
 `dashboard/` npm workspace** (Vite + `vite-plugin-singlefile` + ext-apps SDK; TS types generated from
 tool JSON schemas), with the single-file HTML built in CI and force-included into the wheel like
-`vault-template/` — no Python user needs node, cold-start (dec-013) untouched; (4) **dec-007 is
-revocable, held under an explicit reversal trigger** (user directive 2026-07-17: revoke past decisions
-when the long-term solution demands it): at dashboard implementation start, if the official `mcp` SDK
-still lacks SEP-1865/Apps support and hand-rolling exceeds ~a day or fights host interop, supersede
-dec-007 (full swap to PrefectHQ `fastmcp`, or a split: official SDK on the stdio launch path,
-`fastmcp` on an off-launch-path HTTP mount) via the standard supersession protocol; verify then
-whether ext-apps' Python examples use the official SDK or PrefectHQ `fastmcp` (spike digest
-ambiguous). Supporting evidence from the second spike: no
-CDN/no-bundler path for the ext-apps SDK; server/app language decoupling confirmed; hosts pass
-theme/displayMode/CSS vars (Solarized adapts via its dark twin). Day-one sequencing may start panes
-in vanilla JS behind the `ToolClient` seam, with all new data needs as MCP tools, so the TS port is a
-re-housing, not a rewrite. **Promote to an ADR draft when implementation starts.**
+`vault-template/` — no Python user needs node, cold-start (dec-013) untouched; (4) **dec-007
+vindicated, reversal trigger dormant** — the ecosystem survey (below) proved the official-SDK path.
+**Promote the dashboard architecture to an ADR draft when implementation starts.**
+
+## Final scoping 2026-07-17 — MCP Apps prioritized; quality-first milestones; partners fully dropped
+
+Consolidated user directives: (a) MCP-App integration is a **priority**, with the standalone browser
+mount required in parallel; (b) the plan is **not bounded by the hackathon clock** — quality first,
+no scaffolding that is hard to remove later (the hackathon is a demo checkpoint at whatever milestone
+boundary the day reaches); (c) hackathon partner/sponsor tools are fully out of scope; (d) past
+decisions are revocable when the long-term solution demands it.
+
+**Milestone plan** (each demoable, gated on acceptance criteria, not a clock): M1 tools layer
+(`wiki_status`, `metrics_read` — deterministic, thin per dec-003, schemas feed TS typegen) → M2 loop
+spine (`loop_runner.py`, state exposed only through M1 tools) → M3 `dashboard/` TS workspace →
+M4 `ui://` MCP-App mount → M5 arena → M6 diagnose + hardening (GH Actions eval-on-PR, diff view,
+golden-grower hook). M1-before-M2 is deliberate: retrofitting the tool contract under a
+side-channeled runner is exactly the forbidden sloppiness.
+
+**Stack — decided from the ecosystem survey (2026-07-17):** SEP-1865 ratified 2026-01-26 (OpenAI
+Apps SDK + mcp-ui converged into ext-apps under Linux Foundation; adopters incl. Shopify, Postman,
+Hugging Face, ElevenLabs) — ext-apps is the standards-track bet. Frontend: **Preact + Vite +
+`vite-plugin-singlefile` + uPlot (~14 KB gz) + `@preact/signals`** behind the `ToolClient` seam;
+bridge mount via `@modelcontextprotocol/ext-apps` `App`; standalone mount via the official
+`@modelcontextprotocol/sdk` browser client (`StreamableHTTPClientTransport`) against the server's own
+`streamable_http_app()` (`stateless_http=True` + CORS) — the Phase-4 HTTP transport arriving early,
+not a second server. Zero-build fallback: vanilla JS + ext-apps from the unpkg CDN (`app-with-deps`)
++ embedded-HTML serving à la ext-apps' `qr-server`. Two prior-spike corrections recorded: the CDN
+path **exists**, and the ext-apps Python examples run on the **official `mcp` SDK** (`mcp>=1.26`;
+knotica pins 1.28.1; registration = two decorators) — hence dec-007 needs no supersession.
+
+Known limitation, accepted: `ui://` renders in Claude Desktop Chat / claude.ai / ChatGPT — not in
+Claude Code, whose Browser pane uses the standalone mount instead. Both mounts being core is what
+makes this a non-issue.
 
 ## Candidates considered
 
