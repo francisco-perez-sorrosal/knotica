@@ -58,7 +58,7 @@ Navigation:
 - Vault mutation logic → `src/knotica/core/` (`transaction.py`, `operations/` — one module per op) — the single writer.
 - Storage backend → `src/knotica/store/` (`VaultStore` protocol + `LocalFSStore`).
 - Full-text search → `src/knotica/search/`.
-- MCP server (tools/resources/prompts) → `src/knotica/mcp_server/` (named to avoid shadowing the `mcp` SDK package; see `dec-draft-8d8c18a1`).
+- MCP server (tools/resources/prompts) → `src/knotica/mcp_server/` (named to avoid shadowing the `mcp` SDK package; see `dec-009`).
 - CLI (`init`/`mcp`/`doctor`/`status`/`migrate`/`prompt`/`guillotine`/`okf`/`eval`) → `src/knotica/cli/`.
 - Eval harness (headless `knotica eval`, Phase 2) → `src/knotica/evals/` (`harness.run_eval` orchestrates; `scorer.build_metric` is the `dspy.Evaluate` metric; `judge`/`golden`/`config` are the instrument, devset, and pins).
 - Plugin layer → repo root (`.claude-plugin/`, `.mcp.json`, `commands/`, `hooks/`, `skills/wiki-maintenance/`).
