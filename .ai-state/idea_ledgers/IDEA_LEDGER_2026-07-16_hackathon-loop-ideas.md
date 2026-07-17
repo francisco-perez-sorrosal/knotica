@@ -73,16 +73,27 @@ timebox, cut without ceremony) proves the MCP-App path. The full MCP-App dashboa
 roadmap item; the dashboard's data layer is written behind a thin fetch adapter so the later swap to
 bridge tool-calls is mechanical ("same HTML, two mounts").
 
-**Frontend authoring decision (second spike, 2026-07-17): vanilla JS on the stdlib server — not
-TypeScript.** Evidence: `@modelcontextprotocol/ext-apps` has no CDN/no-bundler path (npm + Vite +
-`vite-plugin-singlefile` is the documented pattern; 1.5–3 h toolchain-from-zero in this uv-only repo),
-while Claude Code — the primary surface — cannot render MCP Apps regardless. The Python serving path
-is now **proven** (ext-apps examples include Python FastMCP servers serving prebuilt JS bundles as
-resource strings), retiring the earlier "unproven" risk. Hosts pass theme/displayMode/CSS vars with no
-enforcement, so Solarized adapts cheaply (native dark twin). The status-card stretch hand-rolls its
-one-`callTool` postMessage bridge; TS + ext-apps SDK is deferred until a full MCP-App dashboard earns
-a toolchain. Landscape note for a future dec-007 re-evaluation (not a hackathon action): PrefectHQ
-`fastmcp` 3.2 ships native `ui://` Apps support — the package dec-007 rejected on cold-start grounds.
+**Frontend authoring — long-term decision (2026-07-17, user directive to optimize for the long
+term, superseding the same-day hackathon-scoped "vanilla JS" call):** the dashboard's permanent
+architecture is (1) **one data contract — the MCP tools**: the dashboard is a pure MCP client; every
+pane reads through deterministic tools; no parallel REST API; (2) **one artifact, two transports** —
+a `ToolClient` seam with a postMessage-bridge implementation (`ui://` mount, Claude Desktop/claude.ai)
+and an MCP streamable-HTTP implementation (browser mount: localhost now, the Phase-4 Railway/Render +
+OAuth 2.1 deploy later; Claude Code views this mount in its Browser pane); (3) **TypeScript in a
+`dashboard/` npm workspace** (Vite + `vite-plugin-singlefile` + ext-apps SDK; TS types generated from
+tool JSON schemas), with the single-file HTML built in CI and force-included into the wheel like
+`vault-template/` — no Python user needs node, cold-start (dec-013) untouched; (4) **dec-007 is
+revocable, held under an explicit reversal trigger** (user directive 2026-07-17: revoke past decisions
+when the long-term solution demands it): at dashboard implementation start, if the official `mcp` SDK
+still lacks SEP-1865/Apps support and hand-rolling exceeds ~a day or fights host interop, supersede
+dec-007 (full swap to PrefectHQ `fastmcp`, or a split: official SDK on the stdio launch path,
+`fastmcp` on an off-launch-path HTTP mount) via the standard supersession protocol; verify then
+whether ext-apps' Python examples use the official SDK or PrefectHQ `fastmcp` (spike digest
+ambiguous). Supporting evidence from the second spike: no
+CDN/no-bundler path for the ext-apps SDK; server/app language decoupling confirmed; hosts pass
+theme/displayMode/CSS vars (Solarized adapts via its dark twin). Day-one sequencing may start panes
+in vanilla JS behind the `ToolClient` seam, with all new data needs as MCP tools, so the TS port is a
+re-housing, not a rewrite. **Promote to an ADR draft when implementation starts.**
 
 ## Candidates considered
 
