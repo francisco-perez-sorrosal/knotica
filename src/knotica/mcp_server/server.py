@@ -47,14 +47,18 @@ _INSTRUCTIONS = (
 )
 
 
-def build_server() -> FastMCP:
+def _build_server(*, stateless_http: bool = False) -> FastMCP:
     """Construct the ``FastMCP`` server with every registered surface.
 
     Pure wiring -- constructing the server and running the ``register_*``
     functions touches no vault (the decorators only record tool metadata), so
     this is safe to call at import time and on an unconfigured host.
     """
-    mcp = FastMCP(_SERVER_NAME, instructions=_INSTRUCTIONS)
+    mcp = FastMCP(
+        _SERVER_NAME,
+        instructions=_INSTRUCTIONS,
+        stateless_http=stateless_http,
+    )
     register_read_tools(mcp)
     register_write_tools(mcp)
     register_status_tools(mcp)
@@ -62,6 +66,16 @@ def build_server() -> FastMCP:
     register_resources(mcp)
     register_prompts(mcp)
     return mcp
+
+
+def build_server() -> FastMCP:
+    """Construct the stdio server, preserving its stateful-session default."""
+    return _build_server()
+
+
+def build_http_server() -> FastMCP:
+    """Construct a stateless server for independent streamable-HTTP requests."""
+    return _build_server(stateless_http=True)
 
 
 #: Module-level server instance the CLI entry point imports and runs.
