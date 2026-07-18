@@ -44,6 +44,8 @@ class LoopStage(StrEnum):
 
     idle = "idle"
     evaluating = "evaluating"
+    racing = "racing"
+    promoting = "promoting"
     merging = "merging"
     reverting = "reverting"
     passed = "passed"
@@ -69,6 +71,10 @@ class LoopState(BaseModel):
     schema_version: Literal[1] = LOOP_STATE_SCHEMA_VERSION
     topic: str
     stage: LoopStage = LoopStage.idle
+    #: How the gate reference evolves: ``latest`` tracks reality (auto-freeze /
+    #: instrument re-freeze only); ``best`` is a high-water mark — better
+    #: observations ratchet it up, and anything below it is a regression.
+    baseline_policy: Literal["latest", "best"] = "latest"
     baseline_scalar: float | None = None
     baseline_harness_version: str | None = None
     baseline_corpus_ref: str | None = None
