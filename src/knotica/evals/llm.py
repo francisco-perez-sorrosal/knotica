@@ -352,6 +352,15 @@ class AnthropicClient:
         )
 
 
+#: In-process retry budget handed to the SDK client (its default is 2). The SDK
+#: backs off exponentially and honors ``retry-after`` on 429/5xx/connection
+#: errors; 5 attempts rides out burst rate-limit windows of roughly a minute
+#: while a genuinely exhausted usage window still fails typed within the run
+#: (td-007: a 10-question golden batch under a tight subscription window died
+#: on first-attempt 429s that a deeper budget absorbs).
+_SDK_MAX_RETRIES = 5
+
+
 def _build_sdk_client(anthropic: object, auth_mode: str, credential: str) -> object:
     """Build the Anthropic SDK client for the resolved ``auth_mode`` + ``credential``.
 
@@ -360,14 +369,16 @@ def _build_sdk_client(anthropic: object, auth_mode: str, credential: str) -> obj
     not add for a static ``auth_token`` (see :data:`_OAUTH_BETA_HEADER_VALUE`) --
     without it the Messages API rejects the bearer token. API-key mode hands the
     key to ``api_key=`` unchanged. Either way the credential lands only on the SDK
-    client; knotica keeps no copy.
+    client; knotica keeps no copy. Both modes carry :data:`_SDK_MAX_RETRIES` so
+    transient 429/5xx statuses retry in-process with the SDK's own backoff.
     """
     if auth_mode == AUTH_MODE_OAUTH:
         return anthropic.Anthropic(  # type: ignore[attr-defined]
             auth_token=credential,
             default_headers={_OAUTH_BETA_HEADER_NAME: _OAUTH_BETA_HEADER_VALUE},
+            max_retries=_SDK_MAX_RETRIES,
         )
-    return anthropic.Anthropic(api_key=credential)  # type: ignore[attr-defined]
+    return anthropic.Anthropic(api_key=credential, max_retries=_SDK_MAX_RETRIES)  # type: ignore[attr-defined]
 
 
 def _structured_output_config(json_schema: dict[str, object]) -> dict[str, object]:

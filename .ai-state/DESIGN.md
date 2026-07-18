@@ -97,6 +97,21 @@ Every tool/prompt honors the `unconfigured` contract (structured result, not an 
 - `harness_version(judge_prompt_hash, config=DEFAULT_CONFIG) -> str` — the instrument fingerprint recorded
   per run so two scalars from different instruments are never silently compared.
 
+**Diagnostic manifest schema v2 (Phase 3a gap-fill P0 — built, dec-draft-ef07d3ff):**
+The per-run manifest (`<topic>/.knotica/eval-runs/gen-<N>/manifest.json`, the `artifact_ref` target) is
+the diagnostic substrate the P1 four-way fault classifier reads. Additive over the current shape, it
+self-versions via `manifest_schema_version` (the read-time capability probe; today's unversioned shape
+is implicit v1) and adds: `per_example[].id` (the stable `QARecord.id`, an edit-stable join key mapped
+onto the `dspy.Example` in `golden.to_example`); `per_example[].pages` (the ordered top-K retrieval
+trace as `pages_used`-form page names, carried through a new `Prediction.pages` field, forwarded in
+`BaselineProgram.forward`); and a populated `held_out_delta` object (scalar delta + per-id score/trace
+deltas + `ids_added`/`ids_removed`, keyed on stable id, prior generation discovered via the prior
+`MetricsRecord.artifact_ref`; `null`-never-`0` when no comparable prior exists). Retrieval *scores* are
+excluded (rank-order only) to stay stable across the Phase-5 vector-backend swap. The change touches no
+scalar, no `harness_version` fingerprint input, and no dec-006-frozen record — so it triggers no
+baseline re-freeze. Re-affirms dec-006 (version machine-readable records) by extending that discipline
+to the previously-unversioned manifest rather than modifying a frozen record.
+
 `knotica eval --topic <t>` (metrics) / `--bootstrap` (stage candidates for review) is the CLI entry
 (`cli/eval.py`); it resolves config and delegates, renders the `MetricsRecord` or the staging handoff
 (table or `--json`), and never mutates the vault itself.
@@ -225,3 +240,11 @@ Phase 2 — eval harness (this pipeline, `eval-harness`):
 - **dec-019** — Eval-harness module landing order: corrects the plan's Group B/C/D hints to the
   import-dependency graph (`cache` before `judge`, `scorer` after `judge`, `golden` split into read-side
   then bootstrap/freeze) so every module imports only already-landed siblings (no interface change).
+
+Phase 3a — gap-fill diagnostic substrate (this pipeline, `gapfill-substrate`):
+
+- **dec-draft-ef07d3ff** — Eval-manifest diagnostic substrate: manifest schema v2 self-versions and adds
+  `per_example[].id` (stable join key), `per_example[].pages` (ordered retrieval trace), and a wired
+  `held_out_delta` object — the substrate the P1 four-way fault classifier consumes. Additive over
+  dec-006-frozen records (re-affirms dec-006); no scalar / fingerprint / `metrics.jsonl` change, hence
+  no baseline re-freeze. Rank-order only (scores deferred to a possible v3).

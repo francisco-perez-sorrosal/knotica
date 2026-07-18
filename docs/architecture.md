@@ -173,6 +173,22 @@ progress-callback counter in `evals.harness` are each guarded by their own lock.
 deliberately **excluded** from `harness_version` — parallelism changes wall-time, not the measurement, and
 results are proven identical to a sequential run by test.
 
+#### Diagnostic manifest schema v2
+
+> Status: **Built** (dec-draft-ef07d3ff, gap-fill P0) — landed with the gapfill-substrate pipeline;
+> verified end-to-end against the live vault (gen-4 run: 25/25 id join, populated `held_out_delta`).
+
+The per-run manifest (`<topic>/.knotica/eval-runs/gen-<N>/manifest.json`) is the diagnostic substrate the
+gap-fill loop's fault classifier will read. Schema v2 is additive over today's manifest and self-versions
+via a top-level `manifest_schema_version` (the read-time capability probe; today's unversioned manifest is
+implicit v1). It adds, per golden example, a stable `id` (the `QARecord.id` join key, edit-stable) and
+`pages` (the ordered top-K retrieval trace as `pages_used`-form page names — the runner already computes
+these in `_retrieve` and currently discards them). It also populates `held_out_delta` (a live `None`
+placeholder today) with a scalar delta plus a per-`id` vector of score deltas and retrieval-trace diffs,
+diffed against the prior generation's manifest and `null`-never-`0` when no comparable prior exists.
+The change touches no eval scalar and no `harness_version` fingerprint input, so it triggers no baseline
+re-freeze; it leaves every dec-006-frozen record (`metrics.jsonl`) byte-stable.
+
 **`wiki_status` loop/LLM fields** (`core/status.py::gather_wiki_status`, single-topic scope only):
 
 | Field | Meaning |

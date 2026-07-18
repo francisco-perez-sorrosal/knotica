@@ -181,6 +181,22 @@ def test_constructing_the_anthropic_client_with_a_key_present_succeeds(
     assert client is not None, "a present key lets construction succeed offline"
 
 
+def test_sdk_client_carries_the_raised_in_process_retry_budget(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # td-007: transient 429/5xx statuses must retry in-process instead of failing
+    # the whole eval batch on first attempt. Both auth modes hand the raised
+    # budget to the SDK, whose backoff honors retry-after.
+    pytest.importorskip("anthropic")
+    from knotica.evals.llm import _SDK_MAX_RETRIES
+
+    monkeypatch.setenv(ANTHROPIC_KEY_ENV, "sk-ant-dummy-value-not-real")
+    assert AnthropicClient()._client.max_retries == _SDK_MAX_RETRIES
+
+    monkeypatch.setenv(OAUTH_TOKEN_ENV, "sk-ant-oat-dummy-value-not-real")
+    assert AnthropicClient()._client.max_retries == _SDK_MAX_RETRIES
+
+
 def test_real_and_fake_clients_conform_to_the_llm_client_protocol(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -762,9 +778,7 @@ def test_cache_concurrent_same_key_computes_exactly_once() -> None:
 
     def worker() -> None:
         barrier.wait()
-        cache.get_or_compute(
-            snapshot="snap", prompt_hash="hash", inputs=["same"], compute=compute
-        )
+        cache.get_or_compute(snapshot="snap", prompt_hash="hash", inputs=["same"], compute=compute)
 
     threads = [threading.Thread(target=worker) for _ in range(4)]
     for thread in threads:
