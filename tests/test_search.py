@@ -106,6 +106,7 @@ GOLDEN_MEMORY_RANKING = (
     ("log.md", "", "page", 5),
     ("index.md", "", "page", 4),
     ("SCHEMA.md", "", "page", 2),
+    ("START_HERE.md", "", "page", 2),
 )
 
 GOLDEN_MEMORY_TOPIC_RANKING = (
@@ -398,7 +399,7 @@ def test_template_walk_pages_through_the_golden_order(
 
     pages = _walk(backend, "memory", limit=2)
 
-    assert [len(page.results) for page in pages] == [2, 2, 2, 1]
+    assert [len(page.results) for page in pages] == [2, 2, 2, 2]
     assert _walked_paths(pages) == [path for path, _, _, _ in GOLDEN_MEMORY_RANKING]
     assert {page.total_count for page in pages} == {len(GOLDEN_MEMORY_RANKING)}
 

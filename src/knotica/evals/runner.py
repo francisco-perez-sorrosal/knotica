@@ -67,6 +67,7 @@ from knotica.core.schema import resolve_schema
 from knotica.evals.cache import JsonValue, ResponseCache
 from knotica.evals.llm import Completion, LLMClient, Message, TokenUsage
 from knotica.search import RipgrepBackend
+from knotica.search.retrieval import retrieve_search_results
 from knotica.store import VaultStore
 
 __all__ = [
@@ -75,6 +76,7 @@ __all__ = [
     "MalformedResponseError",
     "MessagesApiRunner",
     "Prediction",
+    "RetrievalLexicalRunner",
 ]
 
 #: The operation prompt the runner drives -- the vault's own editable ``query.md``.
@@ -208,10 +210,12 @@ class MessagesApiRunner:
         worker_snapshot: str,
         *,
         cache: ResponseCache | None = None,
+        instructions_override: str | None = None,
     ) -> None:
         self._llm = llm_client
         self._worker_snapshot = worker_snapshot
         self._cache = cache
+        self._instructions_override = instructions_override
 
     def run(self, store: VaultStore, topic: str, question: str) -> Prediction:
         """Drive the clone's ``query.md`` headlessly and return a :class:`Prediction`.
@@ -219,19 +223,25 @@ class MessagesApiRunner:
         Resolves the vault's own query prompt and schema, retrieves the top pages
         deterministically, synthesizes a cited answer in one ``temperature=0``
         call, and returns the answer + parsed citations + the call's exact usage.
+        When ``instructions_override`` is set (compiled path), that body replaces
+        the vault ``query.md`` text while retrieval stays identical.
         """
-        prompt = resolve_prompt(store, _QUERY_OPERATION, topic)
+        prompt_body = (
+            self._instructions_override
+            if self._instructions_override is not None
+            else resolve_prompt(store, _QUERY_OPERATION, topic).body
+        )
         schema = resolve_schema(store, topic)
         pages = self._retrieve(store, topic, question)
-        completion = self._synthesize(prompt.body, schema.merged, topic, question, pages)
+        completion = self._synthesize(prompt_body, schema.merged, topic, question, pages)
         answer, citations = _parse_structured_answer(completion.text)
         return Prediction(answer=answer, citations=citations, usage=completion.usage)
 
     def _retrieve(self, store: VaultStore, topic: str, question: str) -> list[Page]:
-        """Search the clone for the question, then read the top-K matching pages."""
+        """Search the clone for key terms, then read the balanced top-K pages."""
         backend = RipgrepBackend(_store_root(store))
-        page = backend.search(question, topic=topic, limit=DEFAULT_MAX_PAGES)
-        return [read_page(store, topic, result.path) for result in page.results]
+        results = retrieve_search_results(backend, topic, question, limit=DEFAULT_MAX_PAGES)
+        return [read_page(store, topic, result.path) for result in results]
 
     def _synthesize(
         self,
@@ -283,6 +293,22 @@ class MessagesApiRunner:
             return _completion_to_cache_value(completion)
 
         return compute
+
+
+class RetrievalLexicalRunner:
+    """Offline :class:`BaselineRunner` — retrieval text as the answer, no LLM.
+
+    Uses the same deterministic search/read path as :class:`MessagesApiRunner`
+    but skips synthesis. Useful for offline compile/eval scaffolding; cold-start
+    UX uses :mod:`knotica.core.baseline_probe` (fixed zero anchor) instead.
+    """
+
+    def run(self, store: VaultStore, topic: str, question: str) -> Prediction:
+        backend = RipgrepBackend(_store_root(store))
+        results = retrieve_search_results(backend, topic, question, limit=DEFAULT_MAX_PAGES)
+        pages = [read_page(store, topic, result.path) for result in results]
+        answer = _assemble_user(topic, question, pages)
+        return Prediction(answer=answer, citations=[], usage=TokenUsage())
 
 
 def _store_root(store: VaultStore) -> Path:

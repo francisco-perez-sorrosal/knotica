@@ -17,10 +17,22 @@ AI-maintained, compounding knowledge wiki (Karpathy's llm-wiki pattern) living i
 
 - Python 3.12+, **uv-managed** (`uv sync`, `uv run`); src layout under `src/knotica/`.
 - Dual-role repo: Python package + Claude plugin marketplace (`.claude-plugin/`, `commands/`, `hooks/`, `skills/`, `.mcp.json`).
-- MCP server built on FastMCP; CLI entry point `knotica` (subcommands: `init`, `mcp`, `doctor`, `status`, `migrate`; later `eval`, `compile`).
+- MCP server built on FastMCP; CLI entry point `knotica` (subcommands: `init`, `mcp`, `doctor`, `status`, `migrate`, `eval`, `datasets`, `compile`, `loop`).
+- `knotica loop --topic <t>` is the autonomous self-improvement watcher: observes default-branch content changes (eval on a clone, 4 parallel scoring threads by default; debounced — holds during active ingests and until HEAD is stable), gates `loop/c/*` candidates, heals regressions via the arena, and heartbeats to `.knotica/locks/`. Gate baseline policy is per-topic (`latest` tracks reality, `best` ratchets a high-water mark; instrument changes auto-refreeze); drive it via the `loop_baseline_policy`/`loop_rebaseline` tools, the dashboard toggle, or CLI flags. Merged `loop/r/*` audit pointers auto-prune beyond the newest 5.
 - Tests with pytest in `tests/`; run via `uv run pytest`.
 - Build/tooling output to `/dev/null` or `tmp/` — never commit artifacts.
 
 ## Current status
 
-Pre-implementation. Phases 0–1 (vault template + core/MCP/plugin) run as a Standard-tier pipeline; see `docs/PRE_PLAN.md` § Phases & execution. Phases 0–3 are local-only; remote (Railway) is gated on local smoothness.
+Phases 0–3a are implemented locally (vault template, core/MCP/plugin, eval harness, DSPy compile,
+dashboard MCP App) **plus the autonomous loop layer**: `knotica loop` watches the default branch,
+auto-freezes the first observation as the gate baseline, gates `loop/c/*` candidates, and heals
+prompt regressions via the arena — all state surfaced through `wiki_status` (runner liveness,
+per-question eval progress, LLM availability). Trainset cold-start is data-driven
+(`knotica datasets bootstrap-train` / `datasets_bootstrap_train` tool: QA synthesized from the
+topic's own pages, `source: seed_train`; curated examples displace seeds in compile demo
+selection). No demo content remains in code: no hardcoded questions/prompt appendices, no
+fabricated offline compile scores (typed error without credentials), MIPRO fallbacks recorded on
+the artifact (`optimizer`/`fallback_reason`). End-user Desktop install walkthrough:
+`docs/CLAUDE_DESKTOP.md`; developer architecture guide: `docs/architecture.md`.
+See `docs/PRE_PLAN.md` § Phases & execution. Remote (Railway) remains gated on local smoothness.

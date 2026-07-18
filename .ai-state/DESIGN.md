@@ -13,7 +13,7 @@
 | **Language / Framework** | Python 3.12+ (uv) / official `mcp` SDK 1.28.1 (`FastMCP`) |
 | **Architecture pattern** | Hexagonal, single-mutation-core (one writer through a `VaultTransaction`) |
 | **Source stage** | Pipeline `wiki-mvp-core` (Phases 0–1) — systems-architect creation |
-| **Last verified** | 2026-07-16 by implementer (Phase-2 eval-harness checkpoint: `src/knotica/evals/` + `cli/eval.py` Built + green; full suite green; import-purity held — `import knotica.evals` pulls neither `anthropic` nor `dspy`). Prior: 2026-07-03 by orchestrator (Phase 1e: store/search/core/mcp_server/cli + plugin layer Built + green; 609 passed / 18 skipped; `claude plugin validate` ✔; `init`→`doctor` 9-pass smoke green) |
+| **Last verified** | 2026-07-18 by doc-engineer (loop-ideas delta pass: baseline policy `latest`/`best` + `rebaseline`/`mark_observed` + instrument re-freeze + `_observation_hold` debounce + `_prune_result_branches` + `_ensure_union_log_merge` on `core.loop`/`loop_state`; new MCP tools `loop_baseline_policy`/`loop_rebaseline`; new CLI flags `--baseline-policy`/`--rebaseline`/`--mark-observed`/`--observe-quiet`/`--eval-threads`; `evals.config` `NUM_THREADS`/`MAX_NUM_THREADS` parallel eval + `evals.cache`/`evals.harness` thread-safety; scope: docs only, no code change). Prior: 2026-07-18 by doc-engineer (loop-ideas reconciliation: `core.loop`/`loop_state`/`loop_heartbeat`/`loop_progress` + `cli/loop.py` Built (autonomous watch → observe → gate → heal); `evals/train_bootstrap.py` Built (cold-start `qa.jsonl` seeding); `programs/` Built (Phase 3a compile, was Planned); scope: docs only, no code change). 2026-07-16 by implementer (Phase-2 eval-harness checkpoint: `src/knotica/evals/` + `cli/eval.py` Built + green; full suite green; import-purity held). 2026-07-03 by orchestrator (Phase 1e: store/search/core/mcp_server/cli + plugin layer Built + green; 609 passed / 18 skipped) |
 
 Knotica implements Karpathy's llm-wiki pattern: an AI-maintained compounding markdown knowledge base in
 an Obsidian vault, with per-topic self-improving loops (DSPy inner, SIA outer) planned for Phases 2–3.
@@ -52,12 +52,13 @@ Rendered diagram pending: `docs/diagrams/architecture/rendered/components.svg`.
 | `src/knotica/store/` | `VaultStore` protocol + `LocalFSStore` — atomic (temp+rename) storage primitives; no git/log/schema knowledge | stdlib | Built |
 | `src/knotica/search/` | `SearchBackend` protocol + `RipgrepBackend` — read-only full-text search | store paths | Built |
 | `src/knotica/core/` | Vault semantics: `config`, `schema` (root+overlay), `page`/`links`, `lint`, `vcs` (subprocess git), `lock` (fcntl.flock), `scrub`, `records`, `template` (read-only packaged-template locator, shared by `cli.init` + `operations.migrate`), **`transaction.VaultTransaction`**, `operations.*` (four ops config-agnostic: `(store, vault_root, *semantic_args)` — no `core.config` import) | store, search | Built |
-| `src/knotica/cli/` | `knotica` entry point: `init`, `mcp`, `doctor`, `status`, `migrate`, `prompt`, `guillotine`, `okf`, `eval` — thin, self-registering registry; mutations delegate to `core.operations`; never writes the vault directly. `eval` (Phase 2) resolves config and delegates to `evals.harness.run_eval` / `evals.golden.bootstrap` — it never mutates the vault itself | core | Built |
-| `src/knotica/mcp_server/` | `FastMCP` server: tools, resources (schemas + index), prompts (static name / lazy body) — thin; stateless. *Named `mcp_server` (not `mcp`) to avoid shadowing the `mcp` SDK; per-concern modules `server`/`envelope`/`tools_read`/`tools_write`/`resources`/`prompts` (dec-009)* | core | Built |
-| `src/knotica/programs/` | DSPy modules (`query` first) — Phase 3a | core | Planned |
-| `src/knotica/agent/` | Headless runners — Phase 3a+ | core | Planned |
-| `src/knotica/evals/` | **Frozen-corpus evaluator (Phase 2):** hand-rolled `score(gold, pred, trace=None)` metric seam **run by `dspy.Evaluate`** over the golden devset (user override 2026-07-15; runner only — no optimizers/`dspy.LM`), via a `BaselineProgram(dspy.Module)` wrapping `BaselineRunner` (direct Messages API driving the clone's `query.md`). LLM-as-judge (pinned Opus, N-median, cached), deterministic citation integrity, hinged budget-relative cost-penalty scalar, golden-set bootstrap/freeze. Writes `metrics.jsonl` via `core.transaction` **on a clone** (never the live vault). `anthropic` + `dspy` isolated in the `evals` dep group (off the MCP launch path); LLM auth via env-only `ANTHROPIC_API_KEY`. *As-built modules: `llm` (LLMClient DI seam), `runner` (baseline query runner), `citations`+`scalar` (deterministic scoring), `cache`+`judge` (cached N-median LLM-as-judge), `scorer` (the `score` seam), `program` (BaselineProgram), `golden` (devset load/verify + bootstrap/freeze), `config` (packaged defaults + `harness_version` fingerprint), `harness` (`run_eval`); `cli/eval.py` is the `knotica eval` entry.* | core, `core.vcs.clone_to`, `evals` dep group (`anthropic`, `dspy`) | Built |
-| Plugin layer (repo root) | `.claude-plugin/plugin.json`+`marketplace.json`, `.mcp.json` (`uvx --from ${CLAUDE_PLUGIN_ROOT} knotica mcp`), `commands/*.md` (8 `/knotica:*` aliases), `hooks/` (non-blocking SessionStart pre-warm + nudges), `skills/wiki-maintenance/` | `knotica mcp` entry | Built |
+| `src/knotica/cli/` | `knotica` entry point: `init`, `mcp`, `doctor`, `status`, `migrate`, `prompt`, `guillotine`, `okf`, `eval`, `compile`, `datasets`, `loop` — thin, self-registering registry; mutations delegate to `core.operations`; never writes the vault directly. `eval` (Phase 2) resolves config and delegates to `evals.harness.run_eval` / `evals.golden.bootstrap`. `datasets` wraps `bootstrap-train` (→ `evals.train_bootstrap.bootstrap_trainset`) and `freeze`. `loop` (Phase 3a) wraps `core.loop.LoopRunner` for `--watch`/`--once`/`--set-baseline`, plus the heartbeat thread — none of these mutate the vault itself | core | Built |
+| `src/knotica/mcp_server/` | `FastMCP` server: tools, resources (schemas + index), prompts (static name / lazy body) — thin; stateless. *Named `mcp_server` (not `mcp`) to avoid shadowing the `mcp` SDK; per-concern modules `server`/`envelope`/`tools_read`/`tools_write`/`resources`/`prompts`/`tools_datasets`/`tools_golden`/`app_ui` (dec-009)* | core | Built |
+| `src/knotica/programs/` | Phase 3a DSPy query compile: MIPROv2 with a bootstrap fallback (records `optimizer`/`fallback_reason` on the artifact when it falls back; offline compile refuses to fabricate a score without LLM credentials) → JSON compiled artifact + `CompiledRunner`, selected by `query_engine` behind the single MCP `query` tool | core | Built |
+| `src/knotica/agent/` | Headless outer-loop runners (SIA schema/structure evolution) — Phase 3b | core | Planned |
+| `src/knotica/evals/` | **Frozen-corpus evaluator (Phase 2):** hand-rolled `score(gold, pred, trace=None)` metric seam **run by `dspy.Evaluate`** over the golden devset (user override 2026-07-15; runner only — no optimizers/`dspy.LM`), via a `BaselineProgram(dspy.Module)` wrapping `BaselineRunner` (direct Messages API driving the clone's `query.md`). LLM-as-judge (pinned Opus, N-median, cached), deterministic citation integrity, hinged budget-relative cost-penalty scalar, golden-set bootstrap/freeze. Writes `metrics.jsonl` via `core.transaction` **on a clone** (never the live vault). `anthropic` + `dspy` isolated in the `evals` dep group (off the MCP launch path); LLM auth via env-only `ANTHROPIC_API_KEY`. *As-built modules: `llm` (LLMClient DI seam), `runner` (baseline query runner), `citations`+`scalar` (deterministic scoring), `cache`+`judge` (cached N-median LLM-as-judge; `ResponseCache` holds one compute lock per cache key so concurrent workers racing the same judge call block rather than double-compute), `scorer` (the `score` seam), `program` (BaselineProgram), `golden` (devset load/verify + bootstrap/freeze; public `entity_pages` seam), `config` (packaged defaults + `harness_version` fingerprint; `NUM_THREADS=4` default / `MAX_NUM_THREADS=8` cap for `dspy.Evaluate`'s per-question parallelism — `num_threads` deliberately excluded from the fingerprint, parallelism changes wall-time not the measurement), `harness` (`run_eval`, with `on_example`/`on_substage` progress callbacks feeding `core.loop_progress`; lock-guarded usage accounting under concurrent workers), `train_bootstrap` (Phase 3a: `bootstrap_trainset` — LLM-synthesized cold-start `qa.jsonl` records grounded in a topic's own entity pages, `source: seed_train`, one `VaultTransaction` commit, refuses golden collisions); `cli/eval.py` is the `knotica eval` entry, `cli/datasets.py` the `bootstrap-train`/`freeze` entry.* | core, `core.vcs.clone_to`, `evals` dep group (`anthropic`, `dspy`) | Built |
+| `src/knotica/core/loop.py` + `loop_state.py` + `loop_heartbeat.py` + `loop_progress.py` | **Autonomous self-improvement watcher (Phase 3a):** `LoopRunner.observe_default` evals new default-branch content on a clone (content-aware trigger — `.knotica/` state + `log.md` never re-trigger, `.knotica/prompts/` edits do; gated by `_observation_hold` — an active-ingest hold, staleness-bounded 600s, and an `observe_quiet_seconds` HEAD-stability debounce, watch mode only), merges the metrics commit home, and auto-freezes the first observation as the gate baseline; on a harness-version change (instrument rotation) the baseline unconditionally re-freezes rather than comparing across instruments. `LoopState.baseline_policy` (`"latest"` default / `"best"`) governs whether a winning observation also ratchets the baseline up; `set_baseline_policy`/`rebaseline(mode)` change/reset it without an eval; `mark_observed()` is the manual-reconciliation recovery escape hatch. `poll_once`/`_process_candidate` gates at most one pending `loop/c/*` candidate per tick; a regression triggers `_heal_prompts_after_regression` (arena prompt race; default-branch content is never reverted). `_ensure_union_log_merge` self-heals `log.md merge=union` into the vault's `.gitattributes` before every merge; `_prune_result_branches` deletes merged `loop/r/*` audit pointers beyond the newest 5 (unmerged ones kept). `loop_state.LoopState`/`LoopStage`/`LoopDecision` persist runner state via `VaultTransaction`; `loop_heartbeat` writes/reads runner liveness and `loop_progress` writes/reads in-flight eval progress, both as gitignored files under `.knotica/locks/` (not `VaultStore`, no git, no commits). `cli/loop.py` is the `knotica loop` entry (`--watch`/`--once`/`--set-baseline`/`--baseline-policy`/`--rebaseline`/`--mark-observed`/`--observe-quiet`/`--eval-threads`) | core (`vcs`, `arena`, `transaction`, `ingest_activity`), `evals.harness.run_eval` | Built |
+| Plugin layer (repo root) | `.claude-plugin/plugin.json`+`marketplace.json`, `.mcp.json` (`uvx --from ${CLAUDE_PLUGIN_ROOT} knotica mcp`), `commands/*.md` (10 `/knotica:*` aliases incl. `/knotica:loop`), `hooks/` (non-blocking SessionStart pre-warm + nudges), `skills/wiki-maintenance/` | `knotica mcp` entry | Built |
 
 **Dependency rule (fitness-checkable):** arrows point inward toward `store/`. `mcp_server/` and `cli/` may import
 `core/` but must **not** import git bindings/subprocess-git or call `store.write_*` directly — the *only*
@@ -100,6 +101,30 @@ Every tool/prompt honors the `unconfigured` contract (structured result, not an 
 (`cli/eval.py`); it resolves config and delegates, renders the `MetricsRecord` or the staging handoff
 (table or `--json`), and never mutates the vault itself.
 
+**Loop + cold-start (Phase 3a, as-built `src/knotica/core/loop*.py` + `evals/train_bootstrap.py`):**
+
+- `run_eval(..., on_example: Callable[[int, int, str], None] | None, on_substage: Callable[[str, int, int], None] | None) -> EvalRunResult`
+  — the progress seams the watcher wires to `core.loop_progress.write_progress` so an in-flight
+  observation reports per-question ("7/25") and per-substage ("judging") progress.
+- `LoopRunner.observe_default(*, auto_baseline: bool = True) -> LoopCycleResult` — the watch tick's
+  observe leg (see § 5); `LoopRunner.poll_once() -> LoopCycleResult` — the gate leg (one pending
+  `loop/c/*` candidate per call).
+- `LoopRunner.set_baseline_policy(policy: "latest" | "best") -> LoopState` — persist the gate policy
+  (`ValueError` on an unrecognized value); `LoopRunner.rebaseline(mode: "best" | "latest" = "best") -> LoopState`
+  — freeze a new baseline straight from `metrics.jsonl` (no eval), restricted to the current-instrument
+  records; `LoopRunner.mark_observed() -> LoopState` — adopt HEAD as observed after manual reconciliation
+  (no eval). MCP: `loop_baseline_policy(topic, policy, vault="")`, `loop_rebaseline(topic, mode="best", vault="")`.
+- `write_heartbeat(vault_root, topic, *, interval_seconds) -> None` / `read_runner_liveness(vault_root, topic) -> dict`
+  — the runner-liveness pair `wiki_status`/the dashboard poll; `write_progress`/`read_progress` — the
+  matching in-flight-eval-progress pair. Both are plain filesystem writes under `.knotica/locks/`, no
+  `VaultStore`, no commit.
+- `bootstrap_trainset(store, vault_root, topic, llm_client, snapshot, *, target_n=30, per_page=5) -> dict`
+  — cold-start: for each of the topic's entity pages (`evals.golden.entity_pages`), the LLM synthesizes
+  query-style QA pairs grounded in that page, deduped against the existing trainset, refusing any that
+  collide with the held-out golden set; appends to `qa.jsonl` with `source: seed_train` in one
+  `VaultTransaction`. CLI: `knotica datasets bootstrap-train --topic <t> [--target N]`; MCP tool
+  `datasets_bootstrap_train(topic, target=30, vault="")`.
+
 ## 5. Data Flow
 
 **Mutating op:** `client → mcp/ tool → core.operations.<op> → resolve config (per call) →
@@ -121,6 +146,19 @@ client-as-brain (`dec-014`).
 
 **Unconfigured boot:** server registers tools/prompts/resources with zero vault access; first call resolves
 config and returns `unconfigured` until `init`/`setup` writes `config.toml` (picked up per call, no restart).
+
+**Watch tick (Phase 3a, headless — `knotica loop --topic <t>`, no MCP/no client-brain):** `poll tick →
+observe_default: default-branch HEAD moved + content changed? → _observation_hold (active-ingest hold /
+observe_quiet_seconds debounce) clear? → _ensure_union_log_merge → VaultVcs.clone_to(tmp) at HEAD →
+run_eval(on_example, on_substage → core.loop_progress; num_threads=config.num_threads) → fetch metrics
+commit into loop/r/<sha> → checkout default → merge (non-ff) → _prune_result_branches → baseline unset?
+auto-freeze : instrument (harness_version) changed? re-freeze : policy=best and scalar>baseline? ratchet
+up : compare → write_loop_state (VaultTransaction) → regressed? _heal_prompts_after_regression:
+arena.race_variants over prompt variants, promote winner (content unchanged) : gate: poll_once → next
+pending loop/c/* tip → evaluate on a clone → keep (fast-forward merge) or discard → write_loop_state`.
+Runtime files (`.knotica/locks/loop-runner-<topic>.json` heartbeat, `.knotica/locks/loop-progress-<topic>.json`)
+are machine-local gitignored state — plain filesystem writes, never `VaultStore`, never committed, never
+read by anything but `wiki_status`/the dashboard on the same machine.
 
 ## 6. Dependencies
 

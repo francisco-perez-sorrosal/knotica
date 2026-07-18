@@ -39,6 +39,9 @@ COMMAND_NAMES: tuple[str, ...] = (
     "guillotine",
     "okf",
     "eval",
+    "datasets",
+    "compile",
+    "loop",
 )
 
 

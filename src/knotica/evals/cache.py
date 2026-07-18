@@ -42,6 +42,7 @@ import hashlib
 import json
 import os
 import tempfile
+import threading
 from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
@@ -124,6 +125,21 @@ class ResponseCache:
         self._misses = 0
         # namespace -> [hits, misses]: per-consumer counters for a shared cache.
         self._namespace_stats: dict[str, list[int]] = {}
+        # Thread safety (multi-threaded dspy.Evaluate shares one cache): the
+        # stats lock guards counters/memory bookkeeping; per-key locks make a
+        # concurrent miss on the SAME key compute exactly once (the second
+        # thread waits, then reads the first thread's stored value).
+        self._stats_lock = threading.Lock()
+        self._key_locks: dict[str, threading.Lock] = {}
+        self._key_locks_guard = threading.Lock()
+
+    def _lock_for(self, key: str) -> threading.Lock:
+        with self._key_locks_guard:
+            lock = self._key_locks.get(key)
+            if lock is None:
+                lock = threading.Lock()
+                self._key_locks[key] = lock
+            return lock
 
     @property
     def hits(self) -> int:
@@ -163,17 +179,20 @@ class ResponseCache:
         counters advance regardless, so an unlabeled lookup is still counted.
         """
         key = cache_key(snapshot, prompt_hash, inputs)
-        cached = self._lookup(key)
-        if cached is not _MISS:
-            self._hits += 1
-            self._record_namespace(namespace, hit=True)
-            return cached
-        self._misses += 1
-        self._record_namespace(namespace, hit=False)
-        value = compute()
-        self._memory[key] = value
-        self._write_disk(key, value)
-        return value
+        with self._lock_for(key):
+            cached = self._lookup(key)
+            if cached is not _MISS:
+                with self._stats_lock:
+                    self._hits += 1
+                    self._record_namespace(namespace, hit=True)
+                return cached
+            with self._stats_lock:
+                self._misses += 1
+                self._record_namespace(namespace, hit=False)
+            value = compute()
+            self._memory[key] = value
+            self._write_disk(key, value)
+            return value
 
     def _record_namespace(self, namespace: str | None, *, hit: bool) -> None:
         """Advance the per-namespace hit/miss counter when a namespace is supplied."""

@@ -126,6 +126,7 @@ def build_metric(
     w_cite: float = W_CITE,
     threshold: float = DEFAULT_THRESHOLD,
     n_judge_samples: int = judge.DEFAULT_N_JUDGE_SAMPLES,
+    on_substage: Callable[[str, int, int], None] | None = None,
 ) -> Callable[..., float | bool]:
     """Bind the scorer's collaborators and return the DSPy-native ``score`` metric.
 
@@ -172,6 +173,8 @@ def build_metric(
         (:class:`~knotica.evals.judge.JudgeParseError`) propagates rather than
         collapsing into a low score.
         """
+        if on_substage is not None:
+            on_substage("judging", 0, n_judge_samples)
         qa_accuracy = judge.grade(
             llm_client,
             judge_snapshot,
@@ -180,6 +183,9 @@ def build_metric(
             gold.reference_answer,
             n=n_judge_samples,
             cache=cache,
+            on_sample=(
+                None if on_substage is None else lambda k, total: on_substage("judging", k, total)
+            ),
         )
         citation_validity = _citation_validity(store, topic, gold, prediction)
         quality = _clamp_unit(w_qa * qa_accuracy + w_cite * citation_validity)

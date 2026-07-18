@@ -7,30 +7,9 @@ configured vault takes effect with no restart), then delegates to the matching
 ``NOT_CONFIGURED`` failure envelope before any store is built -- exactly as the
 read adapter does.
 
-The operations are the sole writers: they own the single
-``VaultTransaction`` (lock + scrub + one-commit-per-effective-mutation) and
-already return the shared result envelope (``ok`` / ``err`` from
-:mod:`knotica.core.errors`). This adapter therefore does no envelope
-construction of its own -- it dispatches the returned envelope on the presence
-of an ``error`` key: a success envelope (the pointer, plus any secret-scrub
-``warnings``) becomes an ``isError=False`` result; a failure envelope becomes an
-``isError=True`` result. Config resolution lives here in the adapter, never in
-``core`` (operations are config-agnostic and receive an already-resolved vault
-root). This module imports no git and no store beyond the local backend needed
-to hand the operations their vault -- the transaction inside ``core.operations``
-is the only thing that writes.
-
-Tool descriptions are the executable interface for the model and are copied
-**verbatim** from the interface design's tool-schema section -- do not paraphrase
-them.
-
-Result shapes returned by each tool are the operation-native pointer envelopes
-(the observable contract the test band asserts):
-
-* ``write_page``     -> ``{"path", "commit_sha", "changed"}`` (+ ``warnings`` when scrub redacted)
-* ``store_source``   -> ``{"path", "commit_sha", "changed"}`` (``changed=False`` on the immutable no-op)
-* ``create_topic``   -> ``{"topic", "path", "commit_sha", "existed"}``
-* ``curate_example`` -> ``{"path", "example_count", "appended"}``
+Successful mutations also append a best-effort ingest-activity event so the
+dashboard activity pane can show store/write/curate checkpoints without relying
+on the client to remember ``ingest_progress``.
 """
 
 from collections.abc import Callable
@@ -43,6 +22,7 @@ from mcp.types import CallToolResult
 from knotica.core import operations
 from knotica.core.config import resolve
 from knotica.core.errors import ErrorCode, KnoticaError
+from knotica.core.ingest_activity import append_ingest_event
 from knotica.mcp_server import envelope
 from knotica.store import LocalFSStore, VaultStore
 
@@ -87,18 +67,11 @@ _CURATE_EXAMPLE_DESCRIPTION = (
     "operation."
 )
 
-#: Every tool returns a ``CallToolResult`` so ``isError`` is set explicitly:
-#: ``False`` on success, ``True`` on failure. FastMCP forbids a
-#: ``dict | CallToolResult`` union return, so both outcomes are wrapped uniformly.
 ToolResult = CallToolResult
 
 
 def register_write_tools(mcp: FastMCP) -> None:
-    """Register the four mutating tools on ``mcp``.
-
-    Called once at server construction. Purely registration -- no vault access
-    happens here; every tool resolves config lazily when the model invokes it.
-    """
+    """Register the four mutating tools on ``mcp``."""
 
     @mcp.tool(name="write_page", description=_WRITE_PAGE_DESCRIPTION)
     def write_page(
@@ -111,7 +84,17 @@ def register_write_tools(mcp: FastMCP) -> None:
         return _write(
             lambda store, root: operations.write_page(
                 store, root, topic, page, content, summary, index_entry=index_entry or None
-            )
+            ),
+            activity=lambda result: {
+                "topic": topic,
+                "stage": "write_page",
+                "title": f"Wrote page {page}"
+                + ("" if result.get("changed", True) else " (unchanged)"),
+                "status": "ok",
+                "detail": summary.strip() or page,
+                "path": str(result.get("path") or ""),
+                "commit_sha": str(result.get("commit_sha") or ""),
+            },
         )
 
     @mcp.tool(name="store_source", description=_STORE_SOURCE_DESCRIPTION)
@@ -126,7 +109,18 @@ def register_write_tools(mcp: FastMCP) -> None:
         return _write(
             lambda store, root: operations.store_source(
                 store, root, topic, citation_key, title, content, source_url, source_type
-            )
+            ),
+            activity=lambda result: {
+                "topic": topic,
+                "stage": "store_source",
+                "title": f"Stored source {citation_key}"
+                + ("" if result.get("changed", True) else " (already present)"),
+                "status": "ok",
+                "detail": title,
+                "citation_key": citation_key,
+                "path": str(result.get("path") or ""),
+                "commit_sha": str(result.get("commit_sha") or ""),
+            },
         )
 
     @mcp.tool(name="create_topic", description=_CREATE_TOPIC_DESCRIPTION)
@@ -134,7 +128,18 @@ def register_write_tools(mcp: FastMCP) -> None:
         return _write(
             lambda store, root: operations.create_topic(
                 store, root, topic, description=description or None
-            )
+            ),
+            activity=lambda result: {
+                "topic": topic,
+                "stage": "resolve_topic",
+                "title": (
+                    f"Topic {topic} ready" if result.get("existed") else f"Created topic {topic}"
+                ),
+                "status": "ok",
+                "detail": description,
+                "path": str(result.get("path") or ""),
+                "commit_sha": str(result.get("commit_sha") or ""),
+            },
         )
 
     @mcp.tool(name="curate_example", description=_CURATE_EXAMPLE_DESCRIPTION)
@@ -145,6 +150,7 @@ def register_write_tools(mcp: FastMCP) -> None:
         verdict: str,
         pages_used: list[str] | None = None,
         notes: str = "",
+        vault: str = "",
     ) -> ToolResult:
         return _write(
             lambda store, root: operations.curate_example(
@@ -156,35 +162,78 @@ def register_write_tools(mcp: FastMCP) -> None:
                 answer,
                 verdict,
                 notes=notes or None,
-            )
+            ),
+            vault=vault,
+            activity=lambda result: {
+                "topic": topic,
+                "workflow": "curate",
+                "stage": "curate",
+                "title": f"Curated example ({verdict})",
+                "status": "ok",
+                "detail": query[:160],
+                "path": str(result.get("path") or ""),
+                "commit_sha": str(result.get("commit_sha") or ""),
+                # Finish the curate workflow so the rail does not stay "live".
+                "complete": True,
+            },
         )
 
 
-def _write(operation: Callable[[VaultStore, Path], dict[str, Any]]) -> ToolResult:
-    """Resolve the vault per call, run ``operation``, and render its envelope.
-
-    An unconfigured vault yields the ``NOT_CONFIGURED`` failure envelope before
-    any store is built. Otherwise the operation is the sole writer (it owns the
-    transaction) and returns the shared result envelope, which this adapter maps
-    to a ``CallToolResult`` by the presence of an ``error`` key.
-    """
+def _write(
+    operation: Callable[[VaultStore, Path], dict[str, Any]],
+    *,
+    vault: str = "",
+    activity: Callable[[dict[str, Any]], dict[str, Any]] | None = None,
+) -> ToolResult:
+    """Resolve the vault per call, run ``operation``, and render its envelope."""
     try:
-        vault = resolve()
+        resolved = resolve(vault=vault.strip() or None)
     except KnoticaError as error:
         return envelope.error_envelope(error)
-    store = LocalFSStore(vault.path)
-    return _render(operation(store, vault.path))
+    store = LocalFSStore(resolved.path)
+    result_envelope = operation(store, resolved.path)
+    if activity is not None and "error" not in result_envelope:
+        _best_effort_activity(store, resolved.path, activity(result_envelope))
+    return _render(result_envelope)
+
+
+def _best_effort_activity(store: VaultStore, vault_path: Path, fields: dict[str, Any]) -> None:
+    """Never let the activity journal fail a mutating tool."""
+    try:
+        event = append_ingest_event(
+            store,
+            vault_path,
+            topic=str(fields.get("topic") or ""),
+            stage=str(fields.get("stage") or "info"),
+            title=str(fields.get("title") or ""),
+            status=str(fields.get("status") or "ok"),
+            detail=str(fields.get("detail") or ""),
+            citation_key=str(fields.get("citation_key") or ""),
+            path=str(fields.get("path") or ""),
+            commit_sha=str(fields.get("commit_sha") or ""),
+            source="server",
+            workflow=str(fields.get("workflow") or ""),
+        )
+        if fields.get("complete"):
+            append_ingest_event(
+                store,
+                vault_path,
+                topic=str(event.get("topic") or fields.get("topic") or ""),
+                stage="complete",
+                title="Curation complete",
+                status="ok",
+                run_id=str(event.get("run_id") or ""),
+                path=str(fields.get("path") or ""),
+                commit_sha=str(fields.get("commit_sha") or ""),
+                source="server",
+                workflow=str(event.get("workflow") or fields.get("workflow") or "curate"),
+            )
+    except Exception:  # noqa: BLE001 - journal must not break writes
+        return
 
 
 def _render(result_envelope: dict[str, Any]) -> ToolResult:
-    """Map an operation's result envelope to an ``isError``-flagged tool result.
-
-    A failure envelope (``{"error": {...}}``) becomes an ``isError=True`` result;
-    every other envelope is a success (its pointer plus any secret-scrub
-    ``warnings``) and becomes ``isError=False``. Both shapes reuse the shared
-    :mod:`~knotica.mcp_server.envelope` renderers rather than reconstructing the
-    JSON/text wrapping here.
-    """
+    """Map an operation's result envelope to an ``isError``-flagged tool result."""
     error = result_envelope.get("error")
     if error is not None:
         return envelope.error_envelope(_as_knotica_error(error))
@@ -192,13 +241,7 @@ def _render(result_envelope: dict[str, Any]) -> ToolResult:
 
 
 def _as_knotica_error(error: dict[str, Any]) -> KnoticaError:
-    """Rebuild a :class:`KnoticaError` from a failure envelope's error object.
-
-    The operations return already-rendered failure envelopes (not exceptions),
-    so this round-trips the ``{code, message, fix, retryable}`` object back into
-    a ``KnoticaError`` to reuse :func:`envelope.error_envelope` -- preserving the
-    operation's exact ``fix`` text and ``retryable`` flag (e.g. ``LOCK_BUSY``).
-    """
+    """Rebuild a :class:`KnoticaError` from a failure envelope's error object."""
     return KnoticaError(
         ErrorCode(error["code"]),
         error["message"],

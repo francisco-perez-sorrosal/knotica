@@ -13,8 +13,9 @@ the guards around it:
   against a future "helpful" suffixing regression.
 - **Runner knobs are safe by default, and unsafe overrides fail fast.** The config
   is a frozen ``HarnessConfig`` validated at construction. The default thread count
-  is one -- more than one thread shares a single program instance across threads
-  with no thread-safe judge cache, so it is refused with an explanatory error. The
+  parallelizes per-question scoring within a bounded cap (the shared cache, usage
+  accounting, and progress wrapper are lock-guarded; results are identical to a
+  sequential run); counts beyond the cap or below one are refused. The
   judge draws an odd number of samples (default three) so the median is a real drawn
   sample; an even count is refused, mirroring the judge's own odd-only rule. A
   non-positive value for either is refused.
@@ -25,7 +26,8 @@ the guards around it:
   returns a 64-char hex digest, stable within a process *and across a fresh
   interpreter* (no hash-seed dependence), that changes when any folded component
   changes -- the scalar-formula version, either model snapshot, the judge prompt
-  hash, or any runner-config input (thread count, failure policy, dspy version).
+  hash, or any runner-config input (failure policy, dspy version — never the
+  thread count, which changes wall-time, not the measurement).
   The overridable knobs reach it by *passing a ``HarnessConfig``*, not via hidden
   globals. It never folds in the ``ANTHROPIC_API_KEY``: a clone's committed record
   must not carry the secret. The tunable weight/lambda *values* are deliberately not
@@ -138,22 +140,24 @@ def test_neither_snapshot_carries_a_dated_suffix() -> None:
 # ---------------------------------------------------------------------------
 
 
-def test_the_default_thread_count_is_one() -> None:
-    assert NUM_THREADS == 1, (
-        "v1 pins a single thread: dspy shares one program instance across threads "
-        "and the judge cache is not thread-safe"
+def test_the_default_thread_count_is_parallel_within_the_cap() -> None:
+    from knotica.evals.config import MAX_NUM_THREADS
+
+    assert 1 < NUM_THREADS <= MAX_NUM_THREADS, (
+        "the default parallelizes per-question scoring (results are proven "
+        "identical to sequential) and must respect the rate-limit cap"
     )
 
 
-def test_more_than_one_thread_is_rejected_with_a_thread_safety_rationale() -> None:
+def test_thread_counts_up_to_the_cap_are_accepted_and_beyond_rejected() -> None:
+    # Concurrency is supported now that the shared surfaces (response cache,
+    # usage accounting, progress wrapper) are lock-guarded; the cap bounds API
+    # rate-limit exposure.
+    assert HarnessConfig(num_threads=2).num_threads == 2
+    assert HarnessConfig(num_threads=8).num_threads == 8
     with pytest.raises((ValueError, KnoticaError)) as excinfo:
-        HarnessConfig(num_threads=2)
-
-    haystack = f"{excinfo.value} {getattr(excinfo.value, 'fix', '')}".lower()
-    assert "thread" in haystack or "cache" in haystack, (
-        "rejecting more than one thread must explain the thread-safety / cache "
-        f"rationale so the failure is self-explanatory; got {excinfo.value!r}"
-    )
+        HarnessConfig(num_threads=9)
+    assert "at most" in str(excinfo.value)
 
 
 def test_a_nonpositive_thread_count_is_rejected() -> None:
@@ -279,18 +283,16 @@ def test_the_fingerprint_is_sensitive_to_a_folded_config_field(
     assert changed != baseline, f"overriding {overrides} must change the harness fingerprint"
 
 
-def test_the_fingerprint_is_sensitive_to_the_thread_count() -> None:
-    # Only ``num_threads == 1`` is a valid config in v1, so the fingerprint's
-    # sensitivity to this folded input is probed by forcing the field past the
-    # frozen guard -- proving that once a thread-safe cache lands, a thread-count
-    # change would rotate the recorded harness version rather than silently
-    # producing a comparable scalar.
+def test_the_fingerprint_ignores_the_thread_count() -> None:
+    # Parallelism changes wall-time, never the measurement: per-example results
+    # are independent and aggregated in devset order, so a thread-count change
+    # must NOT rotate the instrument (a rotation would flip the gate to
+    # "unknown" for a purely operational tweak).
     baseline = harness_version(SAMPLE_JUDGE_PROMPT_HASH)
-    forced = HarnessConfig()
-    object.__setattr__(forced, "num_threads", 2)
+    parallel = HarnessConfig(num_threads=4)
 
-    assert harness_version(SAMPLE_JUDGE_PROMPT_HASH, forced) != baseline, (
-        "the thread count is a folded runner-config input; changing it must change the fingerprint"
+    assert harness_version(SAMPLE_JUDGE_PROMPT_HASH, parallel) == baseline, (
+        "the thread count is execution config, not instrument config"
     )
 
 
@@ -355,10 +357,10 @@ def test_the_eval_golden_floor_is_twenty() -> None:
 
 def test_the_eval_golden_floor_is_independent_of_the_compile_ready_floor() -> None:
     # Two deliberately-disjoint counts: the held-out eval set vs the flywheel
-    # trainset. Equal today, but each is its own named constant -- collapsing them
-    # into one would invite conflating the two sets.
+    # trainset. Each is its own named constant — collapsing them would invite
+    # conflating the two sets.
     assert EVAL_MIN_GOLDEN == 20
-    assert COMPILE_READY_MIN_EXAMPLES == 20
+    assert COMPILE_READY_MIN_EXAMPLES == 30
 
 
 # ---------------------------------------------------------------------------

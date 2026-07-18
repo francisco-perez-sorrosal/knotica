@@ -105,6 +105,16 @@ class VaultVcs:
         result = self._run(["rev-list", "--count", "@{upstream}..HEAD"], optional_locks=False)
         return int(result.stdout.strip() or "0")
 
+    def changed_paths(self, base: str, head: str = "HEAD") -> list[str]:
+        """Repo-relative paths that differ between ``base`` and ``head`` (read-only)."""
+        result = self._run(["diff", "--name-only", f"{base}..{head}"], optional_locks=False)
+        return [line.strip() for line in result.stdout.splitlines() if line.strip()]
+
+    def commit_timestamp(self, commit: str) -> int:
+        """The commit's committer timestamp (unix seconds; read-only)."""
+        result = self._run(["log", "-1", "--format=%ct", commit], optional_locks=False)
+        return int(result.stdout.strip() or "0")
+
     def is_dirty(self, paths: Sequence[str | PurePath] | None = None) -> bool:
         """Return whether the work tree has uncommitted changes.
 
@@ -117,6 +127,35 @@ class VaultVcs:
             command += ["--", *_normalize_paths(paths)]
         result = self._run(command, optional_locks=False)
         return bool(result.stdout.strip())
+
+    def list_dirty_entries(self) -> list[dict[str, str | bool]]:
+        """Return porcelain dirty entries as path-scoped repair candidates.
+
+        Read-only. Each entry is ``{path, code, tracked, untracked}`` where
+        ``code`` is the two-letter porcelain status (e.g. `` M``, ``??``).
+        Rename lines use the destination path. Never mutates.
+        """
+        result = self._run(["status", "--porcelain"], optional_locks=False)
+        entries: list[dict[str, str | bool]] = []
+        for line in result.stdout.splitlines():
+            if len(line) < 4:
+                continue
+            code = line[:2]
+            rest = line[3:]
+            path = rest.split(" -> ", 1)[1] if " -> " in rest else rest
+            path = path.strip().strip('"')
+            if not path:
+                continue
+            untracked = code == "??"
+            entries.append(
+                {
+                    "path": PurePath(path).as_posix(),
+                    "code": code,
+                    "tracked": not untracked,
+                    "untracked": untracked,
+                }
+            )
+        return entries
 
     def clone_to(self, dest_root: str | PurePath, ref: str | None = None) -> "VaultVcs":
         """Clone this vault to ``dest_root`` and return a ``VaultVcs`` on the clone.
@@ -217,6 +256,171 @@ class VaultVcs:
         if created_since_ref:
             self._remove_created_paths(created_since_ref)
 
+    # ------------------------------------------------------------------
+    # Branch lifecycle (loop runner). Not part of the path-scoped write
+    # surface — adapters must still never call these; the loop orchestrator
+    # and tests are the intended callers.
+    # ------------------------------------------------------------------
+
+    def list_branch_tips(self, prefix: str = "loop/") -> list[tuple[str, str]]:
+        """Return ``(branch_name, tip_sha)`` for local heads under ``prefix``.
+
+        Read-only. Empty when no matching branches exist. ``prefix`` may be empty
+        to list every local head (``refs/heads/*``).
+        """
+        pattern = f"refs/heads/{prefix}*" if prefix else "refs/heads/*"
+        result = self._run(
+            ["for-each-ref", "--format=%(refname:short)\t%(objectname)", pattern],
+            check=False,
+            optional_locks=False,
+        )
+        if result.returncode != 0 or not result.stdout.strip():
+            return []
+        tips: list[tuple[str, str]] = []
+        for line in result.stdout.splitlines():
+            name, _, sha = line.partition("\t")
+            if name and sha:
+                tips.append((name.strip(), sha.strip()))
+        return tips
+
+    def tip_committer_iso(self, ref: str) -> str | None:
+        """Return the tip committer timestamp (ISO-8601) for ``ref``, or ``None``."""
+        result = self._run(
+            ["log", "-1", "--format=%cI", ref],
+            check=False,
+            optional_locks=False,
+        )
+        if result.returncode != 0:
+            return None
+        text = result.stdout.strip()
+        return text or None
+
+    def branch_exists(self, name: str) -> bool:
+        """Return whether local branch ``name`` exists."""
+        result = self._run(
+            ["show-ref", "--verify", "--quiet", f"refs/heads/{name}"],
+            check=False,
+            optional_locks=False,
+        )
+        return result.returncode == 0
+
+    def ref_sha(self, ref: str) -> str:
+        """Return the full object name for ``ref`` (branch, tag, or SHA)."""
+        result = self._run(["rev-parse", ref], optional_locks=False)
+        return result.stdout.strip()
+
+    def is_ancestor(self, ancestor: str, descendant: str) -> bool:
+        """Return whether ``ancestor`` is an ancestor of ``descendant`` (inclusive)."""
+        result = self._run(
+            ["merge-base", "--is-ancestor", ancestor, descendant],
+            check=False,
+            optional_locks=False,
+        )
+        return result.returncode == 0
+
+    def default_branch(self) -> str:
+        """Best-effort default branch name (``main`` / ``master`` / current)."""
+        symbolic = self._run(
+            ["symbolic-ref", "--short", "refs/remotes/origin/HEAD"],
+            check=False,
+            optional_locks=False,
+        )
+        if symbolic.returncode == 0:
+            remote_head = symbolic.stdout.strip()  # e.g. origin/main
+            if "/" in remote_head:
+                return remote_head.split("/", 1)[1]
+        for candidate in ("main", "master"):
+            probe = self._run(
+                ["show-ref", "--verify", "--quiet", f"refs/heads/{candidate}"],
+                check=False,
+                optional_locks=False,
+            )
+            if probe.returncode == 0:
+                return candidate
+        current = self.current_branch()
+        if current is not None:
+            return current
+        raise GitError("could not determine the vault's default branch")
+
+    def create_branch(self, name: str, start_ref: str = "HEAD") -> None:
+        """Create local branch ``name`` at ``start_ref`` (does not switch)."""
+        self._run(["branch", name, start_ref], retry_index_lock=True)
+
+    def checkout_branch(self, name: str) -> None:
+        """Switch the work tree to local branch ``name``."""
+        self._run(["checkout", name], retry_index_lock=True)
+
+    def delete_branch(self, name: str, *, force: bool = True) -> None:
+        """Delete local branch ``name`` (force by default — discard a failed candidate)."""
+        flag = "-D" if force else "-d"
+        self._run(["branch", flag, name], retry_index_lock=True)
+
+    def fetch_ref_from(self, other_root: str | Path, source_ref: str, dest_ref: str) -> None:
+        """Fetch ``source_ref`` from another local repo into ``dest_ref`` here.
+
+        Used to pull an eval clone's tip back onto the source as a result branch
+        without a network remote.
+        """
+        self._run(
+            ["fetch", str(Path(other_root)), f"{source_ref}:{dest_ref}"],
+            retry_index_lock=True,
+        )
+
+    def merge_branch(self, branch: str, *, ff_only: bool = False, no_ff: bool = False) -> str:
+        """Merge ``branch`` into ``HEAD``; return the new tip SHA.
+
+        ``ff_only=True`` refuses non-fast-forward merges. ``no_ff=True`` forces a
+        merge commit (used by compile promote for a clear audit trail). The loop
+        runner uses a regular merge by default because mid-cycle ``loop-state.json``
+        commits on the default branch can diverge from a candidate that branched earlier.
+        """
+        args = ["merge", "--no-edit"]
+        if ff_only:
+            args.append("--ff-only")
+        elif no_ff:
+            args.append("--no-ff")
+        args.append(branch)
+        self._run(args, retry_index_lock=True)
+        return self.head_sha()
+
+    def is_merge_in_progress(self) -> bool:
+        """Return whether a merge is in progress (``MERGE_HEAD`` exists)."""
+        result = self._run(
+            ["rev-parse", "-q", "--verify", "MERGE_HEAD"],
+            check=False,
+            optional_locks=False,
+        )
+        return result.returncode == 0
+
+    def unmerged_paths(self) -> list[str]:
+        """Return vault-relative paths with unresolved merge conflicts."""
+        result = self._run(
+            ["diff", "--name-only", "--diff-filter=U"],
+            check=False,
+            optional_locks=False,
+        )
+        return [line.strip() for line in result.stdout.splitlines() if line.strip()]
+
+    def checkout_merge_side(self, path: str, side: str) -> None:
+        """Check out ``ours`` or ``theirs`` for one conflicted path during a merge."""
+        if side not in {"ours", "theirs"}:
+            raise ValueError("side must be 'ours' or 'theirs'")
+        self._run(["checkout", f"--{side}", "--", path], retry_index_lock=True)
+        self._run(["add", "--", path], retry_index_lock=True)
+
+    def continue_merge(self) -> str:
+        """Complete an in-progress merge with the default merge message."""
+        self._run(["commit", "--no-edit"], retry_index_lock=True)
+        return self.head_sha()
+
+    def abort_merge(self) -> None:
+        """Abort an in-progress merge and restore ``HEAD``."""
+        self._run(["merge", "--abort"], retry_index_lock=True)
+
+    def push(self, remote: str, refspec: str) -> None:
+        """Push ``refspec`` to ``remote`` (e.g. ``main`` or ``loop/result/abc``)."""
+        self._run(["push", remote, refspec], retry_index_lock=True)
+
     def _remove_created_paths(self, paths: list[str]) -> None:
         """Unstage and delete paths that did not exist at the rollback ref."""
         self._run(
@@ -225,6 +429,104 @@ class VaultVcs:
         )
         for path in paths:
             (self._root / path).unlink(missing_ok=True)
+
+    def file_exists_at(self, ref: str, path: str) -> bool:
+        """Return whether ``path`` exists as a blob at ``ref`` (read-only)."""
+        return self._exists_at_ref(ref, path)
+
+    def read_file_at(self, ref: str, path: str) -> str | None:
+        """Return file contents at ``ref:path``, or ``None`` when absent."""
+        if not self._exists_at_ref(ref, path):
+            return None
+        result = self._run(["show", f"{ref}:{path}"], optional_locks=False)
+        return result.stdout
+
+    def diff_between(
+        self,
+        base: str,
+        head: str,
+        path: str,
+        *,
+        triple_dot: bool = False,
+    ) -> str:
+        """Return unified diff for ``path`` between ``base`` and ``head`` (read-only)."""
+        sep = "..." if triple_dot else ".."
+        result = self._run(
+            ["diff", f"{base}{sep}{head}", "--", path],
+            check=False,
+            optional_locks=False,
+        )
+        return result.stdout
+
+    def path_commit_shas(self, path: str, limit: int = 2) -> list[str]:
+        """Return up to ``limit`` newest commit SHAs that touched ``path``."""
+        if limit < 1:
+            return []
+        result = self._run(
+            ["log", f"-{limit}", "--format=%H", "--", path],
+            check=False,
+            optional_locks=False,
+        )
+        return [line.strip() for line in result.stdout.splitlines() if line.strip()]
+
+    def merge_parents(self, commit: str) -> tuple[str, str] | None:
+        """Return ``(first_parent, second_parent)`` for a merge commit, else ``None``."""
+        result = self._run(
+            ["rev-list", "--parents", "-n", "1", commit],
+            check=False,
+            optional_locks=False,
+        )
+        parts = result.stdout.strip().split()
+        if len(parts) >= 3:
+            return parts[1], parts[2]
+        return None
+
+    def find_merge_commit_for_branch(self, branch_name: str) -> str | None:
+        """Best-effort: newest merge commit whose message mentions ``branch_name``."""
+        needle = f"Merge branch '{branch_name}'"
+        result = self._run(
+            [
+                "log",
+                "--merges",
+                f"--grep={needle}",
+                "-1",
+                "--format=%H",
+            ],
+            check=False,
+            optional_locks=False,
+        )
+        sha = result.stdout.strip()
+        return sha or None
+
+    def list_compile_merge_commits(
+        self,
+        topic: str,
+        *,
+        limit: int = 20,
+    ) -> list[tuple[str, str]]:
+        """Return ``(branch_name, merge_sha)`` pairs from ``--no-ff`` compile promotes."""
+        prefix = f"compile/{topic.strip().strip('/')}/"
+        needle = f"Merge branch '{prefix}"
+        result = self._run(
+            ["log", f"-{limit}", "--merges", "--format=%H %s"],
+            check=False,
+            optional_locks=False,
+        )
+        rows: list[tuple[str, str]] = []
+        for line in result.stdout.splitlines():
+            if not line.strip():
+                continue
+            merge_sha, _, subject = line.partition(" ")
+            if needle not in subject:
+                continue
+            start = subject.find("'") + 1
+            end = subject.find("'", start)
+            if start <= 0 or end <= start:
+                continue
+            branch = subject[start:end]
+            if branch.startswith(prefix):
+                rows.append((branch, merge_sha))
+        return rows
 
     def _exists_at_ref(self, ref: str, path: str) -> bool:
         """Return whether ``path`` exists as a blob at ``ref``."""

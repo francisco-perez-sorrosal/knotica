@@ -355,3 +355,52 @@ def test_unconfigured_vault_exits_three_with_the_setup_remediation(
         f"unconfigured must exit 3 (got {result.returncode}); stderr: {result.stderr!r}"
     )
     assert UNCONFIGURED_MESSAGE in result.stderr
+
+
+# ---------------------------------------------------------------------------
+# doctor repair — real path-scoped restore (not --fix guidance)
+# ---------------------------------------------------------------------------
+
+
+def test_doctor_repair_dry_run_lists_dirty_paths(vault_config: Path, template_vault: Path):
+    del vault_config
+    (template_vault / "SCHEMA.md").write_text(
+        (template_vault / "SCHEMA.md").read_text(encoding="utf-8") + "\n# dirty\n",
+        encoding="utf-8",
+    )
+    result = _run("doctor", "repair", "--dry-run", "--json")
+    assert result.returncode == 0, result.stderr
+    payload = json.loads(result.stdout)
+    assert payload["mode"] == "dry-run"
+    assert "SCHEMA.md" in payload["tracked_paths"]
+
+
+def test_doctor_repair_apply_restores_selected_path(vault_config: Path, template_vault: Path):
+    del vault_config
+    target = template_vault / "SCHEMA.md"
+    original = target.read_text(encoding="utf-8")
+    target.write_text(original + "\n# dirty-apply\n", encoding="utf-8")
+
+    result = _run("doctor", "repair", "--apply", "--paths", "SCHEMA.md", "--json")
+    assert result.returncode == 0, result.stderr
+    payload = json.loads(result.stdout)
+    assert payload["mode"] == "apply"
+    assert "SCHEMA.md" in payload["restored"]
+    assert target.read_text(encoding="utf-8") == original
+
+
+def test_doctor_fix_points_at_repair_not_restore_dot(vault_config: Path, template_vault: Path):
+    del vault_config
+    (template_vault / "SCHEMA.md").write_text(
+        (template_vault / "SCHEMA.md").read_text(encoding="utf-8") + "\n# dirty\n",
+        encoding="utf-8",
+    )
+    result = _run("doctor", "--fix", "--json")
+    assert result.returncode in (0, 1), result.stderr
+    payload = json.loads(result.stdout)
+    guidance = payload.get("fix_guidance")
+    assert guidance is not None
+    assert guidance["kind"] == "scoped_git_restore"
+    joined = " ".join(guidance["commands"])
+    assert "doctor repair" in joined
+    assert "git restore ." not in joined

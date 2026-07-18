@@ -734,7 +734,44 @@ def test_missing_anthropic_package_raises_an_actionable_typed_error(
         AnthropicClient()
 
     err = excinfo.value
-    assert "uv sync --group evals" in f"{err.message} {err.fix}", (
+    combined = f"{err.message} {err.fix}"
+    assert "uv sync --group evals" in combined, (
         "a missing eval dependency group must surface the exact install command "
         f"so the failure is self-fixing; got message={err.message!r} fix={err.fix!r}"
     )
+    assert "code repo" in combined and "not the vault" in combined, (
+        "the fix must distinguish the knotica package repo from the vault data repo"
+    )
+    assert "--with anthropic" in combined, (
+        "Desktop uvx users need the --with remediation in the same error"
+    )
+
+
+def test_cache_concurrent_same_key_computes_exactly_once() -> None:
+    import threading
+
+    from knotica.evals.cache import ResponseCache
+
+    cache = ResponseCache()
+    compute_calls: list[int] = []
+    barrier = threading.Barrier(4)
+
+    def compute() -> float:
+        compute_calls.append(1)
+        return 0.5
+
+    def worker() -> None:
+        barrier.wait()
+        cache.get_or_compute(
+            snapshot="snap", prompt_hash="hash", inputs=["same"], compute=compute
+        )
+
+    threads = [threading.Thread(target=worker) for _ in range(4)]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join()
+
+    assert len(compute_calls) == 1, "concurrent misses on one key must compute once"
+    assert cache.hits == 3
+    assert cache.misses == 1

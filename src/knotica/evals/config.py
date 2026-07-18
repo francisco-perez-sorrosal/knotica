@@ -48,8 +48,9 @@ and judge and recorded here so an upgrade does not silently break them:
 
 **The fingerprint.** :func:`harness_version` hashes ``{scalar_formula_version,
 judge_snapshot, worker_snapshot, judge_prompt_hash, runner_config_hash}``, where
-``runner_config_hash`` folds in the installed ``dspy`` version and the Evaluate
-config (``num_threads``, ``failure_score``). ``judge_prompt_hash`` is passed in by
+``runner_config_hash`` folds in the installed ``dspy`` version and
+``failure_score`` (never ``num_threads`` — parallelism does not change the
+measurement). ``judge_prompt_hash`` is passed in by
 the caller (the judge owns it) so this module stays decoupled from the judge
 instrument. The digest is deterministic across processes (canonical sorted-key
 serialization), carries no secrets, and rotates whenever any folded input changes
@@ -74,6 +75,7 @@ __all__ = [
     "LAMBDA",
     "MAX_TOTAL_TOKENS_PER_RUN",
     "MAX_USD_PER_RUN",
+    "MAX_NUM_THREADS",
     "NUM_THREADS",
     "N_JUDGE_SAMPLES",
     "SCALAR_FORMULA_VERSION",
@@ -145,10 +147,17 @@ TAU = 1.3
 # dspy.Evaluate runner config.
 # --------------------------------------------------------------------------- #
 
-#: Packaged thread count for ``dspy.Evaluate``. Fixed at ``1`` in v1: dspy shares
-#: one program instance across threads (no deepcopy) and the judge cache is not yet
-#: thread-safe. Overriding above ``1`` is rejected by validation, not silently run.
-NUM_THREADS = 1
+#: Packaged default thread count for ``dspy.Evaluate``. Concurrency up to
+#: :data:`MAX_NUM_THREADS` is supported: the shared cache, usage accounting, and
+#: progress wrapper are lock-guarded, and per-example results plus their
+#: devset-order aggregation are thread-count-independent — which is why
+#: ``num_threads`` never folds into the fingerprint and results are identical
+#: to a sequential run. Default ``4`` cuts eval wall-time ~3-4×; drop to ``1``
+#: (``--eval-threads 1``) when debugging or rate-limited.
+NUM_THREADS = 4
+
+#: Upper bound on Evaluate worker threads (API rate limits vs speedup).
+MAX_NUM_THREADS = 8
 
 #: The score attributed to an example whose program call raises inside
 #: ``dspy.Evaluate`` (the Evaluate ``failure_score`` policy). ``0.0`` matches dspy's
@@ -190,19 +199,21 @@ def _reject_even_or_nonpositive_samples(n: int) -> None:
 
 
 def _reject_multithreading(num_threads: int) -> None:
-    """Reject any thread count other than ``1`` in v1.
+    """Bound the Evaluate thread count to ``1..MAX_NUM_THREADS``.
 
-    Below ``1`` is nonsensical; above ``1`` is unsafe until the judge cache is
-    thread-safe (dspy shares one program instance across threads without a deepcopy).
+    Concurrency above 1 is supported: the shared surfaces are thread-safe
+    (``ResponseCache`` takes per-key compute locks, the usage accountant and the
+    progress wrapper are lock-guarded, and ``BaselineProgram.forward`` is
+    stateless per call). The upper bound keeps a fat thread pool from tripping
+    API rate limits for negligible extra speedup.
     """
     if num_threads < 1:
         raise ValueError(f"num_threads must be a positive integer, got {num_threads}.")
-    if num_threads > 1:
+    if num_threads > MAX_NUM_THREADS:
         raise ValueError(
-            f"num_threads must be 1 in v1, got {num_threads}. dspy.Evaluate shares one "
-            "program instance across threads (it does not deepcopy) and the judge "
-            "response cache is not yet thread-safe, so more than one thread would "
-            "corrupt cached medians. To fix: set num_threads=1."
+            f"num_threads must be at most {MAX_NUM_THREADS}, got {num_threads} — "
+            "higher counts mostly trade API rate-limit errors for no wall-time gain. "
+            f"To fix: set num_threads<={MAX_NUM_THREADS}."
         )
 
 
@@ -303,9 +314,10 @@ def harness_version(judge_prompt_hash: str, config: HarnessConfig = DEFAULT_CONF
 
     Hashes ``{scalar_formula_version, judge_snapshot, worker_snapshot,
     judge_prompt_hash, runner_config_hash}``, where ``runner_config_hash`` folds in
-    the installed ``dspy`` version and the Evaluate config (``num_threads``,
-    ``failure_score``). ``judge_prompt_hash`` is supplied by the caller (the judge
-    owns its instrument hash) so this module stays decoupled from the judge.
+    the installed ``dspy`` version and ``failure_score`` — never ``num_threads``,
+    so scalars stay comparable across thread counts. ``judge_prompt_hash`` is
+    supplied by the caller (the judge owns its instrument hash) so this module
+    stays decoupled from the judge.
 
     Deterministic across processes, carries no secrets, and changes whenever any
     folded input changes -- so a rotated snapshot, an edited judge prompt, a bumped
@@ -321,11 +333,14 @@ def harness_version(judge_prompt_hash: str, config: HarnessConfig = DEFAULT_CONF
     Returns:
         The hex ``sha256`` fingerprint string.
     """
+    # ``num_threads`` is deliberately NOT folded in: execution parallelism does
+    # not change what is measured (per-example results are independent and the
+    # aggregation order is devset order), so scalars must stay comparable across
+    # thread counts — a threading change must never flip the gate to "unknown".
     runner_config_hash = _sha256_canonical(
         {
             "dspy_version": _installed_dspy_version(),
             "failure_score": config.failure_score,
-            "num_threads": config.num_threads,
         }
     )
     return _sha256_canonical(

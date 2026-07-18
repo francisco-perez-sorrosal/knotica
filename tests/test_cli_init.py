@@ -74,7 +74,8 @@ def hermetic_bin(tmp_path: Path) -> Path:
     assert git is not None, "git must be installed to exercise knotica init"
     (bin_dir / "git").symlink_to(git)
     (bin_dir / "uvx").write_text("#!/bin/sh\necho 'uvx 0.0.0'\nexit 0\n", encoding="utf-8")
-    for name in ("uv", "claude", "gh"):
+    (bin_dir / "uv").write_text("#!/bin/sh\necho 'uv 0.0.0'\nexit 0\n", encoding="utf-8")
+    for name in ("claude", "gh"):
         (bin_dir / name).write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
     for stub in bin_dir.iterdir():
         if not stub.is_symlink():
@@ -272,13 +273,13 @@ def test_no_input_without_a_vault_path_fails_fast_with_misuse_exit(
 # ---------------------------------------------------------------------------
 
 
-def test_desktop_patch_merges_preserving_servers_and_writes_absolute_uvx_with_backup(
+def test_desktop_patch_merges_preserving_servers_and_writes_absolute_launch_with_backup(
     isolated_home: Path, hermetic_bin: Path, tmp_path: Path
 ):
     """``init --desktop`` merges into an existing Desktop config: pre-existing
     keys and servers survive, the added knotica server carries an ABSOLUTE
-    ``uvx`` command (Desktop's minimal PATH), and the prior config is backed up
-    byte-for-byte before the patch."""
+    ``uv`` (local repo) or ``uvx`` command (Desktop's minimal PATH), and the
+    prior config is backed up byte-for-byte before the patch."""
     env = _init_env(hermetic_bin)
     desktop = _desktop_config_path(isolated_home)
     desktop.parent.mkdir(parents=True, exist_ok=True)
@@ -304,15 +305,32 @@ def test_desktop_patch_merges_preserving_servers_and_writes_absolute_uvx_with_ba
     added = {
         name: entry for name, entry in patched["mcpServers"].items() if name != "existing-server"
     }
-    uvx_entries = [
-        entry
-        for entry in added.values()
-        if os.path.isabs(entry.get("command", "")) and "uvx" in entry.get("command", "")
-    ]
-    assert uvx_entries, (
-        "init --desktop must add a knotica server whose command is an absolute uvx path; "
-        f"added entries: {added!r}"
+    knotica_entry = added.get("knotica")
+    assert knotica_entry is not None, (
+        f"init --desktop must add a knotica server entry; added entries: {added!r}"
     )
+    command = knotica_entry.get("command", "")
+    assert os.path.isabs(command) and ("uv" in command or "uvx" in command), (
+        "init --desktop must add a knotica server whose command is an absolute uv/uvx path; "
+        f"entry: {knotica_entry!r}"
+    )
+    args = knotica_entry.get("args", [])
+    if args[:2] == ["run", "--directory"]:
+        assert args[3:6] == ["--group", "evals", "knotica"] and args[-1] == "mcp", (
+            f"Desktop uv run args must be run --directory <repo> --group evals knotica mcp; "
+            f"got args={args!r}"
+        )
+        assert Path(args[2]).resolve() == REPO_ROOT.resolve(), (
+            f"Desktop uv run --directory must point at the local checkout; got {args[2]!r}"
+        )
+    else:
+        assert args[0] == "--refresh" and args[1] == "--from" and args[-2:] == ["knotica", "mcp"], (
+            f"Desktop uvx args must be --refresh --from <repo> … knotica mcp; got args={args!r}"
+        )
+        assert args.count("--with") == 2 and "anthropic" in args and "dspy" in args, (
+            "Desktop uvx args must include --with anthropic --with dspy for headless query; "
+            f"got args={args!r}"
+        )
 
     backups = [b for b in desktop.parent.glob("*.bak") if b.is_file()]
     assert backups, "the prior Desktop config must be backed up before patching"

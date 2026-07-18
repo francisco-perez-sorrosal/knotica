@@ -56,6 +56,8 @@ _DESKTOP_CONFIG_ENV_VAR = "KNOTICA_DESKTOP_CONFIG"
 _MCP_FROM_ENV_VAR = "KNOTICA_MCP_FROM"
 #: Timeout for every bootstrap subprocess call.
 _SUBPROCESS_TIMEOUT_SECONDS = 120.0
+#: Headless LLM packages injected into Desktop's uvx launch (query / compile / Arena).
+_UVX_EVALS_PACKAGES = ("anthropic", "dspy")
 #: Top-level names a topic may never collide with (root constitution).
 _RESERVED_TOPIC_NAMES = frozenset(
     {"sources", "index.md", "log.md", "SCHEMA.md", "START_HERE.md", ".knotica", ".git"}
@@ -154,7 +156,7 @@ def _scaffold_and_wire(console: Console, inputs: _Inputs) -> None:
     _register_mcp(console, from_source)
     if inputs.desktop:
         _patch_desktop(console, from_source)
-    _warm_uvx(console, from_source)
+    _warm_uvx(console, from_source, include_evals=inputs.desktop)
 
 
 def _resolve_inputs(console: Console, args: argparse.Namespace) -> _Inputs:
@@ -318,14 +320,19 @@ def _register_mcp(console: Console, from_source: str) -> None:
 
 
 def _patch_desktop(console: Console, from_source: str) -> None:
-    """Additively patch the Desktop config with the **absolute** ``uvx`` path.
+    """Additively patch the Desktop config with an absolute ``uv`` / ``uvx`` launch.
+
+    Local repo checkouts use editable ``uv run --directory … --group evals`` so
+    Desktop picks up worktree changes without a stale ``uvx`` wheel cache.
+    Published installs fall back to ``uvx --refresh --from …``.
 
     Backs the existing file up to ``.bak`` before writing, and merges only the
     knotica server entry -- every pre-existing server and key is preserved.
     """
-    uvx = shutil.which("uvx")
-    if uvx is None:
-        console.warn("uvx not found — skipping Desktop config patch (install uv first)")
+    try:
+        command, args = _desktop_knotica_launch(from_source, "mcp")
+    except _InitError as error:
+        console.warn(str(error))
         return
     path = _desktop_config_path()
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -340,29 +347,87 @@ def _patch_desktop(console: Console, from_source: str) -> None:
             console.warn(f"Desktop config at {path} is not valid JSON — leaving it untouched")
             return
     servers = existing.setdefault("mcpServers", {})
-    servers[_MCP_SERVER_NAME] = {
-        "command": uvx,
-        "args": ["--from", from_source, "knotica", "mcp"],
-    }
+    entry: dict[str, object] = {"command": command, "args": args}
+    prior_env = servers.get(_MCP_SERVER_NAME, {}).get("env")
+    if isinstance(prior_env, dict):
+        entry["env"] = prior_env
+    servers[_MCP_SERVER_NAME] = entry
     path.write_text(json.dumps(existing, indent=2) + "\n", encoding="utf-8")
     console.info(f"patched Desktop config → {path} (additive; server '{_MCP_SERVER_NAME}')")
 
 
-def _warm_uvx(console: Console, from_source: str) -> None:
-    """Verify ``uvx`` presence and warm the resolution cache (best-effort)."""
+def _is_local_repo_source(from_source: str) -> bool:
+    """True when ``from_source`` is a checkout directory (editable ``uv run``)."""
+    path = Path(from_source).expanduser()
+    return path.is_dir() and (path / "pyproject.toml").is_file()
+
+
+def _local_repo_run_args(from_source: str, *knotica_argv: str) -> list[str]:
+    """``uv run --directory <repo> --group evals knotica …`` argv tail."""
+    repo = str(Path(from_source).expanduser().resolve())
+    return ["run", "--directory", repo, "--group", "evals", "knotica", *knotica_argv]
+
+
+def _desktop_knotica_launch(from_source: str, subcommand: str) -> tuple[str, list[str]]:
+    """Return ``(command, args)`` for Desktop to launch ``knotica <subcommand>``."""
+    if _is_local_repo_source(from_source):
+        uv = shutil.which("uv")
+        if uv is None:
+            raise _InitError(
+                "init failed because `uv` is not installed. "
+                "To fix: install uv and re-run `knotica init --desktop`."
+            )
+        return uv, _local_repo_run_args(from_source, subcommand)
     uvx = shutil.which("uvx")
     if uvx is None:
-        console.warn(
-            "uvx not found on PATH — install uv: "
-            "https://docs.astral.sh/uv/getting-started/installation/"
+        raise _InitError(
+            "init failed because `uvx` is not installed. "
+            "To fix: install uv and re-run `knotica init --desktop`."
         )
+    return uvx, _uvx_knotica_args(from_source, subcommand, include_evals=True, refresh=True)
+
+
+def _uvx_knotica_args(
+    from_source: str,
+    subcommand: str,
+    *,
+    include_evals: bool = False,
+    refresh: bool = False,
+) -> list[str]:
+    """Build ``uvx`` argv for a knotica subcommand.
+
+    Desktop headless tools (``query``, compile, Arena) need ``anthropic`` and
+    ``dspy``, which live in the PEP 735 ``evals`` group and are not part of the
+    base wheel ``uvx --from`` resolves. ``include_evals=True`` adds ``--with``
+    for each package without pulling them onto the lean Claude Code plugin path.
+    ``refresh=True`` forces a rebuild so local ``--from`` edits are not masked
+    by a stale cached wheel (notably headless retrieval helpers).
+    """
+    args: list[str] = []
+    if refresh:
+        args.append("--refresh")
+    args.extend(["--from", from_source])
+    if include_evals:
+        for package in _UVX_EVALS_PACKAGES:
+            args.extend(["--with", package])
+    args.extend(["knotica", subcommand])
+    return args
+
+
+def _warm_uvx(console: Console, from_source: str, *, include_evals: bool = False) -> None:
+    """Verify launch tooling and warm the Desktop resolution cache (best-effort)."""
+    try:
+        command, args = _desktop_knotica_launch(from_source, "--version")
+    except _InitError as error:
+        console.warn(str(error))
         return
-    console.info("warming uvx environment (first resolution can take ~25s)…")
-    result = _run([uvx, "--from", from_source, "knotica", "--version"], check=False)
+    label = "uv run" if _is_local_repo_source(from_source) else "uvx"
+    console.info(f"warming {label} environment (first resolution can take ~25s)…")
+    result = _run([command, *args], check=False)
     if result.returncode != 0:
-        console.warn(f"uvx warm-up did not complete: {result.stderr.strip()}")
+        console.warn(f"{label} warm-up did not complete: {result.stderr.strip()}")
     else:
-        console.info(f"uvx ready: {result.stdout.strip()}")
+        console.info(f"{label} ready: {result.stdout.strip()}")
 
 
 def _print_summary(console: Console, inputs: _Inputs) -> None:

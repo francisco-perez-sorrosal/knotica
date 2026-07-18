@@ -59,7 +59,9 @@ METRICS_SCHEMA_VERSION = 1
 PROVENANCE_SCHEMA_VERSION = 1
 
 QA_VERDICTS: frozenset[str] = frozenset({"good", "bad", "corrected"})
-QA_SOURCES: frozenset[str] = frozenset({"curate_example", "distillation"})
+#: ``seed_train`` has no producer anymore (the demo seeder was removed); it stays
+#: accepted so vaults that ran it keep parsing — frozen record shapes, dec-006.
+QA_SOURCES: frozenset[str] = frozenset({"curate_example", "distillation", "seed_train"})
 SOURCE_TYPES: frozenset[str] = frozenset({"html", "pdf", "markdown", "text"})
 
 #: Log-entry H2 line: ``## [YYYY-MM-DD] <op> | <topic> | <title>``.
