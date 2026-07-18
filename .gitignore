@@ -18,6 +18,10 @@ tmp/
 # Ephemeral agent pipeline documents (never commit; .ai-state/ IS committed)
 .ai-work/
 
+# Vercel Skills CLI — third-party agent skills (restore via skills-lock.json locally)
+.agents/
+skills-lock.json
+
 # Claude Code local settings
 .claude/settings.local.json
 .claude/*.local.md
