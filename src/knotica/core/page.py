@@ -35,6 +35,7 @@ __all__ = [
     "normalize_page_name",
     "page_path",
     "resolve_read_path",
+    "topic_relative_page_name",
     "parse_frontmatter_block",
     "parse_page",
     "read_page",
@@ -153,6 +154,19 @@ def page_path(topic: str, page: str) -> str:
     if "/" in cleaned_topic or cleaned_topic.startswith("."):
         raise ValueError(f"Topic must be a bare top-level directory name, got: {topic!r}")
     return f"{cleaned_topic}/{normalize_page_name(page)}"
+
+
+def topic_relative_page_name(topic: str, path: str) -> str:
+    """Return ``path``'s topic-relative page name, the inverse of :func:`page_path`.
+
+    Strips the ``f"{topic}/"`` prefix and the ``.md`` suffix, so
+    ``topic_relative_page_name(topic, page_path(topic, "react"))`` round-trips to
+    ``"react"``. The single source of truth for this normalization -- callers that
+    need to compare a retrieved page's identity against a golden record's
+    ``pages_used`` (or any other topic-relative page reference) should call this
+    rather than re-deriving the strip logic locally.
+    """
+    return path.removeprefix(f"{topic}/").removesuffix(".md")
 
 
 def resolve_read_path(topic: str, page: str) -> str:

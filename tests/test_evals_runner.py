@@ -42,16 +42,20 @@ import socket
 import pytest
 
 from knotica.core.errors import ErrorCode, KnoticaError
+from knotica.core.page import topic_relative_page_name
 from knotica.core.prompts import resolve_prompt
 from knotica.evals.cache import ResponseCache
 from knotica.evals.llm import Completion, FakeCall, FakeLLMClient, TokenUsage
 from knotica.evals.runner import (
     _SYNTHESIS_JSON_SCHEMA,
     _synthesis_prompt_hash,
+    DEFAULT_MAX_PAGES,
     MalformedResponseError,
     MessagesApiRunner,
     Prediction,
 )
+from knotica.search import RipgrepBackend
+from knotica.search.retrieval import retrieve_search_results
 from knotica.store import LocalFSStore
 
 #: The template vault's demo topic, with entity pages and a stored source
@@ -199,6 +203,70 @@ def test_run_feeds_retrieved_page_content_to_the_model(template_vault) -> None:
     assert RETRIEVED_SOURCE_KEY in assembled, (
         "content retrieved from the vault (the citable source key) must reach the "
         f"model call; {RETRIEVED_SOURCE_KEY!r} was not found in the assembled prompt"
+    )
+
+
+# ---------------------------------------------------------------------------
+# Retrieval trace on Prediction.pages (R2 namespace-match, rank order)
+# ---------------------------------------------------------------------------
+
+
+def _expected_pages(vault) -> tuple[str, ...]:  # noqa: ANN001 -- vault is a pytest tmp Path fixture
+    """Independently recompute the expected retrieval trace for the fixture question.
+
+    Retrieval is deterministic code (search + read), so calling the same
+    production retrieval path directly -- with the runner's own limit -- is a
+    legitimate independent oracle for ``Prediction.pages``, not a mock of the
+    unit under test.
+    """
+    backend = RipgrepBackend(vault)
+    results = retrieve_search_results(backend, TOPIC, RETRIEVAL_QUESTION, limit=DEFAULT_MAX_PAGES)
+    return tuple(topic_relative_page_name(TOPIC, result.path) for result in results)
+
+
+def test_prediction_pages_matches_the_runners_own_retrieval_trace_in_rank_order(
+    template_vault,
+) -> None:
+    # R2 (namespace mismatch) + rank-order: Prediction.pages must equal the
+    # runner's own retrieval trace, normalized to the same topic_relative_page_name
+    # form QARecord.pages_used uses, with index 0 the top hit.
+    expected = _expected_pages(template_vault)
+    assert expected, "the fixture question must retrieve at least one page for this test to matter"
+    fake = FakeLLMClient(_structured_completion(answer="a", citations=[]))
+
+    prediction = _runner(fake).run(_store(template_vault), TOPIC, RETRIEVAL_QUESTION)
+
+    assert prediction.pages == expected, (
+        "Prediction.pages must equal the runner's own retrieval trace, in the same "
+        "rank order (index 0 = top hit) and normalized to topic_relative_page_name form; "
+        f"got {prediction.pages!r}, expected {expected!r}"
+    )
+
+
+def test_a_warm_cache_hit_still_carries_the_retrieval_trace_and_makes_no_second_model_call(
+    template_vault,
+) -> None:
+    # R3 regression: adding `pages` must not perturb the cache key or hit-rate --
+    # retrieval runs outside the cache on every `run()`, so a warm hit must still
+    # carry the identical, non-empty trace alongside zero additional model calls.
+    canned = _structured_completion(
+        answer="Agent memory distils abstracted routines from past experience.",
+        citations=[RETRIEVED_SOURCE_KEY],
+    )
+    fake = FakeLLMClient(canned)
+    runner = _cached_runner(fake, ResponseCache())
+    store = _store(template_vault)
+
+    first = runner.run(store, TOPIC, RETRIEVAL_QUESTION)
+    second = runner.run(store, TOPIC, RETRIEVAL_QUESTION)
+
+    assert fake.call_count == 1, (
+        "adding the retrieval trace must not perturb the cache key or hit-rate; "
+        f"the fake was called {fake.call_count} times"
+    )
+    assert second.pages, "the retrieval trace must be non-empty on the warm run too"
+    assert second.pages == first.pages, (
+        "a warm cache hit must still carry the identical retrieval trace as the cold run"
     )
 
 

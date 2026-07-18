@@ -53,7 +53,7 @@ from typing import TYPE_CHECKING
 from knotica.core.errors import ErrorCode, KnoticaError, KnoticaWarning
 from knotica.core.links import iter_page_paths
 from knotica.core.operations.create_topic import qa_dataset_path
-from knotica.core.page import Page, read_page
+from knotica.core.page import Page, read_page, topic_relative_page_name
 from knotica.core.records import QARecord, body_sha256, parse_qa_jsonl
 from knotica.core.scrub import scrub
 from knotica.core.transaction import VaultTransaction
@@ -260,12 +260,16 @@ def to_example(record: QARecord) -> "dspy.Example":
 
     Maps the record's question, reference answer, and reference citations onto the
     example fields the scorer duck-types, and marks ``question`` as the sole input
-    key -- so ``dspy.Evaluate`` calls the program with just the question. ``dspy``
-    is imported lazily here to keep the module import free of the eval group.
+    key -- so ``dspy.Evaluate`` calls the program with just the question. Also
+    carries the record's stable ``id`` as metadata the per-example breakdown loop
+    reads via ``gold.id``; it is never fed to the program (``question`` stays the
+    sole input key). ``dspy`` is imported lazily here to keep the module import
+    free of the eval group.
     """
     import dspy
 
     return dspy.Example(
+        id=record.id,
         question=record.query,
         reference_answer=record.answer,
         citations=record.citations,
@@ -654,7 +658,7 @@ def _render_page_prompt(topic: str, page: Page) -> str:
 
 def _page_name(topic: str, page: Page) -> str:
     """The topic-relative page name (``agentic-systems/react.md`` -> ``react``)."""
-    return page.path.removeprefix(f"{topic}/").removesuffix(".md")
+    return topic_relative_page_name(topic, page.path)
 
 
 def _parse_candidate(text: str, page_name: str, page_raw: str) -> dict[str, object]:

@@ -28,6 +28,7 @@ from knotica.core.page import (
     parse_page,
     read_page,
     serialize_frontmatter,
+    topic_relative_page_name,
     validate_frontmatter,
 )
 from knotica.store import LocalFSStore
@@ -300,6 +301,33 @@ def test_page_path_joins_topic_and_normalized_page():
 def test_topic_must_be_a_bare_top_level_directory_name(topic):
     with pytest.raises(ValueError):
         page_path(topic, "react")
+
+
+# ---------------------------------------------------------------------------
+# topic_relative_page_name: the inverse of page_path, shared with evals
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    "reference",
+    (
+        pytest.param("react", id="bare-name"),
+        pytest.param("methods/react", id="nested-name"),
+    ),
+)
+def test_topic_relative_page_name_round_trips_through_page_path(reference):
+    assert topic_relative_page_name("agentic-systems", page_path("agentic-systems", reference)) == (
+        reference
+    )
+
+
+def test_topic_relative_page_name_strips_only_the_owning_topic_prefix():
+    # A namespace-mismatch regression guard: the function must strip exactly the
+    # `f"{topic}/"` prefix and the `.md` suffix -- never a substring match on an
+    # unrelated topic, and never leave the suffix behind.
+    assert topic_relative_page_name("agentic-systems", "agentic-systems/methods/react.md") == (
+        "methods/react"
+    )
 
 
 # ---------------------------------------------------------------------------

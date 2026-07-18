@@ -469,6 +469,19 @@ def test_to_example_marks_question_as_the_only_input_key() -> None:
     )
 
 
+def test_to_example_carries_the_records_stable_id_as_non_input_metadata() -> None:
+    # The breakdown loop reads gold.id to key the manifest's per_example entry on
+    # a stable identifier -- never on question text, which can be edited.
+    record = _qa_record(record_id="golden-0001", query="What grounds an agent claim?")
+
+    example = to_example(record)
+
+    assert example.id == record.id, "the example's id must equal the golden record's stable id"
+    assert "id" not in example.inputs(), (
+        "id is metadata for the breakdown loop, never fed to the program as an input"
+    )
+
+
 # --------------------------------------------------------------------------- #
 # Import purity -- the module pulls in neither dspy nor anthropic
 # --------------------------------------------------------------------------- #

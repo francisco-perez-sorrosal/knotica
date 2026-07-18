@@ -61,7 +61,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Protocol, cast, runtime_checkable
 
-from knotica.core.page import Page, read_page
+from knotica.core.page import Page, read_page, topic_relative_page_name
 from knotica.core.prompts import resolve_prompt
 from knotica.core.schema import resolve_schema
 from knotica.evals.cache import JsonValue, ResponseCache
@@ -164,12 +164,19 @@ class Prediction:
     ``citations`` are bare stored-source keys (see the module docstring); the
     field is a ``list`` to match the DSPy prediction shape the program adapter
     wraps. ``usage`` is verbatim from the model response -- the cost term's
-    ground truth, never hand-converted across models.
+    ground truth, never hand-converted across models. ``pages`` is the ordered
+    retrieval trace -- the topic-relative page names actually retrieved (rank =
+    tuple index), normalized via
+    :func:`~knotica.core.page.topic_relative_page_name` so it compares directly
+    against a golden record's ``pages_used``. It never enters the
+    :class:`~knotica.evals.cache.ResponseCache` key -- only the synthesis call is
+    cached, and retrieval always runs fresh.
     """
 
     answer: str
     citations: list[str]
     usage: TokenUsage
+    pages: tuple[str, ...] = ()
 
 
 @runtime_checkable
@@ -235,7 +242,12 @@ class MessagesApiRunner:
         pages = self._retrieve(store, topic, question)
         completion = self._synthesize(prompt_body, schema.merged, topic, question, pages)
         answer, citations = _parse_structured_answer(completion.text)
-        return Prediction(answer=answer, citations=citations, usage=completion.usage)
+        return Prediction(
+            answer=answer,
+            citations=citations,
+            usage=completion.usage,
+            pages=_page_trace(topic, pages),
+        )
 
     def _retrieve(self, store: VaultStore, topic: str, question: str) -> list[Page]:
         """Search the clone for key terms, then read the balanced top-K pages."""
@@ -308,7 +320,9 @@ class RetrievalLexicalRunner:
         results = retrieve_search_results(backend, topic, question, limit=DEFAULT_MAX_PAGES)
         pages = [read_page(store, topic, result.path) for result in results]
         answer = _assemble_user(topic, question, pages)
-        return Prediction(answer=answer, citations=[], usage=TokenUsage())
+        return Prediction(
+            answer=answer, citations=[], usage=TokenUsage(), pages=_page_trace(topic, pages)
+        )
 
 
 def _store_root(store: VaultStore) -> Path:
@@ -326,6 +340,16 @@ def _store_root(store: VaultStore) -> Path:
             "`.root` path, like LocalFSStore) to run in-process search over the clone."
         )
     return Path(root)
+
+
+def _page_trace(topic: str, pages: list[Page]) -> tuple[str, ...]:
+    """The retrieval trace: topic-relative page names, in retrieval-rank order.
+
+    Single-sourced through :func:`~knotica.core.page.topic_relative_page_name` so
+    the trace stays in the same normalized form the golden set's ``pages_used``
+    uses -- never a locally re-derived strip.
+    """
+    return tuple(topic_relative_page_name(topic, page.path) for page in pages)
 
 
 def _assemble_system(query_prompt: str, schema: str) -> str:
