@@ -42,9 +42,10 @@ Three rules hold this seam:
   safety. (v1 pins ``num_threads = 1`` regardless.)
 
 The returned prediction carries the runner's exact fields --
-``answer``/``citations``/``usage`` -- as a native :class:`dspy.Prediction`, so
-the scorer duck-types on ``.citations`` and the harness reads ``.usage`` off the
-DSPy result unchanged.
+``answer``/``citations``/``usage``/``pages`` -- as a native
+:class:`dspy.Prediction`, so the scorer duck-types on ``.citations``, the
+harness reads ``.usage`` off the DSPy result unchanged, and the retrieval trace
+(``.pages``) survives the ``dspy.Evaluate`` path into the manifest.
 """
 
 from typing import TYPE_CHECKING
@@ -125,13 +126,14 @@ def _build_baseline_program_class() -> type:
 
             Calls only ``self.runner.run`` -- no ``dspy.Predict``/LM -- and returns
             a :class:`dspy.Prediction` carrying the runner's exact
-            ``answer``/``citations``/``usage`` fields.
+            ``answer``/``citations``/``usage``/``pages`` fields.
             """
             prediction = self.runner.run(self.store, self.topic, question)
             return dspy.Prediction(
                 answer=prediction.answer,
                 citations=prediction.citations,
                 usage=prediction.usage,
+                pages=prediction.pages,
             )
 
     return BaselineProgram

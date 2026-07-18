@@ -56,6 +56,8 @@ from dataclasses import dataclass, field
 
 import pytest
 
+from knotica.core.compiled import CompiledArtifact
+from knotica.evals.compiled_runner import CompiledRunner
 from knotica.evals.llm import Completion, FakeLLMClient, TokenUsage
 from knotica.evals.program import BaselineProgram
 from knotica.evals.runner import MessagesApiRunner, Prediction
@@ -141,11 +143,18 @@ def _usage(*, input_tokens: int = 17, output_tokens: int = 42) -> TokenUsage:
 
 
 def _prediction(
-    *, answer: str, citations: list[str], usage: TokenUsage | None = None
+    *,
+    answer: str,
+    citations: list[str],
+    usage: TokenUsage | None = None,
+    pages: tuple[str, ...] = (),
 ) -> Prediction:
     """The runner's ``Prediction`` the stub replays (the adapter's input)."""
     return Prediction(
-        answer=answer, citations=citations, usage=usage if usage is not None else _usage()
+        answer=answer,
+        citations=citations,
+        usage=usage if usage is not None else _usage(),
+        pages=pages,
     )
 
 
@@ -198,6 +207,109 @@ def test_forward_returns_a_dspy_prediction_carrying_the_runners_answer_citations
     )
     assert result.usage == canned.usage, "the exact token usage is carried through untouched"
     assert result.usage.total_tokens == 59, "usage arithmetic survives the wrapping"
+
+
+# ---------------------------------------------------------------------------
+# forward carries the runner's retrieval trace onto the dspy.Prediction (R1):
+# this is the architect-named leak seam -- a field silently dropped here never
+# reaches the harness, with no crash to signal it. The assertion below compares
+# against the exact upstream Prediction.pages value (order-sensitive equality),
+# never mere truthiness/key-existence, per the plan's pre-mortem guard #1.
+# ---------------------------------------------------------------------------
+
+
+def test_forward_returns_the_exact_upstream_retrieval_trace_in_order() -> None:
+    upstream_pages = ("react", "methods/plan-and-solve", "reflexion")
+    canned = _prediction(
+        answer="Agent memory distils abstracted routines from past experience.",
+        citations=["wang2024awm"],
+        pages=upstream_pages,
+    )
+    program = BaselineProgram(_SENTINEL_STORE, TOPIC, _StubRunner(canned))
+
+    result = program(question=QUESTION)
+
+    assert result.pages == upstream_pages, (
+        "forward must carry the runner's exact pages tuple through, in the same "
+        "order -- a truthiness or key-existence check would not catch a single "
+        "dropped, reordered, or duplicated page"
+    )
+
+
+def test_forward_carries_an_empty_retrieval_trace_when_the_runner_retrieved_nothing() -> None:
+    # A runner that retrieved nothing must forward an empty trace, not silently
+    # fabricate or omit the field -- exact equality against () is the guard here.
+    canned = _prediction(answer="no matching pages", citations=[], pages=())
+    program = BaselineProgram(_SENTINEL_STORE, TOPIC, _StubRunner(canned))
+
+    result = program(question=QUESTION)
+
+    assert result.pages == (), "an empty upstream trace must forward as exactly empty, not dropped"
+
+
+def test_forward_through_the_real_retrieving_runner_matches_its_exact_page_trace(
+    template_vault,
+) -> None:
+    # End to end through the same path dspy.Evaluate exercises: a real
+    # MessagesApiRunner retrieves against the template vault's demo topic, and
+    # the adapter's returned trace must equal -- not merely be non-empty -- what
+    # the runner itself produced for the identical call.
+    runner = MessagesApiRunner(
+        llm_client=FakeLLMClient(
+            _structured_completion(answer="grounded in retrieved pages", citations=["wang2024awm"])
+        ),
+        worker_snapshot=WORKER_SNAPSHOT,
+    )
+    store = LocalFSStore(template_vault)
+    expected = runner.run(store, TOPIC, QUESTION).pages
+    program = BaselineProgram(store, TOPIC, runner)
+
+    result = program(question=QUESTION)
+
+    assert expected != (), (
+        "precondition: the template vault's demo topic must actually retrieve "
+        "pages for this question, or the equality check below would be vacuous"
+    )
+    assert result.pages == expected, (
+        "the adapter's forwarded pages must equal the runner's own trace for the "
+        "identical call, exactly and in order -- the direct R1 regression guard"
+    )
+
+
+def test_forward_through_a_compiled_runner_still_carries_the_exact_page_trace(
+    template_vault,
+) -> None:
+    # (b) The compiled-program re-wrap path: CompiledRunner subclasses
+    # MessagesApiRunner and does not override `run`, so it inherits the same
+    # pages-setting behaviour for free -- no separate re-wrap code path exists in
+    # program.py to test. This proves that claim empirically: a CompiledRunner,
+    # constructed from a plain in-memory CompiledArtifact (no real `knotica
+    # compile` run needed), produces the identical exact trace through the same
+    # BaselineProgram seam as the baseline runner above.
+    artifact = CompiledArtifact(optimized_instructions="Answer using only the retrieved pages.")
+    runner = CompiledRunner(
+        artifact,
+        llm_client=FakeLLMClient(
+            _structured_completion(answer="grounded via compiled instructions", citations=[])
+        ),
+        worker_snapshot=WORKER_SNAPSHOT,
+    )
+    store = LocalFSStore(template_vault)
+    expected = runner.run(store, TOPIC, QUESTION).pages
+    program = BaselineProgram(store, TOPIC, runner)
+
+    result = program(question=QUESTION)
+
+    assert expected != (), (
+        "precondition: the compiled runner must actually retrieve pages for this "
+        "question, or the equality check below would be vacuous"
+    )
+    assert result.pages == expected, (
+        "the compiled-runner path forwards the exact same page trace through the "
+        "unchanged BaselineProgram.forward -- CompiledRunner inherits run() from "
+        "MessagesApiRunner rather than overriding it, so no distinct re-wrap "
+        "code path exists to test separately"
+    )
 
 
 # ---------------------------------------------------------------------------
