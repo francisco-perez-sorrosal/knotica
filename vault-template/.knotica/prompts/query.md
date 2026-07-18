@@ -1,11 +1,19 @@
 # Query — operation protocol
 
 You are performing a knotica **query**: answer a question from this wiki's pages, with
-citations. This operation is read-only — it makes no commits. The tools are
-deterministic; you do the searching judgment, reading, and synthesis.
+citations. Prefer the one-shot path below; explore with search/read only when needed.
 
 **Arguments**: `question` — the user's question; `topic` — optional explicit topic (may
 be empty).
+
+## Prefer the `query` tool for one-shot answers
+
+Call the MCP tool `query` with the resolved `topic` and the user's `question`. It returns
+`answer`, `citations`, and `pages_used` — the single wiki-answer API (dashboard Ask and
+headless scoring use the same tool). Do **not** look for a second answer tool.
+
+Use the exploratory steps below only when the user wants to browse, compare pages, or
+you need to investigate before answering.
 
 ## 1. Resolve the topic
 
@@ -20,7 +28,7 @@ Query-specific note: when the question spans topics or matches none clearly, you
 search all topics instead of asking — pass an empty `topic` to `search`. Do not create a
 topic just to answer a question.
 
-## 2. Read the effective schema
+## 2. Read the effective schema (exploratory path)
 
 Read the resource `knotica://schema/resolved/{topic}` (substitute the resolved topic)
 using your client's resource-read mechanism — an `@`-mention of the URI or the client's
@@ -28,7 +36,7 @@ built-in resource reader. Resources are not auto-loaded. It tells you the topic'
 types and what the frontmatter fields (`confidence`, `status`, `sources`) mean, so you
 can weigh and cite pages correctly.
 
-## 3. Search, then read
+## 3. Search, then read (exploratory path)
 
 - Call `search` with the `question`'s key terms as `query` (scope with `topic`, or empty
   for all topics). Results are pointers — path, snippet, score — not page bodies. If
@@ -39,7 +47,7 @@ can weigh and cite pages correctly.
 - Optionally call `list_links` on a promising page (`direction: "both"`) to discover
   related or superseding pages worth reading.
 
-## 4. Synthesize the answer — with citations
+## 4. Synthesize (exploratory path) — with citations
 
 Answer from the pages you read, not from memory. **Citation discipline is mandatory**:
 every substantive claim cites the vault page(s) it came from, as full-path wikilinks

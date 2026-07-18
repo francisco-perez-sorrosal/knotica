@@ -23,5 +23,15 @@ so gather the choices here, then drive the deterministic `knotica init` CLI.
 3. Foreground pre-warm the environment so the first real call is fast:
    !`uvx --from "${CLAUDE_PLUGIN_ROOT}" knotica --version`
 
-4. Report the summary `init` printed and the next step: open the vault folder in
-   Obsidian, then try `/knotica:ingest <source-url>`.
+4. Report the summary `init` printed and the next steps:
+   - Open the vault folder in Obsidian.
+   - If Desktop was patched: fully quit and reopen Claude Desktop, confirm the
+     `knotica` MCP server is connected, then ask Claude to call `open_dashboard`
+     (topic `agentic-systems`) or `query` with the AWM prove question — see
+     `docs/CLAUDE_DESKTOP.md` in the repo.
+   - **Optional (headless `query` / compile):** Desktop does not inherit shell env.
+     To use MCP `query`, `compile_run`, or Arena from Chat, add
+     `CLAUDE_CODE_OAUTH_TOKEN` (preferred; run `claude setup-token` from Claude Code)
+     or `ANTHROPIC_API_KEY` to `mcpServers.knotica.env` in Desktop config — see
+     `docs/CLAUDE_DESKTOP.md` § Headless LLM credentials. Ingest/curate need none.
+   - In Claude Code: try `/knotica:ingest <source-url>` or `/knotica:query`.

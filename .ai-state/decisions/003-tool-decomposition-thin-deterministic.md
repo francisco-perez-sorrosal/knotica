@@ -45,7 +45,7 @@ Client-as-brain fixes the tool layer as **deterministic** (no server LLM in Phas
 ## Consequences
 
 - Positive: a 10-tool surface a model selects over reliably; vault invariants (one-commit-per-op, scrub, log, catalog consistency) enforced *inside* the tool, not delegated to model discipline; the reserved-name guard stays absolute; page+index can never drift (one call); room to grow before progressive disclosure is warranted.
-- Negative: `write_page` gains an `index_entry` arg and the transaction (Step 25 `VaultTransaction`) must upsert an `index.md` line keyed by topic+page (parse/replace, not blind append) — more logic in the single mutation path; if the tool count grows past ~20 in later phases (wiki_query, compile triggers, SIA moves), progressive disclosure must be revisited then.
+- Negative: `write_page` gains an `index_entry` arg and the transaction (Step 25 `VaultTransaction`) must upsert an `index.md` line keyed by topic+page (parse/replace, not blind append) — more logic in the single mutation path; if the tool count grows past ~20 in later phases (compile triggers, SIA moves, arena ops), progressive disclosure must be revisited then.
 
 ## Disconfirmation
 

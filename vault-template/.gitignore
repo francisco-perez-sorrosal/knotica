@@ -9,5 +9,8 @@
 # Live ingest dashboard journal (ephemeral progress; not part of the wiki audit trail).
 .knotica/ingest-activity.jsonl
 
+# Eval bootstrap scratchpad (human review before freeze; never committed).
+**/.knotica/datasets/golden.staging.jsonl
+
 # NOTE: .knotica/ itself IS committed — it carries agent state (datasets/qa.jsonl, prompts/,
 # compiled/) that is part of the wiki's versioned substrate. Do not ignore it.
