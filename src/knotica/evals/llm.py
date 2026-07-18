@@ -34,7 +34,7 @@ Three rules hold that boundary:
   lazily inside :class:`AnthropicClient` construction, so ``import
   knotica.evals.llm`` succeeds with the base environment and only constructing a
   real client requires the group (a missing group raises an actionable "run
-  ``uv sync --group evals``" error). :class:`FakeLLMClient` needs no third-party
+  :data:`EVALS_DEPS_FIX` error). :class:`FakeLLMClient` needs no third-party
   dependency at all.
 
 The seam itself is the :class:`LLMClient` protocol; tests inject
@@ -54,7 +54,18 @@ from typing import Protocol, runtime_checkable
 
 from knotica.core.errors import ErrorCode, KnoticaError
 
+#: Remediation when ``anthropic`` / ``dspy`` are missing. ``uv sync --group evals``
+#: applies to repo dev/CLI; Claude Desktop's ``uvx`` launch needs ``--with`` flags
+#: (see ``knotica init --desktop``).
+EVALS_DEPS_FIX = (
+    "Install the eval dependency group in the knotica code repo (not the vault): "
+    "run `uv sync --group evals` from the repo root. "
+    "For Claude Desktop (uvx launch), add `--with anthropic --with dspy` to the "
+    "uvx args in `claude_desktop_config.json`, or re-run `knotica init --desktop`."
+)
+
 __all__ = [
+    "EVALS_DEPS_FIX",
     "API_KEY_ENV_VAR",
     "AUTH_MODE_API_KEY",
     "AUTH_MODE_OAUTH",
@@ -258,7 +269,7 @@ def _import_anthropic() -> object:
                 "The eval dependency group is not installed: the `anthropic` "
                 "package is unavailable, so AnthropicClient cannot be constructed."
             ),
-            fix="Install the eval dependency group: run `uv sync --group evals`.",
+            fix=EVALS_DEPS_FIX,
         ) from exc
     return anthropic
 

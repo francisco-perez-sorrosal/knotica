@@ -114,11 +114,18 @@ def save_golden_review(
         txn.write(relative, payload)
     result = txn.result
     assert result is not None
-    return {
+    payload = {
         "written": str(vault_path / relative),
         "count": len(rows),
         "commit_sha": result.commit_sha,
     }
+    if len(rows) >= FLOOR:
+        from knotica.core.baseline_probe import maybe_auto_baseline_probe
+
+        probe = maybe_auto_baseline_probe(store, vault_path, cleaned)
+        if probe is not None:
+            payload["baseline_probe"] = probe.render()
+    return payload
 
 
 def _require_topic(store: VaultStore, topic: str) -> str:
@@ -215,9 +222,7 @@ def _page_provenance(
     return pages
 
 
-def _resolve_page(
-    store: VaultStore, vault_path: Path, topic: str, name: str
-) -> dict[str, Any]:
+def _resolve_page(store: VaultStore, vault_path: Path, topic: str, name: str) -> dict[str, Any]:
     relative = name if name.endswith(".md") else f"{name}.md"
     topic_rel = f"{topic}/{relative}" if not relative.startswith(f"{topic}/") else relative
     for candidate in (topic_rel, relative):

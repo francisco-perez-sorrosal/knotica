@@ -9,14 +9,25 @@ never a hardcoded vault path.
 from __future__ import annotations
 
 from collections.abc import Mapping
+from datetime import UTC, datetime
+from pathlib import Path
 from typing import Any
 
-from knotica.core.records import MetricsRecord, RecordParseError
+from knotica.core.records import MetricsComponents, MetricsRecord, RecordParseError
+from knotica.core.transaction import VaultTransaction
 from knotica.store import VaultStore
 
 __all__ = [
+    "BASELINE_PROBE_HARNESS_VERSION",
+    "COMPILE_METRICS_HARNESS_VERSION",
+    "LEGACY_BASELINE_PROBE_HARNESS_VERSION",
+    "LEGACY_BASELINE_PROBE_HARNESS_VERSIONS",
     "METRICS_FILENAME",
+    "append_metrics_record",
+    "build_baseline_probe_record",
+    "build_compile_metrics_record",
     "metrics_path",
+    "next_metrics_generation",
     "read_last_metrics",
     "read_metrics_window",
     "render_metrics_record",
@@ -33,6 +44,23 @@ DEFAULT_METRICS_LIMIT = 100
 
 #: Hard ceiling so a runaway client cannot ask for the whole history at once.
 MAX_METRICS_LIMIT = 1000
+
+#: Harness label for compile post-eval scalars promoted onto the live vault.
+COMPILE_METRICS_HARNESS_VERSION = "compile-post-eval"
+
+#: Harness label for naive zero cold-start probes (``baseline_probe`` tool).
+#: Fixed scalar 0.0 — no golden, no train Q&A, no LLM, no retrieval scoring.
+BASELINE_PROBE_HARNESS_VERSION = "naive-cold-start"
+
+#: Legacy harness tags (measured probes); display-only, not gate quality.
+LEGACY_BASELINE_PROBE_HARNESS_VERSION = "lexical-cold-start"
+LEGACY_BASELINE_PROBE_HARNESS_VERSIONS = frozenset(
+    {
+        "lexical-cold-start",
+        "lexical-cold-start-train",
+        "retrieval-cold-start",
+    }
+)
 
 
 def metrics_path(topic: str) -> str:
@@ -62,6 +90,90 @@ def render_metrics_record(record: MetricsRecord) -> dict[str, Any]:
         "corpus_ref": record.corpus_ref,
         "artifact_ref": record.artifact_ref,
     }
+
+
+def next_metrics_generation(store: VaultStore, topic: str) -> int:
+    """Return the next 1-based generation number for ``topic``."""
+    window = read_metrics_window(store, topic, limit=MAX_METRICS_LIMIT)
+    records = window["records"]
+    if not records:
+        return 1
+    return max(record.generation for record in records) + 1
+
+
+def build_baseline_probe_record(
+    topic: str,
+    scalar: float,
+    *,
+    generation: int,
+    n_examples: int,
+    corpus_ref: str,
+    runner_mode: str,
+    harness_version: str = BASELINE_PROBE_HARNESS_VERSION,
+) -> MetricsRecord:
+    """Build one metrics line for a naive zero cold-start probe."""
+    return MetricsRecord(
+        topic=topic.strip().strip("/"),
+        timestamp=datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ"),
+        generation=generation,
+        harness_version=harness_version,
+        scalar=float(scalar),
+        components=MetricsComponents(
+            qa_accuracy=float(scalar),
+            citation_validity=0.0,
+            lint_violations=0.0,
+            token_cost=0.0,
+        ),
+        n_examples=n_examples,
+        corpus_ref=corpus_ref,
+        artifact_ref=f"baseline-probe:{runner_mode}",
+    )
+
+
+def build_compile_metrics_record(
+    topic: str,
+    scalar: float,
+    *,
+    merge_sha: str,
+    generation: int,
+    n_examples: int = 0,
+    harness_version: str = COMPILE_METRICS_HARNESS_VERSION,
+) -> MetricsRecord:
+    """Build one metrics line for a promoted compile generation."""
+    return MetricsRecord(
+        topic=topic.strip().strip("/"),
+        timestamp=datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ"),
+        generation=generation,
+        harness_version=harness_version,
+        scalar=float(scalar),
+        components=MetricsComponents(
+            qa_accuracy=float(scalar),
+            citation_validity=1.0,
+            lint_violations=0.0,
+            token_cost=0.0,
+        ),
+        n_examples=n_examples,
+        corpus_ref=f"git:{merge_sha}",
+        artifact_ref=None,
+    )
+
+
+def append_metrics_record(
+    store: VaultStore,
+    vault_root: str | Path,
+    topic: str,
+    record: MetricsRecord,
+    *,
+    operation: str,
+    title: str,
+) -> MetricsRecord:
+    """Append one metrics line under the vault lock (one commit)."""
+    path = metrics_path(topic)
+    existing = store.read_text(path) if store.exists(path) else ""
+    body = _append_jsonl_line(existing, record.to_json_line())
+    with VaultTransaction(store, Path(vault_root), operation, topic, title) as txn:
+        txn.write(path, body)
+    return record
 
 
 def read_last_metrics(store: VaultStore, topic: str) -> MetricsRecord | None:
@@ -146,6 +258,13 @@ def render_metrics_window(
         "next_before_generation": window["next_before_generation"],
         "skipped_malformed": window["skipped_malformed"],
     }
+
+
+def _append_jsonl_line(existing_text: str, line: str) -> str:
+    """Append one JSONL line, preserving prior records and a single trailing newline."""
+    if not existing_text.strip():
+        return line + "\n"
+    return existing_text.rstrip("\n") + "\n" + line + "\n"
 
 
 def _parse_all(text: str) -> tuple[list[MetricsRecord], int]:

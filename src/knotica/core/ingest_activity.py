@@ -34,6 +34,7 @@ __all__ = [
     "TERMINAL_STAGES",
     "WORKFLOWS",
     "append_ingest_event",
+    "has_active_ingest",
     "read_ingest_activity",
 ]
 
@@ -191,6 +192,32 @@ def _infer_run_id(
     return f"{prefix}-{uuid.uuid4().hex[:10]}"
 
 
+def has_active_ingest(
+    store: VaultStore,
+    *,
+    stale_after_seconds: float = 600.0,
+    now: datetime | None = None,
+) -> bool:
+    """Whether a live ingest run is in flight (fresh, non-terminal events).
+
+    The loop watcher holds observations while this is True so a multi-commit
+    ingest is measured once, at its natural boundary, instead of mid-flight.
+    ``stale_after_seconds`` bounds the hold: a crashed ingest that never emits a
+    terminal event stops blocking once its last event ages out.
+    """
+    events = _read_events_via_store(store)
+    active = _active_run(events)
+    if active is None or active.get("terminal"):
+        return False
+    updated_at = str(active.get("updated_at") or "")
+    try:
+        last_seen = datetime.strptime(updated_at, "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=UTC)
+    except ValueError:
+        return False
+    current = now if now is not None else datetime.now(UTC)
+    return (current - last_seen).total_seconds() <= stale_after_seconds
+
+
 def _active_run(events: list[dict[str, Any]]) -> dict[str, Any] | None:
     if not events:
         return None
@@ -254,14 +281,13 @@ def _run_summary(run_id: str, rows: list[dict[str, Any]]) -> dict[str, Any]:
 
     last = rows[-1]
     last_stage = str(last.get("stage") or "")
-    terminal = _is_terminal(workflow, last_stage, str(last.get("status") or ""), stages_seen)
-    if terminal and "complete" in stages_seen:
+    last_status = str(last.get("status") or "")
+    terminal = _is_terminal(workflow, last_stage, last_status, stages_seen)
+    if terminal and ("complete" in stages_seen or _curate_finished(last_stage, last_status)):
         current = "complete"
     elif terminal and last_stage == "error":
         current = "error"
-    elif terminal and workflow == "curate":
-        current = "complete" if "complete" in stages_seen else "curate"
-    elif workflow == "ingest" and last_stage == "curate":
+    elif workflow == "ingest" and last_stage == "curate" and not terminal:
         # Detached legacy curate event — show furthest ingest stage.
         current = watermark_stage or "write_page"
     else:
@@ -295,16 +321,26 @@ def _is_terminal(
 ) -> bool:
     if last_stage in TERMINAL_STAGES or "complete" in stages_seen or "error" in stages_seen:
         return True
-    # A successful curate checkpoint finishes the curation workflow.
-    if workflow == "curate" and last_stage == "curate" and last_status == "ok":
+    # A successful curate checkpoint always finishes — including legacy journals that
+    # logged curation under an ``ingest-*`` run id with no workflow field.
+    if _curate_finished(last_stage, last_status):
         return True
-    # Legacy: curate was logged onto an ingest run — don't keep ingest "live".
+    # Legacy: non-ok curate mid-ingest — close the rail once pages/store landed.
     if workflow == "ingest" and last_stage == "curate":
         return "write_page" in stages_seen or "store_source" in stages_seen
     return False
 
 
+def _curate_finished(last_stage: str, last_status: str) -> bool:
+    return last_stage == "curate" and last_status == "ok"
+
+
 def _infer_run_workflow(run_id: str, rows: list[dict[str, Any]]) -> str:
+    stages = {str(row.get("stage") or "") for row in rows}
+    ingest_body = (set(INGEST_STAGES) - TERMINAL_STAGES) & stages
+    # Orphan/legacy: curation-only events under an ingest-* id (pre-workflow journals).
+    if "curate" in stages and not ingest_body:
+        return "curate"
     if run_id.startswith("curate-"):
         return "curate"
     if run_id.startswith("ingest-"):

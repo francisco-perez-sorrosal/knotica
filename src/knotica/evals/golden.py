@@ -75,6 +75,7 @@ __all__ = [
     "GoldenSetIntegrityError",
     "GoldenSetMissingError",
     "bootstrap",
+    "entity_pages",
     "freeze",
     "golden_dataset_path",
     "golden_manifest_path",
@@ -543,7 +544,7 @@ def bootstrap(
     """
     candidates = [
         _synthesize_candidate(llm_client, snapshot, topic, page)
-        for page in _entity_pages(store, topic)
+        for page in entity_pages(store, topic)
     ]
     _write_staging(store, topic, candidates)
     return candidates
@@ -599,7 +600,7 @@ def freeze(
         txn.write(dataset_path, golden_body)
         txn.write(manifest_path, _render_manifest(manifest))
     result = txn.result
-    return FreezeResult(
+    freeze_result = FreezeResult(
         manifest=manifest,
         dataset_path=dataset_path,
         manifest_path=manifest_path,
@@ -608,6 +609,11 @@ def freeze(
         below_floor=below_floor,
         warnings=result.warnings(),
     )
+    if len(records) >= EVAL_MIN_GOLDEN:
+        from knotica.core.baseline_probe import maybe_auto_baseline_probe
+
+        maybe_auto_baseline_probe(store, vault_root, topic)
+    return freeze_result
 
 
 # --------------------------------------------------------------------------- #
@@ -615,8 +621,12 @@ def freeze(
 # --------------------------------------------------------------------------- #
 
 
-def _entity_pages(store: VaultStore, topic: str) -> list[Page]:
-    """Read the topic's entity pages -- every content page bar the schema overlay."""
+def entity_pages(store: VaultStore, topic: str) -> list[Page]:
+    """Read the topic's entity pages -- every content page bar the schema overlay.
+
+    Public: the golden bootstrap and the trainset cold-start both synthesize
+    from this same page set, so the definition of "entity page" stays single.
+    """
     overlay = f"{topic}/{_SCHEMA_OVERLAY_FILENAME}"
     return [
         read_page(store, topic, path) for path in iter_page_paths(store, topic) if path != overlay
