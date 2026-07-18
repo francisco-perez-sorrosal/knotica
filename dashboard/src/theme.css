@@ -31,6 +31,15 @@
   --shadow: 0 1px 2px rgb(7 54 66 / 6%), 0 12px 32px rgb(7 54 66 / 6%);
   --glow: color-mix(in srgb, var(--cyan) 22%, transparent);
 
+  /* Loop chart — concrete colors for canvas (uPlot cannot use var() in stroke) */
+  --chart-series: #0a4d75;
+  --chart-point-fill: #fffaf0;
+  --chart-point-stroke: #073642;
+  --chart-baseline: #8f6800;
+  --chart-compiled: #5c6400;
+  --chart-axis: #43575c;
+  --chart-grid: #bfb59a;
+
   /* Distinctive stacks — no external font fetch (MCP App CSP-safe). */
   --display: "Iowan Old Style", "Palatino Linotype", Palatino, "Book Antiqua", Georgia, serif;
   --sans: "Avenir Next", "Segoe UI", "Helvetica Neue", sans-serif;
@@ -51,6 +60,14 @@
     --line: #1c4b54;
     --shadow: 0 1px 2px rgb(0 0 0 / 28%), 0 16px 40px rgb(0 0 0 / 28%);
     --glow: color-mix(in srgb, var(--cyan) 28%, transparent);
+
+    --chart-series: #7ec8ff;
+    --chart-point-fill: #0b3d47;
+    --chart-point-stroke: #eee8d5;
+    --chart-baseline: #e6bc2f;
+    --chart-compiled: #b4d926;
+    --chart-axis: #aab8b8;
+    --chart-grid: #2a6270;
   }
 }
 
@@ -64,6 +81,14 @@
   --line: #1c4b54;
   --shadow: 0 1px 2px rgb(0 0 0 / 28%), 0 16px 40px rgb(0 0 0 / 28%);
   --glow: color-mix(in srgb, var(--cyan) 28%, transparent);
+
+  --chart-series: #7ec8ff;
+  --chart-point-fill: #0b3d47;
+  --chart-point-stroke: #eee8d5;
+  --chart-baseline: #e6bc2f;
+  --chart-compiled: #b4d926;
+  --chart-axis: #aab8b8;
+  --chart-grid: #2a6270;
 }
 
 * { box-sizing: border-box; }

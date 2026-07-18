@@ -1,11 +1,21 @@
 import { useEffect, useRef, useState } from "preact/hooks";
 
-import type { ToolClient } from "./toolClient";
+import { CompilePanel } from "./CompilePanel";
+import { MetadataTreePanel } from "./MetadataTreePanel";
+import { ScoreboardPanel } from "./ScoreboardPanel";
+import {
+  ObsidianFileLink,
+  type ObsidianContext,
+} from "./obsidianLinks";
+import { formatToolFailure, type ToolClient } from "./toolClient";
+import { queryTrainCount } from "./topicHelpers";
 import type {
   DirtyEntry,
   DoctorRepairResult,
   DoctorReport,
+  LlmAvailability,
   LoopOnceResult,
+  LoopProgress,
   OkfCheckResult,
   OkfRepairResult,
   VaultLintResult,
@@ -20,7 +30,8 @@ type ActionBusy =
   | "doctor-apply"
   | "okf-dry"
   | "okf-apply"
-  | "loop";
+  | "loop"
+  | "bootstrap-train";
 type CheckTab = "doctor" | "lint" | "okf" | "loop";
 
 /** Green = healthy, yellow = in progress / needs attention, red = broken. */
@@ -41,26 +52,53 @@ const CHECK_TABS: Array<{ id: CheckTab; label: string }> = [
 
 type TopicRow = WikiStatus["topics"][number];
 
+/** Ephemeral lint run recorded in-dashboard (`vault_lint` does not mutate the vault). */
+type LintSessionMeta = {
+  at: Date;
+  scope: "topic" | "vault";
+  scopeLabel: string;
+  violations: number;
+};
+
+/**
+ * Result of the last "Bootstrap trainset" action, kept independent of `to_compile_ready` so
+ * it survives the topic flipping to compile-ready on the next status poll. Cleared on
+ * dismiss or when the pane unmounts.
+ */
+type BootstrapNote = {
+  topic: string;
+  kind: "ok" | "error";
+  text: string;
+};
+
 export function VaultPane({
   client,
   catalog,
   status,
   topic,
   vault,
+  obsidianCtx,
   onSelectTopic,
+  onStatusRefresh,
 }: {
   client: ToolClient | null;
   catalog: WikiStatus | null;
   status: WikiStatus | null;
   topic: string;
   vault: string;
+  obsidianCtx: ObsidianContext;
   onSelectTopic: (topic: string) => void;
+  onStatusRefresh?: () => void | Promise<void>;
 }) {
   const [busy, setBusy] = useState<ActionBusy>(null);
   const [actionError, setActionError] = useState<string | null>(null);
   const [checkTab, setCheckTab] = useState<CheckTab>("doctor");
   const [doctor, setDoctor] = useState<DoctorReport | null>(null);
   const [doctorRepair, setDoctorRepair] = useState<DoctorRepairResult | null>(null);
+  const [lastDoctorApply, setLastDoctorApply] = useState<{
+    restored: string[];
+    message?: string;
+  } | null>(null);
   const [selectedPaths, setSelectedPaths] = useState<string[]>([]);
   const [deleteUntracked, setDeleteUntracked] = useState(false);
   const [lint, setLint] = useState<VaultLintResult | null>(null);
@@ -68,11 +106,14 @@ export function VaultPane({
   const [repair, setRepair] = useState<OkfRepairResult | null>(null);
   const [loopResult, setLoopResult] = useState<LoopOnceResult | null>(null);
   const [lintScope, setLintScope] = useState<"topic" | "vault">("topic");
+  const [lastLintSession, setLastLintSession] = useState<LintSessionMeta | null>(null);
+  const [bootstrapNote, setBootstrapNote] = useState<BootstrapNote | null>(null);
   const inFlight = useRef(false);
   const loadGen = useRef(0);
 
   const totals = catalog?.totals;
-  const threshold = catalog?.compile_ready_threshold ?? 20;
+  const threshold = catalog?.compile_ready_threshold ?? 30;
+  const goldenFloor = catalog?.eval_min_golden ?? 20;
   const topics = catalog?.topics ?? [];
   const loop = status?.loop;
   const gate = status?.gate;
@@ -87,7 +128,16 @@ export function VaultPane({
   const curatedTone = curatedToneFor(totals?.curated ?? 0, threshold, topics);
   const pagesTone: Health = (totals?.pages ?? 0) > 0 ? "ok" : "warn";
   const topicsTone: Health = (totals?.topics ?? 0) > 0 ? "ok" : "warn";
-  const lastLintTone: Health = catalog?.last_lint ? "ok" : "warn";
+  const vaultKey = vault || catalog?.vault_name || "";
+  const lastLintValue = lastLintSession
+    ? formatLintSessionTime(lastLintSession.at)
+    : catalog?.last_lint || "never";
+  const lastLintHint = lastLintSession
+    ? lintSessionHint(lastLintSession)
+    : catalog?.last_lint
+      ? "from vault log (mutating lint ops)"
+      : "never linted this session";
+  const lastLintTone: Health = lastLintSession || catalog?.last_lint ? "ok" : "warn";
   const vaultHealth = worstHealth(
     lintTone,
     unpushedTone,
@@ -101,7 +151,7 @@ export function VaultPane({
   async function runAction<T>(
     kind: Exclude<ActionBusy, null>,
     work: () => Promise<T>,
-    apply: (value: T) => void,
+    apply: (value: T) => void | Promise<void>,
   ) {
     if (!client || inFlight.current) return;
     const gen = ++loadGen.current;
@@ -110,7 +160,11 @@ export function VaultPane({
     setActionError(null);
     try {
       const value = await work();
-      if (gen === loadGen.current) apply(value);
+      if (gen === loadGen.current) {
+        inFlight.current = false;
+        setBusy(null);
+        await apply(value);
+      }
     } catch (cause) {
       if (gen === loadGen.current) setActionError(formatActionError(cause));
     } finally {
@@ -121,6 +175,40 @@ export function VaultPane({
     }
   }
 
+  async function bootstrapTrainset(topicName: string) {
+    if (!client || busy !== null) return;
+    setBusy("bootstrap-train");
+    try {
+      const result = await client.datasetsBootstrapTrain(topicName, undefined, vault);
+      setBootstrapNote({
+        topic: topicName,
+        kind: "ok",
+        text: `seeded ${result.appended} examples from ${result.pages_read} pages`,
+      });
+      await onStatusRefresh?.();
+    } catch (cause) {
+      setBootstrapNote({ topic: topicName, kind: "error", text: formatActionError(cause) });
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  async function runDoctorRepairDryRun() {
+    if (!client || !vaultReady) return;
+    const vaultArg = vault || catalog?.vault_name || "";
+    await runAction(
+      "doctor-dry",
+      () => client.doctorRepair("dry-run", vaultArg),
+      (result) => {
+        setDoctorRepair(result);
+        const tracked = (result.entries ?? [])
+          .filter((e) => e.tracked)
+          .map((e) => e.path);
+        setSelectedPaths(tracked);
+      },
+    );
+  }
+
   async function refreshCheck(tab: CheckTab = checkTab, withFix = false) {
     if (!client || !vaultReady) return;
     const vaultArg = vault || catalog?.vault_name || "";
@@ -128,13 +216,30 @@ export function VaultPane({
       await runAction(
         withFix ? "fix" : "refresh",
         () => client.doctorRun(vaultArg, false, withFix),
-        setDoctor,
+        async (report) => {
+          setDoctor(report);
+          if (withFix || doctorNeedsRepair(report)) {
+            await runDoctorRepairDryRun();
+          }
+        },
       );
       return;
     }
     if (tab === "lint") {
       const scopeTopic = lintScope === "topic" ? topic : "";
-      await runAction("refresh", () => client.vaultLint(scopeTopic, vaultArg), setLint);
+      await runAction(
+        "refresh",
+        () => client.vaultLint(scopeTopic, vaultArg),
+        (result) => {
+          setLint(result);
+          setLastLintSession({
+            at: new Date(),
+            scope: lintScope,
+            scopeLabel: lintScope === "topic" ? topic : "whole vault",
+            violations: result.violations.length,
+          });
+        },
+      );
       return;
     }
     if (tab === "okf") {
@@ -150,16 +255,20 @@ export function VaultPane({
     // eslint-disable-next-line react-hooks/exhaustive-deps -- intentional: refresh on tab/scope/topic/vault
   }, [client, checkTab, topic, vault, vaultReady, lintScope]);
 
+  useEffect(() => {
+    setLastLintSession(null);
+  }, [vaultKey]);
+
   return (
     <main class="pane-main vault">
+
       <section class="ingest-hero">
         <div>
           <p class="eyebrow">Vault storage</p>
           <h2 class="ingest-heading">What lives in this wiki</h2>
           <p class="muted">
-            Live inventory from <code>wiki_status</code> — the same facts as{" "}
-            <code>knotica status</code>. Open a check below to inspect state; remediations sit on
-            the side.
+            Inventory + compile flywheel for the selected topic. Heal (Arena) and Compile both prove
+            out in Ask — engines stay invisible.
           </p>
         </div>
         <div
@@ -242,10 +351,10 @@ export function VaultPane({
           }
         />
         <Stat
-          label="Last lint"
-          value={catalog?.last_lint || "never"}
+          label={lastLintSession ? "Last lint (session)" : "Last lint"}
+          value={lastLintValue}
           tone={lastLintTone}
-          hint={lastLintTone === "ok" ? "lint has run" : "never linted"}
+          hint={lastLintHint}
           small
         />
       </section>
@@ -261,6 +370,13 @@ export function VaultPane({
               </p>
             </div>
           </header>
+          <MetadataTreePanel
+            client={client}
+            vault={vault || catalog?.vault_name || ""}
+            topic={topic}
+            vaultReady={vaultReady}
+            obsidianCtx={obsidianCtx}
+          />
           {topics.length === 0 ? (
             <p class="muted empty-timeline">No topics yet in this vault.</p>
           ) : (
@@ -278,7 +394,18 @@ export function VaultPane({
                     >
                       <span class="topic-card-top">
                         <strong>{row.topic}</strong>
-                        <span class={`health-chip ${health}`}>{HEALTH_LABEL[health]}</span>
+                        <span class="topic-card-actions">
+                          <ObsidianFileLink
+                            ctx={obsidianCtx}
+                            relativePath={`${row.topic}/SCHEMA.md`}
+                            className="obsidian-icon-link"
+                            title="Open topic schema in Obsidian"
+                            onClick={(event) => event.stopPropagation()}
+                          >
+                            Obsidian
+                          </ObsidianFileLink>
+                          <span class={`health-chip ${health}`}>{HEALTH_LABEL[health]}</span>
+                        </span>
                       </span>
                       <span class="topic-card-meta">
                         {row.pages} pages ·{" "}
@@ -289,21 +416,103 @@ export function VaultPane({
                       <span class={`curate-track health-${health}`} aria-hidden="true">
                         <span class="curate-fill" style={{ width: `${curatedPct}%` }} />
                       </span>
-                      <span class="topic-card-meta">
-                        {row.curated}/{threshold} curated
-                        {row.to_compile_ready > 0
-                          ? ` · ${row.to_compile_ready} to go`
-                          : " · compile-ready"}
+                      <span
+                        class="topic-card-meta"
+                        title={
+                          `Trainset (qa.jsonl query-style): ${queryTrainCount(row)} ` +
+                          `(compile needs ≥${threshold}). ` +
+                          `Held-out (golden.jsonl): ${row.golden_n ?? 0} ` +
+                          `(needs ≥${goldenFloor}).`
+                        }
+                      >
+                        Trainset {queryTrainCount(row)}
+                        {queryTrainCount(row) >= threshold
+                          ? ` (≥${threshold} ✓)`
+                          : ` of ≥${threshold} for compile`}
+                        {" · "}
+                        Held-out {row.golden_n ?? 0}
+                        {(row.golden_n ?? 0) >= goldenFloor
+                          ? ` (≥${goldenFloor} ✓)`
+                          : ` of ≥${goldenFloor}`}
+                        {row.compile_ready
+                          ? " · compile-ready"
+                          : row.to_compile_ready > 0
+                            ? ` · ${row.to_compile_ready} train more`
+                            : ""}
+                        {row.compiled?.present ? " · Compiled" : ""}
                         {row.last_eval
                           ? ` · eval ${row.last_eval.scalar.toFixed(3)}`
                           : " · no eval yet"}
                       </span>
                     </button>
+                    {active ? (
+                      <div class="topic-bootstrap-train">
+                        {!row.compile_ready ? (
+                          <>
+                            <button
+                              type="button"
+                              class="ghost"
+                              disabled={
+                                !client ||
+                                !vaultReady ||
+                                busy !== null ||
+                                (status ?? catalog)?.llm?.available === false
+                              }
+                              title={llmUnavailableTooltip((status ?? catalog)?.llm)}
+                              onClick={() => void bootstrapTrainset(row.topic)}
+                            >
+                              {busy === "bootstrap-train"
+                                ? bootstrapBusyLabel((status ?? catalog)?.loop.progress)
+                                : "Bootstrap trainset"}
+                            </button>
+                            {!bootstrapNote || bootstrapNote.topic !== row.topic ? (
+                              <p class="muted topic-bootstrap-hint">
+                                Cold-start: examples are generated from this topic&apos;s own
+                                pages; your curated answers replace them over time.
+                              </p>
+                            ) : null}
+                          </>
+                        ) : null}
+                        {bootstrapNote && bootstrapNote.topic === row.topic ? (
+                          <p
+                            class={`muted topic-bootstrap-note ${
+                              bootstrapNote.kind === "error" ? "tone-bad" : ""
+                            }`}
+                          >
+                            {bootstrapNote.kind === "ok"
+                              ? `cold-start: ${bootstrapNote.text}`
+                              : bootstrapNote.text}
+                            <button
+                              type="button"
+                              class="topic-bootstrap-dismiss"
+                              aria-label="Dismiss"
+                              onClick={() => setBootstrapNote(null)}
+                            >
+                              ×
+                            </button>
+                          </p>
+                        ) : null}
+                      </div>
+                    ) : null}
                   </li>
                 );
               })}
             </ul>
           )}
+          <CompilePanel
+            client={client}
+            topic={topic}
+            vault={vault}
+            status={status ?? catalog}
+            onStatusRefresh={onStatusRefresh}
+          />
+          <ScoreboardPanel
+            client={client}
+            topic={topic}
+            vault={vault}
+            status={status ?? catalog}
+            onStatusRefresh={onStatusRefresh}
+          />
         </section>
 
         <section class="panel vault-checks">
@@ -331,7 +540,7 @@ export function VaultPane({
           </nav>
 
           <div class="check-workspace">
-            <div class="check-status">
+            <div class="check-pane">
               {actionError ? <aside role="alert">Action failed: {actionError}</aside> : null}
               {checkTab === "doctor" ? (
                 <DoctorPanel
@@ -345,6 +554,7 @@ export function VaultPane({
                   result={lint}
                   busy={!vaultReady || busy === "refresh"}
                   waitingVault={!vaultReady}
+                  obsidianCtx={obsidianCtx}
                 />
               ) : null}
               {checkTab === "okf" ? (
@@ -353,6 +563,7 @@ export function VaultPane({
                   repair={repair}
                   busy={!vaultReady || busy === "refresh"}
                   waitingVault={!vaultReady}
+                  obsidianCtx={obsidianCtx}
                 />
               ) : null}
               {checkTab === "loop" ? (
@@ -372,8 +583,10 @@ export function VaultPane({
                 <DoctorRemediations
                   client={client}
                   vault={vault || catalog?.vault_name || ""}
+                  obsidianCtx={obsidianCtx}
                   busy={busy}
                   doctorRepair={doctorRepair}
+                  lastApply={lastDoctorApply}
                   selectedPaths={selectedPaths}
                   deleteUntracked={deleteUntracked}
                   onRefresh={() => void refreshCheck("doctor", false)}
@@ -390,19 +603,7 @@ export function VaultPane({
                       .map((e) => e.path);
                     setSelectedPaths(tracked);
                   }}
-                  onDryRun={() =>
-                    void runAction(
-                      "doctor-dry",
-                      () => client!.doctorRepair("dry-run", vault || catalog?.vault_name || ""),
-                      (result) => {
-                        setDoctorRepair(result);
-                        const tracked = (result.entries ?? [])
-                          .filter((e) => e.tracked)
-                          .map((e) => e.path);
-                        setSelectedPaths(tracked);
-                      },
-                    )
-                  }
+                  onDryRun={() => void runDoctorRepairDryRun()}
                   onApply={(allTracked) => {
                     const vaultArg = vault || catalog?.vault_name || "";
                     const paths = allTracked ? [] : selectedPaths;
@@ -427,10 +628,13 @@ export function VaultPane({
                           allTracked,
                           deleteUntracked,
                         ),
-                      (result) => {
-                        setDoctorRepair(result);
-                        setSelectedPaths([]);
-                        void refreshCheck("doctor", false);
+                      async (result) => {
+                        setLastDoctorApply({
+                          restored: result.restored ?? [],
+                          message: result.message,
+                        });
+                        await runDoctorRepairDryRun();
+                        await refreshCheck("doctor", false);
                       },
                     );
                   }}
@@ -576,8 +780,10 @@ function Stat({
 function DoctorRemediations({
   client,
   vault,
+  obsidianCtx,
   busy,
   doctorRepair,
+  lastApply,
   selectedPaths,
   deleteUntracked,
   onRefresh,
@@ -590,8 +796,10 @@ function DoctorRemediations({
 }: {
   client: ToolClient | null;
   vault: string;
+  obsidianCtx: ObsidianContext;
   busy: ActionBusy;
   doctorRepair: DoctorRepairResult | null;
+  lastApply: { restored: string[]; message?: string } | null;
   selectedPaths: string[];
   deleteUntracked: boolean;
   onRefresh: () => void;
@@ -611,30 +819,37 @@ function DoctorRemediations({
   return (
     <>
       <p class="muted">
-        Same as <code>knotica doctor</code> / <code>doctor repair</code>
+        Restore dirty paths here via <strong>Repair dry-run → Apply</strong> (same as{" "}
+        <code>knotica doctor repair</code>). Never runs <code>git restore .</code>.
       </p>
+      <button type="button" class="primary" disabled={!client || busy !== null} onClick={onDryRun}>
+        {dryBusy ? "Listing…" : "Repair dry-run"}
+      </button>
       <button type="button" disabled={!client || busy !== null} onClick={onRefresh}>
         {busy === "refresh" ? "Running…" : "Refresh doctor"}
       </button>
       <button type="button" disabled={!client || busy !== null} onClick={onFixGuidance}>
-        {busy === "fix" ? "Loading…" : "doctor --fix (guidance)"}
-      </button>
-      <button type="button" disabled={!client || busy !== null} onClick={onDryRun}>
-        {dryBusy ? "Listing…" : "Repair dry-run"}
+        {busy === "fix" ? "Loading…" : "Show fix guidance"}
       </button>
       <p class="action-note">
-        <code>--fix</code> lists CLI commands only. Dry-run / apply restore path-scoped paths to
-        HEAD (never <code>git restore .</code>).
+        <strong>Show fix guidance</strong> mirrors <code>knotica doctor --fix</code> (CLI commands
+        only — not a restore). When git is dirty, dry-run runs automatically so you can apply
+        selected paths or all tracked.
       </p>
+
+      {lastApply && lastApply.restored.length > 0 ? (
+        <p class="action-result tone-ok">
+          {lastApply.message || `Restored ${lastApply.restored.length} path(s).`}{" "}
+          {lastApply.restored.join(", ")}
+        </p>
+      ) : null}
 
       {doctorRepair ? (
         <div class="doctor-repair-box">
           <p class="muted">
-            {doctorRepair.mode === "apply"
-              ? doctorRepair.message || `Restored ${(doctorRepair.restored ?? []).length} path(s).`
-              : doctorRepair.dirty_count
-                ? `${doctorRepair.dirty_count} dirty path(s)`
-                : "Work tree clean"}
+            {doctorRepair.dirty_count
+              ? `${doctorRepair.dirty_count} dirty path(s)`
+              : "Work tree clean"}
           </p>
           {entries.length > 0 ? (
             <>
@@ -665,7 +880,9 @@ function DoctorRemediations({
                         onChange={() => onTogglePath(entry.path)}
                       />
                       <code class="path-code">{entry.code}</code>
-                      <span class="path-name">{entry.path}</span>
+                      <ObsidianFileLink ctx={obsidianCtx} relativePath={entry.path} className="path-name">
+                        {entry.path}
+                      </ObsidianFileLink>
                       <em>{entry.untracked ? "untracked" : "tracked"}</em>
                     </label>
                   </li>
@@ -688,13 +905,11 @@ function DoctorRemediations({
               </button>
             </>
           ) : null}
-          {doctorRepair.restored && doctorRepair.restored.length > 0 ? (
-            <p class="action-note">Restored: {doctorRepair.restored.join(", ")}</p>
-          ) : null}
         </div>
       ) : (
         <p class="action-note">
-          Run repair dry-run to list dirty paths for vault{vault ? ` · ${vault}` : ""}.
+          Repair dry-run lists dirty paths for vault{vault ? ` · ${vault}` : ""} (auto-runs when git
+          check fails).
         </p>
       )}
     </>
@@ -728,13 +943,20 @@ function DoctorPanel({
         </h3>
         <span class={`health-chip ${tone}`}>{HEALTH_LABEL[tone]}</span>
       </div>
-      <ul class="check-list">
+      <ul class="check-list" aria-label="Doctor checks">
         {report.checks.map((row) => (
-          <li class={`check-${row.status.toLowerCase()}`} key={row.name}>
-            <span class="check-status">{row.status}</span>
-            <div>
-              <strong>{row.name}</strong>
-              <p>{row.message}</p>
+          <li class={`check-row check-${row.status.toLowerCase()}`} key={row.name}>
+            <span
+              class={`health-chip ${checkStatusTone(row.status)}`}
+              aria-label={`Status: ${row.status}`}
+            >
+              {row.status}
+            </span>
+            <div class="check-body">
+              <div class="check-line">
+                <strong class="check-name">{row.name}</strong>
+                <span class="check-message">{row.message}</span>
+              </div>
               {row.remediation && row.status !== "PASS" ? (
                 <p class="fix-hint">→ {row.remediation}</p>
               ) : null}
@@ -744,7 +966,7 @@ function DoctorPanel({
       </ul>
       {report.fix_guidance ? (
         <div class="fix-guidance">
-          <h4>doctor --fix (guidance)</h4>
+          <h4>Fix guidance (CLI only — not a restore)</h4>
           <p>{report.fix_guidance.summary}</p>
           <ul>
             {report.fix_guidance.commands.map((command) => (
@@ -764,10 +986,12 @@ function LintPanel({
   result,
   busy,
   waitingVault,
+  obsidianCtx,
 }: {
   result: VaultLintResult | null;
   busy: boolean;
   waitingVault: boolean;
+  obsidianCtx: ObsidianContext;
 }) {
   if (!result) {
     return (
@@ -793,10 +1017,12 @@ function LintPanel({
         <ul class="violation-list">
           {result.violations.slice(0, 40).map((row, index) => (
             <li class="health-bad" key={`${row.path}-${row.check}-${index}`}>
-              <strong>
-                {row.path}
-                {row.line != null ? `:${row.line}` : ""}
-              </strong>
+              <ObsidianFileLink ctx={obsidianCtx} relativePath={row.path}>
+                <strong>
+                  {row.path}
+                  {row.line != null ? `:${row.line}` : ""}
+                </strong>
+              </ObsidianFileLink>
               <span class="check-code">{row.check}</span>
               <p>{row.message}</p>
               <p class="fix-hint">→ {row.fix}</p>
@@ -813,11 +1039,13 @@ function OkfStatus({
   repair,
   busy,
   waitingVault,
+  obsidianCtx,
 }: {
   okf: OkfCheckResult | null;
   repair: OkfRepairResult | null;
   busy: boolean;
   waitingVault: boolean;
+  obsidianCtx: ObsidianContext;
 }) {
   if (!okf && !repair) {
     return (
@@ -828,13 +1056,19 @@ function OkfStatus({
   }
   return (
     <>
-      {okf ? <OkfPanel result={okf} /> : null}
-      {repair ? <RepairPanel result={repair} /> : null}
+      {okf ? <OkfPanel result={okf} obsidianCtx={obsidianCtx} /> : null}
+      {repair ? <RepairPanel result={repair} obsidianCtx={obsidianCtx} /> : null}
     </>
   );
 }
 
-function OkfPanel({ result }: { result: OkfCheckResult }) {
+function OkfPanel({
+  result,
+  obsidianCtx,
+}: {
+  result: OkfCheckResult;
+  obsidianCtx: ObsidianContext;
+}) {
   const tone: Health =
     result.failed || result.errors.length > 0
       ? "bad"
@@ -858,7 +1092,9 @@ function OkfPanel({ result }: { result: OkfCheckResult }) {
         <ul class="violation-list">
           {result.errors.slice(0, 20).map((err, index) => (
             <li class="health-bad" key={`${err.path}-${index}`}>
-              <strong>{err.path}</strong>
+              <ObsidianFileLink ctx={obsidianCtx} relativePath={err.path}>
+                <strong>{err.path}</strong>
+              </ObsidianFileLink>
               <span class="check-code">{err.code}</span>
               <p>{err.message}</p>
             </li>
@@ -878,7 +1114,13 @@ function OkfPanel({ result }: { result: OkfCheckResult }) {
   );
 }
 
-function RepairPanel({ result }: { result: OkfRepairResult }) {
+function RepairPanel({
+  result,
+  obsidianCtx,
+}: {
+  result: OkfRepairResult;
+  obsidianCtx: ObsidianContext;
+}) {
   const tone: Health =
     result.files_changed.length === 0 ? "ok" : result.dry_run ? "warn" : "ok";
   return (
@@ -893,7 +1135,14 @@ function RepairPanel({ result }: { result: OkfRepairResult }) {
       <p class="muted">
         {result.files_changed.length} file{result.files_changed.length === 1 ? "" : "s"}
         {result.commit_sha ? ` · commit ${result.commit_sha.slice(0, 8)}` : ""}
-        {result.report_path ? ` · report ${result.report_path}` : ""}
+        {result.report_path ? (
+          <>
+            {" · report "}
+            <ObsidianFileLink ctx={obsidianCtx} relativePath={result.report_path}>
+              {result.report_path}
+            </ObsidianFileLink>
+          </>
+        ) : null}
       </p>
       {result.files_changed.length === 0 ? (
         <p class="tone-ok">Nothing to change.</p>
@@ -901,7 +1150,9 @@ function RepairPanel({ result }: { result: OkfRepairResult }) {
         <ul class="violation-list">
           {result.files_changed.map((path) => (
             <li class={result.dry_run ? "health-warn" : "health-ok"} key={path}>
-              <strong>{path}</strong>
+              <ObsidianFileLink ctx={obsidianCtx} relativePath={path}>
+                <strong>{path}</strong>
+              </ObsidianFileLink>
             </li>
           ))}
         </ul>
@@ -1005,6 +1256,20 @@ function lintToneFor(count: number | null | undefined): Health {
   return "bad";
 }
 
+function formatLintSessionTime(at: Date): string {
+  return at.toLocaleString(undefined, {
+    month: "short",
+    day: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+  });
+}
+
+function lintSessionHint(meta: LintSessionMeta): string {
+  const hits = meta.violations === 1 ? "1 hit" : `${meta.violations} hits`;
+  return `${hits} · ${meta.scopeLabel}`;
+}
+
 function unpushedToneFor(count: number | null | undefined): Health {
   if (count == null || count === 0) return "ok";
   return "warn";
@@ -1046,19 +1311,42 @@ function worstHealth(...tones: Health[]): Health {
   return "ok";
 }
 
+function checkStatusTone(status: string): Health {
+  if (status === "PASS") return "ok";
+  if (status === "WARN") return "warn";
+  return "bad";
+}
+
+function doctorNeedsRepair(report: DoctorReport): boolean {
+  if (report.fix_guidance) return true;
+  return report.checks.some((row) => row.name === "git" && row.status !== "PASS");
+}
+
 function formatActionError(cause: unknown): string {
   if (cause instanceof Error && cause.message) return cause.message;
-  if (typeof cause === "string" && cause.trim()) return cause;
-  if (cause && typeof cause === "object") {
-    const record = cause as Record<string, unknown>;
-    const nested = record.error;
-    if (nested && typeof nested === "object") {
-      const message = (nested as Record<string, unknown>).message;
-      if (typeof message === "string" && message.trim()) return message;
-    }
-    if (typeof record.message === "string" && record.message.trim()) return record.message;
+  return formatToolFailure(cause, "action");
+}
+
+/** Reason-aware tooltip for LLM-gated actions; `undefined` when LLM is available. */
+function llmUnavailableTooltip(llm: LlmAvailability | undefined | null): string | undefined {
+  if (!llm || llm.available !== false) return undefined;
+  return llm.reason === "deps"
+    ? "credentials found but eval dependencies are missing — restart with: uv run --group evals knotica mcp …"
+    : "needs LLM credentials";
+}
+
+const BOOTSTRAP_DETAIL_MAX = 50;
+
+/** Live "synthesizing page k/n — path" label while `datasets_bootstrap_train` progress streams in. */
+function bootstrapBusyLabel(progress: LoopProgress | null | undefined): string {
+  if (progress?.phase !== "bootstrap-train" || progress.total <= 0) {
+    return "synthesizing from pages…";
   }
-  return "Action failed";
+  const detail =
+    progress.detail.length > BOOTSTRAP_DETAIL_MAX
+      ? `${progress.detail.slice(0, BOOTSTRAP_DETAIL_MAX - 1)}…`
+      : progress.detail;
+  return `synthesizing page ${progress.current}/${progress.total}${detail ? ` — ${detail}` : ""}`;
 }
 
 function healthSummary(

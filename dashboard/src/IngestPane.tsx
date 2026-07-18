@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "preact/hooks";
 
+import { ObsidianFileLink, type ObsidianContext } from "./obsidianLinks";
 import type { ToolClient } from "./toolClient";
 import type { IngestActivity, IngestEvent, IngestRun } from "./types";
 
@@ -39,10 +40,12 @@ export function IngestPane({
   client,
   topic,
   vault,
+  obsidianCtx,
 }: {
   client: ToolClient | null;
   topic: string;
   vault: string;
+  obsidianCtx: ObsidianContext;
 }) {
   const [activity, setActivity] = useState<IngestActivity | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -109,6 +112,13 @@ export function IngestPane({
       : (activity?.pipeline_stages ?? INGEST_FALLBACK);
   const live = Boolean(run && !run.terminal);
   const activeRunId = selectedRun || activity?.active_run?.run_id || "";
+  const pulseLabel = live
+    ? "In progress"
+    : run
+      ? workflow === "curate"
+        ? "Done"
+        : "Last run"
+      : "Waiting";
 
   return (
     <main class="pane-main ingest">
@@ -126,7 +136,7 @@ export function IngestPane({
         </div>
         <div class={`ingest-pulse ${live ? "live" : run ? "idle" : "empty"}`}>
           <span class="pulse-dot" aria-hidden="true" />
-          <strong>{live ? "In progress" : run ? "Last run" : "Waiting"}</strong>
+          <strong>{pulseLabel}</strong>
           <small>
             {run?.current_title ||
               "Start an ingest in Claude; progress appears here automatically."}
@@ -228,9 +238,18 @@ export function IngestPane({
             ) : (
               timelineItems.map((item, index) =>
                 item.kind === "group" ? (
-                  <GroupedEvents key={`g-${item.stage}-${index}`} stage={item.stage} events={item.events} />
+                  <GroupedEvents
+                    key={`g-${item.stage}-${index}`}
+                    stage={item.stage}
+                    events={item.events}
+                    obsidianCtx={obsidianCtx}
+                  />
                 ) : (
-                  <TimelineEvent key={`${item.event.ts}-${index}`} event={item.event} />
+                  <TimelineEvent
+                    key={`${item.event.ts}-${index}`}
+                    event={item.event}
+                    obsidianCtx={obsidianCtx}
+                  />
                 ),
               )
             )}
@@ -266,7 +285,15 @@ function groupTimeline(events: IngestEvent[]): TimelineItem[] {
   return items;
 }
 
-function GroupedEvents({ stage, events }: { stage: string; events: IngestEvent[] }) {
+function GroupedEvents({
+  stage,
+  events,
+  obsidianCtx,
+}: {
+  stage: string;
+  events: IngestEvent[];
+  obsidianCtx: ObsidianContext;
+}) {
   const [open, setOpen] = useState(false);
   const label = STAGE_LABELS[stage] || stage;
   const first = events[0];
@@ -302,7 +329,7 @@ function GroupedEvents({ stage, events }: { stage: string; events: IngestEvent[]
         {open ? (
           <ol class="timeline nested">
             {events.map((event, index) => (
-              <TimelineEvent key={`${event.ts}-n-${index}`} event={event} />
+              <TimelineEvent key={`${event.ts}-n-${index}`} event={event} obsidianCtx={obsidianCtx} />
             ))}
           </ol>
         ) : null}
@@ -311,7 +338,13 @@ function GroupedEvents({ stage, events }: { stage: string; events: IngestEvent[]
   );
 }
 
-function TimelineEvent({ event }: { event: IngestEvent }) {
+function TimelineEvent({
+  event,
+  obsidianCtx,
+}: {
+  event: IngestEvent;
+  obsidianCtx: ObsidianContext;
+}) {
   const label = STAGE_LABELS[event.stage] || event.stage;
   return (
     <li
@@ -340,7 +373,11 @@ function TimelineEvent({ event }: { event: IngestEvent }) {
         ) : null}
         <div class="tl-refs">
           {event.citation_key ? <span class="ref">{event.citation_key}</span> : null}
-          {event.path ? <span class="ref path">{event.path}</span> : null}
+          {event.path ? (
+            <ObsidianFileLink ctx={obsidianCtx} relativePath={event.path} className="ref path">
+              {event.path}
+            </ObsidianFileLink>
+          ) : null}
           {event.commit_sha ? (
             <span class="ref sha">{event.commit_sha.slice(0, 8)}</span>
           ) : null}
