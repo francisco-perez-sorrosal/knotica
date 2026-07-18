@@ -70,12 +70,17 @@ from pathlib import Path
 
 import pytest
 
+from knotica.core.page import topic_relative_page_name
 from knotica.core.records import MetricsRecord, QARecord
+from knotica.evals import judge
 from knotica.evals.cache import ResponseCache
-from knotica.evals.config import DEFAULT_CONFIG, HarnessConfig
+from knotica.evals.config import DEFAULT_CONFIG, HarnessConfig, harness_version
 from knotica.evals.golden import GoldenSetContaminationError, GoldenSetMissingError
 from knotica.evals.harness import LiveVaultTargetError, SpendCeilingExceededError, run_eval
 from knotica.evals.llm import Completion, TokenUsage
+from knotica.evals.runner import DEFAULT_MAX_PAGES
+from knotica.search import RipgrepBackend
+from knotica.search.retrieval import retrieve_search_results
 from support.vault import (
     git_commit_count,
     git_commit_subjects,
@@ -980,9 +985,7 @@ def test_run_eval_reports_per_example_progress_in_order(
     assert judging, "the judging leg must report"
     assert (0, judging[0][1]) in judging, "judging announces itself before sampling"
     drawn = [(k, n) for k, n in judging if k > 0]
-    assert drawn and all(1 <= k <= n for k, n in drawn), (
-        "cold-cache judge samples report k in 1..n"
-    )
+    assert drawn and all(1 <= k <= n for k, n in drawn), "cold-cache judge samples report k in 1..n"
 
 
 def test_parallel_eval_reproduces_the_sequential_scalar(
@@ -1024,3 +1027,245 @@ def test_num_threads_bounds_are_validated() -> None:
         DEFAULT_CONFIG.with_overrides(num_threads=9)
     with pytest.raises(ValueError, match="positive"):
         DEFAULT_CONFIG.with_overrides(num_threads=0)
+
+
+# --------------------------------------------------------------------------- #
+# Manifest schema v2 -- schema stamp, stable per-example id, normalized page trace
+# --------------------------------------------------------------------------- #
+
+
+def test_the_manifest_carries_the_schema_version_2_stamp(
+    seeded_source: Path, tmp_path: Path
+) -> None:
+    clone = tmp_path / "eval-clone"
+
+    record = _run_eval(
+        TOPIC, source_root=seeded_source, llm_client=_routing_fake(), work_root=clone
+    )
+
+    manifest = _read_manifest(clone, record)
+    assert manifest["manifest_schema_version"] == 2, (
+        "a consumer must be able to read manifest_schema_version at read time and know "
+        "per_example[].id/.pages and held_out_delta are present in this shape"
+    )
+
+
+def test_per_example_entries_carry_the_golden_records_stable_id(
+    seeded_source: Path, tmp_path: Path
+) -> None:
+    clone = tmp_path / "eval-clone"
+    golden = _golden_records()
+
+    record = _run_eval(
+        TOPIC, source_root=seeded_source, llm_client=_routing_fake(), work_root=clone
+    )
+
+    manifest = _read_manifest(clone, record)
+    per_example = manifest["per_example"]
+    assert len(per_example) == len(golden), "one per_example entry per golden record"
+    assert {item["id"] for item in per_example} == {rec.id for rec in golden}, (
+        "each per_example entry's id must equal the corresponding golden QARecord.id, "
+        "not a re-derived, blank, or missing value"
+    )
+
+
+def test_per_example_pages_are_the_actual_retrieval_trace_joined_by_id(
+    seeded_source: Path, tmp_path: Path
+) -> None:
+    # Independently recompute each question's expected retrieval trace via the same
+    # production retrieval path used by the runner (a legitimate oracle, not a mock
+    # of the unit under test), then join the manifest's per_example entries on id --
+    # proving the manifest's trace is the runner's real trace, in the shared
+    # topic_relative_page_name form, joined across the whole producer chain (golden
+    # -> runner -> program -> harness), not just the runner in isolation (R2).
+    clone = tmp_path / "eval-clone"
+    golden = _golden_records()
+    backend = RipgrepBackend(seeded_source)
+    expected_by_id = {
+        rec.id: [
+            topic_relative_page_name(TOPIC, result.path)
+            for result in retrieve_search_results(
+                backend, TOPIC, rec.query, limit=DEFAULT_MAX_PAGES
+            )
+        ]
+        for rec in golden
+    }
+    assert any(expected_by_id.values()), (
+        "at least one golden question must retrieve a page for this test to matter"
+    )
+
+    record = _run_eval(
+        TOPIC, source_root=seeded_source, llm_client=_routing_fake(), work_root=clone
+    )
+
+    manifest = _read_manifest(clone, record)
+    actual_by_id = {item["id"]: item["pages"] for item in manifest["per_example"]}
+    assert actual_by_id == expected_by_id, (
+        "per_example[].pages must equal the runner's own retrieval trace for that exact "
+        "question, joined by id, in topic_relative_page_name form"
+    )
+
+
+# --------------------------------------------------------------------------- #
+# Fingerprint stability -- the id/pages/schema-version additions must not touch
+# harness_version's folded inputs. A regression here is a hard defect, never an
+# expected side effect to tolerate.
+# --------------------------------------------------------------------------- #
+
+
+def test_the_harness_fingerprint_is_unchanged_by_the_manifest_schema_v2_fields(
+    seeded_source: Path, tmp_path: Path
+) -> None:
+    # harness_version is a pure function of (judge_prompt_hash, config). Computed
+    # independently here, before the run, from the same default config the run uses.
+    # If the id/pages/manifest_schema_version plumbing touched any of its folded
+    # inputs (scalar_formula_version, judge_snapshot, worker_snapshot,
+    # judge_prompt_hash, dspy_version, failure_score) -- e.g. by an edit to
+    # _build_record threading config differently -- this independently-computed
+    # value would diverge from what the run actually records.
+    expected_fingerprint = harness_version(judge.JUDGE_PROMPT_HASH, DEFAULT_CONFIG)
+    clone = tmp_path / "eval-clone"
+
+    record = _run_eval(
+        TOPIC, source_root=seeded_source, llm_client=_routing_fake(), work_root=clone
+    )
+
+    assert record.harness_version == expected_fingerprint, (
+        "adding manifest_schema_version/id/pages must not rotate the harness fingerprint; "
+        f"got {record.harness_version!r}, expected {expected_fingerprint!r} (computed "
+        "independently from the same default config, before the run)"
+    )
+
+
+# --------------------------------------------------------------------------- #
+# held_out_delta -- populated across two generations, null only at cold start
+# --------------------------------------------------------------------------- #
+
+#: A distinctive nonsense term that appears in exactly one deliberately-added page,
+#: never in the template's shipped content. After stopword-stripping it is the
+#: query's sole search term, so ripgrep either matches this one page or none --
+#: giving a fully deterministic, one-question retrieval-trace change between
+#: generations, with zero risk of leaking into the other golden questions' traces.
+_TRACE_PROBE_TERM = "zzqfrobnicate"
+_TRACE_PROBE_PAGE_NAME = "trace-probe"
+_TRACE_PROBE_RECORD_ID = "golden-trace-probe"
+
+
+def _trace_probe_record() -> QARecord:
+    """A golden record whose query retrieves only the (not-yet-added) trace-probe page."""
+    return _qa_record(record_id=_TRACE_PROBE_RECORD_ID, query=f"What is {_TRACE_PROBE_TERM}?")
+
+
+def _write_trace_probe_page(vault: Path) -> None:
+    """Commit a new content page matched only by the trace-probe query's distinctive term.
+
+    Mirrors the template's existing page frontmatter shape. Committed with a plain
+    ``git`` call (as ``_seed_source`` does) rather than through a
+    ``VaultTransaction`` -- this is test-fixture setup for the *next* generation's
+    lineage source, not a harness-mediated write.
+    """
+    page = vault / TOPIC / f"{_TRACE_PROBE_PAGE_NAME}.md"
+    page.write_text(
+        "---\n"
+        "type: concept\n"
+        f"topic: {TOPIC}\n"
+        'created: "2026-07-18T00:00:00Z"\n'
+        'updated: "2026-07-18T00:00:00Z"\n'
+        "confidence: low\n"
+        "sources: []\n"
+        "status: active\n"
+        "tags: [test-fixture]\n"
+        "title: Trace probe\n"
+        'description: "test fixture page for the held_out_delta trace-diff regression test"\n'
+        'timestamp: "2026-07-18T00:00:00Z"\n'
+        "---\n\n"
+        f"# Trace probe\n\n{_TRACE_PROBE_TERM} is a fixture-only marker term used to force a "
+        "one-question retrieval-trace change between eval generations.\n",
+        encoding="utf-8",
+    )
+    run_git(vault, "add", "-A")
+    run_git(vault, "commit", "-m", "test: add trace-probe page between eval generations")
+
+
+def test_held_out_delta_is_null_only_at_generation_one_cold_start(
+    seeded_source: Path, tmp_path: Path
+) -> None:
+    record = _run_eval(
+        TOPIC, source_root=seeded_source, llm_client=_routing_fake(), work_root=tmp_path / "clone"
+    )
+
+    manifest = _read_manifest(tmp_path / "clone", record)
+    assert record.generation == 1, "precondition: no prior generation exists"
+    assert manifest["held_out_delta"] is None, (
+        "generation 1 (no prior generation) is the only null case for held_out_delta -- "
+        "never a fabricated 0 standing in for 'no prior to diff against'"
+    )
+
+
+def test_held_out_delta_populates_scalar_and_per_id_deltas_keyed_by_stable_id(
+    template_vault: Path, tmp_path: Path
+) -> None:
+    # Two generations on one lineage: gen 1 clones the seeded source; that clone is
+    # then itself the "source" gen 2 clones from, so gen 2's metrics.jsonl inherits
+    # gen 1's committed history (Decision D4: discovery via the prior record's own
+    # artifact_ref, read off the clone lineage -- never the live vault).
+    golden = _golden_records() + [_trace_probe_record()]
+    _seed_source(template_vault, golden)
+    gen1_clone = tmp_path / "gen-1"
+    gen2_clone = tmp_path / "gen-2"
+
+    gen1 = run_eval(
+        TOPIC,
+        source_root=template_vault,
+        llm_client=_routing_fake(),
+        work_root=gen1_clone,
+        cache=ResponseCache(),
+    )
+    _write_trace_probe_page(gen1_clone)  # becomes the next generation's lineage source
+
+    gen2 = run_eval(
+        TOPIC,
+        source_root=gen1_clone,
+        llm_client=_routing_fake(judge=_judge_completion(score=0.5)),
+        work_root=gen2_clone,
+        cache=ResponseCache(),
+    )
+
+    manifest = _read_manifest(gen2_clone, gen2.record)
+    delta = manifest["held_out_delta"]
+    assert delta is not None, "a prior generation exists, so held_out_delta must be populated"
+    assert delta["prior_generation"] == gen1.record.generation == 1
+    assert delta["prior_artifact_ref"] == gen1.record.artifact_ref, (
+        "prior-generation discovery follows the prior record's own artifact_ref (D4)"
+    )
+    assert delta["scalar_delta"] == pytest.approx(gen2.record.scalar - gen1.record.scalar), (
+        "scalar_delta is current.scalar minus prior.scalar"
+    )
+    assert gen2.record.scalar < gen1.record.scalar, (
+        "non-vacuity: the lowered judge score in generation 2 must actually move the "
+        "scalar down, not merely produce a non-zero difference"
+    )
+    assert delta["ids_added"] == [] and delta["ids_removed"] == [], (
+        "the golden set is unchanged between generations -- no id entered or left"
+    )
+
+    expected_ids = {record.id for record in golden}
+    per_id = delta["per_id"]
+    assert set(per_id) == expected_ids, (
+        "per_id must cover exactly the id-intersection of both generations -- not a "
+        "subset that silently dropped an id nor a superset that invented one (R5)"
+    )
+    assert len(per_id) == len(golden), (
+        "per_id's entry count equals the id-intersection size exactly, never merely non-empty"
+    )
+    assert all(entry["qa_accuracy_delta"] < 0 for entry in per_id.values()), (
+        "every id's qa_accuracy must have dropped with the uniformly lowered judge score"
+    )
+
+    trace_delta = per_id[_TRACE_PROBE_RECORD_ID]
+    assert trace_delta["pages_added"] == [_TRACE_PROBE_PAGE_NAME], (
+        "the trace-probe page entered only generation 2's retrieval for this question -- "
+        "the retrieval-trace diff (not just the score diff) is joined correctly on id, "
+        "not on question text"
+    )
+    assert trace_delta["pages_removed"] == [], "no page left this question's trace"

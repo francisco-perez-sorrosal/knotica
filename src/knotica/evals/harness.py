@@ -66,6 +66,7 @@ from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path, PurePath
+from typing import Any
 
 from knotica.core.config import resolve
 from knotica.core.errors import ErrorCode, KnoticaError
@@ -114,6 +115,11 @@ _EVAL_TOML_FILENAME = "eval.toml"
 _EVAL_RUNS_DIRNAME = "eval-runs"
 #: The per-run manifest filename inside a generation directory.
 _MANIFEST_FILENAME = "manifest.json"
+#: The self-versioning stamp on the per-run manifest (a v2 reader can probe for
+#: ``per_example[].id``/``.pages`` and the ``held_out_delta`` object shape). The
+#: manifest versions independently of the dec-006-frozen ``metrics.jsonl`` record;
+#: today's unversioned shape is treated as an implicit v1.
+_MANIFEST_SCHEMA_VERSION = 2
 #: The schema-overlay filename excluded when counting a topic's content pages
 #: (mirrors ``core.lint``'s content-page rule; kept a private constant per the
 #: codebase convention of not importing a sibling module's private symbol).
@@ -317,8 +323,17 @@ class _UsageAccountingClient:
 
 @dataclass(frozen=True, slots=True)
 class _ExampleBreakdown:
-    """One golden example's scored components, re-derived for the record + manifest."""
+    """One golden example's scored components, re-derived for the record + manifest.
 
+    ``id`` is the golden ``QARecord.id`` -- the edit-stable join key a later
+    generation keys its per-question comparison on (rather than fragile question
+    text). ``pages`` is the runner's ordered retrieval trace (rank = index), in
+    ``QARecord.pages_used`` form, so a consumer can attribute a regression to a
+    retrieval change.
+    """
+
+    id: str
+    pages: tuple[str, ...]
     question: str
     qa_accuracy: float
     citation_validity: float
@@ -439,12 +454,16 @@ def run_eval(
     record = _build_record(
         topic, generation, corpus_sha, scalar_value, components, len(records), run_config
     )
+    held_out_delta = _compute_held_out_delta(
+        clone_store, topic, generation, record.scalar, breakdown
+    )
     manifest = _build_manifest(
         topic,
         generation,
         corpus_sha,
         dataset_sha256,
         record,
+        held_out_delta,
         breakdown,
         budget,
         client,
@@ -680,6 +699,8 @@ def _per_example_breakdown(
         )
         breakdown.append(
             _ExampleBreakdown(
+                id=gold.id,
+                pages=tuple(prediction.pages),
                 question=gold.question,
                 qa_accuracy=qa_accuracy,
                 citation_validity=_citation_validity(store, topic, gold, prediction),
@@ -873,6 +894,7 @@ def _build_manifest(
     corpus_sha: str,
     dataset_sha256: str,
     record: MetricsRecord,
+    held_out_delta: dict[str, object] | None,
     breakdown: Sequence[_ExampleBreakdown],
     budget: _Budget,
     client: _UsageAccountingClient,
@@ -893,6 +915,7 @@ def _build_manifest(
     judge_cache = run_cache.stats_for(judge.JUDGE_CACHE_NAMESPACE)
     runner_cache = run_cache.stats_for(RUNNER_CACHE_NAMESPACE)
     payload: dict[str, object] = {
+        "manifest_schema_version": _MANIFEST_SCHEMA_VERSION,
         "topic": topic,
         "generation": generation,
         "corpus_ref": f"git:{corpus_sha}",
@@ -929,10 +952,12 @@ def _build_manifest(
             "cache_hit_rate": runner_cache.hit_rate,
         },
         "evaluate": {"num_threads": config.num_threads, "failure_score": config.failure_score},
-        "held_out_delta": None,
+        "held_out_delta": held_out_delta,
         "ceilings": {"max_total_tokens": config.max_total_tokens, "max_usd": config.max_usd},
         "per_example": [
             {
+                "id": item.id,
+                "pages": list(item.pages),
                 "question": item.question,
                 "qa_accuracy": item.qa_accuracy,
                 "citation_validity": item.citation_validity,
@@ -943,6 +968,99 @@ def _build_manifest(
         ],
     }
     return json.dumps(payload, ensure_ascii=False, indent=2, sort_keys=True) + "\n"
+
+
+# --------------------------------------------------------------------------- #
+# Cross-generation held-out delta (null only at cold start)
+# --------------------------------------------------------------------------- #
+
+
+def _compute_held_out_delta(
+    store: VaultStore,
+    topic: str,
+    generation: int,
+    current_scalar: float,
+    breakdown: Sequence[_ExampleBreakdown],
+) -> dict[str, object] | None:
+    """Diff this generation against the prior one, keyed on the stable golden id.
+
+    Returns ``None`` -- never a fabricated ``0`` -- at cold start
+    (``generation == 1``: no prior generation exists). This is the *only* null
+    branch: at any later generation the prior manifest is one this harness itself
+    wrote (or reconciled to the same v2 shape), so an unreadable or malformed prior
+    manifest is a genuine corruption and is allowed to raise a typed error rather
+    than be masked as "no baseline" -- consistent with the codebase's
+    typed-errors-over-silent-fallback convention.
+
+    Otherwise it follows the prior generation's
+    :attr:`~knotica.core.records.MetricsRecord.artifact_ref` to read the prior
+    manifest off the same clone ``store`` (clone-not-live-vault) and computes:
+    ``scalar_delta`` (the topic-level move), ``ids_added``/``ids_removed`` (the
+    golden set's symmetric difference), and a ``per_id`` vector -- built fresh from
+    the stable id, never a question-keyed map -- of score deltas and
+    retrieval-trace set-diffs for every id present in both generations.
+    """
+    if generation == 1:
+        return None
+    prior_record = _prior_metrics_record(store, topic, generation)
+    prior_ref = prior_record.artifact_ref
+    if prior_ref is None:
+        raise EvalRunError(
+            topic,
+            f"the prior generation ({prior_record.generation}) recorded no manifest "
+            "artifact_ref to diff the held-out delta against",
+        )
+    prior_manifest = json.loads(store.read_text(prior_ref))
+    prior_by_id = {entry["id"]: entry for entry in prior_manifest["per_example"]}
+    current_by_id = {item.id: item for item in breakdown}
+    prior_ids = set(prior_by_id)
+    current_ids = set(current_by_id)
+    return {
+        "prior_generation": prior_record.generation,
+        "prior_artifact_ref": prior_ref,
+        "scalar_delta": current_scalar - prior_manifest["scalar"],
+        "ids_added": sorted(current_ids - prior_ids),
+        "ids_removed": sorted(prior_ids - current_ids),
+        "per_id": {
+            example_id: _per_id_delta(current_by_id[example_id], prior_by_id[example_id])
+            for example_id in sorted(current_ids & prior_ids)
+        },
+    }
+
+
+def _prior_metrics_record(store: VaultStore, topic: str, generation: int) -> MetricsRecord:
+    """The highest-generation ``MetricsRecord`` recorded below ``generation``.
+
+    Reads the same ``metrics.jsonl`` history :func:`_next_generation` parses. Called
+    only at ``generation > 1``, where at least one prior record exists (the current
+    record is not appended until :func:`_persist`), so "prior" is unambiguously the
+    newest record below this generation -- robust even if generations are ever
+    non-contiguous (Decision D4).
+    """
+    text = store.read_text(_metrics_path(topic))
+    records = [MetricsRecord.from_json_line(line) for line in text.splitlines() if line.strip()]
+    below = [record for record in records if record.generation < generation]
+    return max(below, key=lambda record: record.generation)
+
+
+def _per_id_delta(current: _ExampleBreakdown, prior: Any) -> dict[str, object]:
+    """Score deltas and retrieval-trace set-diffs for one id present in both generations.
+
+    ``pages_added`` are pages in the current trace but not the prior (a candidate
+    diluter); ``pages_removed`` are pages in the prior trace but not the current (a
+    candidate displacement). Both are sorted for a deterministic manifest. ``prior``
+    is a JSON-parsed v2 ``per_example`` entry (assumed v2 shape -- no defensive
+    version parsing, per the dropped-backward-compat narrowing).
+    """
+    current_pages = set(current.pages)
+    prior_pages = set(prior["pages"])
+    return {
+        "quality_delta": current.quality - float(prior["quality"]),
+        "qa_accuracy_delta": current.qa_accuracy - float(prior["qa_accuracy"]),
+        "citation_validity_delta": current.citation_validity - float(prior["citation_validity"]),
+        "pages_added": sorted(current_pages - prior_pages),
+        "pages_removed": sorted(prior_pages - current_pages),
+    }
 
 
 # --------------------------------------------------------------------------- #
