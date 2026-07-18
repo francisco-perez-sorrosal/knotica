@@ -61,7 +61,8 @@ import json
 import logging
 import statistics
 import tempfile
-from collections.abc import Mapping, Sequence
+import threading
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path, PurePath
@@ -240,7 +241,9 @@ class _UsageAccountingClient:
     def __init__(self, inner: LLMClient) -> None:
         self._inner = inner
         # snapshot -> [input_tokens, output_tokens], accumulated across calls.
+        # Lock-guarded: a multi-threaded dspy.Evaluate accounts through one proxy.
         self._by_snapshot: dict[str, list[int]] = {}
+        self._usage_lock = threading.Lock()
 
     @property
     def auth_mode(self) -> str | None:
@@ -278,9 +281,10 @@ class _UsageAccountingClient:
             max_tokens=max_tokens,
             json_schema=json_schema,
         )
-        totals = self._by_snapshot.setdefault(snapshot, [0, 0])
-        totals[0] += completion.usage.input_tokens
-        totals[1] += completion.usage.output_tokens
+        with self._usage_lock:
+            totals = self._by_snapshot.setdefault(snapshot, [0, 0])
+            totals[0] += completion.usage.input_tokens
+            totals[1] += completion.usage.output_tokens
         return completion
 
     @property
@@ -331,6 +335,8 @@ def run_eval(
     config: HarnessConfig = DEFAULT_CONFIG,
     cache: ResponseCache | None = None,
     work_root: str | Path | None = None,
+    on_example: Callable[[int, int, str], None] | None = None,
+    on_substage: Callable[[str, int, int], None] | None = None,
     **overrides: object,
 ) -> EvalRunResult:
     """Evaluate ``topic`` against its frozen golden set and append one metrics record.
@@ -415,9 +421,15 @@ def run_eval(
         w_cite=run_config.w_cite,
         threshold=run_config.threshold,
         n_judge_samples=run_config.n_judge_samples,
+        on_substage=on_substage,
     )
 
-    results = _run_evaluate(dspy, records, program, metric, run_config)
+    scored_program = (
+        program
+        if on_example is None and on_substage is None
+        else _with_example_progress(dspy, program, len(records), on_example, on_substage)
+    )
+    results = _run_evaluate(dspy, records, scored_program, metric, run_config)
     _reject_on_failures(topic, results)
     _enforce_spend_ceilings(topic, client, run_config)
 
@@ -499,6 +511,45 @@ def _default_cache(corpus_sha: str) -> ResponseCache:
 # --------------------------------------------------------------------------- #
 # dspy.Evaluate over the devset
 # --------------------------------------------------------------------------- #
+
+
+def _with_example_progress(
+    dspy: object,
+    program: object,
+    total: int,
+    on_example: Callable[[int, int, str], None] | None,
+    on_substage: Callable[[str, int, int], None] | None = None,
+) -> object:
+    """Wrap ``program`` so each forward reports ``(i, total, question)`` first.
+
+    Counting is safe because the harness pins ``num_threads=1`` (determinism);
+    the callbacks fire *before* the example runs so a watcher shows the
+    question currently in flight, not the one just finished. ``on_substage``
+    additionally marks the "answering" leg (the metric marks "judging").
+    """
+
+    class _ProgressProgram(dspy.Module):  # type: ignore[attr-defined,misc]
+        def __init__(self) -> None:
+            super().__init__()
+            self._count = 0
+            # dspy.Evaluate shares this one instance across worker threads;
+            # under num_threads > 1 the count reports examples *started*.
+            self._count_lock = threading.Lock()
+
+        def forward(self, question: str) -> object:
+            with self._count_lock:
+                self._count += 1
+                started = self._count
+            try:
+                if on_example is not None:
+                    on_example(started, total, question)
+                if on_substage is not None:
+                    on_substage("answering", 0, 0)
+            except Exception:  # noqa: BLE001 — progress must never break the run
+                _LOGGER.debug("progress callback failed", exc_info=True)
+            return program(question=question)
+
+    return _ProgressProgram()
 
 
 def _run_evaluate(

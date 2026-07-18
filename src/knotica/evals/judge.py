@@ -153,6 +153,7 @@ def grade(
     *,
     n: int = DEFAULT_N_JUDGE_SAMPLES,
     cache: ResponseCache | None = None,
+    on_sample: Callable[[int, int], None] | None = None,
 ) -> float:
     """Return the reference-based quality score in ``[0,1]`` for one QA example.
 
@@ -189,7 +190,9 @@ def grade(
         snapshot=judge_snapshot,
         prompt_hash=JUDGE_PROMPT_HASH,
         inputs=[question, candidate, reference],
-        compute=_median_of_samples(llm_client, judge_snapshot, question, candidate, reference, n),
+        compute=_median_of_samples(
+            llm_client, judge_snapshot, question, candidate, reference, n, on_sample=on_sample
+        ),
         namespace=JUDGE_CACHE_NAMESPACE,
     )
     return cast(float, result)
@@ -202,18 +205,23 @@ def _median_of_samples(
     candidate: str,
     reference: str,
     n: int,
+    *,
+    on_sample: Callable[[int, int], None] | None = None,
 ) -> Callable[[], float]:
     """Build the cache-miss callback: draw ``n`` samples and return their median.
 
     Returned as a thunk so :meth:`ResponseCache.get_or_compute` invokes it only on
     a miss -- the whole point of caching the final median rather than each sample.
+    ``on_sample`` (fired before each draw) therefore reports only real network
+    samples: a warm cache hit draws nothing and reports nothing, honestly.
     """
 
     def compute() -> float:
-        samples = [
-            _draw_sample(llm_client, judge_snapshot, question, candidate, reference)
-            for _ in range(n)
-        ]
+        samples: list[float] = []
+        for index in range(n):
+            if on_sample is not None:
+                on_sample(index + 1, n)
+            samples.append(_draw_sample(llm_client, judge_snapshot, question, candidate, reference))
         return statistics.median(samples)
 
     return compute
