@@ -7,14 +7,15 @@ best-effort journal appends (not git commits); the dashboard Ingest pane polls
 
 from __future__ import annotations
 
+from typing import Any
+
 from mcp.server.fastmcp import FastMCP
 from mcp.types import CallToolResult
 
-from knotica.core.config import resolve
-from knotica.core.errors import KnoticaError
+from knotica.core.config import ResolvedVault
 from knotica.core.ingest_activity import append_ingest_event, read_ingest_activity
-from knotica.mcp_server import envelope
-from knotica.store import LocalFSStore
+from knotica.mcp_server.vault_ctx import with_resolved_vault
+from knotica.store import VaultStore
 
 __all__ = ["register_ingest_tools"]
 
@@ -52,24 +53,20 @@ def register_ingest_tools(mcp: FastMCP) -> None:
         citation_key: str = "",
         vault: str = "",
     ) -> ToolResult:
-        try:
-            resolved = resolve(vault=_vault_arg(vault))
-        except KnoticaError as error:
-            return envelope.error_envelope(error)
-        store = LocalFSStore(resolved.path)
-        event = append_ingest_event(
-            store,
-            resolved.path,
-            topic=topic,
-            stage=stage,
-            title=title,
-            status=status,
-            detail=detail,
-            run_id=run_id,
-            citation_key=citation_key,
-            source="client",
+        return with_resolved_vault(
+            vault,
+            lambda store, resolved: _progress_payload(
+                store,
+                resolved,
+                topic=topic,
+                stage=stage,
+                title=title,
+                status=status,
+                detail=detail,
+                run_id=run_id,
+                citation_key=citation_key,
+            ),
         )
-        return envelope.success_result({"event": event, "run_id": event["run_id"]})
 
     @mcp.tool(name="ingest_activity_read", description=_READ_DESCRIPTION)
     def ingest_activity_read(
@@ -78,14 +75,36 @@ def register_ingest_tools(mcp: FastMCP) -> None:
         limit: int = 120,
         vault: str = "",
     ) -> ToolResult:
-        try:
-            resolved = resolve(vault=_vault_arg(vault))
-        except KnoticaError as error:
-            return envelope.error_envelope(error)
-        payload = read_ingest_activity(resolved.path, topic=topic, run_id=run_id, limit=limit)
-        return envelope.success_result(payload)
+        return with_resolved_vault(
+            vault,
+            lambda _store, resolved: read_ingest_activity(
+                resolved.path, topic=topic, run_id=run_id, limit=limit
+            ),
+        )
 
 
-def _vault_arg(vault: str) -> str | None:
-    cleaned = vault.strip()
-    return cleaned or None
+def _progress_payload(
+    store: VaultStore,
+    resolved: ResolvedVault,
+    *,
+    topic: str,
+    stage: str,
+    title: str,
+    status: str,
+    detail: str,
+    run_id: str,
+    citation_key: str,
+) -> dict[str, Any]:
+    event = append_ingest_event(
+        store,
+        resolved.path,
+        topic=topic,
+        stage=stage,
+        title=title,
+        status=status,
+        detail=detail,
+        run_id=run_id,
+        citation_key=citation_key,
+        source="client",
+    )
+    return {"event": event, "run_id": event["run_id"]}

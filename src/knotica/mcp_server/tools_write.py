@@ -150,6 +150,7 @@ def register_write_tools(mcp: FastMCP) -> None:
         verdict: str,
         pages_used: list[str] | None = None,
         notes: str = "",
+        vault: str = "",
     ) -> ToolResult:
         return _write(
             lambda store, root: operations.curate_example(
@@ -162,6 +163,7 @@ def register_write_tools(mcp: FastMCP) -> None:
                 verdict,
                 notes=notes or None,
             ),
+            vault=vault,
             activity=lambda result: {
                 "topic": topic,
                 "workflow": "curate",
@@ -180,17 +182,18 @@ def register_write_tools(mcp: FastMCP) -> None:
 def _write(
     operation: Callable[[VaultStore, Path], dict[str, Any]],
     *,
+    vault: str = "",
     activity: Callable[[dict[str, Any]], dict[str, Any]] | None = None,
 ) -> ToolResult:
     """Resolve the vault per call, run ``operation``, and render its envelope."""
     try:
-        vault = resolve()
+        resolved = resolve(vault=vault.strip() or None)
     except KnoticaError as error:
         return envelope.error_envelope(error)
-    store = LocalFSStore(vault.path)
-    result_envelope = operation(store, vault.path)
+    store = LocalFSStore(resolved.path)
+    result_envelope = operation(store, resolved.path)
     if activity is not None and "error" not in result_envelope:
-        _best_effort_activity(store, vault.path, activity(result_envelope))
+        _best_effort_activity(store, resolved.path, activity(result_envelope))
     return _render(result_envelope)
 
 

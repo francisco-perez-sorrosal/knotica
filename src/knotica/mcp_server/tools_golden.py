@@ -17,6 +17,7 @@ from knotica.core.errors import ErrorCode, KnoticaError
 from knotica.core.golden_review import load_golden_review, save_golden_review
 from knotica.core.page import PageNotFoundError, TopicNotFoundError
 from knotica.mcp_server import envelope
+from knotica.mcp_server.vault_ctx import vault_arg
 from knotica.store import LocalFSStore
 
 __all__ = ["register_golden_tools"]
@@ -46,14 +47,12 @@ def register_golden_tools(mcp: FastMCP) -> None:
     @mcp.tool(name="golden_review_load", description=_LOAD_DESCRIPTION)
     def golden_review_load(topic: str, vault: str = "") -> ToolResult:
         try:
-            resolved = resolve(vault=_vault_arg(vault))
+            resolved = resolve(vault=vault_arg(vault))
         except KnoticaError as error:
             return envelope.error_envelope(error)
         store = LocalFSStore(resolved.path)
         try:
-            payload = load_golden_review(
-                store, resolved.path, topic, vault_name=resolved.name
-            )
+            payload = load_golden_review(store, resolved.path, topic, vault_name=resolved.name)
         except _EXCEPTIONS as exc:
             return envelope.map_read_exception(exc)
         return envelope.success_result(payload)
@@ -61,7 +60,7 @@ def register_golden_tools(mcp: FastMCP) -> None:
     @mcp.tool(name="golden_review_save", description=_SAVE_DESCRIPTION)
     def golden_review_save(topic: str, accepted_json: str, vault: str = "") -> ToolResult:
         try:
-            resolved = resolve(vault=_vault_arg(vault))
+            resolved = resolve(vault=vault_arg(vault))
         except KnoticaError as error:
             return envelope.error_envelope(error)
         try:
@@ -101,8 +100,3 @@ def _parse_accepted(accepted_json: str) -> list[dict[str, Any]]:
             )
         rows.append(item)
     return rows
-
-
-def _vault_arg(vault: str) -> str | None:
-    cleaned = vault.strip()
-    return cleaned or None

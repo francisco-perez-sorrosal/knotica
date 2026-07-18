@@ -26,11 +26,11 @@ DASHBOARD_URI = "ui://knotica/dashboard"
 MCP_APP_MIME = "text/html;profile=mcp-app"
 
 _OPEN_DASHBOARD_DESCRIPTION = (
-    "Open the knotica dashboard for a topic (Loop + Ingest + Golden panes). On hosts that "
-    "support MCP Apps (Claude Desktop Chat, claude.ai), renders the interactive "
-    "UI inline. On hosts without Apps support, returns text with the standalone "
-    "URL (`knotica mcp --http`). Pass vault to select a configured vault name. "
-    "Read-only bootstrap — panes call wiki_status / metrics_read / golden_review_*."
+    "Open the knotica dashboard for a topic (Vault, Ask, Loop, Arena, Ingest, Golden). "
+    "On hosts that support MCP Apps (Claude Desktop Chat, claude.ai), renders the "
+    "interactive UI inline. On hosts without Apps support, returns text with the "
+    "standalone URL (`knotica mcp --http`). Pass topic (default agentic-systems) and "
+    "optional vault name. Panes call wiki_status, query, compile_*, arena_*, etc."
 )
 
 
@@ -61,10 +61,11 @@ def register_dashboard_app(mcp: FastMCP) -> None:
                 text=(
                     f"knotica dashboard for topic '{cleaned}'{vault_bit}. "
                     "If your host supports MCP Apps, the interactive dashboard opens here "
-                    "(Loop + Golden panes; vault name and path shown in the chrome). "
+                    "(Vault → Ask → Loop → Arena; vault name and path in the chrome). "
                     "Otherwise run `knotica mcp --http` and open "
                     f"http://127.0.0.1:8765/?{query} "
-                    "(Claude Code: use the Browser pane)."
+                    "(Claude Code: use the Browser pane). "
+                    "Desktop install + AWM walkthrough: docs/CLAUDE_DESKTOP.md."
                 ),
             )
         ]

@@ -9,30 +9,34 @@ Result shapes (the observable contract; feed TS type generation in M3):
 
 * ``wiki_status``  -> ``{schema_version, vault, vault_name, vault_path,
   default_vault, available_vaults, compile_ready_threshold, topics,
-  totals, last_lint, unpushed, gate, loop}``
+  totals, last_lint, unpushed, gate, loop}`` where ``loop`` includes
+  ``baseline_frozen``, ``baseline_scalar``, ``pending_candidates``, and
+  ``metrics_hint`` for the Heal dashboard stepper.
 * ``metrics_read`` -> ``{topic, records, has_more, next_before_generation,
   skipped_malformed}``
+* ``baseline_probe`` -> ``{topic, scalar, harness_version, runner_mode, …}``
+  after appending one naive zero cold-start line to ``metrics.jsonl``.
 """
 
-from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
 from mcp.server.fastmcp import FastMCP
 from mcp.types import CallToolResult
 
-from knotica.core.config import ResolvedVault, list_vaults, resolve
+from knotica.core.baseline_probe import run_baseline_probe
+from knotica.core.config import list_vaults
 from knotica.core.errors import ErrorCode, KnoticaError
 from knotica.core.metrics import (
     DEFAULT_METRICS_LIMIT,
     MAX_METRICS_LIMIT,
     render_metrics_window,
 )
-from knotica.core.page import PageNotFoundError, TopicNotFoundError
+from knotica.core.page import TopicNotFoundError
 from knotica.core.status import gather_wiki_status
 from knotica.mcp_server import envelope
-from knotica.search import InvalidCursorError
-from knotica.store import LocalFSStore, VaultStore
+from knotica.mcp_server.vault_ctx import with_resolved_vault
+from knotica.store import VaultStore
 
 _WIKI_STATUS_DESCRIPTION = (
     "Report deterministic vault status for the dashboard: active vault name and "
@@ -52,22 +56,24 @@ _METRICS_READ_DESCRIPTION = (
     "skipped_malformed. Read-only."
 )
 
-ToolResult = CallToolResult
-
-_READ_EXCEPTIONS = (
-    KnoticaError,
-    TopicNotFoundError,
-    PageNotFoundError,
-    InvalidCursorError,
+_BASELINE_PROBE_DESCRIPTION = (
+    "Persist a naive cold-start anchor (scalar 0.0) for one topic on the live "
+    "vault when no eval/compile score exists yet. No LLM, no retrieval scoring, "
+    "never uses golden.jsonl or qa.jsonl. Appends one metrics.jsonl record with "
+    "harness_version naive-cold-start. Chart/UX floor only — not gate-quality; "
+    "run knotica eval or compile before freezing the loop gate. Pass vault to "
+    "select a configured vault."
 )
+
+ToolResult = CallToolResult
 
 
 def register_status_tools(mcp: FastMCP) -> None:
-    """Register ``wiki_status`` and ``metrics_read`` on ``mcp``."""
+    """Register ``wiki_status``, ``metrics_read``, and ``baseline_probe`` on ``mcp``."""
 
     @mcp.tool(name="wiki_status", description=_WIKI_STATUS_DESCRIPTION)
     def wiki_status(topic: str = "", vault: str = "") -> ToolResult:
-        return _read(
+        return with_resolved_vault(
             vault,
             lambda store, resolved: envelope.read_ok(
                 _wiki_payload(store, resolved.path, resolved.name, topic=topic)
@@ -81,15 +87,24 @@ def register_status_tools(mcp: FastMCP) -> None:
         before_generation: int | None = None,
         vault: str = "",
     ) -> ToolResult:
-        return _read(
+        return with_resolved_vault(
             vault,
             lambda store, _resolved: envelope.read_ok(
                 _metrics_payload(store, topic, limit=limit, before_generation=before_generation)
             ),
         )
 
+    @mcp.tool(name="baseline_probe", description=_BASELINE_PROBE_DESCRIPTION)
+    def baseline_probe(topic: str, vault: str = "") -> ToolResult:
+        return with_resolved_vault(
+            vault,
+            lambda store, resolved: run_baseline_probe(store, resolved.path, topic).render(),
+        )
 
-def _wiki_payload(store: VaultStore, vault_path: Path, vault_name: str, *, topic: str) -> dict[str, Any]:
+
+def _wiki_payload(
+    store: VaultStore, vault_path: Path, vault_name: str, *, topic: str
+) -> dict[str, Any]:
     catalog = list_vaults()
     return gather_wiki_status(
         store,
@@ -135,25 +150,3 @@ def _metrics_payload(
         limit=limit,
         before_generation=before_generation,
     )
-
-
-def _read(
-    vault_name: str,
-    operation: Callable[[VaultStore, ResolvedVault], dict[str, Any]],
-) -> ToolResult:
-    """Resolve the vault per call and run ``operation``, envelope-ing every outcome."""
-    try:
-        vault = resolve(vault=_vault_arg(vault_name))
-    except KnoticaError as error:
-        return envelope.error_envelope(error)
-    store = LocalFSStore(vault.path)
-    try:
-        payload = operation(store, vault)
-    except _READ_EXCEPTIONS as exc:
-        return envelope.map_read_exception(exc)
-    return envelope.success_result(payload)
-
-
-def _vault_arg(vault: str) -> str | None:
-    cleaned = vault.strip()
-    return cleaned or None
