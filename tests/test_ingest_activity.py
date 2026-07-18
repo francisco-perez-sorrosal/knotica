@@ -221,8 +221,32 @@ def test_legacy_curate_on_ingest_run_does_not_stay_live(tmp_path: Path) -> None:
     active = payload["active_run"]
     assert active is not None
     assert active["terminal"] is True
-    assert active["current_stage"] in {"write_page", "complete"}
+    assert active["current_stage"] == "complete"
     assert "curate" not in payload["pipeline_stages"]
+
+
+def test_orphan_curate_under_ingest_run_id_is_terminal(tmp_path: Path) -> None:
+    """Pre-workflow journals minted ingest-* for curate-only events — must not stay live."""
+    vault = tmp_path / "vault"
+    (vault / ".knotica").mkdir(parents=True)
+    store = LocalFSStore(vault)
+    # Mimic the legacy line shape (no workflow key) by writing JSONL directly.
+    line = (
+        '{"schema_version": 1, "ts": "2026-07-17T21:08:58Z", '
+        '"run_id": "ingest-53230b5506", "topic": "agentic-systems", '
+        '"stage": "curate", "status": "ok", "title": "Curated example (good)", '
+        '"detail": "q", "citation_key": "", "path": "", "commit_sha": "", '
+        '"source": "server"}\n'
+    )
+    (vault / ".knotica" / "ingest-activity.jsonl").write_text(line, encoding="utf-8")
+    payload = read_ingest_activity(vault, topic=TOPIC)
+    active = payload["active_run"]
+    assert active is not None
+    assert active["run_id"] == "ingest-53230b5506"
+    assert active["workflow"] == "curate"
+    assert active["terminal"] is True
+    assert active["current_stage"] == "complete"
+    assert active["current_title"] == "Curated example (good)"
 
 
 def test_late_plan_marks_out_of_order_and_keeps_rail_forward(tmp_path: Path) -> None:

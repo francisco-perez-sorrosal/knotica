@@ -53,7 +53,9 @@ def test_vault_tools_registered() -> None:
     assert "okf_check" in names
     assert "okf_repair" in names
     assert "loop_run_once" in names
+    assert "loop_set_baseline" in names
     assert "vault_lint" in names
+    assert "vault_metadata_tree" in names
 
 
 def test_doctor_run_matches_cli_json_shape(vault_config: Path) -> None:
@@ -138,10 +140,34 @@ def test_vault_lint_topic_scope(vault_config: Path) -> None:
     assert isinstance(payload["violations"], list)
 
 
-def test_loop_run_once_requires_baseline_or_noops(vault_config: Path) -> None:
+def test_loop_run_once_observes_first_and_captures_eval_failure(vault_config: Path) -> None:
+    """One tick = observe default branch, then gate candidates.
+
+    In this credential-less test env the observation's real eval fails fast;
+    the failure must land in the payload/loop-state, never raise out of the tool.
+    """
     del vault_config
     payload = payload_of(call_tool("loop_run_once", {"topic": "agentic-systems"}))
     assert "error" not in payload
     assert payload["topic"] == "agentic-systems"
-    assert payload["acted"] is False
-    assert "baseline" in payload["message"] or "no pending" in payload["message"]
+    observed = payload["observed"]
+    assert observed["acted"] is True
+    assert "eval failed" in observed["message"]
+    # The observation consumed the tick; no candidate work happened after it.
+    assert payload["decision"] == "fail"
+
+
+def test_loop_set_baseline_freezes_scalar(vault_config: Path) -> None:
+    del vault_config
+    payload = payload_of(
+        call_tool("loop_set_baseline", {"topic": "agentic-systems", "scalar": 0.5707})
+    )
+    assert "error" not in payload
+    assert payload["topic"] == "agentic-systems"
+    assert payload["baseline_scalar"] == 0.5707
+    assert "frozen" in payload["message"]
+
+    status = payload_of(call_tool("wiki_status", {"topic": "agentic-systems"}))
+    assert status["loop"]["baseline_frozen"] is True
+    assert status["loop"]["baseline_scalar"] == 0.5707
+    assert status["gate"]["baseline"] == 0.5707

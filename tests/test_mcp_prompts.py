@@ -118,7 +118,14 @@ def _normalized(text: str) -> str:
     return re.sub(r"\s+", " ", unquoted).strip()
 
 
+#: ``ingest_progress`` stage names that look like tool calls but are not tools.
+#: (Stages that ARE tools — ``store_source``, ``write_page`` — stay checkable.)
+_STAGE_ONLY_TOKENS = frozenset({"read_schema", "resolve_topic"})
+
+
 def _is_tool_reference(token: str) -> bool:
+    if token in _STAGE_ONLY_TOKENS:
+        return False
     if token == "search":
         return True
     return "_" in token and token.split("_", 1)[0] in TOOL_VERBS

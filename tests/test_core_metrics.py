@@ -3,7 +3,10 @@
 from pathlib import Path
 
 from knotica.core.metrics import (
+    append_metrics_record,
+    build_compile_metrics_record,
     metrics_path,
+    next_metrics_generation,
     read_last_metrics,
     read_metrics_window,
     render_metrics_window,
@@ -85,3 +88,32 @@ def test_malformed_lines_are_skipped_and_counted(template_vault: Path) -> None:
     assert rendered["skipped_malformed"] == 2
     assert [r["generation"] for r in rendered["records"]] == [0, 1]
     assert rendered["records"][-1]["scalar"] == 0.57
+
+
+def test_next_metrics_generation_starts_at_one(template_vault: Path) -> None:
+    store = LocalFSStore(template_vault)
+    assert next_metrics_generation(store, TOPIC) == 1
+
+
+def test_append_metrics_record_creates_file(template_vault: Path) -> None:
+    store = LocalFSStore(template_vault)
+    record = build_compile_metrics_record(
+        TOPIC,
+        0.55,
+        merge_sha="a" * 40,
+        generation=1,
+        n_examples=20,
+    )
+    append_metrics_record(
+        store,
+        template_vault,
+        TOPIC,
+        record,
+        operation="compile",
+        title="compile generation 1",
+    )
+    last = read_last_metrics(store, TOPIC)
+    assert last is not None
+    assert last.scalar == 0.55
+    assert last.harness_version == "compile-post-eval"
+    assert next_metrics_generation(store, TOPIC) == 2

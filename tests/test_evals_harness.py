@@ -949,3 +949,78 @@ def test_run_eval_returns_the_clone_root_the_manifest_resolves_against(
         "the record's clone-relative artifact_ref resolves to a real file under the "
         "returned clone root -- the manifest a human reviews the eval commit from"
     )
+
+
+def test_run_eval_reports_per_example_progress_in_order(
+    seeded_source: Path, tmp_path: Path
+) -> None:
+    seen: list[tuple[int, int, str]] = []
+    substages: list[tuple[str, int, int]] = []
+
+    run_eval(
+        TOPIC,
+        source_root=seeded_source,
+        llm_client=_routing_fake(),
+        work_root=tmp_path / "clone",
+        cache=ResponseCache(),
+        on_example=lambda i, total, question: seen.append((i, total, question)),
+        on_substage=lambda stage, k, n: substages.append((stage, k, n)),
+    )
+
+    assert seen, "the progress callback must fire"
+    total = seen[0][1]
+    assert [i for i, _, _ in seen] == list(range(1, total + 1)), (
+        "examples report 1..N in order (num_threads=1)"
+    )
+    assert all(question.strip() for _, _, question in seen), (
+        "each report carries the in-flight question text"
+    )
+    assert ("answering", 0, 0) in substages, "each question marks its answering leg"
+    judging = [(k, n) for stage, k, n in substages if stage == "judging"]
+    assert judging, "the judging leg must report"
+    assert (0, judging[0][1]) in judging, "judging announces itself before sampling"
+    drawn = [(k, n) for k, n in judging if k > 0]
+    assert drawn and all(1 <= k <= n for k, n in drawn), (
+        "cold-cache judge samples report k in 1..n"
+    )
+
+
+def test_parallel_eval_reproduces_the_sequential_scalar(
+    seeded_source: Path, tmp_path: Path
+) -> None:
+    """num_threads must change wall-time only — never the scalar or components."""
+    sequential = _run_eval(
+        TOPIC,
+        source_root=seeded_source,
+        llm_client=_routing_fake(),
+        work_root=tmp_path / "clone-seq",
+        config=DEFAULT_CONFIG.with_overrides(num_threads=1),
+    )
+    parallel = _run_eval(
+        TOPIC,
+        source_root=seeded_source,
+        llm_client=_routing_fake(),
+        work_root=tmp_path / "clone-par",
+        config=DEFAULT_CONFIG.with_overrides(num_threads=4),
+    )
+
+    assert parallel.scalar == sequential.scalar
+    assert parallel.components == sequential.components
+
+
+def test_thread_count_never_rotates_the_instrument_fingerprint() -> None:
+    from knotica.evals.config import DEFAULT_CONFIG, harness_version
+
+    one = harness_version("judge-hash", DEFAULT_CONFIG.with_overrides(num_threads=1))
+    four = harness_version("judge-hash", DEFAULT_CONFIG.with_overrides(num_threads=4))
+    assert one == four, "parallelism does not change the measurement instrument"
+
+
+def test_num_threads_bounds_are_validated() -> None:
+    from knotica.evals.config import DEFAULT_CONFIG
+
+    assert DEFAULT_CONFIG.with_overrides(num_threads=8).num_threads == 8
+    with pytest.raises(ValueError, match="at most"):
+        DEFAULT_CONFIG.with_overrides(num_threads=9)
+    with pytest.raises(ValueError, match="positive"):
+        DEFAULT_CONFIG.with_overrides(num_threads=0)

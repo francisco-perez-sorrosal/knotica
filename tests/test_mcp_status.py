@@ -155,7 +155,8 @@ def test_wiki_status_reports_template_topic_counts(vault_config: Path) -> None:
     del vault_config
     body = assert_success(call_tool("wiki_status", {}))
     assert body["schema_version"] == 1
-    assert body["compile_ready_threshold"] == 20
+    assert body["compile_ready_threshold"] == 30
+    assert body["eval_min_golden"] == 20
     assert body["vault_name"]
     assert body["vault_path"]
     assert body["vault_path"] == body["vault"]
@@ -173,7 +174,10 @@ def test_wiki_status_reports_template_topic_counts(vault_config: Path) -> None:
     row = topics[TOPIC]
     assert row["pages"] >= 1
     assert row["curated"] == 0
-    assert row["to_compile_ready"] == 20
+    assert row["to_compile_ready"] == 30
+    assert row["compile_ready"] is False
+    assert row["compiled"] is None
+    assert "compile" in body
     assert isinstance(row["lint_violations"], int)
     assert row["last_eval"] is None
     assert body["gate"]["last_scalar"] is None
@@ -253,3 +257,33 @@ def test_metrics_read_rejects_empty_topic(vault_config: Path) -> None:
     del vault_config
     err = error_of(call_tool("metrics_read", {"topic": ""}))
     assert_error_shape(err, code="TOPIC_NOT_FOUND")
+
+
+def test_llm_availability_distinguishes_missing_deps_from_missing_creds(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from knotica.core import status as status_module
+
+    monkeypatch.delenv("CLAUDE_CODE_OAUTH_TOKEN", raising=False)
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    assert status_module._llm_availability() == {
+        "available": False,
+        "mode": None,
+        "reason": "credentials",
+    }
+
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "test-key")
+    status_module._anthropic_installed.cache_clear()
+    monkeypatch.setattr(status_module, "_anthropic_installed", lambda: False)
+    assert status_module._llm_availability() == {
+        "available": False,
+        "mode": "api_key",
+        "reason": "deps",
+    }
+
+    monkeypatch.setattr(status_module, "_anthropic_installed", lambda: True)
+    assert status_module._llm_availability() == {
+        "available": True,
+        "mode": "api_key",
+        "reason": None,
+    }
