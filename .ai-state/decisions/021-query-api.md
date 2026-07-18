@@ -1,7 +1,7 @@
 ---
-id: dec-draft-unified-query-api
+id: dec-021
 title: Unified wiki query API — one MCP tool, invisible engines
-status: proposed
+status: accepted
 category: architectural
 date: 2026-07-17
 summary: Interactive and headless wiki answers share one MCP tool named `query`. Baseline MessagesApiRunner and future compiled DSPy programs are internal QueryEngine backends only — never a second public tool (`wiki_query` is retired as an MCP name). Dashboard Ask, Arena scoring, and eval reuse the same facade.

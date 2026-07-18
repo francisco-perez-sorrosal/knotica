@@ -1,7 +1,7 @@
 ---
-id: dec-draft-5f098e91
+id: dec-020
 title: Dashboard architecture — one MCP data contract, one artifact, two transports
-status: proposed
+status: accepted
 category: architectural
 date: 2026-07-17
 summary: The Knotica dashboard is a pure MCP client over deterministic tools (wiki_status, metrics_read, …); one Preact+Vite single-file artifact mounts both as a ui:// MCP App (Claude Desktop) and via streamable HTTP (browser / Claude Code Browser pane); CI builds the HTML into the wheel so uv-only users never need node; official mcp SDK stays (dec-007 vindicated).
