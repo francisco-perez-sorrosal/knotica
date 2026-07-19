@@ -25,6 +25,7 @@ is what a genuinely offline run trips on before it can reach the network.
 import os
 from collections.abc import Mapping
 from dataclasses import dataclass
+from pathlib import Path
 
 from knotica.core.config import config_file_path
 from knotica.core.errors import ErrorCode, KnoticaError
@@ -106,17 +107,52 @@ def env_var_for(provider: str) -> str:
     return env_var
 
 
-def resolve_api_key(provider: str, *, environ: Mapping[str, str] | None = None) -> str:
-    """Resolve ``provider``'s API key from the environment, or raise before the network.
+#: ``.env`` fallback locations, in precedence order after the process environment.
+_DOTENV_LOCATIONS: tuple[str, ...] = (".env", "~/.config/knotica/.env")
 
-    Reads the provider's env var (:data:`PROVIDER_ENV_VARS`) and nothing else. A
-    missing key raises ``NOT_CONFIGURED`` naming the exact variable **before** any
-    HTTP client is built -- so an offline run never reaches the network. The key
-    value is never logged or echoed; the error names the variable, never its content.
+
+def _dotenv_get(env_var: str) -> str | None:
+    """Look ``env_var`` up in the ``.env`` fallback files, first hit wins.
+
+    A deliberately minimal ``KEY=VALUE`` reader (no dependency): blank lines and
+    ``#`` comments skipped, one optional ``export`` prefix tolerated, surrounding
+    single/double quotes stripped. Files are read only at key-resolution time --
+    config *parsing* stays side-effect-free -- and values are returned, never
+    logged. A missing or unreadable file is simply skipped.
+    """
+    for location in _DOTENV_LOCATIONS:
+        path = Path(location).expanduser()
+        try:
+            lines = path.read_text(encoding="utf-8").splitlines()
+        except OSError:
+            continue
+        for line in lines:
+            stripped = line.strip()
+            if not stripped or stripped.startswith("#") or "=" not in stripped:
+                continue
+            name, _, value = stripped.removeprefix("export ").partition("=")
+            if name.strip() != env_var:
+                continue
+            cleaned = value.strip().strip("'\"")
+            if cleaned:
+                return cleaned
+    return None
+
+
+def resolve_api_key(provider: str, *, environ: Mapping[str, str] | None = None) -> str:
+    """Resolve ``provider``'s API key, or raise before the network.
+
+    Precedence: the provider's env var (:data:`PROVIDER_ENV_VARS`) in the process
+    environment, then the ``.env`` fallback files (``./.env``, then
+    ``~/.config/knotica/.env``). A missing key raises ``NOT_CONFIGURED`` naming
+    the exact variable **before** any HTTP client is built -- so an offline run
+    never reaches the network. The key value is never logged or echoed; the
+    error names the variable, never its content. Keys never live in
+    ``config.toml`` or the vault.
     """
     env = os.environ if environ is None else environ
     env_var = env_var_for(provider)
-    key = env.get(env_var)
+    key = env.get(env_var) or _dotenv_get(env_var)
     if not key:
         raise KnoticaError(
             ErrorCode.NOT_CONFIGURED,
@@ -125,7 +161,8 @@ def resolve_api_key(provider: str, *, environ: Mapping[str, str] | None = None) 
                 " so the discovery layer cannot authenticate its search calls."
             ),
             fix=(
-                f"Set {env_var} in your environment (never in config.toml or the vault)"
+                f"Set {env_var} in your environment or in ./.env or"
+                f" ~/.config/knotica/.env (never in config.toml or the vault)"
                 f" to a valid {provider} API key."
             ),
         )

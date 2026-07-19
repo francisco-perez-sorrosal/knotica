@@ -241,3 +241,49 @@ def test_an_invalid_toml_file_falls_back_to_the_default_provider_rather_than_rai
     resolved = config.resolve_search_config(config_path=config_file)
 
     assert resolved.providers == (config.DEFAULT_PROVIDER,)
+
+
+def test_api_key_falls_back_to_a_dotenv_file_in_the_working_directory(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    """With the env var unset, the key is read from ./.env (KEY=VALUE lines,
+    comments and quotes tolerated); the value itself never appears in errors."""
+    config = _config_module()
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("HOME", str(tmp_path))
+    (tmp_path / ".env").write_text(
+        "# discovery credentials\nexport KNOTICA_YOUCOM_API_KEY='dotenv-youcom-key'\n",
+        encoding="utf-8",
+    )
+
+    assert config.resolve_api_key("youcom", environ={}) == "dotenv-youcom-key"
+
+
+def test_the_process_environment_wins_over_a_dotenv_file(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    config = _config_module()
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / ".env").write_text("KNOTICA_YOUCOM_API_KEY=dotenv-value\n", encoding="utf-8")
+
+    resolved = config.resolve_api_key("youcom", environ={"KNOTICA_YOUCOM_API_KEY": "env-value"})
+
+    assert resolved == "env-value"
+
+
+def test_a_missing_key_still_raises_typed_when_no_dotenv_file_exists(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    """The .env fallback must not weaken fail-before-network: no env var and no
+    file anywhere in the fallback chain is still a typed NOT_CONFIGURED whose
+    fix text now names the .env locations."""
+    config = _config_module()
+    errors = _errors_module()
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("HOME", str(tmp_path))
+
+    with pytest.raises(errors.KnoticaError) as excinfo:
+        config.resolve_api_key("youcom", environ={})
+
+    assert excinfo.value.code is errors.ErrorCode.NOT_CONFIGURED
+    assert ".env" in (excinfo.value.fix or "")

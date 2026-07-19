@@ -472,3 +472,21 @@ def test_gap_record_write_lands_in_exactly_one_commit_touching_only_the_gaps_fil
         "the gap-record commit must touch only gaps.jsonl (plus its own log.md entry) -- never "
         "bundled with a loop-state or metrics write in the same commit"
     )
+
+
+@pytest.mark.parametrize("bad_topic", ["", "a/b", "..", ".", "  ", "x/../y"])
+def test_gaps_path_rejects_topics_that_are_not_a_single_clean_segment(bad_topic: str):
+    """The vault-relative gaps path must never be constructible from a topic
+    carrying separators or traversal segments -- a hostile or corrupted topic
+    string fails fast instead of escaping the topic directory. (Leading and
+    trailing slashes are deliberately normalized away, not rejected.)"""
+    from knotica.core.gap_classifier import gaps_path
+
+    with pytest.raises(ValueError):
+        gaps_path(bad_topic)
+
+
+def test_gaps_path_builds_the_expected_topic_relative_path():
+    from knotica.core.gap_classifier import gaps_path
+
+    assert gaps_path("agentic-systems") == "agentic-systems/.knotica/gaps/gaps.jsonl"

@@ -32,3 +32,6 @@ skills-lock.json
 
 # OS
 .DS_Store
+
+# Local credentials (discovery API keys) — never commit
+.env
