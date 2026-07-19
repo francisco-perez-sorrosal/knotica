@@ -40,8 +40,9 @@ def configure(subparsers: argparse._SubParsersAction) -> argparse.ArgumentParser
         parents=[common_parent()],
         help="audit, classify, and retract contested claims from the wiki",
         description=(
-            "Put a claim on trial: find mentions, classify roles, score risk, "
-            "generate a report and patch. Dry-run by default."
+            "Put a claim on trial: find mentions, classify roles, score risk, and "
+            "generate a verdict report with a proposed-removal diff. Records a verdict "
+            "and files a re-grounding gap; never edits wiki pages. Dry-run by default."
         ),
     )
     parser.add_argument("claim", help="target claim text to search and adjudicate")
@@ -55,7 +56,10 @@ def configure(subparsers: argparse._SubParsersAction) -> argparse.ArgumentParser
     parser.add_argument(
         "--apply",
         action="store_true",
-        help="apply generated patch and commit changes (implies not dry-run)",
+        help=(
+            "commit the verdict as applied and file a retracted-knowledge gap for "
+            "re-grounding; no wiki page content is edited (implies not dry-run)"
+        ),
     )
     parser.add_argument(
         "--verdict",
@@ -102,8 +106,6 @@ def run(args: argparse.Namespace) -> int:
         )
 
     dry_run = args.dry_run and not args.apply
-    if args.apply and args.dry_run is False and not args.apply:
-        pass  # explicit --no-dry-run without --apply still dry-runs artifacts only
 
     try:
         parse_verdict_override(args.verdict)

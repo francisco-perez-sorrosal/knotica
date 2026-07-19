@@ -280,6 +280,38 @@ def test_suggestions_read_paginates_via_cursor(vault_config: Path, template_vaul
     assert first_ids.isdisjoint(second_ids), "a cursor page must never repeat a prior page's rows"
 
 
+def test_suggestions_read_orders_by_proposed_at_not_detected_generation(
+    vault_config: Path, template_vault: Path
+) -> None:
+    """F1 regression guard: a ``reported``/``retracted`` suggestion carries no
+    eval generation (a constant zero), so ordering must key on ``proposed_at``
+    -- a real timestamp every suggestion carries -- or the deliberate channel
+    is always paged last regardless of how recently it was proposed."""
+    del vault_config
+    _seed_suggestions(
+        template_vault,
+        [
+            _suggestion_record(
+                suggestion_id="stale-measured",
+                proposed_at="2026-07-01T00:00:00Z",
+                detected_generation=42,
+            ),
+            _suggestion_record(
+                suggestion_id="fresh-reported",
+                proposed_at="2026-07-19T09:00:00Z",
+                detected_generation=0,
+            ),
+        ],
+    )
+
+    body = assert_success(call_tool("suggestions_read", {"topic": TOPIC, "status": "pending"}))
+
+    assert [s["suggestion_id"] for s in body["suggestions"]] == [
+        "fresh-reported",
+        "stale-measured",
+    ], "the most recently proposed suggestion must sort first, regardless of generation"
+
+
 def test_suggestions_read_is_visible_across_a_fresh_process_read(
     vault_config: Path, template_vault: Path
 ) -> None:

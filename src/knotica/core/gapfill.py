@@ -618,15 +618,39 @@ def _open_genuine_gaps(store: VaultStore, topic: str) -> list[GapRecord]:
 
 
 def _select_gaps(gaps: Sequence[GapRecord], max_gaps: int | None) -> list[GapRecord]:
-    """The gaps a drain issues a query for: all, or the top-``max_gaps`` by |delta|.
+    """The gaps a drain issues a query for: all, or up to ``max_gaps`` selected.
 
-    Ranks by descending ``|evidence.quality_delta|`` with ``gap_id`` as a
-    deterministic tie-break, so the same queue always drains in the same order.
+    Gaps with real evidence (``evidence.quality_delta != 0.0``) rank by
+    descending ``|quality_delta|``, tie-broken by ascending ``gap_id``.
+    Zero-evidence gaps -- ``reported``/``retracted`` origins score a
+    constant-zero delta by construction, never a real measurement -- rank by
+    ``detected_at`` recency (most recent first) instead, also tie-broken by
+    ascending ``gap_id``. At least one zero-evidence gap is reserved a slot
+    under the cap (when one is open), so a deliberate human report or a
+    guillotine retraction is never starved indefinitely behind an unbroken run
+    of measured regressions.
     """
     if max_gaps is None or max_gaps >= len(gaps):
         return list(gaps)
-    ranked = sorted(gaps, key=lambda gap: (-abs(gap.evidence.quality_delta), gap.gap_id))
-    return ranked[:max_gaps]
+
+    scored = [gap for gap in gaps if gap.evidence.quality_delta != 0.0]
+    zero_evidence = [gap for gap in gaps if gap.evidence.quality_delta == 0.0]
+
+    scored_ranked = sorted(scored, key=lambda gap: (-abs(gap.evidence.quality_delta), gap.gap_id))
+    zero_ranked = sorted(
+        sorted(zero_evidence, key=lambda gap: gap.gap_id),
+        key=lambda gap: gap.detected_at,
+        reverse=True,
+    )
+
+    reserved = zero_ranked[:1]
+    remaining_cap = max_gaps - len(reserved)
+    fill = scored_ranked[:remaining_cap]
+    if len(fill) < remaining_cap:
+        shortfall = remaining_cap - len(fill)
+        fill = fill + zero_ranked[len(reserved) : len(reserved) + shortfall]
+
+    return fill + reserved
 
 
 def _existing_dedup_keys(store: VaultStore, topic: str) -> set[tuple[str, str]]:

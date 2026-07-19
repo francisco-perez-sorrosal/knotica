@@ -246,14 +246,30 @@ def test_guillotine_does_not_modify_sources_by_default(guillotine_vault: Path) -
     assert source_path.read_text(encoding="utf-8") == before
 
 
-def test_guillotine_preserves_frontmatter_on_apply(guillotine_vault: Path) -> None:
+def test_guillotine_apply_mutates_no_wiki_page_content(guillotine_vault: Path) -> None:
+    """apply_guillotine's job is verdict + report + gap-filing -- it must never
+    rewrite wiki page bytes. Re-grounding a weakened claim flows through the
+    existing gap -> suggestion -> approved-ingest path, where the client (not
+    this deterministic tool) authors the replacement prose."""
     store = LocalFSStore(guillotine_vault)
-    result, diff = run_guillotine(store, guillotine_vault, DEMO_CLAIM, topic="agentic-systems")
-    envelope = apply_guillotine(store, guillotine_vault, result, diff, summary="unsafe claim")
+    page_paths = [
+        "agentic-systems/agent-safety.md",
+        "agentic-systems/open-agent-ecosystem.md",
+        "agentic-systems/user-owned-context.md",
+        "sources/agentic-systems/vendor-report-2026.md",
+    ]
+    before = {path: (guillotine_vault / path).read_text(encoding="utf-8") for path in page_paths}
+
+    result, diff = run_guillotine(
+        store, guillotine_vault, DEMO_CLAIM, topic="agentic-systems", verdict="retract"
+    )
+    envelope = apply_guillotine(
+        store, guillotine_vault, result, diff, summary="retract unsafe claim"
+    )
+
     assert "error" not in envelope
-    updated = (guillotine_vault / "agentic-systems/agent-safety.md").read_text(encoding="utf-8")
-    assert updated.startswith("---")
-    assert "type: concept" in updated
+    after = {path: (guillotine_vault / path).read_text(encoding="utf-8") for path in page_paths}
+    assert after == before, "apply_guillotine must not mutate any wiki page bytes"
 
 
 def test_guillotine_json_output_valid(
@@ -347,25 +363,30 @@ def test_guillotine_cli_summary_mentions_risk(guillotine_vault: Path) -> None:
     assert "Raw sources (read-only):" in summary
 
 
-def test_guillotine_report_shows_replacement_diff(guillotine_vault: Path) -> None:
+def test_guillotine_report_and_json_derive_verdict_and_risk_score_for_a_weakening_verdict(
+    guillotine_vault: Path,
+) -> None:
+    """The 3 frozen golden guillotine questions ask only for the verdict name
+    and risk score (e.g. '0/100, KEEP'; 'DEMOTE ... 55/100') -- never rewritten
+    prose. Both the rendered report and the persisted JSON sidecar must expose
+    these facts for a weakening verdict, independent of any editorial content."""
     store = LocalFSStore(guillotine_vault)
-    result, diff = run_guillotine(store, guillotine_vault, DEMO_CLAIM, topic="agentic-systems")
-    from knotica.guillotine.report import render_report_markdown
-
-    report_md = render_report_markdown(
-        result,
-        f"{GUILLOTINE_REPORTS}/test.diff",
-        dry_run=True,
-        commit_sha=None,
+    result, diff = run_guillotine(
+        store, guillotine_vault, DEMO_CLAIM, topic="agentic-systems", verdict="demote"
     )
-    changes_start = report_md.index("## Proposed Changes")
-    changes_section = report_md[changes_start:]
-    assert "[!quote] Current text" in changes_section
-    assert "[!example] Proposed replacement" in changes_section
-    assert "disputed" in changes_section.lower()
-    before_replacement = changes_section.split("[!example] Proposed replacement", maxsplit=1)[0]
-    assert "~~" not in before_replacement
-    assert DEMO_CLAIM in before_replacement
+    envelope = _persist_dry_run(store, guillotine_vault, result, diff)
+    assert "error" not in envelope
+
+    report_md = (guillotine_vault / envelope["report_path"]).read_text(encoding="utf-8")
+    assert result.recommendation is Verdict.DEMOTE
+    assert result.recommendation.value in report_md
+    assert f"{result.risk_score}/100" in report_md
+
+    json_payload = json.loads(
+        (guillotine_vault / envelope["json_path"]).read_text(encoding="utf-8")
+    )
+    assert json_payload["recommendation"] == "DEMOTE"
+    assert json_payload["risk_score"] == result.risk_score
 
 
 def test_guillotine_report_shows_strikethrough_removal() -> None:
@@ -697,9 +718,13 @@ def test_a_gap_write_failure_does_not_fail_the_guillotine_apply(
         "a failure isolated to the gap-filing side effect must not fail the primary "
         "guillotine apply"
     )
-    assert envelope.get("commit_sha"), "the guillotine artifact/patch commit must still land"
+    assert envelope.get("commit_sha"), "the guillotine artifact commit must still land"
+    report_path = envelope.get("report_path")
+    assert report_path and store.exists(str(report_path)), (
+        "the verdict report artifact must still be written -- that is the apply's primary effect"
+    )
     updated = (guillotine_vault / "agentic-systems/agent-safety.md").read_text(encoding="utf-8")
-    assert updated != before, "the primary page patch must still be applied"
+    assert updated == before, "apply never mutates wiki page content (verdict+report only)"
     assert not store.exists(target_path), (
         "the injected failure must leave gaps.jsonl genuinely absent -- never a silently "
         "fabricated success"

@@ -1,29 +1,19 @@
-"""Patch proposal and unified diff generation."""
+"""Passage localization and unified diff rendering for guillotine reports.
+
+The guillotine is verdict + report + triage-scoring + gap-filing only. It never
+synthesizes replacement prose: a weakening verdict localizes the contested
+synthesized passage and marks it for mechanical removal, rendered as
+strikethrough evidence in the report and as a deletion in the ``.diff``. The
+diff is evidence display for human review — it is never applied to wiki pages.
+Re-grounding of a weakened claim flows through the retracted-gap → discovery →
+approved-ingest path, where the client authors grounded text.
+"""
 
 from __future__ import annotations
 
 import difflib
-import re
 
 from knotica.guillotine.models import Passage, PassageRole, Patch, Verdict
-
-_QUALIFIED_REPLACEMENT_TEMPLATE = (
-    "Some sources argue that {short_claim}, but this claim is disputed and should not "
-    "be treated as settled fact without stronger evidence."
-)
-
-_DEMOTE_REPLACEMENT_TEMPLATE = (
-    "In some settings, {short_claim} may apply, but the evidence is limited and the "
-    "wording should not be read as a universal claim."
-)
-
-_REACT_STYLE_REPLACEMENT = (
-    "ReAct frames reasoning and acting as complementary: reasoning traces help induce, "
-    "track, and update action plans and handle exceptions, while actions ground the model "
-    "through interaction with external environments. In this framing, reasoning-only "
-    "approaches can suffer from hallucination or error propagation, and acting-only "
-    "approaches can lack explicit planning state."
-)
 
 
 def propose_patches(
@@ -32,7 +22,13 @@ def propose_patches(
     verdict: Verdict,
     file_contents: dict[str, str],
 ) -> list[Patch]:
-    """Propose minimal safe edits for synthesized assertion passages."""
+    """Localize contested synthesized passages and mark them for mechanical removal.
+
+    No replacement wording is generated. Each returned patch marks a contested
+    assertion span for removal (``action="remove"``, empty ``after``); the report
+    renders it as strikethrough evidence for human review. Re-grounding is handled
+    downstream by the retracted-gap queue, not by this tool.
+    """
     if verdict == Verdict.KEEP:
         return []
     patches: list[Patch] = []
@@ -51,17 +47,14 @@ def propose_patches(
         )
         if not before.strip():
             continue
-        after = _replacement_text(claim, before, verdict)
-        if before.strip() == after.strip():
-            continue
         patches.append(
             Patch(
                 path=passage.path,
-                action="replace",
+                action="remove",
                 line_start=line_start,
                 line_end=line_end,
                 before=before,
-                after=after,
+                after="",
                 rationale=_patch_rationale(passage.role, verdict),
             )
         )
@@ -133,70 +126,15 @@ def render_diff(patches: list[Patch], file_contents: dict[str, str]) -> str:
     return "\n".join(chunks).rstrip() + ("\n" if chunks else "")
 
 
-def apply_patches_to_contents(
-    file_contents: dict[str, str], patches: list[Patch]
-) -> dict[str, str]:
-    """Return a new path→content map with patches applied."""
-    updated = dict(file_contents)
-    for patch in patches:
-        lines = updated[patch.path].splitlines(keepends=True)
-        if not lines and patch.path in updated:
-            lines = [updated[patch.path]]
-        updated[patch.path] = "".join(_apply_patch_to_lines(lines, patch))
-    return updated
-
-
 def _extract_target_lines(content: str, line_start: int, line_end: int) -> str:
     lines = content.splitlines()
     return "\n".join(lines[line_start - 1 : line_end])
 
 
-def _replacement_text(claim: str, before: str, verdict: Verdict) -> str:
-    if _looks_react_synergy_claim(before):
-        return _REACT_STYLE_REPLACEMENT
-    short_claim = _shorten_claim(claim)
-    if verdict in {Verdict.RETRACT, Verdict.DELETE_UNSUPPORTED_SYNTHESIS, Verdict.DISPUTE}:
-        return _QUALIFIED_REPLACEMENT_TEMPLATE.format(short_claim=short_claim)
-    if verdict in {Verdict.DEMOTE, Verdict.QUALIFY}:
-        return _demote_text(before, short_claim)
-    return before
-
-
-def _demote_text(before: str, short_claim: str) -> str:
-    demoted = before
-    replacements = (
-        (r"\bare\b", "can be"),
-        (r"\bis\b", "may be"),
-        (r"\bfail\b", "can struggle to"),
-        (r"\bhallucinate\b", "can be more vulnerable to hallucination or error propagation"),
-        (r"\balways\b", "in some cases"),
-        (r"\bnever\b", "rarely"),
-        (r"\bproves\b", "suggests"),
-        (r"\binherently\b", "in some deployments"),
-    )
-    for pattern, replacement in replacements:
-        demoted = re.sub(pattern, replacement, demoted, flags=re.IGNORECASE)
-    if demoted.strip() == before.strip():
-        return _DEMOTE_REPLACEMENT_TEMPLATE.format(short_claim=short_claim)
-    return demoted
-
-
-def _shorten_claim(claim: str) -> str:
-    words = claim.split()
-    if len(words) <= 12:
-        return claim.rstrip(".")
-    return " ".join(words[:12]).rstrip(".,;:") + "…"
-
-
-def _looks_react_synergy_claim(text: str) -> bool:
-    lowered = text.lower()
-    return "reasoning-only" in lowered and "acting-only" in lowered
-
-
 def _patch_rationale(role: PassageRole, verdict: Verdict) -> str:
     return (
-        f"Replace {role.value} passage with safer wording per verdict {verdict.value}; "
-        "preserve counterarguments and quotes elsewhere."
+        f"Mark {role.value} passage for removal per verdict {verdict.value}; "
+        "re-grounding flows through the retracted-gap queue, not in-tool rewriting."
     )
 
 

@@ -262,6 +262,41 @@ def test_non_open_genuine_gap_is_not_drained(template_vault: Path):
     assert service.calls == [], "only status=='open' genuine_gap records are eligible for drain"
 
 
+def test_a_reported_gap_is_not_starved_behind_max_gaps_measured_gaps(template_vault: Path):
+    """F1 regression guard: a zero-evidence ``reported`` gap must still drain
+    even when >= ``max_gaps`` measured gaps are competing for the same cap --
+    the fixed-budget defense must not starve the most deliberate channel."""
+    mod = _gapfill_module()
+    store = LocalFSStore(template_vault)
+    measured_gaps = [
+        _gap_record(
+            gap_id=f"gap-measured-{i}",
+            qa_id=f"golden-measured-{i}",
+            question=f"Measured question {i}?",
+            evidence=_gap_evidence(quality_delta=-0.1 * (i + 1)),
+        )
+        for i in range(5)
+    ]
+    reported_gap = _gap_record(
+        gap_id="gap-reported",
+        qa_id="reported-fair-share",
+        question="A human-reported gap question?",
+        origin="reported",
+        evidence=_gap_evidence(quality_delta=0.0, qa_accuracy_delta=0.0),
+    )
+    _seed_gaps(store, template_vault, TOPIC, [*measured_gaps, reported_gap])
+    service = _FakeDiscoveryService([_candidate()])
+
+    mod.refresh_suggestions_for_gaps(store, template_vault, TOPIC, service=service, max_gaps=5)
+
+    drained_questions = {query.text for query in service.calls}
+    assert len(service.calls) == 5, "the fixed-budget cap of max_gaps must still hold"
+    assert reported_gap.question in drained_questions, (
+        "a zero-evidence reported gap must not be starved behind 5 measured gaps "
+        "competing for the same max_gaps=5 cap"
+    )
+
+
 # ---------------------------------------------------------------------------
 # Dedup on (gap_id, source_key) -- re-draining does not spam the queue
 # ---------------------------------------------------------------------------

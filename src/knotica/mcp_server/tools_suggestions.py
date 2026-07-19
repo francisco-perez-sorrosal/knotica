@@ -210,11 +210,15 @@ def _filter_by_status(
 
 
 def _sorted(records: list[SuggestionRecord]) -> list[SuggestionRecord]:
-    """Deterministic order: newest gap first, best rank first, id as final tiebreak."""
-    return sorted(
-        records,
-        key=lambda record: (-record.detected_generation, record.rank, record.suggestion_id),
-    )
+    """Deterministic order: newest proposal first, best rank first, id as final tiebreak.
+
+    Keys on ``proposed_at`` -- a real timestamp present on every suggestion
+    regardless of origin -- rather than ``detected_generation``, which reads a
+    constant zero for ``reported``/``retracted`` suggestions (no eval
+    generation backs them) and buried them at the bottom of every page.
+    """
+    by_tiebreak = sorted(records, key=lambda record: (record.rank, record.suggestion_id))
+    return sorted(by_tiebreak, key=lambda record: record.proposed_at, reverse=True)
 
 
 def _status_counts(records: list[SuggestionRecord]) -> dict[str, int]:

@@ -11,7 +11,6 @@ from knotica.core.gapfill import file_retracted_gap
 from knotica.core.index_catalog import INDEX_PATH, REPORTS_SECTION, upsert_index_bullet
 from knotica.core.transaction import VaultTransaction
 from knotica.guillotine.models import GuillotineResult, Verdict
-from knotica.guillotine.patch import apply_patches_to_contents
 from knotica.guillotine.report import (
     artifact_paths_for,
     guillotine_index_entry,
@@ -84,16 +83,18 @@ def _write_guillotine_transaction(
     diff_text: str,
     json_text: str,
     dry_run: bool,
-    page_updates: dict[str, str] | None = None,
 ) -> dict[str, object]:
-    """Commit guillotine artifacts, optional wiki patches, and catalog index line."""
+    """Commit guillotine verdict artifacts and the catalog index line.
+
+    Wiki page content is never mutated here — the guillotine records a verdict and
+    its evidence, not an edit. Re-grounding of weakened claims flows through the
+    retracted-gap queue (see :func:`_maybe_file_retracted_gap`).
+    """
     index_entry = guillotine_index_entry(result, dry_run=dry_run)
     try:
         with VaultTransaction(
             store, vault_root, op="guillotine", topic=result.topic, title=summary
         ) as tx:
-            for path, content in (page_updates or {}).items():
-                tx.write(path, content)
             tx.write(report_path, report_md)
             tx.write(diff_path, diff_text)
             tx.write(json_path, json_text)
@@ -161,23 +162,23 @@ def apply_guillotine(
     *,
     summary: str,
 ) -> dict[str, object]:
-    """Apply synthesized page patches and commit artifacts in one transaction."""
+    """Commit the verdict artifacts as applied and file the retracted-knowledge gap.
+
+    No wiki page content is edited: the guillotine records a verdict + its evidence
+    (report / diff / JSON + index entry) with ``run_status: applied``, and for a
+    weakening verdict files a ``retracted`` gap. Re-grounding of the weakened claim
+    flows through that gap → discovery → approved-ingest path, where the client
+    authors grounded prose.
+    """
     if not result.patches:
         return err(
             ErrorCode.RESERVED_NAME,
-            "apply_guillotine failed because there are no patches to apply.",
-        )
-    if any(patch.path.startswith("sources/") for patch in result.patches):
-        return err(
-            ErrorCode.RESERVED_NAME,
-            "apply_guillotine refused to modify immutable raw source files.",
+            "apply_guillotine failed because there are no contested passages to adjudicate.",
         )
 
     report_path, diff_path, json_path, report_md, json_text = _artifact_bundle(
         result, diff_text, dry_run=False
     )
-    file_contents = {patch.path: store.read_text(patch.path) for patch in result.patches}
-    updated = apply_patches_to_contents(file_contents, list(result.patches))
     envelope = _write_guillotine_transaction(
         store,
         vault_root,
@@ -190,7 +191,6 @@ def apply_guillotine(
         diff_text=diff_text,
         json_text=json_text,
         dry_run=False,
-        page_updates=updated,
     )
     _maybe_file_retracted_gap(store, vault_root, result, report_path, envelope)
     return envelope
