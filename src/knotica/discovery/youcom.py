@@ -35,7 +35,7 @@ if TYPE_CHECKING:
 __all__ = ["YouComProvider"]
 
 #: The documented you.com Search REST endpoint.
-SEARCH_URL = "https://api.you.com/search"
+SEARCH_URL = "https://api.you.com/v1/search"
 
 #: The ``source_provider`` tag stamped on every candidate this adapter returns.
 PROVIDER_NAME = "youcom"
@@ -87,7 +87,7 @@ def _build_params(query: SearchQuery) -> dict[str, object]:
     """
     params: dict[str, object] = {
         "query": query.text,
-        "num_web_results": query.max_results,
+        "count": query.max_results,
     }
     if query.include_domains:
         params["include_domains"] = ",".join(query.include_domains)
@@ -99,38 +99,39 @@ def _build_params(query: SearchQuery) -> dict[str, object]:
 def _parse_response(payload: Mapping[str, object]) -> list[SourceCandidate]:
     """Pure wire-to-record mapping -- no network, callable directly from tests.
 
-    Raises the typed ``SEARCH_API_ERROR`` when the documented ``hits`` key is
-    missing or the wrong type, rather than letting a raw ``KeyError``/
-    ``TypeError`` escape -- the wire shape is unconfirmed, so a malformed
-    response is an expected failure mode, not a programming bug.
+    Live-verified 2026-07-19: hits sit at ``results.web[]`` in the ``/v1/search``
+    response. Raises the typed ``SEARCH_API_ERROR`` when that array is missing
+    or the wrong type, rather than letting a raw ``KeyError``/``TypeError``
+    escape -- a malformed response is an expected failure mode, not a
+    programming bug.
     """
-    hits = payload.get("hits")
-    if not isinstance(hits, Sequence) or isinstance(hits, (str, bytes)):
+    results = payload.get("results")
+    web = results.get("web") if isinstance(results, Mapping) else None
+    if not isinstance(web, Sequence) or isinstance(web, (str, bytes)):
         raise KnoticaError(
             ErrorCode.SEARCH_API_ERROR,
-            "you.com search response is missing the documented 'hits' array.",
+            "you.com search response is missing the 'results.web' array.",
             retryable=False,
         )
-    return [_parse_hit(hit) for hit in hits if isinstance(hit, Mapping)]
+    return [_parse_hit(hit) for hit in web if isinstance(hit, Mapping)]
 
 
 def _parse_hit(hit: Mapping[str, object]) -> SourceCandidate:
+    """Map one live-shape web hit; ``description`` is the snippet (with a
+    ``snippets[0]`` fallback); the v1 response carries no author field."""
+    snippet = _optional_str(hit.get("description"))
+    if snippet is None:
+        snippets = hit.get("snippets")
+        if isinstance(snippets, Sequence) and not isinstance(snippets, (str, bytes)) and snippets:
+            snippet = _optional_str(snippets[0])
     return SourceCandidate(
         url=str(hit.get("url", "")),
         title=str(hit.get("title", "")),
-        snippet=str(hit.get("snippet", "")),
+        snippet=snippet or "",
         source_provider=PROVIDER_NAME,
-        authors=_authors(hit.get("author")),
+        authors=None,
         published_date=_optional_str(hit.get("page_age")),
     )
-
-
-def _authors(author: object) -> tuple[str, ...] | None:
-    """Split a ``"A. Researcher, B. Scholar"`` author string into a tuple."""
-    if not isinstance(author, str) or not author:
-        return None
-    names = tuple(name.strip() for name in author.split(",") if name.strip())
-    return names or None
 
 
 def _optional_str(value: object) -> str | None:

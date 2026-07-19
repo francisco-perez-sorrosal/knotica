@@ -1,18 +1,39 @@
 {
-  "_synthetic": true,
-  "_note": "Authored from the documented (unverified) you.com Search REST shape -- see SYSTEMS_PLAN.md's Confirmed-API-Shapes Appendix, 'you.com -- NOT verified'. This is NOT a live-captured response. Deferred Step 31 replaces this fixture with a real capture once a KNOTICA_YOUCOM_API_KEY is available, at which point this file (and the '_synthetic'/'_note' keys) should be removed.",
-  "hits": [
-    {
-      "url": "https://arxiv.org/abs/2501.00001",
-      "title": "Compounding Knowledge Wikis for Autonomous Agents",
-      "snippet": "A short synthetic abstract describing a compounding wiki system for agentic self-improvement.",
-      "author": "Ada Researcher, Grace Engineer",
-      "page_age": "2025-01-15"
-    },
-    {
-      "url": "https://example.com/blog/agentic-loops",
-      "title": "Notes on Agentic Self-Improvement Loops",
-      "snippet": "A general-web synthetic hit with no author or publication date."
-    }
+ "_live_verified": "2026-07-19 against https://api.you.com/v1/search (sanitized: thumbnails stripped, snippets truncated)",
+ "metadata": {
+  "query": "agent workflow memory induced workflows web agents",
+  "search_uuid": "00000000-0000-0000-0000-000000000000",
+  "latency": 0.0
+ },
+ "results": {
+  "web": [
+   {
+    "url": "https://medium.com/@techsachin/agent-workflow-memory-using-workflows-to-guide-llm-agent-generations-aad75fe2f78a",
+    "title": "Agent Workflow Memory : using workflows to guide LLM Agent ...",
+    "description": "To incorporate that process in ... Workflow Memory (AWM), a method for inducing commonly reused routines, i.e., workflows, and selectively providing workflows to the agent to guide subsequent generations. Example below, ",
+    "page_age": "2024-09-12T22:57:29",
+    "snippets": [
+     "To incorporate that process in agents, authors of this paper[1], introduce Agent Workflow Memory (AWM), a method for inducing commonly reused routines, i.e., workflows, and selectively providing workflows to the agent to guide subsequent generations. Example below, shows workflows induced by AWM on the WebArena map test split of the benchmark"
+    ]
+   },
+   {
+    "url": "https://openreview.net/forum?id=NTAhi2JEEE",
+    "title": "Agent Workflow Memory | OpenReview",
+    "description": "TL;DR: We propose Agent Workflow Memory that enable digital agents to induce and reuse increasingly complex workflows on the fly. Abstract: Despite the potential of language model-based agents to solve real-world tasks s",
+    "page_age": "2025-06-18T00:00:00",
+    "snippets": [
+     "TL;DR: We propose Agent Workflow Memory that enable digital agents to induce and reuse increasingly complex workflows on the fly. Abstract: Despite the potential of language model-based agents to solve real-world tasks such as web navigation, current methods still struggle with long-horizon tasks with complex action trajectories."
+    ]
+   },
+   {
+    "url": "https://arxiv.org/abs/2409.07429",
+    "title": "[2409.07429] Agent Workflow Memory",
+    "description": "Abstract:Despite the potential ... such as web navigation, current methods still struggle with long-horizon tasks with complex action trajectories. In contrast, humans can flexibly solve complex tasks by learning reusabl",
+    "page_age": "2024-09-11T00:00:00",
+    "snippets": [
+     "Abstract:Despite the potential of language model-based agents to solve real-world tasks such as web navigation, current methods still struggle with long-horizon tasks with complex action trajectories. In contrast, humans can flexibly solve complex tasks by learning reusable task workflows from past experiences and using them to guide future actions. To build agents that can similarly benefit from this process, we introduce Agent Workflow Memory (AWM), a method for inducing commonly reused routines, i.e., workflows, and selectively providing workflows to the agent to guide subsequent generations."
+    ]
+   }
   ]
+ }
 }

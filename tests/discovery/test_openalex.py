@@ -312,3 +312,27 @@ def test_enrich_of_an_empty_candidate_list_makes_no_request_and_returns_empty():
 
     assert enriched == []
     assert not seen_requests, "an empty candidate list must not trigger a network call"
+
+
+def test_an_arxiv_abs_url_without_a_doi_still_derives_the_enrichment_join_key():
+    """arXiv registers every preprint's DOI as 10.48550/arXiv.<id>, so a
+    DOI-less web hit pointing at arxiv.org/abs must still be enrichable; the
+    stamped DOI comes back in the normalized bare form."""
+    openalex = _openalex_module()
+
+    records = _records_module()
+    derived = openalex._resolvable_doi(
+        _candidate(records, url="https://arxiv.org/abs/2409.07429", doi=None)
+    )
+
+    assert derived == "10.48550/arxiv.2409.07429"
+
+
+def test_a_non_arxiv_url_without_a_doi_stays_unenrichable():
+    openalex = _openalex_module()
+
+    records = _records_module()
+    assert (
+        openalex._resolvable_doi(_candidate(records, url="https://example.com/paper", doi=None))
+        is None
+    )

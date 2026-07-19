@@ -28,6 +28,7 @@ testable with zero network.
 
 from __future__ import annotations
 
+import re
 from collections.abc import Iterator, Mapping, Sequence
 from dataclasses import replace
 
@@ -49,6 +50,13 @@ _SELECT_FIELDS = "id,doi,cited_by_count,fwci,publication_date,open_access,primar
 
 #: The documented, un-normalized DOI URL prefix OpenAlex returns.
 _DOI_URL_PREFIX = "https://doi.org/"
+
+#: arXiv abs/pdf URL -> arXiv id; arXiv assigns DOIs as 10.48550/arXiv.<id>,
+#: which OpenAlex indexes -- so a DOI-less web hit pointing at arXiv still
+#: gets an enrichment join key.
+_ARXIV_URL_RE = re.compile(
+    r"^https?://(?:www\.)?arxiv\.org/(?:abs|pdf)/(?P<arxiv_id>\d{4}\.\d{4,5})(?:v\d+)?/?$"
+)
 
 
 class OpenAlexEnricher:
@@ -83,7 +91,7 @@ class OpenAlexEnricher:
         indexed = [
             (index, candidate, doi)
             for index, candidate in enumerate(candidates)
-            for doi in (_normalize_doi(candidate.doi),)
+            for doi in (_resolvable_doi(candidate),)
             if doi is not None
         ]
         if not indexed:
@@ -185,6 +193,19 @@ def _venue(work: Mapping[str, object]) -> str | None:
         return None
     display_name = source.get("display_name")
     return display_name if isinstance(display_name, str) else None
+
+
+def _resolvable_doi(candidate: SourceCandidate) -> str | None:
+    """The candidate's enrichment join key: its DOI, else one derived from an
+    arXiv URL (``abs``/``pdf`` form) via arXiv's ``10.48550/arXiv.<id>``
+    registration. ``None`` when neither yields a DOI."""
+    normalized = _normalize_doi(candidate.doi)
+    if normalized is not None:
+        return normalized
+    match = _ARXIV_URL_RE.match(candidate.url)
+    if match is None:
+        return None
+    return f"10.48550/arxiv.{match.group('arxiv_id')}"
 
 
 def _normalize_doi(doi: str | None) -> str | None:

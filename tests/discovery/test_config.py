@@ -162,9 +162,13 @@ def test_api_keys_are_never_read_from_the_toml_file_even_if_present(
 # ---------------------------------------------------------------------------
 
 
-def test_a_missing_required_api_key_raises_not_configured_naming_the_variable():
+def test_a_missing_required_api_key_raises_not_configured_naming_the_variable(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
     config = _config_module()
     errors = _errors_module()
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("HOME", str(tmp_path))
 
     with pytest.raises(errors.KnoticaError) as exc_info:
         config.resolve_api_key("exa")
@@ -174,14 +178,18 @@ def test_a_missing_required_api_key_raises_not_configured_naming_the_variable():
 
 
 def test_the_not_configured_error_never_echoes_a_credential_value(
-    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ):
     """Only the missing-key case is under test here (there is no credential to
     echo when the key is absent) -- this pins that the error message names the
     *variable*, never a value, so a future refactor can't accidentally start
-    interpolating a resolved secret into the message."""
+    interpolating a resolved secret into the message. Hermetic against the
+    developer's real environment AND real .env files (cwd + home isolated)."""
     config = _config_module()
     errors = _errors_module()
+    monkeypatch.delenv("KNOTICA_YOUCOM_API_KEY", raising=False)
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("HOME", str(tmp_path))
 
     with pytest.raises(errors.KnoticaError) as exc_info:
         config.resolve_api_key("youcom")
