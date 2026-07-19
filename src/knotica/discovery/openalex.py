@@ -28,16 +28,12 @@ testable with zero network.
 
 from __future__ import annotations
 
-from collections.abc import Callable, Iterator, Mapping, Sequence
+from collections.abc import Iterator, Mapping, Sequence
 from dataclasses import replace
-from typing import TYPE_CHECKING
 
 from knotica.core.errors import KnoticaError
-from knotica.discovery.http import DEFAULT_MAX_RETRIES, SearchHttpClient
+from knotica.discovery.http import SearchHttpClient
 from knotica.discovery.records import SourceCandidate
-
-if TYPE_CHECKING:
-    import httpx
 
 __all__ = ["OpenAlexEnricher"]
 
@@ -59,10 +55,10 @@ class OpenAlexEnricher:
     """A :class:`~knotica.discovery.provider.Enricher` over the OpenAlex works API.
 
     ``mailto`` is the polite-pool contact email (optional, but recommended by
-    OpenAlex for reliable throughput). ``transport`` and ``sleep`` inject a
-    fake transport and a no-op sleep in tests, mirroring the seam
-    :class:`~knotica.discovery.http.SearchHttpClient` already establishes --
-    no test path touches the real network or a real backoff delay.
+    OpenAlex for reliable throughput). ``http_client`` injects a preconfigured
+    :class:`~knotica.discovery.http.SearchHttpClient` (tests pass one built on
+    a fake transport and a no-op sleep) -- no test path touches the real
+    network or a real backoff delay.
     """
 
     def __init__(
@@ -70,18 +66,9 @@ class OpenAlexEnricher:
         mailto: str | None = None,
         *,
         http_client: SearchHttpClient | None = None,
-        transport: httpx.BaseTransport | None = None,
-        sleep: Callable[[float], None] | None = None,
-        max_retries: int = DEFAULT_MAX_RETRIES,
     ) -> None:
         self._mailto = mailto
-        if http_client is not None:
-            self._client = http_client
-            return
-        client_kwargs: dict[str, object] = {"transport": transport, "max_retries": max_retries}
-        if sleep is not None:
-            client_kwargs["sleep"] = sleep
-        self._client = SearchHttpClient(**client_kwargs)
+        self._client = http_client if http_client is not None else SearchHttpClient()
 
     def enrich(self, candidates: list[SourceCandidate]) -> list[SourceCandidate]:
         """Stamp scholarly metadata onto every DOI-resolvable candidate.
