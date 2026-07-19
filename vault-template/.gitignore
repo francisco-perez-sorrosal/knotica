@@ -9,6 +9,10 @@
 # Live ingest dashboard journal (ephemeral progress; not part of the wiki audit trail).
 .knotica/ingest-activity.jsonl
 
+# Source-ingest worktrees (created lazily by a client-driven suggestion ingest;
+# recoverable via `git worktree list` -- throwaway runtime state, not the wiki).
+.knotica/worktrees/
+
 # Eval bootstrap scratchpad (human review before freeze; never committed).
 **/.knotica/datasets/golden.staging.jsonl
 
