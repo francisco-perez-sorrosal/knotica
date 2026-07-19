@@ -251,10 +251,14 @@ def _grow_trainset_from_merge(
 
     Restricted to exactly the pages ``changed_paths(merge_base, merged_head)``
     reports and :func:`_is_entity_page_path` accepts -- never a client-reported
-    list. Runs loop-side, on the default branch the merge already landed on
-    (AC-8: the interactive ingest path never touches an LLM), reusing the same
-    lazily-imported ``AnthropicClient``/``WORKER_SNAPSHOT`` pairing the
-    ``bootstrap-train`` CLI already wires headlessly. Mirrors
+    list. Runs loop-side, on the default branch the merge already landed on:
+    the interactive content-authoring path (``store_source``/``write_page``)
+    never touches an LLM, but when a client's ``source_ingest_submit`` apply
+    drives the gate synchronously, this sanctioned loop-side grower runs in
+    that same process -- the dec-014 boundary rides on the code path, not on
+    which process invoked it. Reuses the same lazily-imported
+    ``AnthropicClient``/``WORKER_SNAPSHOT`` pairing the ``bootstrap-train``
+    CLI already wires headlessly. Mirrors
     ``_prune_result_branches``'s best-effort discipline: a missing credential,
     a transient API error, or an empty page set is logged and swallowed here,
     never re-raised -- the merge this runs after has already committed and
