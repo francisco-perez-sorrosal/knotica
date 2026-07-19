@@ -31,6 +31,10 @@ import type {
   OkfRepairResult,
   QueryAnswer,
   PromptDiffResult,
+  SuggestionAction,
+  SuggestionsReadResult,
+  SuggestionsStatusFilter,
+  SuggestionReviewResult,
   VaultLintResult,
   VaultMetadataTree,
   WikiStatus,
@@ -127,6 +131,21 @@ export interface ToolClient {
     historyId?: string,
     mode?: "git" | "compiled",
   ): Promise<PromptDiffResult>;
+  suggestionsRead(
+    topic: string,
+    status?: SuggestionsStatusFilter,
+    cursor?: string,
+    limit?: number,
+    vault?: string,
+  ): Promise<SuggestionsReadResult>;
+  suggestionsReview(
+    topic: string,
+    suggestionId: string,
+    action: SuggestionAction,
+    mode: "dry-run" | "apply",
+    reason?: string,
+    vault?: string,
+  ): Promise<SuggestionReviewResult>;
   close(): Promise<void>;
 }
 
@@ -347,6 +366,34 @@ abstract class BaseToolClient implements ToolClient {
       head_ref: headRef,
       history_id: historyId,
       mode,
+    });
+  }
+
+  suggestionsRead(
+    topic: string,
+    status: SuggestionsStatusFilter = "pending",
+    cursor = "",
+    limit = 20,
+    vault = "",
+  ): Promise<SuggestionsReadResult> {
+    return this.call("suggestions_read", { topic, status, cursor, limit, vault });
+  }
+
+  suggestionsReview(
+    topic: string,
+    suggestionId: string,
+    action: SuggestionAction,
+    mode: "dry-run" | "apply" = "dry-run",
+    reason = "",
+    vault = "",
+  ): Promise<SuggestionReviewResult> {
+    return this.call("suggestions_review", {
+      topic,
+      suggestion_id: suggestionId,
+      action,
+      mode,
+      reason,
+      vault,
     });
   }
 

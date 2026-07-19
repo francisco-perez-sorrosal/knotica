@@ -78,6 +78,26 @@ cold-start path. **Note:** the you.com API wire shape is documented from the pub
 Contract and rationale: [`.ai-state/DESIGN.md` § 3](../.ai-state/DESIGN.md#3-components) and ADRs `dec-027` /
 `dec-026` (finalize to `dec-NNN` at merge).
 
+**Built (Phase P3, gap-fill suggestion queue):** the human-approval surface that joins diagnosed
+`genuine_gap`s (P1) to ranked sources (P2) and lets a person approve, reject, defer, or mark them
+ingested.
+
+- `src/knotica/core/records.py` (`SuggestionRecord`) — the `schema_version 1` join record; the
+  candidate rides as an opaque dict so `core/records.py` keeps no import edge into `discovery/`.
+- `src/knotica/core/gapfill.py` — the only `discovery`-touching module (all `discovery` imports
+  lazy): `formulate_query` (deterministic, no LLM), `build_default_discovery_service` (config→service
+  factory, `None` on a missing key), `refresh_suggestions_for_gaps` (the drain, own
+  `VaultTransaction`, `(gap_id, source_key)`-dedup), and `apply_decision` (approve/reject/defer/
+  mark_ingested, discovery-free).
+- `src/knotica/mcp_server/tools_suggestions.py` — the deterministic, discovery-free MCP surface:
+  `suggestions_read` (cursor-paged, filterable by status) and `suggestions_review` (dry-run|apply).
+- `src/knotica/cli/gapfill.py` — `knotica gapfill discover --topic <t>`, the on-demand drain trigger.
+- The additive `wiki_status.suggestions` per-topic count block (in `src/knotica/core/status.py`) —
+  the passive ingest-handoff surface, including `approved_awaiting_ingest`.
+
+Suggestions land in a committed, observe-safe `<topic>/.knotica/suggestions/suggestions.jsonl`. No LLM
+anywhere; approval queues an ingest instruction but never ingests (dec-014 untouched).
+
 ## 3a. Loop Lifecycle (`knotica loop --topic <t>`)
 
 `LoopRunner` (`core/loop.py`) drives one topic's self-improvement watch loop. Each tick:

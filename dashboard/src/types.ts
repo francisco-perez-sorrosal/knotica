@@ -11,7 +11,15 @@ export type LoopStage =
   | "merging"
   | "reverting";
 export type ArenaStage = "idle" | "racing" | "promoting" | "completed" | "reverted";
-export type PaneId = "vault" | "ask" | "loop" | "arena" | "datasets" | "golden" | "ingest";
+export type PaneId =
+  | "vault"
+  | "ask"
+  | "loop"
+  | "arena"
+  | "datasets"
+  | "golden"
+  | "ingest"
+  | "sources";
 
 export type DatasetRole = "trainset" | "held_out" | "seal" | "candidates" | "reviewed";
 
@@ -192,6 +200,7 @@ export interface WikiStatus {
     } | null;
     lint_violations: number;
     last_eval: MetricsRecord | null;
+    suggestions?: SuggestionStatusSummary;
   }>;
   totals: { topics: number; pages: number; curated: number; lint_violations: number };
   last_lint: string | null;
@@ -654,4 +663,100 @@ export interface VaultMetadataTree {
   schema_version: number;
   topic: string | null;
   children: MetadataTreeNode[];
+}
+
+/** ``wiki_status``'s per-topic gap-fill queue summary (D6.1) — all-zero when empty. */
+export interface SuggestionStatusSummary {
+  pending: number;
+  approved_awaiting_ingest: number;
+  deferred: number;
+  rejected: number;
+  ingested: number;
+  newest_proposed_at: string | null;
+}
+
+export type ReputabilityTier =
+  | "peer_reviewed"
+  | "preprint_known_lab"
+  | "established_org"
+  | "general_web";
+
+export interface SuggestionReputability {
+  tier: ReputabilityTier;
+  score: number;
+  signals: string[];
+}
+
+/** Verbatim ``SourceCandidate.to_record()`` payload, denormalized onto the suggestion. */
+export interface SuggestionCandidate {
+  url: string;
+  title: string;
+  snippet: string;
+  source_provider: string;
+  authors: string[] | null;
+  venue: string | null;
+  published_date: string | null;
+  doi: string | null;
+  citation_count: number | null;
+  is_open_access: boolean | null;
+  fwci: number | null;
+  provider_score: number | null;
+  reputability: SuggestionReputability | null;
+  schema_version: number;
+}
+
+export type SuggestionStatus = "pending" | "approved" | "rejected" | "deferred" | "ingested";
+
+export interface SuggestionRecord {
+  schema_version: number;
+  suggestion_id: string;
+  topic: string;
+  gap_id: string;
+  qa_id: string;
+  fault_class: string;
+  question: string;
+  reference_pages: string[];
+  rank: number;
+  query_text: string;
+  candidate: SuggestionCandidate;
+  status: SuggestionStatus;
+  proposed_at: string;
+  decided_at: string | null;
+  decided_reason: string | null;
+  ingested_at: string | null;
+  detected_generation: number;
+}
+
+export type SuggestionsStatusFilter = SuggestionStatus | "all";
+
+export interface SuggestionsReadResult {
+  topic: string;
+  status_filter: SuggestionsStatusFilter;
+  suggestions: SuggestionRecord[];
+  status_counts: Record<SuggestionStatus, number>;
+  next_cursor: string;
+  has_more: boolean;
+  total_count: number;
+  skipped_malformed: number;
+}
+
+export type SuggestionAction = "approve" | "reject" | "defer" | "mark_ingested";
+
+export interface SuggestionReviewResult {
+  mode: "dry-run" | "apply";
+  topic: string;
+  suggestion_id: string;
+  action: SuggestionAction;
+  from_status: SuggestionStatus;
+  to_status: SuggestionStatus;
+  // dry-run fields
+  would_commit?: boolean;
+  reason_required?: boolean;
+  candidate_title?: string;
+  preview?: string;
+  // apply fields
+  committed?: boolean;
+  commit?: string | null;
+  decided_at?: string | null;
+  ingested_at?: string | null;
 }

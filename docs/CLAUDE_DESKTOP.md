@@ -346,6 +346,18 @@ Server-side hooks also run after golden freeze / review when eligible.
 Legacy measured probe lines are treated as stale and can be replaced by this zero anchor.
 Do **not** freeze the loop gate from this probe — run ``knotica eval`` or compile first.
 
+### Suggestion queue (P3 gap-fill approval)
+
+When the loop observes a regression, the fault classifier (P1) diagnoses whether it is a genuine knowledge gap, retrieval fault, or generation fault. Genuine gaps are persisted to a queue for human approval (P3).
+
+In the dashboard **Suggestions** pane (or via `suggestions_read` / `suggestions_review` tools):
+- View pending suggestions joining a diagnosed gap to a ranked source (P2 discovery)
+- Approve to queue an ingest instruction (no auto-ingest)
+- Reject with a reason, defer to later, or mark as ingested once you've handled it manually
+- The `wiki_status.suggestions` block shows per-topic counts: `pending`, `approved_awaiting_ingest`
+
+Suggestion discovery runs on-demand via `knotica gapfill discover --topic <t>` (primary) or auto-batches from loop regression hooks when configured. Approved suggestions await manual ingest through the normal `ingest` protocol — the suggestion queue is a filter/gate, not an autopilot.
+
 ### Gate policy
 
 The watcher's baseline defends one of two policies: **latest** (default — the baseline tracks reality;

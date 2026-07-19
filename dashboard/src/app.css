@@ -2524,6 +2524,106 @@ button.danger:hover:not(:disabled) {
   .vault-stats { grid-template-columns: repeat(3, minmax(0, 1fr)); }
   .check-actions { position: static; }
 }
+.pane-tab-badge {
+  display: inline-block;
+  margin-left: .35rem;
+  padding: 0 .32rem;
+  border-radius: 999px;
+  background: var(--cyan);
+  color: var(--bg);
+  font: .6rem/1.4 var(--mono);
+}
+
+.sources-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 1rem;
+  flex-wrap: wrap;
+}
+.sources-filters {
+  display: flex;
+  gap: .3rem;
+  align-items: center;
+}
+.sources-filters button.active {
+  color: var(--heading);
+  border-color: var(--cyan);
+}
+.sources-error { color: var(--bad); }
+.sources-partial-note { margin-top: .25rem; }
+
+.sources-empty {
+  margin-top: 1rem;
+  padding: 1rem;
+  border: 1px dashed var(--line);
+  border-radius: var(--radius);
+}
+
+.sources-list {
+  display: flex;
+  flex-direction: column;
+  gap: .9rem;
+  margin: 1rem 0 0;
+  padding: 0;
+  list-style: none;
+}
+.sources-card {
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  padding: .9rem 1rem;
+  background: color-mix(in srgb, var(--surface-raised) 60%, var(--surface));
+}
+.sources-card-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: .6rem;
+  margin-bottom: .5rem;
+}
+.sources-card-question,
+.sources-card-source {
+  margin-bottom: .6rem;
+}
+.sources-card-question p,
+.sources-card-source p {
+  margin: .15rem 0;
+}
+.sources-signals { font-size: .78rem; }
+.sources-card-actions {
+  display: flex;
+  align-items: center;
+  gap: .5rem;
+  flex-wrap: wrap;
+}
+.sources-provenance {
+  margin-left: auto;
+  font-size: .78rem;
+}
+.sources-decided { margin: 0; }
+.sources-reject-form {
+  margin-top: .6rem;
+  padding-top: .6rem;
+  border-top: 1px dashed var(--line);
+}
+.sources-reject-form label {
+  display: flex;
+  flex-direction: column;
+  gap: .25rem;
+}
+.sources-reject-form textarea {
+  width: 100%;
+  resize: vertical;
+}
+.sources-reject-actions {
+  display: flex;
+  gap: .5rem;
+  margin-top: .5rem;
+}
+.sources-reputability.ok { color: var(--good); border-color: color-mix(in srgb, var(--good) 55%, var(--line)); }
+.sources-reputability.warn { color: var(--warn); border-color: color-mix(in srgb, var(--warn) 55%, var(--line)); }
+.sources-load-more { margin-top: 1rem; }
+
 @media (max-width: 720px) {
   .stages, .story-stages { grid-template-columns: repeat(2, 1fr); }
   .story-stages { grid-template-columns: repeat(2, minmax(0, 1fr)); }

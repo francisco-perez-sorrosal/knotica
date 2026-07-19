@@ -8,6 +8,7 @@ import { AskPane } from "./AskPane";
 import { DatasetsPane } from "./DatasetsPane";
 import { IngestPane } from "./IngestPane";
 import { LoopPane } from "./LoopPane";
+import { SourcesPane } from "./SourcesPane";
 import { VaultPane } from "./VaultPane";
 import {
   BridgeToolClient,
@@ -43,7 +44,8 @@ const initialPane = (
   paneParam === "ingest" ||
   paneParam === "loop" ||
   paneParam === "ask" ||
-  paneParam === "arena"
+  paneParam === "arena" ||
+  paneParam === "sources"
     ? paneParam === "golden"
       ? "datasets"
       : paneParam
@@ -253,6 +255,7 @@ export function App() {
   const baselinePrefix = baselineChipPrefix(baselineSource);
   const baselineLabel =
     baselineScalar != null ? baselineScalar.toFixed(4) : "—";
+  const sourcesPendingCount = topicRow?.suggestions?.pending ?? 0;
 
   function selectVault(name: string) {
     setVault(name);
@@ -354,6 +357,16 @@ export function App() {
                 onClick={() => selectPane("loop")}
               >
                 Loop
+              </button>
+              <button
+                type="button"
+                class={pane === "sources" ? "active" : ""}
+                onClick={() => selectPane("sources")}
+              >
+                Sources
+                {sourcesPendingCount > 0 ? (
+                  <span class="pane-tab-badge">{sourcesPendingCount}</span>
+                ) : null}
               </button>
               <button
                 type="button"
@@ -471,6 +484,14 @@ export function App() {
           onOpenAsk={() => selectPane("ask")}
           onOpenVault={() => selectPane("vault")}
           onStatusRefresh={() => refreshStatus(true)}
+        />
+      ) : null}
+      {pane === "sources" ? (
+        <SourcesPane
+          client={client}
+          topic={topic}
+          vault={resolvedVaultName}
+          onStatusRefresh={() => refreshStatus(false)}
         />
       ) : null}
       {pane === "arena" ? (
