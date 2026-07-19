@@ -21,6 +21,7 @@ through to the existing heal on any failure (failure isolation).
 from __future__ import annotations
 
 import hashlib
+import json
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
 from datetime import UTC, datetime
@@ -40,8 +41,15 @@ __all__ = [
     "build_gap_records",
     "classify_regression",
     "gaps_path",
+    "prior_generation_of",
+    "read_regression_manifest",
+    "regressed_ids_from_manifest",
     "write_gap_records",
 ]
+
+#: A manifest is only a usable classifier substrate at schema v2+ (it carries the
+#: ``per_example[].id``/``.pages`` trace and the ``held_out_delta`` object).
+_MIN_MANIFEST_SCHEMA_VERSION = 2
 
 #: Which classifier logic produced a record -- an independent capability probe
 #: from the record schema_version (bump this when the cascade changes shape-compatibly).
@@ -162,6 +170,57 @@ def classify_regression(
         else "HEAL"
     )
     return RegressionClassification(verdicts=tuple(verdicts), route=route)
+
+
+def read_regression_manifest(
+    clone_root: str | Path,
+    topic: str,
+    generation: int,
+) -> dict[str, object] | None:
+    """Load the regressed generation's manifest iff it carries a v2 diagnostic delta.
+
+    Returns the parsed manifest only when ``manifest_schema_version >= 2`` and a
+    non-null ``held_out_delta`` is present -- the substrate the cascade needs.
+    Returns ``None`` for a v1 (delta-free) manifest or a null delta so the caller
+    routes to a plain arena heal and writes nothing. A missing file or malformed
+    JSON propagates: the loop hook owns the single exception boundary.
+    """
+    path = Path(clone_root) / _manifest_ref(topic, generation)
+    manifest = json.loads(path.read_text(encoding="utf-8"))
+    if not isinstance(manifest, dict):
+        raise ValueError(f"manifest must be a JSON object, got {manifest!r}")
+    version = manifest.get("manifest_schema_version", 1)
+    if not isinstance(version, int) or isinstance(version, bool):
+        raise ValueError(f"manifest 'manifest_schema_version' must be an int, got {version!r}")
+    if version < _MIN_MANIFEST_SCHEMA_VERSION or manifest.get("held_out_delta") is None:
+        return None
+    return manifest
+
+
+def regressed_ids_from_manifest(manifest: Mapping[str, object]) -> list[str]:
+    """Golden ids whose held-out quality or QA-accuracy fell vs the prior generation.
+
+    The id-level regression predicate is ``quality_delta < 0`` OR
+    ``qa_accuracy_delta < 0``; a citation-only movement is not a regression at
+    this granularity (it routes to the arena heal, never a gap record).
+    """
+    per_id = _as_mapping(_nested(manifest, "held_out_delta"), "per_id")
+    regressed: list[str] = []
+    for qa_id in per_id:
+        delta = _as_mapping(per_id, qa_id)
+        quality_fell = _number(delta.get("quality_delta", 0.0)) < 0
+        accuracy_fell = _number(delta.get("qa_accuracy_delta", 0.0)) < 0
+        if quality_fell or accuracy_fell:
+            regressed.append(qa_id)
+    return regressed
+
+
+def prior_generation_of(manifest: Mapping[str, object]) -> int:
+    """The generation the held-out delta was computed against (global to the delta)."""
+    value = _nested(manifest, "held_out_delta").get("prior_generation")
+    if not isinstance(value, int) or isinstance(value, bool):
+        raise ValueError(f"manifest held_out_delta.prior_generation must be an int, got {value!r}")
+    return value
 
 
 def _classify_one(

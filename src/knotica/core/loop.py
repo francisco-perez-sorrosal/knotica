@@ -341,6 +341,12 @@ class LoopRunner:
             and scalar < float(baseline)
             and not (instrument_changed and auto_baseline)
         )
+        if regressed:
+            redirect = self._maybe_redirect_to_gaps(
+                state, default, merged_head, scalar, float(baseline), outcome
+            )
+            if redirect is not None:
+                return redirect
         if regressed and self._arena_enabled and self._arena_score is not None:
             return self._heal_prompts_after_regression(state, default, merged_head, scalar)
         if regressed:
@@ -460,6 +466,123 @@ class LoopRunner:
                 continue
             return True
         return False
+
+    def _maybe_redirect_to_gaps(
+        self,
+        state: LoopState,
+        default: str,
+        head: str,
+        scalar: float,
+        baseline: float,
+        outcome: EvalOutcome,
+    ) -> LoopCycleResult | None:
+        """Classify a regression's cause; redirect to a gap record when the arena is futile.
+
+        Every knowledge-cause verdict (``genuine_gap``/``dilution``) is persisted
+        as a gap record regardless of route -- a mixed regression still logs its
+        knowledge gaps for P3 while the arena heals the prompt-recoverable ones.
+        The route only decides whether to *skip* the arena: it returns a fail
+        result (arena skipped) only when *every* regressed id is a knowledge cause
+        (a missing or displaced reference page that racing prompt variants cannot
+        recover). Otherwise returns ``None`` so the caller runs the unchanged
+        arena heal: a prompt-recoverable fault in the mix, a manifest without a
+        diagnostic delta, or an absent eval-run manifest all fall through. Any
+        genuine classifier failure is isolated here and surfaced on loop-state --
+        it never blocks the heal path and writes no unverified gap record.
+
+        The classifier reads the eval *clone* store only; gap records are written
+        to the live vault so the next observe (bookkeeping-only diff under
+        ``.knotica/gaps/``) and the out-of-process P3 reader both see them.
+        """
+        try:
+            classified = self._classify_and_persist_gaps(outcome, scalar, baseline)
+            if classified is None:
+                return None
+            classification, records = classified
+        except Exception as exc:  # noqa: BLE001 — isolate any classifier failure from the heal
+            write_loop_state(
+                self._store,
+                self._root,
+                state.model_copy(update={"last_error": f"gap classification skipped: {exc}"}),
+                title="gap classification failed; falling through to arena heal",
+            )
+            return None
+
+        if classification.route != "REDIRECT":
+            # A prompt-recoverable fault is in the mix: the knowledge gaps are
+            # already persisted above; let the caller run the arena heal.
+            return None
+
+        # Every regressed id is a knowledge cause -- the arena is futile. Absorb
+        # the gap-record commit into the cursor so the next observe sees only
+        # bookkeeping under ``.knotica/gaps/`` (this state write is bookkeeping too).
+        gap_head = self._vcs.head_sha()
+        generation = int(outcome.generation)
+        write_loop_state(
+            self._store,
+            self._root,
+            state.model_copy(
+                update={"stage": LoopStage.failed, "last_decision": LoopDecision.fail}
+            ).mark_processed(default, gap_head),
+            title=f"regression redirected to {len(records)} knowledge gaps at gen-{generation}",
+        )
+        return LoopCycleResult(
+            acted=True,
+            branch=default,
+            sha=head,
+            decision=LoopDecision.fail,
+            scalar=scalar,
+            message=f"regression logged as {len(records)} gaps; arena skipped",
+        )
+
+    def _classify_and_persist_gaps(
+        self, outcome: EvalOutcome, scalar: float, baseline: float
+    ) -> tuple[object, list[object]] | None:
+        """Classify a regression from the clone manifest and persist knowledge gaps.
+
+        Returns ``None`` when no diagnostic substrate exists (missing or absent
+        eval-run manifest on the clone) -- the caller falls through to the
+        unchanged arena heal. Exceptions propagate to the caller's isolation
+        boundary; this helper owns only the classify -> build -> write sequence.
+        """
+        from knotica.core.gap_classifier import (
+            build_gap_records,
+            classify_regression,
+            prior_generation_of,
+            read_regression_manifest,
+            regressed_ids_from_manifest,
+            write_gap_records,
+        )
+
+        generation = int(outcome.generation)
+        clone_root = outcome.clone_root
+        try:
+            manifest = read_regression_manifest(clone_root, self._topic, generation)
+        except FileNotFoundError:
+            # No eval-run manifest on this clone (e.g. a fake/test eval, or a
+            # generation that wrote none): no diagnostic substrate -- fall
+            # through to the unchanged arena heal, byte-identical.
+            return None
+        if manifest is None:
+            return None
+        classification = classify_regression(
+            store=LocalFSStore(clone_root),
+            topic=self._topic,
+            clone_root=clone_root,
+            generation=generation,
+            manifest=manifest,
+            regressed_ids=regressed_ids_from_manifest(manifest),
+        )
+        records = build_gap_records(
+            classification.verdicts,
+            topic=self._topic,
+            generation=generation,
+            scalar_at_detection=scalar,
+            baseline_scalar=baseline,
+            prior_generation=prior_generation_of(manifest),
+        )
+        write_gap_records(self._store, self._root, self._topic, records)
+        return classification, records
 
     def _heal_prompts_after_regression(
         self, state: LoopState, default: str, head: str, scalar: float
