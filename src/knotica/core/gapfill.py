@@ -1,0 +1,579 @@
+"""The gap-fill drain + decide leaf -- join gaps to discovered sources, gate them.
+
+Two responsibilities, one committed queue (``<topic>/.knotica/suggestions/
+suggestions.jsonl``):
+
+* **Drain** (:func:`refresh_suggestions_for_gaps`) reads the P1 gap queue, keeps
+  only ``genuine_gap`` records still ``open``, formulates one deterministic query
+  per gap, runs an injected ``DiscoveryService``, and stages one ``pending``
+  :class:`~knotica.core.records.SuggestionRecord` per (gap, ranked candidate) --
+  deduped on ``(gap_id, source_key)`` so a persistent regression never spams the
+  queue -- writing once per drain in its own :class:`VaultTransaction`.
+* **Decide** (:func:`apply_decision`) mediates the human approve / reject / defer /
+  mark-ingested transition over the D2 lifecycle state machine, requiring a
+  non-empty reason on reject, rewriting exactly one record in its own transaction.
+
+This is the *only* P3 code that touches ``discovery/`` -- and it does so **lazily,
+inside the function that needs it**, never at module top level. That keeps the
+module importable on the MCP cold-start path (an MCP tool delegates to
+:func:`apply_decision`, which imports no ``discovery`` at all) without dragging the
+heavy search chain onto that path. The config->service factory
+(:func:`build_default_discovery_service`) is the bridge P2 left unbuilt; it returns
+``None`` (never raises) when no key is configured so the drain degrades to a no-op.
+
+Exception discipline mirrors ``core.gap_classifier``: the drain never catches a
+failure from the injected service -- a raise propagates uncaught, because failure
+isolation is the loop hook's single ``try/except`` boundary, not this module's.
+"""
+
+from __future__ import annotations
+
+import os
+from collections.abc import Callable, Mapping, Sequence
+from dataclasses import dataclass, replace
+from datetime import UTC, datetime
+from pathlib import Path
+from typing import TYPE_CHECKING
+
+from knotica.core.errors import ErrorCode, KnoticaError
+from knotica.core.gap_classifier import FaultClass, gaps_path
+from knotica.core.records import (
+    GapRecord,
+    SuggestionRecord,
+    parse_gaps_jsonl,
+    parse_suggestions_jsonl,
+)
+from knotica.core.transaction import VaultTransaction
+from knotica.store import VaultStore
+
+if TYPE_CHECKING:
+    from knotica.discovery.config import SearchConfig
+    from knotica.discovery.provider import SearchProvider
+    from knotica.discovery.records import SearchQuery, SourceCandidate
+    from knotica.discovery.service import DiscoveryService
+
+__all__ = [
+    "DecisionResult",
+    "RefreshResult",
+    "apply_decision",
+    "build_default_discovery_service",
+    "build_suggestion_records",
+    "formulate_query",
+    "plan_decision",
+    "refresh_suggestions_for_gaps",
+    "suggestions_path",
+]
+
+#: Directory name under each topic that owns loop/eval artifacts.
+_KNOTICA_DIR = ".knotica"
+#: Subdir + basename of the per-topic human-approval suggestion queue.
+_SUGGESTIONS_DIRNAME = "suggestions"
+_SUGGESTIONS_FILENAME = "suggestions.jsonl"
+#: Op slot of the drain's suggestion-propose commit (own transaction, one commit).
+_PROPOSE_OP = "suggestion_propose"
+#: Op slot of the approve/reject/defer/mark-ingested commit.
+_REVIEW_OP = "suggestion_review"
+
+#: Candidate cap per formulated query -- the deterministic v1 formulation asks for
+#: the ``SearchQuery`` default breadth; a wider cap is a ``proposer_version`` bump.
+DEFAULT_MAX_RESULTS = 10
+
+#: The D2 lifecycle state machine: which source statuses each decision may act on.
+_ALLOWED_FROM: Mapping[str, frozenset[str]] = {
+    "approve": frozenset({"pending", "deferred"}),
+    "reject": frozenset({"pending", "deferred"}),
+    "defer": frozenset({"pending"}),
+    "mark_ingested": frozenset({"approved"}),
+}
+#: The terminal status each decision moves a record to.
+_TARGET_STATUS: Mapping[str, str] = {
+    "approve": "approved",
+    "reject": "rejected",
+    "defer": "deferred",
+    "mark_ingested": "ingested",
+}
+#: Decisions that carry a decided_reason (required for reject, optional for defer).
+_REASON_STATUSES: frozenset[str] = frozenset({"reject", "defer"})
+
+
+@dataclass(frozen=True)
+class RefreshResult:
+    """The outcome of one drain, for the CLI / loop hook to summarize.
+
+    ``service_available`` is ``False`` only when the drain was called with no
+    configured discovery service (a clean no-op). ``gaps_drained`` counts the
+    open ``genuine_gap`` records a discovery query was issued for; a gap whose
+    candidates were all already suggested still counts as drained but contributes
+    zero to ``suggestions_written`` (dedup).
+    """
+
+    service_available: bool
+    gaps_considered: int
+    gaps_drained: int
+    suggestions_written: int
+
+
+@dataclass(frozen=True)
+class DecisionPlan:
+    """A validated, un-committed decision -- the dry-run preview seam.
+
+    Produced by :func:`plan_decision` (pure, no I/O) so a two-phase MCP tool can
+    preview a transition without writing, and :func:`apply_decision` can reuse the
+    identical validation before it commits. One state machine, one home.
+    """
+
+    from_status: str
+    to_status: str
+    decided_reason: str | None
+
+
+@dataclass(frozen=True)
+class DecisionResult:
+    """The outcome of a committed decision, for the tool envelope to render."""
+
+    suggestion_id: str
+    decision: str
+    from_status: str
+    to_status: str
+    decided_at: str | None
+    decided_reason: str | None
+    ingested_at: str | None
+    candidate_title: str
+    changed: bool
+    commit_sha: str
+
+
+def formulate_query(gap: GapRecord) -> SearchQuery:
+    """Deterministically map one gap to a search request (no LLM, no wall clock).
+
+    The failed golden question *is* the information need, so ``text`` is the gap's
+    question verbatim; ``category="paper"`` biases providers toward scholarly
+    sources. Reference-page-name augmentation is a documented ``proposer_version``
+    bump, not v1. ``discovery.records.SearchQuery`` is imported lazily so this
+    module stays off the MCP cold-start import path.
+    """
+    from knotica.discovery.records import SearchQuery
+
+    return SearchQuery(text=gap.question, category="paper", max_results=DEFAULT_MAX_RESULTS)
+
+
+def suggestions_path(topic: str) -> str:
+    """Vault-relative path of a topic's ``suggestions.jsonl`` (mirrors ``gaps_path``)."""
+    cleaned = topic.strip().strip("/")
+    if not cleaned or "/" in cleaned or cleaned in {".", ".."}:
+        raise ValueError(f"topic must be a single path segment, got {topic!r}")
+    return f"{cleaned}/{_KNOTICA_DIR}/{_SUGGESTIONS_DIRNAME}/{_SUGGESTIONS_FILENAME}"
+
+
+def build_suggestion_records(
+    gap: GapRecord,
+    candidates: Sequence[SourceCandidate],
+    *,
+    proposer_version: int = 1,
+    clock: Callable[[], str] | None = None,
+) -> list[SuggestionRecord]:
+    """Join one gap to its ranked candidates as ``pending`` suggestion records (pure).
+
+    ``gap``'s display fields (``qa_id``/``fault_class``/``question``/
+    ``reference_pages``/``detected_generation``) are copied verbatim so a card
+    renders with zero cross-file join; each candidate is embedded as its opaque
+    ``to_record()`` dict. ``rank`` is 1-based in the given order (the service owns
+    ordering). ``proposer_version`` identifies the formulation logic; the v1 record
+    does not persist it (it becomes a stored field only at a future schema bump),
+    but the parameter is part of the builder contract. ``clock`` yields the ISO-8601
+    UTC ``proposed_at`` stamp, injectable for deterministic tests.
+    """
+    stamp = clock or _utc_now_iso
+    proposed_at = stamp()
+    records: list[SuggestionRecord] = []
+    for rank, candidate in enumerate(candidates, start=1):
+        candidate_record = candidate.to_record()
+        records.append(
+            SuggestionRecord(
+                suggestion_id=_suggestion_id(gap.topic, gap.gap_id, _source_key(candidate_record)),
+                topic=gap.topic,
+                gap_id=gap.gap_id,
+                qa_id=gap.qa_id,
+                fault_class=gap.fault_class,
+                question=gap.question,
+                reference_pages=gap.reference_pages,
+                rank=rank,
+                query_text=gap.question,
+                candidate=candidate_record,
+                status="pending",
+                proposed_at=proposed_at,
+                decided_at=None,
+                decided_reason=None,
+                ingested_at=None,
+                detected_generation=gap.detected_generation,
+            )
+        )
+    return records
+
+
+def refresh_suggestions_for_gaps(
+    store: VaultStore,
+    root: str | Path,
+    topic: str,
+    *,
+    service: DiscoveryService | None,
+    max_gaps: int | None = None,
+    clock: Callable[[], str] | None = None,
+) -> RefreshResult:
+    """Drain open ``genuine_gap`` records into staged ``pending`` suggestions.
+
+    Reads ``gaps.jsonl``, keeps only ``fault_class == genuine_gap AND status ==
+    open``, optionally caps to the ``max_gaps`` highest-``|quality_delta|`` gaps,
+    formulates one query per surviving gap, runs ``service.discover``, dedups the
+    produced candidates against every existing suggestion on ``(gap_id,
+    source_key)``, and writes the survivors once in an own ``VaultTransaction``.
+    A ``None`` service (no key configured) or zero survivors is a clean no-op --
+    no transaction, no commit. A failure raised by ``service.discover`` is **not**
+    caught (failure isolation is the loop hook's boundary).
+    """
+    open_gaps = _open_genuine_gaps(store, topic)
+    considered = len(open_gaps)
+    if service is None or not open_gaps:
+        return RefreshResult(
+            service_available=service is not None,
+            gaps_considered=considered,
+            gaps_drained=0,
+            suggestions_written=0,
+        )
+
+    selected = _select_gaps(open_gaps, max_gaps)
+    seen = _existing_dedup_keys(store, topic)
+    new_records: list[SuggestionRecord] = []
+    for gap in selected:
+        built = build_suggestion_records(gap, service.discover(formulate_query(gap)), clock=clock)
+        for record in built:
+            key = (record.gap_id, _source_key(record.candidate))
+            if key in seen:
+                continue
+            seen.add(key)
+            new_records.append(record)
+
+    if new_records:
+        _write_suggestions(store, root, topic, new_records)
+    return RefreshResult(
+        service_available=True,
+        gaps_considered=considered,
+        gaps_drained=len(selected),
+        suggestions_written=len(new_records),
+    )
+
+
+def build_default_discovery_service(
+    *,
+    config_path: str | None = None,
+    environ: Mapping[str, str] | None = None,
+) -> DiscoveryService | None:
+    """Construct the real ``DiscoveryService`` from config + env keys, or ``None``.
+
+    Resolves the ``[gapfill.search]`` provider chain, builds an adapter for each
+    provider that has a resolvable API key, and composes it with the keyless
+    ``OpenAlexEnricher`` + ``ReputabilityScorer``. Returns ``None`` -- never raises
+    -- when no provider is configured (no key), so the drain degrades to a no-op on
+    a key-less host. All of ``discovery/`` is imported lazily here so this module
+    stays off the MCP cold-start path. A malformed ``[gapfill.search]`` value still
+    raises (a real operator error, distinct from "unconfigured").
+    """
+    from knotica.discovery.openalex import OpenAlexEnricher
+    from knotica.discovery.reputability import ReputabilityScorer
+    from knotica.discovery.service import DiscoveryService
+
+    search_config = _resolve_search_config(config_path)
+    providers = [
+        provider
+        for name in search_config.providers
+        for provider in (_build_provider(name, environ=environ),)
+        if provider is not None
+    ]
+    if not providers:
+        return None
+    return DiscoveryService(
+        providers, OpenAlexEnricher(mailto=search_config.mailto), ReputabilityScorer()
+    )
+
+
+def plan_decision(
+    record: SuggestionRecord,
+    *,
+    decision: str,
+    reason: str | None = None,
+) -> DecisionPlan:
+    """Validate a decision against the D2 lifecycle; return the planned transition (pure).
+
+    Raises a typed ``KnoticaError`` for an unknown decision, an illegal transition
+    (the record's current status is not a legal source for the decision), or a
+    reject with an empty/blank reason. No I/O, no mutation -- the dry-run preview
+    seam a two-phase tool reuses before :func:`apply_decision` commits.
+    """
+    allowed_from = _ALLOWED_FROM.get(decision)
+    if allowed_from is None:
+        raise _invalid(
+            f"decision must be one of {'|'.join(sorted(_ALLOWED_FROM))}, got {decision!r}",
+            "Pass a valid decision: approve, reject, defer, or mark_ingested.",
+        )
+    if record.status not in allowed_from:
+        raise _invalid(
+            f"suggestion {record.suggestion_id!r} is {record.status!r}; cannot {decision}",
+            f"Only a {'/'.join(sorted(allowed_from))} suggestion can be {decision}ed.",
+        )
+    cleaned = (reason or "").strip()
+    if decision == "reject" and not cleaned:
+        raise _invalid(
+            "reject requires a non-empty reason",
+            'Pass reason="…" explaining why this source was rejected.',
+        )
+    decided_reason = cleaned or None if decision in _REASON_STATUSES else None
+    return DecisionPlan(
+        from_status=record.status,
+        to_status=_TARGET_STATUS[decision],
+        decided_reason=decided_reason,
+    )
+
+
+def apply_decision(
+    store: VaultStore,
+    root: str | Path,
+    topic: str,
+    suggestion_id: str,
+    *,
+    decision: str,
+    reason: str | None = None,
+    clock: Callable[[], str] | None = None,
+) -> DecisionResult:
+    """Apply one approve / reject / defer / mark-ingested transition, one commit.
+
+    Reads ``suggestions.jsonl``, finds the record by ``suggestion_id``, validates
+    the transition via :func:`plan_decision` (raising a typed ``KnoticaError`` on an
+    illegal transition or an empty reject reason before any write), rewrites that
+    one record's ``status`` + ``decided_at``/``decided_reason`` (or ``ingested_at``
+    for mark-ingested) and commits the whole file once in an own ``VaultTransaction``.
+    Imports nothing from ``discovery`` -- safe for an MCP tool to call on the
+    cold-start path. Raises ``ValueError`` when no record has ``suggestion_id``.
+    """
+    stamp = clock or _utc_now_iso
+    path = suggestions_path(topic)
+    records = _read_suggestions(store, topic)
+    index = _index_of(records, suggestion_id)
+    if index is None:
+        raise ValueError(f"no suggestion {suggestion_id!r} in topic {topic!r}")
+
+    record = records[index]
+    plan = plan_decision(record, decision=decision, reason=reason)
+    updated = _mutate(record, plan, stamp=stamp)
+    body = _serialize(_replace_at(records, index, updated))
+    title = f"{decision} suggestion {suggestion_id[:8]}"
+    with VaultTransaction(store, Path(root), _REVIEW_OP, topic, title) as txn:
+        txn.write(path, body)
+    return DecisionResult(
+        suggestion_id=suggestion_id,
+        decision=decision,
+        from_status=plan.from_status,
+        to_status=plan.to_status,
+        decided_at=updated.decided_at,
+        decided_reason=updated.decided_reason,
+        ingested_at=updated.ingested_at,
+        candidate_title=_candidate_title(record.candidate),
+        changed=txn.result.changed,
+        commit_sha=txn.result.commit_sha,
+    )
+
+
+# ---------------------------------------------------------------------------
+# Drain internals -- gap reading, selection, dedup, one-commit write
+# ---------------------------------------------------------------------------
+
+
+def _open_genuine_gaps(store: VaultStore, topic: str) -> list[GapRecord]:
+    """The open ``genuine_gap`` records eligible for a drain (dilution excluded)."""
+    path = gaps_path(topic)
+    if not store.exists(path):
+        return []
+    text = store.read_text(path)
+    gaps = parse_gaps_jsonl(text) if text.strip() else []
+    return [
+        gap for gap in gaps if gap.fault_class == FaultClass.GENUINE_GAP and gap.status == "open"
+    ]
+
+
+def _select_gaps(gaps: Sequence[GapRecord], max_gaps: int | None) -> list[GapRecord]:
+    """The gaps a drain issues a query for: all, or the top-``max_gaps`` by |delta|.
+
+    Ranks by descending ``|evidence.quality_delta|`` with ``gap_id`` as a
+    deterministic tie-break, so the same queue always drains in the same order.
+    """
+    if max_gaps is None or max_gaps >= len(gaps):
+        return list(gaps)
+    ranked = sorted(gaps, key=lambda gap: (-abs(gap.evidence.quality_delta), gap.gap_id))
+    return ranked[:max_gaps]
+
+
+def _existing_dedup_keys(store: VaultStore, topic: str) -> set[tuple[str, str]]:
+    """Every ``(gap_id, source_key)`` already staged, at any status.
+
+    Dedup is against *all* existing suggestions (not just non-terminal ones): a
+    source already surfaced for a gap -- pending, approved, ingested, deferred, or
+    already rejected -- is never re-proposed, so a persistent regression cannot
+    spam the queue and a human's rejection is respected. This is a superset of the
+    ``pending``/``approved``/``ingested`` dedup the acceptance criterion names.
+    """
+    records = _read_suggestions(store, topic)
+    return {(record.gap_id, _source_key(record.candidate)) for record in records}
+
+
+def _write_suggestions(
+    store: VaultStore,
+    root: str | Path,
+    topic: str,
+    records: Sequence[SuggestionRecord],
+) -> None:
+    """Append staged suggestions to ``suggestions.jsonl`` in one own commit."""
+    path = suggestions_path(topic)
+    existing = store.read_text(path) if store.exists(path) else ""
+    body = _append_jsonl_lines(existing, [record.to_json_line() for record in records])
+    title = f"{len(records)} gap-fill suggestions for {topic}"
+    with VaultTransaction(store, Path(root), _PROPOSE_OP, topic, title) as txn:
+        txn.write(path, body)
+
+
+# ---------------------------------------------------------------------------
+# Decide internals -- record lookup, mutation, serialization
+# ---------------------------------------------------------------------------
+
+
+def _read_suggestions(store: VaultStore, topic: str) -> list[SuggestionRecord]:
+    """Parse a topic's staged suggestions (empty when the file is absent/blank)."""
+    path = suggestions_path(topic)
+    if not store.exists(path):
+        return []
+    text = store.read_text(path)
+    return parse_suggestions_jsonl(text) if text.strip() else []
+
+
+def _index_of(records: Sequence[SuggestionRecord], suggestion_id: str) -> int | None:
+    return next(
+        (index for index, record in enumerate(records) if record.suggestion_id == suggestion_id),
+        None,
+    )
+
+
+def _mutate(
+    record: SuggestionRecord,
+    plan: DecisionPlan,
+    *,
+    stamp: Callable[[], str],
+) -> SuggestionRecord:
+    """Return ``record`` moved to the planned status, stamping the right timestamp."""
+    now = stamp()
+    if plan.to_status == "ingested":
+        return replace(record, status="ingested", ingested_at=now)
+    return replace(
+        record,
+        status=plan.to_status,
+        decided_at=now,
+        decided_reason=plan.decided_reason,
+    )
+
+
+def _replace_at(
+    records: Sequence[SuggestionRecord],
+    index: int,
+    updated: SuggestionRecord,
+) -> list[SuggestionRecord]:
+    new_records = list(records)
+    new_records[index] = updated
+    return new_records
+
+
+def _serialize(records: Sequence[SuggestionRecord]) -> str:
+    return "\n".join(record.to_json_line() for record in records) + "\n"
+
+
+def _candidate_title(candidate: Mapping[str, object]) -> str:
+    title = candidate.get("title")
+    return title if isinstance(title, str) else ""
+
+
+# ---------------------------------------------------------------------------
+# Discovery-boundary helpers (lazy imports) + shared utilities
+# ---------------------------------------------------------------------------
+
+
+def _resolve_search_config(config_path: str | None) -> SearchConfig:
+    from knotica.discovery.config import resolve_search_config
+
+    return resolve_search_config(config_path)
+
+
+def _build_provider(name: str, *, environ: Mapping[str, str] | None) -> SearchProvider | None:
+    """Build the search adapter for ``name`` when its key is in the environment.
+
+    The auto-factory treats the **process environment** as the sole source of
+    provider credentials (``os.environ`` by default, or an injected ``environ``) --
+    it does not consult the ``.env`` fallback ``resolve_api_key`` offers, so the
+    drain's configured/unconfigured decision is fully controllable and matches the
+    live-demo's exported-``KNOTICA_YOUCOM_API_KEY`` usage. A missing key degrades
+    that provider to absent (the factory then returns ``None``), never raising.
+    you.com is the sole shipped adapter (exa was cut); an unrecognized-but-keyed
+    name is skipped rather than trusted.
+    """
+    from knotica.discovery.config import env_var_for
+
+    env = os.environ if environ is None else environ
+    try:
+        env_var = env_var_for(name)
+    except KnoticaError:
+        return None
+    api_key = env.get(env_var)
+    if not api_key:
+        return None
+    if name == "youcom":
+        from knotica.discovery.youcom import YouComProvider
+
+        return YouComProvider(api_key)
+    return None
+
+
+def _source_key(candidate: Mapping[str, object]) -> str:
+    """The dedup + identity key of one candidate: normalized DOI, else URL.
+
+    Reuses ``DiscoveryService``'s own normalizers (single source of truth for DOI
+    prefix/case and URL trailing-slash/fragment handling) so the dedup gate cannot
+    drift from the service's own dedup semantics.
+    """
+    from knotica.discovery.service import _normalize_doi, _normalize_url
+
+    doi = candidate.get("doi")
+    normalized_doi = _normalize_doi(doi if isinstance(doi, str) else None)
+    if normalized_doi is not None:
+        return f"doi:{normalized_doi}"
+    url = candidate.get("url")
+    return f"url:{_normalize_url(url if isinstance(url, str) else '')}"
+
+
+def _suggestion_id(topic: str, gap_id: str, source_key: str) -> str:
+    """Stable 16-hex identity + dedup key over ``(topic, gap_id, source_key)``."""
+    import hashlib
+
+    return hashlib.sha1(f"{topic}|{gap_id}|{source_key}".encode()).hexdigest()[:16]
+
+
+def _invalid(message: str, fix: str) -> KnoticaError:
+    """A typed argument-validation error (reusing the house ``INVALID_CURSOR`` slot)."""
+    return KnoticaError(ErrorCode.INVALID_CURSOR, message, fix=fix)
+
+
+def _append_jsonl_lines(existing_text: str, lines: Sequence[str]) -> str:
+    """Append JSONL lines, preserving prior records and a single trailing newline."""
+    block = "\n".join(lines) + "\n"
+    if not existing_text.strip():
+        return block
+    return existing_text.rstrip("\n") + "\n" + block
+
+
+def _utc_now_iso() -> str:
+    """Wall-clock stamp in ISO-8601 UTC (``…Z`` suffix), matching the gap classifier."""
+    return datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")

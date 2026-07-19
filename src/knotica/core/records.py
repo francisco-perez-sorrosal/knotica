@@ -39,6 +39,8 @@ __all__ = [
     "QA_SOURCES",
     "QA_VERDICTS",
     "SOURCE_TYPES",
+    "SUGGESTION_SCHEMA_VERSION",
+    "SUGGESTION_STATUSES",
     "CommitSubject",
     "GapEvidence",
     "GapRecord",
@@ -48,6 +50,7 @@ __all__ = [
     "QARecord",
     "RecordParseError",
     "SourceProvenance",
+    "SuggestionRecord",
     "body_sha256",
     "format_commit_subject",
     "format_log_entry",
@@ -56,6 +59,7 @@ __all__ = [
     "parse_log_entries",
     "parse_qa_jsonl",
     "parse_source_document",
+    "parse_suggestions_jsonl",
     "render_source_document",
 ]
 
@@ -64,6 +68,7 @@ QA_SCHEMA_VERSION = 1
 METRICS_SCHEMA_VERSION = 1
 PROVENANCE_SCHEMA_VERSION = 1
 GAP_SCHEMA_VERSION = 1
+SUGGESTION_SCHEMA_VERSION = 1
 
 QA_VERDICTS: frozenset[str] = frozenset({"good", "bad", "corrected"})
 #: ``seed_train`` has no producer anymore (the demo seeder was removed); it stays
@@ -76,6 +81,14 @@ SOURCE_TYPES: frozenset[str] = frozenset({"html", "pdf", "markdown", "text"})
 GAP_FAULT_CLASSES: frozenset[str] = frozenset({"genuine_gap", "dilution"})
 #: Lifecycle of one gap record: P1 writes ``open``; P3/P4 flip it terminal.
 GAP_STATUSES: frozenset[str] = frozenset({"open", "resolved", "dismissed"})
+
+#: Lifecycle of one suggestion record. The discovery writer stages ``pending``;
+#: the human gate flips ``approved``/``rejected``/``deferred`` in place; the
+#: interactive ingest client flips ``ingested``. A bare tagged string (not a
+#: ``StrEnum``) so an out-of-process reader round-trips it without enum coercion.
+SUGGESTION_STATUSES: frozenset[str] = frozenset(
+    {"pending", "approved", "rejected", "deferred", "ingested"}
+)
 
 #: Log-entry H2 line: ``## [YYYY-MM-DD] <op> | <topic> | <title>``.
 LOG_ENTRY_RE = re.compile(
@@ -429,6 +442,123 @@ def parse_gaps_jsonl(text: str) -> list[GapRecord]:
 
 
 # ---------------------------------------------------------------------------
+# suggestions.jsonl -- one gap x candidate join, the human-approval queue
+# ---------------------------------------------------------------------------
+
+
+@dataclass(frozen=True, kw_only=True)
+class SuggestionRecord:
+    """One gap-fill suggestion, a single ``suggestions.jsonl`` line.
+
+    Joins a P1 ``genuine_gap`` (``gap_id``/``qa_id``/``question``/
+    ``reference_pages`` copied verbatim for zero-join card rendering) to one
+    ranked P2 discovered source. The candidate is stored as an **opaque JSON
+    object** -- the verbatim ``SourceCandidate.to_record()`` payload -- *not* a
+    typed ``SourceCandidate``: this record lives on the MCP cold-start path, so
+    typing the field would drag ``discovery/`` onto that path and break the
+    ``mcp_server`` isolation boundary. The candidate carries its own inner
+    ``schema_version``, so the outer record and the nested candidate version
+    independently.
+
+    ``status`` is a bare tagged string read out-of-process (round-trips without
+    enum coercion). Only the outer ``schema_version`` and ``status`` enum are
+    validated; the nested candidate is validated only as "is a JSON object".
+    Parsing tolerates unknown extra fields (additive-only evolution).
+    """
+
+    schema_version: int = SUGGESTION_SCHEMA_VERSION
+    suggestion_id: str
+    topic: str
+    gap_id: str
+    qa_id: str
+    fault_class: str
+    question: str
+    reference_pages: tuple[str, ...]
+    rank: int
+    query_text: str
+    candidate: dict[str, object]
+    status: str
+    proposed_at: str
+    decided_at: str | None
+    decided_reason: str | None
+    ingested_at: str | None
+    detected_generation: int
+
+    def __post_init__(self) -> None:
+        _validate_schema_version(self.schema_version)
+        _validate_enum("status", self.status, SUGGESTION_STATUSES)
+        if not isinstance(self.candidate, dict):
+            raise ValueError(f"candidate must be a JSON object, got {self.candidate!r}")
+
+    def to_json_line(self) -> str:
+        """Serialize to one JSON line (no trailing newline), fields in schema order."""
+        payload = {
+            "schema_version": self.schema_version,
+            "suggestion_id": self.suggestion_id,
+            "topic": self.topic,
+            "gap_id": self.gap_id,
+            "qa_id": self.qa_id,
+            "fault_class": self.fault_class,
+            "question": self.question,
+            "reference_pages": list(self.reference_pages),
+            "rank": self.rank,
+            "query_text": self.query_text,
+            "candidate": self.candidate,
+            "status": self.status,
+            "proposed_at": self.proposed_at,
+            "decided_at": self.decided_at,
+            "decided_reason": self.decided_reason,
+            "ingested_at": self.ingested_at,
+            "detected_generation": self.detected_generation,
+        }
+        return json.dumps(payload, ensure_ascii=False)
+
+    @classmethod
+    def from_json_line(cls, line: str) -> "SuggestionRecord":
+        """Parse one ``suggestions.jsonl`` line; unknown extra fields are tolerated."""
+        data = _load_json_object(line, record="suggestions.jsonl")
+        return cls(
+            schema_version=_required_int(data, "schema_version", record="suggestions.jsonl"),
+            suggestion_id=_required_str(data, "suggestion_id", record="suggestions.jsonl"),
+            topic=_required_str(data, "topic", record="suggestions.jsonl"),
+            gap_id=_required_str(data, "gap_id", record="suggestions.jsonl"),
+            qa_id=_required_str(data, "qa_id", record="suggestions.jsonl"),
+            fault_class=_required_str(data, "fault_class", record="suggestions.jsonl"),
+            question=_required_str(data, "question", record="suggestions.jsonl"),
+            reference_pages=_required_str_tuple(
+                data, "reference_pages", record="suggestions.jsonl"
+            ),
+            rank=_required_int(data, "rank", record="suggestions.jsonl"),
+            query_text=_required_str(data, "query_text", record="suggestions.jsonl"),
+            candidate=_required_object(data, "candidate", record="suggestions.jsonl"),
+            status=_required_str(data, "status", record="suggestions.jsonl"),
+            proposed_at=_required_str(data, "proposed_at", record="suggestions.jsonl"),
+            decided_at=_optional_str(data, "decided_at", record="suggestions.jsonl"),
+            decided_reason=_optional_str(data, "decided_reason", record="suggestions.jsonl"),
+            ingested_at=_optional_str(data, "ingested_at", record="suggestions.jsonl"),
+            detected_generation=_required_int(
+                data, "detected_generation", record="suggestions.jsonl"
+            ),
+        )
+
+
+def parse_suggestions_jsonl(text: str) -> list[SuggestionRecord]:
+    """Parse a full ``suggestions.jsonl`` body; blank lines are skipped.
+
+    Errors carry the 1-based line number of the offending record.
+    """
+    records: list[SuggestionRecord] = []
+    for line_number, line in enumerate(text.splitlines(), start=1):
+        if not line.strip():
+            continue
+        try:
+            records.append(SuggestionRecord.from_json_line(line))
+        except (RecordParseError, ValueError) as error:
+            raise RecordParseError(f"suggestions.jsonl line {line_number}: {error}") from error
+    return records
+
+
+# ---------------------------------------------------------------------------
 # log.md entry -- one H2 line per mutating operation, optional page bullets
 # ---------------------------------------------------------------------------
 
@@ -717,3 +847,12 @@ def _required_str_tuple(data: Mapping[str, object], key: str, *, record: str) ->
             f"{record} record field {key!r} must be an array of strings, got {value!r}"
         )
     return tuple(value)
+
+
+def _required_object(data: Mapping[str, object], key: str, *, record: str) -> dict[str, object]:
+    value = _required_field(data, key, record=record)
+    if not isinstance(value, dict):
+        raise RecordParseError(
+            f"{record} record field {key!r} must be a JSON object, got {value!r}"
+        )
+    return value
