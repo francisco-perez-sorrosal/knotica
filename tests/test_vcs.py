@@ -17,6 +17,15 @@ The contract under test (vault constitution + mutation-discipline design):
    its own ``VaultVcs``, stamps a clone-local committer identity so a later eval
    commit succeeds even on a machine with no ambient git identity, and leaves
    the source byte-identical.
+5. **Worktree primitives isolate a private working tree.** ``add_worktree``
+   checks out a new branch at an explicit ``start_ref`` — not at whatever the
+   default branch happens to be pointing at by the time the call runs —
+   without touching the canonical work tree; ``list_worktrees`` reflects every
+   registered worktree; ``remove_worktree`` prunes the working directory but
+   never deletes the branch it held; ``publish_branch`` atomically renames a
+   ref (the mechanism behind both publishing an ingest candidate and
+   quarantining a refused one) without moving the checked-out default branch
+   or its working tree.
 
 All tests run against real git repositories (the ``template_vault`` fixture);
 nothing about git is mocked, and every clone is a local-path clone (zero
@@ -419,3 +428,146 @@ def test_cloning_a_non_repository_source_raises_a_typed_git_error(tmp_path: Path
     error = exc_info.value
     assert error.command, "GitError must carry the failing command for diagnostics"
     assert error.output, "GitError must carry git's output for diagnostics"
+
+
+# ---------------------------------------------------------------------------
+# Worktree primitives: add / list / remove
+#
+# ``list_worktrees()``'s exact return shape is not fixed by the plan text —
+# pinned here as ``list[dict[str, str]]`` with ``"path"``/``"branch"`` keys,
+# mirroring this module's own ``list_dirty_entries()`` convention (dicts of
+# strings, not tuples or a dataclass). Flagged as a negotiable assumption, not
+# a silently-resolved one: if the implementation lands a different shape, the
+# integration checkpoint reconciles it.
+# ---------------------------------------------------------------------------
+
+
+def _worktree_paths(entries: list[dict[str, str]]) -> set[Path]:
+    """Resolve every listed worktree's path, tolerant of symlinked tmp dirs."""
+    return {Path(entry["path"]).resolve() for entry in entries}
+
+
+def test_add_worktree_checks_out_a_new_branch_at_start_ref_not_at_current_head(
+    vcs: VaultVcs, template_vault: Path, tmp_path: Path
+) -> None:
+    older_sha = vcs.head_sha()
+    (template_vault / "advance.md").write_text("newer default-branch content\n", encoding="utf-8")
+    vcs.commit_paths(["advance.md"], A_GRAMMAR_MESSAGE)  # default HEAD moves past older_sha
+    wip_path = tmp_path / "wip" / "source-abcd1234"
+    branch = "loop/wip/agentic-systems/source-abcd1234"
+
+    vcs.add_worktree(wip_path, branch=branch, start_ref=older_sha)
+
+    assert vcs.branch_exists(branch)
+    assert vcs.ref_sha(branch) == older_sha, (
+        "the new branch must be rooted at the requested start_ref, not at "
+        "whatever the default branch had since advanced to"
+    )
+    worktree_vcs = VaultVcs(wip_path)
+    assert worktree_vcs.current_branch() == branch, (
+        "the worktree must be checked out on the new branch"
+    )
+    assert worktree_vcs.head_sha() == older_sha
+
+
+def test_add_worktree_never_moves_the_canonical_work_tree(
+    vcs: VaultVcs, template_vault: Path, tmp_path: Path
+) -> None:
+    default_branch_before = vcs.current_branch()
+    default_head_before = vcs.head_sha()
+    status_before = git_status_porcelain(template_vault)
+
+    vcs.add_worktree(
+        tmp_path / "wip" / "source-untouched",
+        branch="loop/wip/agentic-systems/source-untouched",
+        start_ref="HEAD",
+    )
+
+    assert vcs.current_branch() == default_branch_before
+    assert vcs.head_sha() == default_head_before
+    assert git_status_porcelain(template_vault) == status_before
+
+
+def test_add_worktree_with_an_already_existing_branch_name_raises_a_typed_git_error(
+    vcs: VaultVcs, tmp_path: Path
+) -> None:
+    vcs.create_branch("loop/wip/agentic-systems/source-collide", "HEAD")
+
+    with pytest.raises(GitError) as exc_info:
+        vcs.add_worktree(
+            tmp_path / "wip" / "source-collide",
+            branch="loop/wip/agentic-systems/source-collide",
+            start_ref="HEAD",
+        )
+
+    error = exc_info.value
+    assert error.command, "GitError must carry the failing command for diagnostics"
+    assert error.output, "GitError must carry git's output for diagnostics"
+
+
+def test_list_worktrees_reflects_a_newly_added_worktree(vcs: VaultVcs, tmp_path: Path) -> None:
+    before = vcs.list_worktrees()
+    wip_path = tmp_path / "wip" / "source-listed"
+    branch = "loop/wip/agentic-systems/source-listed"
+
+    vcs.add_worktree(wip_path, branch=branch, start_ref="HEAD")
+    after = vcs.list_worktrees()
+
+    assert wip_path.resolve() not in _worktree_paths(before)
+    matching = [entry for entry in after if Path(entry["path"]).resolve() == wip_path.resolve()]
+    assert len(matching) == 1, f"expected exactly one entry for the new worktree, found: {after}"
+    assert matching[0]["branch"] == branch
+    assert len(after) == len(before) + 1
+
+
+def test_remove_worktree_prunes_the_directory_but_leaves_the_branch_intact(
+    vcs: VaultVcs, tmp_path: Path
+) -> None:
+    wip_path = tmp_path / "wip" / "source-removed"
+    branch = "loop/wip/agentic-systems/source-removed"
+    vcs.add_worktree(wip_path, branch=branch, start_ref="HEAD")
+    branch_tip_before = vcs.ref_sha(branch)
+
+    vcs.remove_worktree(wip_path)
+
+    assert not wip_path.exists(), "removing the worktree must prune its working directory"
+    assert wip_path.resolve() not in _worktree_paths(vcs.list_worktrees())
+    assert vcs.branch_exists(branch), "removing the worktree must not delete the branch it held"
+    assert vcs.ref_sha(branch) == branch_tip_before
+
+
+# ---------------------------------------------------------------------------
+# publish_branch: atomic ref rename (finalize a candidate / quarantine a refusal)
+# ---------------------------------------------------------------------------
+
+
+def test_publish_branch_renames_the_ref_preserving_its_sha(vcs: VaultVcs) -> None:
+    vcs.create_branch("loop/wip/agentic-systems/source-publish", "HEAD")
+    original_sha = vcs.ref_sha("loop/wip/agentic-systems/source-publish")
+
+    vcs.publish_branch(
+        "loop/wip/agentic-systems/source-publish", "loop/c/agentic-systems/source-publish"
+    )
+
+    assert not vcs.branch_exists("loop/wip/agentic-systems/source-publish"), (
+        "the source ref must be gone after publishing"
+    )
+    assert vcs.branch_exists("loop/c/agentic-systems/source-publish"), "the dest ref must now exist"
+    assert vcs.ref_sha("loop/c/agentic-systems/source-publish") == original_sha
+
+
+def test_publish_branch_never_touches_the_checked_out_default_branch(
+    vcs: VaultVcs, template_vault: Path
+) -> None:
+    vcs.create_branch("loop/wip/agentic-systems/source-quarantine", "HEAD")
+    default_branch_before = vcs.current_branch()
+    default_head_before = vcs.head_sha()
+    status_before = git_status_porcelain(template_vault)
+
+    vcs.publish_branch(
+        "loop/wip/agentic-systems/source-quarantine", "loop/x/agentic-systems/source-quarantine"
+    )
+
+    assert vcs.current_branch() == default_branch_before
+    assert vcs.head_sha() == default_head_before
+    assert git_status_porcelain(template_vault) == status_before

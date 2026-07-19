@@ -41,6 +41,7 @@ class ErrorCode(StrEnum):
     LLM_API_ERROR = "LLM_API_ERROR"
     SEARCH_API_ERROR = "SEARCH_API_ERROR"
     SUGGESTION_NOT_FOUND = "SUGGESTION_NOT_FOUND"
+    SUGGESTION_NOT_APPROVED = "SUGGESTION_NOT_APPROVED"
 
 
 #: Canonical fix text per code (the static part of the contract). Callers may
@@ -76,6 +77,9 @@ DEFAULT_FIX: Mapping[ErrorCode, str] = MappingProxyType(
             " rate limits and server errors clear on their own -- wait and re-run."
         ),
         ErrorCode.SUGGESTION_NOT_FOUND: ("Call `suggestions_read` to list current suggestion_ids."),
+        ErrorCode.SUGGESTION_NOT_APPROVED: (
+            "Approve it first: `suggestions_review(action=approve, mode=apply)`."
+        ),
     }
 )
 

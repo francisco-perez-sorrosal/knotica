@@ -56,6 +56,10 @@ RETRYABLE_BY_CODE = {
     # Gap-fill suggestion queue (P3): a review targeted a suggestion_id that is
     # not in the topic's queue -- final, the caller must list current ids.
     "SUGGESTION_NOT_FOUND": False,
+    # Source-candidate gate (P4): a client tried to open or submit an ingest
+    # session for a suggestion that isn't approved yet -- final, the caller
+    # must get it approved first; nothing here clears on its own.
+    "SUGGESTION_NOT_APPROVED": False,
 }
 
 ERROR_CODE_NAMES = frozenset(RETRYABLE_BY_CODE)

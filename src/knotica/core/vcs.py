@@ -421,6 +421,99 @@ class VaultVcs:
         """Push ``refspec`` to ``remote`` (e.g. ``main`` or ``loop/result/abc``)."""
         self._run(["push", remote, refspec], retry_index_lock=True)
 
+    # ------------------------------------------------------------------
+    # Worktree lifecycle. A worktree lets a multi-step operation (e.g. a
+    # source-candidate ingest session) commit to a branch other than the
+    # canonical repo's checked-out branch, without switching that checkout
+    # or disturbing its working tree. Mirrors the branch-lifecycle group
+    # above: the loop/ingest orchestration layer is the intended caller.
+    # ------------------------------------------------------------------
+
+    def add_worktree(
+        self, path: str | PurePath, *, branch: str, start_ref: str = "HEAD"
+    ) -> "VaultVcs":
+        """Create a worktree at ``path`` checked out on a new ``branch``.
+
+        Runs ``git worktree add -b <branch> <path> <start_ref>``, which both
+        creates ``branch`` at ``start_ref`` and registers a working tree for
+        it at ``path`` -- distinct from :meth:`create_branch`, which creates
+        a branch without checking it out anywhere. The canonical repo's own
+        checkout is untouched.
+
+        Args:
+            path: Where to create the worktree. Must not already exist.
+            branch: Name of the new branch to create and check out there.
+            start_ref: Commit-ish the new branch starts from.
+
+        Returns:
+            A :class:`VaultVcs` bound to the newly created worktree.
+
+        Raises:
+            GitError: If ``branch`` already exists, or the worktree cannot
+                be created (e.g. ``path`` already exists).
+        """
+        destination = Path(path)
+        self._run(
+            ["worktree", "add", "-b", branch, str(destination), start_ref],
+            retry_index_lock=True,
+        )
+        return VaultVcs(destination)
+
+    def remove_worktree(self, path: str | PurePath) -> None:
+        """Remove the worktree registered at ``path``, leaving its branch intact.
+
+        Refuses (raises :class:`GitError`) when the worktree has uncommitted
+        changes -- callers must commit or discard first. The branch itself is
+        never deleted; use :meth:`delete_branch` for that separately.
+        """
+        self._run(["worktree", "remove", str(Path(path))], retry_index_lock=True)
+
+    def list_worktrees(self) -> list[dict[str, str]]:
+        """Return registered worktrees as ``{path, sha, branch}`` (read-only).
+
+        ``branch`` is the short ref name (e.g. ``loop/wip/<topic>/source-abc``)
+        or an empty string for a detached-HEAD worktree. The canonical repo's
+        own checkout is included as the first entry. Never mutates.
+        """
+        result = self._run(["worktree", "list", "--porcelain"], optional_locks=False)
+        worktrees: list[dict[str, str]] = []
+        current: dict[str, str] = {}
+        for line in result.stdout.splitlines():
+            if not line.strip():
+                if current:
+                    worktrees.append(current)
+                    current = {}
+                continue
+            key, _, value = line.partition(" ")
+            if key == "worktree":
+                current["path"] = value
+            elif key == "HEAD":
+                current["sha"] = value
+            elif key == "branch":
+                current["branch"] = value.removeprefix("refs/heads/")
+        if current:
+            worktrees.append(current)
+        for entry in worktrees:
+            entry.setdefault("branch", "")
+        return worktrees
+
+    def publish_branch(self, src_ref: str, dest_name: str) -> None:
+        """Atomically rename branch ``src_ref`` to ``dest_name``.
+
+        A single ``git branch -m`` -- the branch keeps its history and tip
+        SHA; only the ref name changes. Used both to finalize an ingest
+        session (``loop/wip/<topic>/source-<id8> -> loop/c/<topic>/source-<id8>``)
+        and to quarantine a refused source candidate
+        (``loop/c/<topic>/source-<id8> -> loop/x/<topic>/source-<id8>``) --
+        in both cases the candidate becomes invisible to a scan for the old
+        prefix without ever being deleted.
+
+        Raises:
+            GitError: If ``src_ref`` does not exist, is checked out in
+                another worktree, or ``dest_name`` already exists.
+        """
+        self._run(["branch", "-m", src_ref, dest_name], retry_index_lock=True)
+
     def _remove_created_paths(self, paths: list[str]) -> None:
         """Unstage and delete paths that did not exist at the rollback ref."""
         self._run(

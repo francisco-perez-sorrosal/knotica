@@ -50,6 +50,7 @@ SUGGESTION_RECORD_FIELDS = frozenset(
         "ingested_at",
         "detected_generation",
         "gap_origin",
+        "gate_outcome",
     }
 )
 
@@ -231,6 +232,96 @@ def test_suggestion_line_missing_gap_origin_defaults_to_none():
     record = _records_module().SuggestionRecord.from_json_line(json.dumps(payload))
 
     assert record.gap_origin is None
+
+
+# ---------------------------------------------------------------------------
+# gate_outcome -- additive verdict stamped once a source candidate has been
+# evaluated (merged onto the default branch, or refused and quarantined)
+# ---------------------------------------------------------------------------
+
+
+def _merged_gate_outcome(**overrides) -> dict[str, object]:
+    payload: dict[str, object] = {
+        "verdict": "merged",
+        "scalar": 0.97,
+        "baseline_scalar": 0.9655,
+        "ref": "loop/r/abc123def456",
+        "reason": None,
+        "regressed_questions": None,
+    }
+    payload.update(overrides)
+    return payload
+
+
+def _refused_gate_outcome(**overrides) -> dict[str, object]:
+    payload: dict[str, object] = {
+        "verdict": "refused",
+        "scalar": 0.9201,
+        "baseline_scalar": 0.9655,
+        "ref": "loop/x/agentic-systems/source-a1b2c3d4",
+        "reason": "regressed 3 previously-passing golden questions",
+        "regressed_questions": ["q-0001", "q-0007", "q-0012"],
+    }
+    payload.update(overrides)
+    return payload
+
+
+def test_suggestion_record_defaults_gate_outcome_to_none_when_not_given():
+    # ``_suggestion_record()`` never sets ``gate_outcome`` -- a suggestion that
+    # has not yet been gated (or was written before the gate existed) must
+    # still construct cleanly with no verdict attached.
+    record = _suggestion_record()
+
+    assert record.gate_outcome is None
+
+
+def test_suggestion_line_missing_gate_outcome_key_defaults_to_none():
+    """A ``suggestions.jsonl`` line written before the gate existed has no
+    ``gate_outcome`` key at all -- the additive field must default on parse,
+    exactly the same back-compat contract as ``gap_origin``."""
+    payload = json.loads(_suggestion_record().to_json_line())
+    del payload["gate_outcome"]
+
+    record = _records_module().SuggestionRecord.from_json_line(json.dumps(payload))
+
+    assert record.gate_outcome is None
+
+
+@pytest.mark.parametrize(
+    "gate_outcome",
+    [_merged_gate_outcome(), _refused_gate_outcome()],
+    ids=["merged", "refused"],
+)
+def test_suggestion_record_with_gate_outcome_round_trips_byte_for_byte(gate_outcome):
+    record = _suggestion_record(status="approved", gate_outcome=gate_outcome)
+
+    rendered = record.to_json_line()
+    parsed = _records_module().SuggestionRecord.from_json_line(rendered)
+
+    assert parsed == record
+    assert parsed.to_json_line() == rendered, (
+        "serialization must be a fixed point: parse(render(x)) must render back identically"
+    )
+
+
+def test_merged_gate_outcome_carries_the_merge_ref_after_a_round_trip():
+    record = _suggestion_record(status="ingested", gate_outcome=_merged_gate_outcome())
+
+    parsed = _records_module().SuggestionRecord.from_json_line(record.to_json_line())
+
+    assert parsed.gate_outcome["verdict"] == "merged"
+    assert parsed.gate_outcome["ref"].startswith("loop/r/")
+    assert parsed.gate_outcome["regressed_questions"] is None
+
+
+def test_refused_gate_outcome_carries_the_quarantine_ref_and_diff_after_a_round_trip():
+    record = _suggestion_record(status="approved", gate_outcome=_refused_gate_outcome())
+
+    parsed = _records_module().SuggestionRecord.from_json_line(record.to_json_line())
+
+    assert parsed.gate_outcome["verdict"] == "refused"
+    assert parsed.gate_outcome["ref"].startswith("loop/x/")
+    assert parsed.gate_outcome["regressed_questions"] == ["q-0001", "q-0007", "q-0012"]
 
 
 # ---------------------------------------------------------------------------

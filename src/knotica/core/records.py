@@ -520,12 +520,24 @@ class SuggestionRecord:
     #: ``None`` on pre-provenance suggestions, so a consumer can distinguish
     #: eval-proven from conversationally reported. Additive-only optional field.
     gap_origin: str | None = None
+    #: The gate's verdict on this suggestion's ingested candidate, stamped once
+    #: a ``source`` candidate has been evaluated: ``{"verdict": "merged" |
+    #: "refused", "scalar": float, "baseline_scalar": float, "ref": str,
+    #: "reason": str | None, "regressed_questions": list | None}``. ``None``
+    #: before the candidate is gated and on every pre-P4 record. Stored as an
+    #: opaque JSON object (mirrors ``candidate``) -- validated only as "is a
+    #: JSON object or null". Additive-only optional field (schema stays v1).
+    gate_outcome: dict[str, object] | None = None
 
     def __post_init__(self) -> None:
         _validate_schema_version(self.schema_version)
         _validate_enum("status", self.status, SUGGESTION_STATUSES)
         if not isinstance(self.candidate, dict):
             raise ValueError(f"candidate must be a JSON object, got {self.candidate!r}")
+        if self.gate_outcome is not None and not isinstance(self.gate_outcome, dict):
+            raise ValueError(
+                f"gate_outcome must be a JSON object or null, got {self.gate_outcome!r}"
+            )
 
     def to_json_line(self) -> str:
         """Serialize to one JSON line (no trailing newline), fields in schema order."""
@@ -548,6 +560,7 @@ class SuggestionRecord:
             "ingested_at": self.ingested_at,
             "detected_generation": self.detected_generation,
             "gap_origin": self.gap_origin,
+            "gate_outcome": self.gate_outcome,
         }
         return json.dumps(payload, ensure_ascii=False)
 
@@ -578,6 +591,7 @@ class SuggestionRecord:
                 data, "detected_generation", record="suggestions.jsonl"
             ),
             gap_origin=_optional_str_absent(data, "gap_origin", record="suggestions.jsonl"),
+            gate_outcome=_optional_object_absent(data, "gate_outcome", record="suggestions.jsonl"),
         )
 
 
@@ -877,6 +891,20 @@ def _optional_str_or_default(
     value = data[key]
     if not isinstance(value, str):
         raise RecordParseError(f"{record} record field {key!r} must be a string, got {value!r}")
+    return value
+
+
+def _optional_object_absent(
+    data: Mapping[str, object], key: str, *, record: str
+) -> dict[str, object] | None:
+    """A JSON-object field that may be wholly absent (additive-only); missing/``null`` -> ``None``."""
+    if key not in data or data[key] is None:
+        return None
+    value = data[key]
+    if not isinstance(value, dict):
+        raise RecordParseError(
+            f"{record} record field {key!r} must be a JSON object, got {value!r}"
+        )
     return value
 
 
