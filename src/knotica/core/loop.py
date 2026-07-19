@@ -121,6 +121,8 @@ class LoopRunner:
         arena_score: ScoreFn | None = None,
         arena_variants: list[VariantSpec] | None = None,
         arena_n: int = 4,
+        discover_on_regression: bool = False,
+        max_gaps: int = 5,
         observe_quiet_seconds: float = 0.0,
         ingest_hold_stale_seconds: float = 600.0,
         clock: Callable[[], float] = time.monotonic,
@@ -136,6 +138,11 @@ class LoopRunner:
         self._arena_score = arena_score
         self._arena_variants = arena_variants
         self._arena_n = arena_n
+        # Opt-in P3 gap-fill batch (default off = byte-identical to pre-P3): when
+        # enabled, a regression that persists genuine_gaps also drains them into
+        # staged suggestions in its own transaction, capped by ``max_gaps``.
+        self._discover_on_regression = discover_on_regression
+        self._gapfill_max_gaps = max_gaps
         # Observation debounce (watch mode): a burst of commits — a multi-page
         # ingest, a batch of edits — coalesces into ONE eval at its natural
         # boundary. 0.0 = observe immediately (explicit one-shot invocations).
@@ -582,7 +589,39 @@ class LoopRunner:
             prior_generation=prior_generation_of(manifest),
         )
         write_gap_records(self._store, self._root, self._topic, records)
+        self._maybe_discover_for_gaps()
         return classification, records
+
+    def _maybe_discover_for_gaps(self) -> None:
+        """Opt-in: drain the just-written open ``genuine_gap``s into staged suggestions.
+
+        Off by default -- when ``discover_on_regression`` is disabled this returns
+        immediately, so the regression path is byte-identical to pre-P3 (no
+        ``discovery`` import, no extra commit). When enabled, it runs the P3
+        discovery drain for the topic's open ``genuine_gap``s in its **own**
+        ``VaultTransaction`` (never piggybacked on the gap-record commit, dec-008),
+        capped by ``max_gaps`` (the fixed-budget defense). It is failure-isolated
+        exactly like the classifier: a discovery error is swallowed so the heal
+        path always proceeds -- the loop-side drain is best-effort bookkeeping, and
+        the on-demand ``knotica gapfill discover`` CLI is the error-surfacing path.
+        ``gapfill`` is imported lazily (and referenced as a module attribute) so the
+        drain stays off the runtime path when the flag is off.
+        """
+        if not self._discover_on_regression:
+            return
+        from knotica.core import gapfill
+
+        try:
+            service = gapfill.build_default_discovery_service()
+            gapfill.refresh_suggestions_for_gaps(
+                self._store,
+                self._root,
+                self._topic,
+                service=service,
+                max_gaps=self._gapfill_max_gaps,
+            )
+        except Exception:  # noqa: BLE001 — discovery is best-effort; never block the heal
+            return
 
     def _heal_prompts_after_regression(
         self, state: LoopState, default: str, head: str, scalar: float

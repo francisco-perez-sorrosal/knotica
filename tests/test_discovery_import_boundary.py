@@ -108,3 +108,91 @@ def test_importing_core_records_does_not_transitively_import_discovery() -> None
         f"child stdout={result.stdout!r} stderr={result.stderr!r}"
     )
     assert "CORE_RECORDS_DISCOVERY_ISOLATION_OK" in result.stdout
+
+
+def test_importing_core_status_does_not_transitively_import_discovery() -> None:
+    # wiki_status's new suggestions/gapfill count block reads suggestions.jsonl
+    # read-only via core.records -- core.status must gain zero edge into
+    # discovery/, exactly like core.records itself (Decision B applied to the
+    # status-gathering module).
+    script = (
+        "import sys\n"
+        "import knotica.core.status\n"
+        "leaked = sorted(\n"
+        "    m for m in sys.modules\n"
+        "    if m == 'knotica.discovery' or m.startswith('knotica.discovery.')\n"
+        ")\n"
+        "assert not leaked, leaked\n"
+        "print('CORE_STATUS_DISCOVERY_ISOLATION_OK')\n"
+    )
+
+    result = subprocess.run(
+        [sys.executable, "-c", script],
+        capture_output=True,
+        text=True,
+    )
+
+    assert result.returncode == 0, (
+        "importing knotica.core.status must not transitively import knotica.discovery; "
+        f"child stdout={result.stdout!r} stderr={result.stderr!r}"
+    )
+    assert "CORE_STATUS_DISCOVERY_ISOLATION_OK" in result.stdout
+
+
+def test_importing_mcp_server_does_not_transitively_import_discovery_via_suggestions_tools() -> (
+    None
+):
+    # Regression guard now that mcp_server/tools_suggestions.py exists on the
+    # cold-start path (Group C): suggestions_read/suggestions_review must
+    # delegate to core.gapfill's discovery-free surfaces only.
+    script = (
+        "import sys\n"
+        "import knotica.mcp_server.tools_suggestions\n"
+        "leaked = sorted(\n"
+        "    m for m in sys.modules\n"
+        "    if m == 'knotica.discovery' or m.startswith('knotica.discovery.')\n"
+        ")\n"
+        "assert not leaked, leaked\n"
+        "print('TOOLS_SUGGESTIONS_DISCOVERY_ISOLATION_OK')\n"
+    )
+
+    result = subprocess.run(
+        [sys.executable, "-c", script],
+        capture_output=True,
+        text=True,
+    )
+
+    assert result.returncode == 0, (
+        "importing knotica.mcp_server.tools_suggestions must not transitively import "
+        f"knotica.discovery; child stdout={result.stdout!r} stderr={result.stderr!r}"
+    )
+    assert "TOOLS_SUGGESTIONS_DISCOVERY_ISOLATION_OK" in result.stdout
+
+
+def test_importing_cli_gapfill_module_does_not_transitively_import_discovery() -> None:
+    # Group E: knotica.cli.gapfill must lazy-import discovery/ inside the
+    # command body (build_default_discovery_service), never at module load --
+    # importing the module alone (before argparse dispatches into run()) must
+    # not pull discovery onto the CLI's own cold-start path.
+    script = (
+        "import sys\n"
+        "import knotica.cli.gapfill\n"
+        "leaked = sorted(\n"
+        "    m for m in sys.modules\n"
+        "    if m == 'knotica.discovery' or m.startswith('knotica.discovery.')\n"
+        ")\n"
+        "assert not leaked, leaked\n"
+        "print('CLI_GAPFILL_DISCOVERY_ISOLATION_OK')\n"
+    )
+
+    result = subprocess.run(
+        [sys.executable, "-c", script],
+        capture_output=True,
+        text=True,
+    )
+
+    assert result.returncode == 0, (
+        "importing knotica.cli.gapfill must not transitively import knotica.discovery at "
+        f"module load; child stdout={result.stdout!r} stderr={result.stderr!r}"
+    )
+    assert "CLI_GAPFILL_DISCOVERY_ISOLATION_OK" in result.stdout

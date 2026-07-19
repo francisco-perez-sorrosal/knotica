@@ -35,6 +35,7 @@ from knotica.mcp_server.tools_query import register_query_tools
 from knotica.mcp_server.tools_read import register_read_tools
 from knotica.mcp_server.tools_scoreboard import register_scoreboard_tools
 from knotica.mcp_server.tools_status import register_status_tools
+from knotica.mcp_server.tools_suggestions import register_suggestions_tools
 from knotica.mcp_server.tools_vault import register_vault_tools
 from knotica.mcp_server.tools_write import register_write_tools
 
@@ -76,6 +77,7 @@ def _build_server(*, stateless_http: bool = False) -> FastMCP:
     register_compile_tools(mcp)
     register_status_tools(mcp)
     register_scoreboard_tools(mcp)
+    register_suggestions_tools(mcp)
     register_vault_tools(mcp)
     register_golden_tools(mcp)
     register_datasets_tools(mcp)

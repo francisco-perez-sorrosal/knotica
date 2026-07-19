@@ -42,6 +42,7 @@ COMMAND_NAMES: tuple[str, ...] = (
     "datasets",
     "compile",
     "loop",
+    "gapfill",
 )
 
 

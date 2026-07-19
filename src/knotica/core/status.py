@@ -25,7 +25,8 @@ from knotica.core.loop_progress import read_progress
 from knotica.core.loop_state import LoopState, compute_gate, read_loop_state
 from knotica.core.metrics import last_eval_summary, read_last_metrics
 from knotica.core.page import TopicNotFoundError
-from knotica.core.records import parse_log_entries
+from knotica.core.gapfill import suggestions_path
+from knotica.core.records import RecordParseError, SuggestionRecord, parse_log_entries
 from knotica.core.schema import overlay_path
 from knotica.core.trainset import count_query_train_examples
 from knotica.core.vcs import GitError, VaultVcs
@@ -63,6 +64,7 @@ class TopicStatus:
     compiled: dict[str, Any] | None
     lint_violations: int
     last_eval: dict[str, Any] | None
+    suggestions: dict[str, Any]
 
     @property
     def to_compile_ready(self) -> int:
@@ -82,6 +84,7 @@ class TopicStatus:
             "compiled": self.compiled,
             "lint_violations": self.lint_violations,
             "last_eval": self.last_eval,
+            "suggestions": self.suggestions,
         }
 
 
@@ -176,7 +179,41 @@ def _topic_status(store: VaultStore, name: str, *, lint_violations: int) -> Topi
         compiled=compiled,
         lint_violations=lint_violations,
         last_eval=last_eval_summary(read_last_metrics(store, name)),
+        suggestions=_suggestion_block(store, name),
     )
+
+
+def _suggestion_block(store: VaultStore, topic: str) -> dict[str, Any]:
+    """The per-topic gap-fill queue summary for the ingest handoff (all-zero when empty).
+
+    Counts each lifecycle status and surfaces ``approved_awaiting_ingest`` (the
+    approved-but-not-yet-ingested backlog that matters for the interactive
+    ingest handoff) plus the newest ``proposed_at``. Reads ``suggestions.jsonl``
+    line-by-line and skips a malformed line rather than raising, so a single
+    corrupt record never breaks the status readout (mirrors ``_golden_count``).
+    """
+    counts = Counter[str]()
+    newest: str | None = None
+    path = suggestions_path(topic)
+    if store.exists(path):
+        for line in store.read_text(path).splitlines():
+            if not line.strip():
+                continue
+            try:
+                record = SuggestionRecord.from_json_line(line)
+            except (ValueError, RecordParseError):
+                continue
+            counts[record.status] += 1
+            if newest is None or record.proposed_at > newest:
+                newest = record.proposed_at
+    return {
+        "pending": counts.get("pending", 0),
+        "approved_awaiting_ingest": counts.get("approved", 0),
+        "deferred": counts.get("deferred", 0),
+        "rejected": counts.get("rejected", 0),
+        "ingested": counts.get("ingested", 0),
+        "newest_proposed_at": newest,
+    }
 
 
 def _golden_count(store: VaultStore, topic: str) -> int:

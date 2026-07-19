@@ -40,6 +40,7 @@ class ErrorCode(StrEnum):
     INVALID_CURSOR = "INVALID_CURSOR"
     LLM_API_ERROR = "LLM_API_ERROR"
     SEARCH_API_ERROR = "SEARCH_API_ERROR"
+    SUGGESTION_NOT_FOUND = "SUGGESTION_NOT_FOUND"
 
 
 #: Canonical fix text per code (the static part of the contract). Callers may
@@ -74,6 +75,7 @@ DEFAULT_FIX: Mapping[ErrorCode, str] = MappingProxyType(
             "Check the search provider's status and your rate limits; transient"
             " rate limits and server errors clear on their own -- wait and re-run."
         ),
+        ErrorCode.SUGGESTION_NOT_FOUND: ("Call `suggestions_read` to list current suggestion_ids."),
     }
 )
 

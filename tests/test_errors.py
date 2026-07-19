@@ -53,6 +53,9 @@ RETRYABLE_BY_CODE = {
     # clear on their own; a raiser passes retryable=False for non-transient
     # statuses (e.g. auth rejections).
     "SEARCH_API_ERROR": True,
+    # Gap-fill suggestion queue (P3): a review targeted a suggestion_id that is
+    # not in the topic's queue -- final, the caller must list current ids.
+    "SUGGESTION_NOT_FOUND": False,
 }
 
 ERROR_CODE_NAMES = frozenset(RETRYABLE_BY_CODE)

@@ -32,6 +32,7 @@ from knotica.cli.common import (
 )
 from knotica.core.arena import heuristic_arena_score
 from knotica.core.config import diagnose
+from knotica.core.gapfill_config import resolve_gapfill_config
 from knotica.core.loop import DEFAULT_BRANCH_PREFIX, LoopDecision, LoopRunner, harness_evaluate
 from knotica.core.loop_heartbeat import clear_heartbeat, write_heartbeat
 from knotica.core.loop_progress import read_progress
@@ -287,6 +288,7 @@ def _build_runner(args: argparse.Namespace, vault: Path) -> LoopRunner:
         evaluate = partial(harness_evaluate, num_threads=max(1, args.eval_threads))
     if args.fake_scalar is not None:
         evaluate = _fake_evaluate_factory(args.fake_scalar)
+    gapfill_cfg = resolve_gapfill_config()
     return LoopRunner(
         vault,
         args.topic,
@@ -296,6 +298,11 @@ def _build_runner(args: argparse.Namespace, vault: Path) -> LoopRunner:
         arena_enabled=not args.no_arena,
         arena_score=None if args.no_arena else heuristic_arena_score,
         arena_variants=_load_variants(args.arena_variants) if args.arena_variants else None,
+        # Opt-in loop-side gap-fill batch, gated by the [gapfill] config table (off
+        # by default). The kwargs are always passed; the drain only runs when the
+        # config flag is enabled.
+        discover_on_regression=gapfill_cfg.discover_on_regression,
+        max_gaps=gapfill_cfg.max_gaps,
         # One-shot invocations observe immediately; only watch mode debounces.
         observe_quiet_seconds=0.0 if args.once else max(0.0, args.observe_quiet),
     )
