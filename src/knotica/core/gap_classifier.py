@@ -34,6 +34,7 @@ from knotica.core.transaction import VaultTransaction
 from knotica.store import VaultStore
 
 __all__ = [
+    "ADDED_ID_FAILING_FLOOR",
     "CLASSIFIER_VERSION",
     "FaultClass",
     "GapVerdict",
@@ -62,6 +63,13 @@ _GAPS_DIRNAME = "gaps"
 _GAPS_FILENAME = "gaps.jsonl"
 #: Op slot of the gap-record commit (own transaction, one commit per detection).
 _GAP_RECORD_OP = "gap_record"
+
+#: Below this floor on either current ``qa_accuracy`` or ``quality``, a newly
+#: frozen golden id (``held_out_delta.ids_added`` -- no prior generation, hence
+#: no delta) is treated as failing and enters the cascade with an empty-delta
+#: evidence context. A healthy new question (both scores at or above the floor)
+#: never classifies.
+ADDED_ID_FAILING_FLOOR = 0.5
 
 
 class FaultClass:
@@ -203,8 +211,18 @@ def regressed_ids_from_manifest(manifest: Mapping[str, object]) -> list[str]:
     The id-level regression predicate is ``quality_delta < 0`` OR
     ``qa_accuracy_delta < 0``; a citation-only movement is not a regression at
     this granularity (it routes to the arena heal, never a gap record).
+
+    Also includes ids newly frozen this generation (``held_out_delta.ids_added``
+    -- absent from ``per_id`` because they carry no prior-generation score)
+    whose CURRENT per-example ``qa_accuracy`` or ``quality`` falls below
+    :data:`ADDED_ID_FAILING_FLOOR`. This closes the "freeze a question about
+    missing content" gap-manufacture path: such a golden id would otherwise
+    never classify since it has no delta to regress on. A healthy new question
+    (both scores at or above the floor) is not a gap and never enters the
+    cascade.
     """
-    per_id = _as_mapping(_nested(manifest, "held_out_delta"), "per_id")
+    held_out_delta = _nested(manifest, "held_out_delta")
+    per_id = _as_mapping(held_out_delta, "per_id")
     regressed: list[str] = []
     for qa_id in per_id:
         delta = _as_mapping(per_id, qa_id)
@@ -212,6 +230,14 @@ def regressed_ids_from_manifest(manifest: Mapping[str, object]) -> list[str]:
         accuracy_fell = _number(delta.get("qa_accuracy_delta", 0.0)) < 0
         if quality_fell or accuracy_fell:
             regressed.append(qa_id)
+
+    ids_added = _str_tuple(held_out_delta.get("ids_added", ()))
+    if ids_added:
+        scores_by_id = _index_current_scores(manifest)
+        for qa_id in ids_added:
+            qa_accuracy, quality = scores_by_id[qa_id]
+            if qa_accuracy < ADDED_ID_FAILING_FLOOR or quality < ADDED_ID_FAILING_FLOOR:
+                regressed.append(qa_id)
     return regressed
 
 
@@ -382,6 +408,17 @@ def _index_per_example(
         trace_by_id[entry_id] = _str_tuple(entry.get("pages", ()))
         question_by_id[entry_id] = str(entry.get("question", ""))
     return trace_by_id, question_by_id
+
+
+def _index_current_scores(manifest: Mapping[str, object]) -> dict[str, tuple[float, float]]:
+    """Index each ``per_example`` entry's current ``(qa_accuracy, quality)`` by id."""
+    entries = manifest.get("per_example", [])
+    if not isinstance(entries, list):
+        raise ValueError(f"manifest 'per_example' must be an array, got {entries!r}")
+    return {
+        entry["id"]: (_number(entry.get("qa_accuracy", 0.0)), _number(entry.get("quality", 0.0)))
+        for entry in entries
+    }
 
 
 def _nested(manifest: Mapping[str, object], key: str) -> Mapping[str, object]:

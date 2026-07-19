@@ -49,6 +49,7 @@ SUGGESTION_RECORD_FIELDS = frozenset(
         "decided_reason",
         "ingested_at",
         "detected_generation",
+        "gap_origin",
     }
 )
 
@@ -194,6 +195,42 @@ def test_each_lifecycle_status_round_trips(status):
 def test_schema_version_below_one_is_rejected():
     with pytest.raises(ValueError, match="schema_version"):
         _suggestion_record(schema_version=0)
+
+
+# ---------------------------------------------------------------------------
+# gap_origin -- additive provenance field carried from the motivating gap
+# (measured|reported), dec-025/piece-B
+# ---------------------------------------------------------------------------
+
+
+def test_suggestion_record_defaults_gap_origin_to_none_when_not_given():
+    # ``_suggestion_record()`` never sets ``gap_origin`` -- pre-provenance
+    # suggestions (built before this feature) must still construct cleanly.
+    record = _suggestion_record()
+
+    assert record.gap_origin is None
+
+
+@pytest.mark.parametrize("gap_origin", ["measured", "reported"])
+def test_suggestion_record_carries_the_gap_origin_it_was_built_with(gap_origin):
+    record = _suggestion_record(gap_origin=gap_origin)
+
+    rendered = json.loads(record.to_json_line())
+    parsed = _records_module().SuggestionRecord.from_json_line(record.to_json_line())
+
+    assert rendered["gap_origin"] == gap_origin
+    assert parsed.gap_origin == gap_origin
+
+
+def test_suggestion_line_missing_gap_origin_defaults_to_none():
+    """A ``suggestions.jsonl`` line written before this feature has no
+    ``gap_origin`` key at all -- the additive field must default on *parse*."""
+    payload = json.loads(_suggestion_record().to_json_line())
+    del payload["gap_origin"]
+
+    record = _records_module().SuggestionRecord.from_json_line(json.dumps(payload))
+
+    assert record.gap_origin is None
 
 
 # ---------------------------------------------------------------------------

@@ -184,6 +184,7 @@ def test_suggestion_tools_are_registered() -> None:
     names = anyio.run(_list)
     assert "suggestions_read" in names
     assert "suggestions_review" in names
+    assert "gap_report" in names
 
 
 @pytest.mark.parametrize(
@@ -194,6 +195,7 @@ def test_suggestion_tools_are_registered() -> None:
             "suggestions_review",
             {"topic": TOPIC, "suggestion_id": "abc", "action": "approve"},
         ),
+        ("gap_report", {"topic": TOPIC, "question": "Why does X outperform Y?"}),
     ],
 )
 def test_suggestion_tools_return_not_configured_when_unconfigured(
@@ -479,3 +481,100 @@ def test_bad_action_is_a_typed_error(vault_config: Path, template_vault: Path) -
     )
 
     assert_error_shape(err)
+
+
+# ---------------------------------------------------------------------------
+# gap_report -- NL-reported gaps from Claude Desktop (piece B, dec-025)
+# ---------------------------------------------------------------------------
+
+
+def _gaps_jsonl_bytes(vault: Path) -> bytes:
+    return (vault / TOPIC / ".knotica" / "gaps" / "gaps.jsonl").read_bytes()
+
+
+def test_gap_report_happy_path_writes_an_open_reported_gap(
+    vault_config: Path, template_vault: Path
+) -> None:
+    del vault_config
+    before_sha = run_git(template_vault, "rev-parse", "HEAD").strip()
+
+    body = assert_success(
+        call_tool(
+            "gap_report",
+            {"topic": TOPIC, "question": "Why does ReAct outperform Reflexion here?"},
+        )
+    )
+
+    after_sha = run_git(template_vault, "rev-parse", "HEAD").strip()
+    assert after_sha != before_sha, "a genuine new report must land its own commit"
+    gaps = _gaps_jsonl_bytes(template_vault).decode("utf-8").strip().splitlines()
+    assert len(gaps) == 1
+    persisted = json.loads(gaps[0])
+    assert persisted["origin"] == "reported"
+    assert persisted["status"] == "open"
+    assert persisted["fault_class"] == "genuine_gap"
+    assert persisted["question"] == "Why does ReAct outperform Reflexion here?"
+    # The tool must not fabricate provenance: the envelope surfaces the actual
+    # persisted identity, not a synthesized/unrelated one.
+    assert body["qa_id"] == persisted["qa_id"]
+
+
+@pytest.mark.parametrize("question", ["", "   "])
+def test_gap_report_rejects_a_missing_or_blank_question(
+    vault_config: Path, template_vault: Path, question: str
+) -> None:
+    del vault_config, template_vault
+
+    err = error_of(call_tool("gap_report", {"topic": TOPIC, "question": question}))
+
+    assert_error_shape(err)
+
+
+def test_gap_report_rejects_a_blank_topic(vault_config: Path, template_vault: Path) -> None:
+    del vault_config, template_vault
+
+    err = error_of(call_tool("gap_report", {"topic": "", "question": "Any question?"}))
+
+    assert_error_shape(err, code="TOPIC_NOT_FOUND")
+
+
+def test_repeated_identical_gap_report_surfaces_the_same_id_not_a_fabricated_second_one(
+    vault_config: Path, template_vault: Path
+) -> None:
+    del vault_config
+    question = "What is the memory footprint of long-context Transformers?"
+
+    first = assert_success(call_tool("gap_report", {"topic": TOPIC, "question": question}))
+    second = assert_success(call_tool("gap_report", {"topic": TOPIC, "question": question}))
+
+    assert second["qa_id"] == first["qa_id"], (
+        "a repeated identical report must surface the existing gap's real id -- never a "
+        "fabricated new one"
+    )
+    gaps = _gaps_jsonl_bytes(template_vault).decode("utf-8").strip().splitlines()
+    assert len(gaps) == 1, (
+        "the dedup must be honestly reflected on disk -- a second report of the same "
+        "question must not spam the queue"
+    )
+
+
+def test_gap_report_write_is_visible_to_an_independently_built_server_instance(
+    vault_config: Path, template_vault: Path
+) -> None:
+    """The writer and a subsequent reader are two independently constructed
+    FastMCP server instances -- state is carried only by the committed vault
+    on disk, never by in-process server state (dec-001 stateless-server)."""
+    del vault_config
+    writer_server = _build_server()
+    call_tool(
+        "gap_report",
+        {"topic": TOPIC, "question": "Does prompt caching bias eval cost?"},
+        server=writer_server,
+    )
+
+    reader_server = _build_server()
+    assert reader_server is not writer_server
+    gaps = _gaps_jsonl_bytes(template_vault).decode("utf-8").strip().splitlines()
+    assert len(gaps) == 1, (
+        "the report must be durable on disk regardless of which server instance reads it"
+    )

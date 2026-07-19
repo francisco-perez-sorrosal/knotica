@@ -97,6 +97,53 @@ def _per_id(**overrides) -> dict:
     return payload
 
 
+def _added_id_manifest(
+    *, qa_id: str, qa_accuracy: float, quality: float, current_trace: list[str]
+) -> dict:
+    """A v2 manifest where ``qa_id`` is newly frozen: it appears in
+    ``held_out_delta.ids_added`` and has no ``per_id`` entry at all -- there is
+    no prior generation to diff it against."""
+    return {
+        "manifest_schema_version": 2,
+        "generation": 5,
+        "per_example": [
+            {
+                "id": qa_id,
+                "pages": current_trace,
+                "qa_accuracy": qa_accuracy,
+                "quality": quality,
+            }
+        ],
+        "held_out_delta": {
+            "ids_added": [qa_id],
+            "ids_removed": [],
+            "prior_generation": 4,
+            "scalar_delta": -0.1,
+            "per_id": {},
+        },
+    }
+
+
+def _added_id_floor() -> float:
+    from knotica.core.gap_classifier import ADDED_ID_FAILING_FLOOR
+
+    return ADDED_ID_FAILING_FLOOR
+
+
+def _records_from(verdicts) -> list:
+    from knotica.core.gap_classifier import build_gap_records
+
+    return build_gap_records(
+        verdicts,
+        topic=TOPIC,
+        generation=5,
+        scalar_at_detection=0.5,
+        baseline_scalar=0.9,
+        prior_generation=4,
+        clock=lambda: "2026-07-19T00:00:00Z",
+    )
+
+
 # ---------------------------------------------------------------------------
 # The four-class ordered cascade
 # ---------------------------------------------------------------------------
@@ -256,6 +303,204 @@ def test_reference_free_question_is_unclassified_and_routes_to_heal(template_vau
     )
     assert result.route == "HEAL", (
         "any non-knowledge-cause verdict keeps the arena heal (skip only on all-knowledge-cause)"
+    )
+
+
+# ---------------------------------------------------------------------------
+# Added-id classification: a newly frozen golden question (no prior
+# generation, hence no per_id delta) that fails a floor on its own current
+# scores enters the same cascade as a per-id regressor.
+# ---------------------------------------------------------------------------
+
+
+def test_added_id_failing_floor_with_reference_absent_classifies_genuine_gap(
+    template_vault: Path,
+):
+    """A newly frozen probing question the current generation fails, whose
+    reference page does not exist in the clone, must classify as a genuine
+    gap with honest zero-delta evidence -- there is no prior generation to
+    diff it against, so nothing is fabricated."""
+    from knotica.core.gap_classifier import regressed_ids_from_manifest
+
+    classify_regression = _classify_regression()
+    store = LocalFSStore(template_vault)
+    floor = _added_id_floor()
+    qa_id = _freeze_golden_question(
+        template_vault,
+        query="Does the vault have a page on quantum retrieval augmentation?",
+        answer="No, that concept does not appear in this vault.",
+        pages_used=("nonexistent-page",),
+    )
+    manifest = _added_id_manifest(
+        qa_id=qa_id, qa_accuracy=floor - 0.1, quality=floor - 0.1, current_trace=[]
+    )
+
+    regressed = regressed_ids_from_manifest(manifest)
+    assert qa_id in regressed, "an added id failing the floor must enter the regressed set"
+
+    result = classify_regression(
+        store=store,
+        topic=TOPIC,
+        clone_root=template_vault,
+        generation=5,
+        manifest=manifest,
+        regressed_ids=regressed,
+    )
+
+    verdict = next(v for v in result.verdicts if v.qa_id == qa_id)
+    assert verdict.fault_class == GENUINE_GAP
+    assert (verdict.quality_delta, verdict.qa_accuracy_delta, verdict.citation_validity_delta) == (
+        0.0,
+        0.0,
+        0.0,
+    ), "an added id has no prior generation to diff against -- its evidence must be honestly zero"
+    assert result.route == "REDIRECT"
+
+    records = _records_from(result.verdicts)
+    assert len(records) == 1, "a genuine gap must produce exactly one persisted gap record"
+    assert records[0].evidence.quality_delta == 0.0, (
+        "the persisted record must carry the same honest zero-delta evidence as the verdict"
+    )
+
+
+def test_added_id_failing_floor_with_reference_present_and_in_trace_classifies_generation_fault(
+    template_vault: Path,
+):
+    """A newly frozen question the model fails despite its reference page
+    being live and actually retrieved is a generation fault -- the prompt is
+    at fault, not missing knowledge -- and must never be persisted."""
+    from knotica.core.gap_classifier import regressed_ids_from_manifest
+
+    classify_regression = _classify_regression()
+    store = LocalFSStore(template_vault)
+    floor = _added_id_floor()
+    _write_page(template_vault, "react")
+    qa_id = _freeze_golden_question(
+        template_vault,
+        query="What does the react page say about acting and reasoning?",
+        answer="It interleaves reasoning traces with actions.",
+        pages_used=("react",),
+    )
+    manifest = _added_id_manifest(
+        qa_id=qa_id, qa_accuracy=floor - 0.1, quality=floor - 0.1, current_trace=["react"]
+    )
+
+    regressed = regressed_ids_from_manifest(manifest)
+    assert qa_id in regressed
+
+    result = classify_regression(
+        store=store,
+        topic=TOPIC,
+        clone_root=template_vault,
+        generation=5,
+        manifest=manifest,
+        regressed_ids=regressed,
+    )
+
+    verdict = next(v for v in result.verdicts if v.qa_id == qa_id)
+    assert verdict.fault_class == GENERATION_FAULT
+
+    records = _records_from(result.verdicts)
+    assert records == [], "a generation-fault verdict must never be persisted as a gap record"
+
+
+def test_added_id_scoring_above_floor_is_never_classified(template_vault: Path):
+    """A healthy new golden question -- one the current generation actually
+    answers well -- must never enter the regressed set; a healthy new
+    question is not a gap and produces no verdict at all."""
+    from knotica.core.gap_classifier import regressed_ids_from_manifest
+
+    floor = _added_id_floor()
+    qa_id = _freeze_golden_question(
+        template_vault,
+        query="What does the react page say about acting and reasoning?",
+        answer="It interleaves reasoning traces with actions.",
+        pages_used=("react",),
+    )
+    manifest = _added_id_manifest(
+        qa_id=qa_id, qa_accuracy=floor + 0.1, quality=floor + 0.1, current_trace=["react"]
+    )
+
+    regressed = regressed_ids_from_manifest(manifest)
+
+    assert qa_id not in regressed, "a healthy new question must never be classified as a gap"
+
+
+def test_added_id_floor_boundary_is_exclusive(template_vault: Path):
+    """Scoring exactly at the floor is healthy, not failing; scoring even
+    slightly below it fails -- pinned against the ``<`` comparison the
+    ``ADDED_ID_FAILING_FLOOR`` constant's own docstring declares ("at or
+    above the floor" is not a gap), not an assumed direction."""
+    from knotica.core.gap_classifier import ADDED_ID_FAILING_FLOOR, regressed_ids_from_manifest
+
+    at_floor_id = "golden-at-floor"
+    below_floor_id = "golden-below-floor"
+    manifest = {
+        "manifest_schema_version": 2,
+        "generation": 5,
+        "per_example": [
+            {
+                "id": at_floor_id,
+                "pages": [],
+                "qa_accuracy": ADDED_ID_FAILING_FLOOR,
+                "quality": ADDED_ID_FAILING_FLOOR,
+            },
+            {
+                "id": below_floor_id,
+                "pages": [],
+                "qa_accuracy": ADDED_ID_FAILING_FLOOR - 0.01,
+                "quality": ADDED_ID_FAILING_FLOOR - 0.01,
+            },
+        ],
+        "held_out_delta": {
+            "ids_added": [at_floor_id, below_floor_id],
+            "ids_removed": [],
+            "prior_generation": 4,
+            "scalar_delta": -0.1,
+            "per_id": {},
+        },
+    }
+
+    regressed = regressed_ids_from_manifest(manifest)
+
+    assert at_floor_id not in regressed, "scoring exactly at the floor must not count as failing"
+    assert below_floor_id in regressed, "scoring below the floor must count as failing"
+
+
+def test_per_id_regression_classification_is_unaffected_by_added_id_extension(
+    template_vault: Path,
+):
+    """Extending eligibility to ``ids_added`` must not change the existing
+    per-id regression predicate for ids that were already scored in a prior
+    generation -- a pure regression test for the original cascade entrypoint."""
+    from knotica.core.gap_classifier import regressed_ids_from_manifest
+
+    regressed_qa_id = "golden-regressed"
+    healthy_qa_id = "golden-healthy"
+    manifest = {
+        "manifest_schema_version": 2,
+        "generation": 5,
+        "per_example": [
+            {"id": regressed_qa_id, "pages": [], "qa_accuracy": 0.9, "quality": 0.6},
+            {"id": healthy_qa_id, "pages": [], "qa_accuracy": 0.9, "quality": 0.9},
+        ],
+        "held_out_delta": {
+            "ids_added": [],
+            "ids_removed": [],
+            "prior_generation": 4,
+            "scalar_delta": -0.1,
+            "per_id": {
+                regressed_qa_id: _per_id(quality_delta=-0.3, qa_accuracy_delta=0.0),
+                healthy_qa_id: _per_id(quality_delta=0.0, qa_accuracy_delta=0.0),
+            },
+        },
+    }
+
+    regressed = regressed_ids_from_manifest(manifest)
+
+    assert regressed == [regressed_qa_id], (
+        "per_id regression detection (quality_delta < 0 or qa_accuracy_delta < 0) must remain "
+        "unaffected -- only the eligibility set for ids_added grows"
     )
 
 

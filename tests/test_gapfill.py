@@ -212,6 +212,29 @@ def test_drain_issues_one_discover_call_per_open_genuine_gap_and_stages_ranked_s
     assert len(persisted) == 4, "2 gaps x 2 ranked candidates each = 4 staged pending suggestions"
 
 
+def test_drain_carries_each_gaps_origin_onto_its_suggestion_records(template_vault: Path):
+    """A reported gap drains into suggestions exactly like a measured one --
+    the resulting ``SuggestionRecord.gap_origin`` must reflect the motivating
+    gap's own provenance, not a blanket default (dec-025, piece B)."""
+    mod = _gapfill_module()
+    store = LocalFSStore(template_vault)
+    gaps = [
+        _gap_record(gap_id="gap-measured", qa_id="golden-measured", origin="measured"),
+        _gap_record(gap_id="gap-reported", qa_id="golden-reported", origin="reported"),
+    ]
+    _seed_gaps(store, template_vault, TOPIC, gaps)
+    candidates = [_candidate(url="https://a.example", doi=None)]
+    service = _FakeDiscoveryService(candidates)
+
+    mod.refresh_suggestions_for_gaps(store, template_vault, TOPIC, service=service)
+
+    from knotica.core.records import parse_suggestions_jsonl
+
+    persisted = parse_suggestions_jsonl(store.read_text(mod.suggestions_path(TOPIC)))
+    by_gap_id = {record.gap_id: record.gap_origin for record in persisted}
+    assert by_gap_id == {"gap-measured": "measured", "gap-reported": "reported"}
+
+
 def test_dilution_gap_never_produces_a_discover_call(template_vault: Path):
     mod = _gapfill_module()
     store = LocalFSStore(template_vault)
@@ -490,3 +513,155 @@ def test_plan_decision_previews_the_exact_transition_apply_performs(template_vau
     applied = _records_of(store, mod)[0]
     assert applied.status == plan.to_status
     assert applied.decided_reason == plan.decided_reason
+
+
+# ---------------------------------------------------------------------------
+# report_gap -- NL-reported gaps from Claude Desktop (piece B, dec-025)
+#
+# Import-only reuse of ``core.gap_classifier.write_gap_records``/``gaps_path``:
+# these tests read ``gaps.jsonl`` back through that module's own path helper,
+# never through a private gapfill accessor -- the write path is owned by
+# piece A and is not edited here.
+# ---------------------------------------------------------------------------
+
+
+def _reported_gaps(store) -> list:
+    from knotica.core.gap_classifier import gaps_path
+    from knotica.core.records import parse_gaps_jsonl
+
+    path = gaps_path(TOPIC)
+    if not store.exists(path):
+        return []
+    return parse_gaps_jsonl(store.read_text(path))
+
+
+def test_report_gap_writes_one_open_genuine_gap_with_reported_origin_and_honest_empty_evidence(
+    template_vault: Path,
+):
+    mod = _gapfill_module()
+    store = LocalFSStore(template_vault)
+
+    mod.report_gap(
+        store, template_vault, TOPIC, question="Why does ReAct outperform Reflexion here?"
+    )
+
+    gaps = _reported_gaps(store)
+    assert len(gaps) == 1
+    record = gaps[0]
+    assert record.fault_class == "genuine_gap"
+    assert record.status == "open"
+    assert record.origin == "reported"
+    assert record.question == "Why does ReAct outperform Reflexion here?", (
+        "a reported gap carries the reporter's ACTUAL question, never a synthesized one"
+    )
+    assert record.evidence.quality_delta == 0.0
+    assert record.evidence.qa_accuracy_delta == 0.0
+    assert record.evidence.citation_validity_delta == 0.0
+    assert record.evidence.retrieval_trace == ()
+    assert record.evidence.pages_added == ()
+    assert record.evidence.pages_removed == (), (
+        "a reported gap has no eval manifest behind it -- its evidence must be honestly "
+        "empty, never a fabricated delta"
+    )
+
+
+def test_report_gap_persists_the_reporters_reference_pages(template_vault: Path):
+    mod = _gapfill_module()
+    store = LocalFSStore(template_vault)
+
+    mod.report_gap(
+        store,
+        template_vault,
+        TOPIC,
+        question="How does context caching affect retry cost?",
+        reference_pages=("prompt-caching",),
+    )
+
+    gaps = _reported_gaps(store)
+    assert gaps[0].reference_pages == ("prompt-caching",)
+
+
+def test_report_gap_qa_id_is_deterministic_for_the_same_question(
+    template_vault: Path, vault_seed: Path, tmp_path: Path
+) -> None:
+    """The qa_id must be a pure function of the question text -- two independent
+    vaults reporting the identical question must derive the identical id,
+    mirroring the golden-set id derivation (``_golden_id``)."""
+    import shutil
+
+    mod = _gapfill_module()
+    other_vault = tmp_path / "vault-other"
+    shutil.copytree(vault_seed, other_vault)
+    store_a = LocalFSStore(template_vault)
+    store_b = LocalFSStore(other_vault)
+    question = "Why does ReAct outperform Reflexion here?"
+
+    mod.report_gap(store_a, template_vault, TOPIC, question=question)
+    mod.report_gap(store_b, other_vault, TOPIC, question=question)
+
+    assert _reported_gaps(store_a)[0].qa_id == _reported_gaps(store_b)[0].qa_id
+
+
+def test_report_gap_qa_id_differs_for_a_different_question(template_vault: Path) -> None:
+    mod = _gapfill_module()
+    store = LocalFSStore(template_vault)
+
+    mod.report_gap(store, template_vault, TOPIC, question="Question A?")
+    mod.report_gap(store, template_vault, TOPIC, question="Question B?")
+
+    gaps = _reported_gaps(store)
+    assert gaps[0].qa_id != gaps[1].qa_id
+
+
+def test_reporting_the_same_question_twice_writes_exactly_one_gap_record(
+    template_vault: Path,
+) -> None:
+    mod = _gapfill_module()
+    store = LocalFSStore(template_vault)
+    question = "What is the memory footprint of long-context Transformers?"
+
+    mod.report_gap(store, template_vault, TOPIC, question=question)
+    mod.report_gap(store, template_vault, TOPIC, question=question)
+
+    gaps = _reported_gaps(store)
+    assert len(gaps) == 1, "a duplicate report of the identical open gap must not spam the queue"
+
+
+def test_report_gap_lands_in_exactly_one_commit_touching_only_the_gaps_file(
+    template_vault: Path,
+) -> None:
+    from knotica.core.gap_classifier import gaps_path
+
+    mod = _gapfill_module()
+    store = LocalFSStore(template_vault)
+    before_count = git_commit_count(template_vault)
+    before_sha = git_head_sha(template_vault)
+
+    mod.report_gap(store, template_vault, TOPIC, question="Does prompt caching change eval cost?")
+
+    after_count = git_commit_count(template_vault)
+    assert after_count == before_count + 1, "one reported gap must land in exactly one new commit"
+    vcs = VaultVcs(template_vault)
+    changed = vcs.changed_paths(before_sha, vcs.head_sha())
+    assert set(changed) == {gaps_path(TOPIC), "log.md"}, (
+        "the report_gap commit must touch only gaps.jsonl (plus its own log.md entry)"
+    )
+
+
+def test_report_gap_commit_is_classified_as_bookkeeping_not_content(
+    template_vault: Path,
+) -> None:
+    """A reported-gap write must never re-trigger a fresh loop observation --
+    the same observe-safety guarantee the classifier's own gap writes carry."""
+    from knotica.core.loop import LoopRunner
+
+    mod = _gapfill_module()
+    store = LocalFSStore(template_vault)
+    vcs = VaultVcs(template_vault)
+    before_sha = vcs.head_sha()
+
+    mod.report_gap(store, template_vault, TOPIC, question="Is retrieval-augmented eval biased?")
+
+    after_sha = vcs.head_sha()
+    runner = LoopRunner(template_vault, TOPIC, evaluate=_unreachable_evaluate)
+    assert runner._content_changed_since(before_sha, after_sha) is False

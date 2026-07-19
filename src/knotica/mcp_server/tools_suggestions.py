@@ -1,16 +1,20 @@
-"""Gap-fill suggestion-queue tools -- ``suggestions_read`` + ``suggestions_review``.
+"""Gap-fill queue tools -- ``suggestions_read`` + ``suggestions_review`` + ``gap_report``.
 
-Two deterministic MCP tools over the per-topic human-approval queue
-(``<topic>/.knotica/suggestions/suggestions.jsonl``): one **read** tool that
-pages the queue for the dashboard/interactive client, and one **action-
-parameterized mutating** tool that flips one record's lifecycle status after a
-human decision. Both are stateless, topic-explicit, and honor the
+Three deterministic MCP tools over the per-topic gap/suggestion queues: one
+**read** tool that pages the human-approval suggestions
+(``<topic>/.knotica/suggestions/suggestions.jsonl``) for the dashboard/interactive
+client; one **action-parameterized mutating** tool that flips one suggestion's
+lifecycle status after a human decision; and one **report** tool that lets the
+client-as-brain file a conversationally exposed knowledge gap into the P1 gap
+queue (``<topic>/.knotica/gaps/gaps.jsonl``), from which the existing drain
+surfaces it. All three are stateless, topic-explicit, and honor the
 ``NOT_CONFIGURED`` contract via :func:`with_resolved_vault`.
 
 This module is on the MCP cold-start import path, so it imports **nothing** from
 ``discovery/`` -- reads parse ``suggestions.jsonl`` line-by-line (tolerating and
 counting malformed lines) and writes delegate to
-:func:`knotica.core.gapfill.apply_decision`, neither of which pulls the heavy
+:func:`knotica.core.gapfill.apply_decision` /
+:func:`knotica.core.gapfill.report_gap`, none of which pull the heavy
 search chain. The read tool re-uses the opaque search
 cursor (base64 offset token) so a stale/malformed cursor fails closed as
 ``INVALID_CURSOR`` exactly like the search surface (dec-002).
@@ -27,7 +31,7 @@ from mcp.server.fastmcp import FastMCP
 from mcp.types import CallToolResult
 
 from knotica.core.errors import ErrorCode, KnoticaError
-from knotica.core.gapfill import apply_decision, plan_decision, suggestions_path
+from knotica.core.gapfill import apply_decision, plan_decision, report_gap, suggestions_path
 from knotica.core.page import TopicNotFoundError
 from knotica.core.records import RecordParseError, SuggestionRecord
 from knotica.mcp_server import envelope
@@ -81,8 +85,24 @@ _REVIEW_DESCRIPTION = (
 )
 
 
+_REPORT_DESCRIPTION = (
+    "File a knowledge gap the wiki just failed to answer. Call this ONLY when both "
+    "hold: (1) you queried this topic's wiki for the user and the answer was wrong, "
+    "missing, or too thin to be useful, AND (2) the user confirms it is a real gap "
+    "worth researching. Pass the user's actual failed question verbatim as "
+    "'question' (never paraphrase, summarize, or invent one); add a short 'reason' "
+    "for why the wiki fell short and any 'reference_pages' the answer should have "
+    "cited. The gap enters the same human-approval discovery queue as eval-detected "
+    "gaps, tagged origin=reported. Do NOT file speculatively, in bulk, or to seed "
+    "topics -- one confirmed conversational miss at a time. Repeat reports of the "
+    "same question are automatically deduplicated. One commit; requires a lock."
+)
+
+_REPORT_MAX_REFERENCE_PAGES = 20
+
+
 def register_suggestions_tools(mcp: FastMCP) -> None:
-    """Register ``suggestions_read`` and ``suggestions_review`` on ``mcp``."""
+    """Register ``suggestions_read``, ``suggestions_review``, and ``gap_report`` on ``mcp``."""
 
     @mcp.tool(name="suggestions_read", description=_READ_DESCRIPTION)
     def suggestions_read(
@@ -118,6 +138,26 @@ def register_suggestions_tools(mcp: FastMCP) -> None:
                 action=action,
                 mode=mode,
                 reason=reason,
+            ),
+        )
+
+    @mcp.tool(name="gap_report", description=_REPORT_DESCRIPTION)
+    def gap_report(
+        topic: str,
+        question: str,
+        reason: str = "",
+        reference_pages: list[str] | None = None,
+        vault: str = "",
+    ) -> ToolResult:
+        return with_resolved_vault(
+            vault,
+            lambda store, resolved: _report_payload(
+                store,
+                resolved.path,
+                topic,
+                question,
+                reason=reason,
+                reference_pages=reference_pages,
             ),
         )
 
@@ -293,6 +333,68 @@ def _preview_text(action: str) -> str:
         "mark_ingested": "Mark ingested -> closes this approved suggestion after ingest.",
     }
     return previews[action]
+
+
+# ---------------------------------------------------------------------------
+# gap_report -- file one conversationally reported gap
+# ---------------------------------------------------------------------------
+
+
+def _report_payload(
+    store: VaultStore,
+    root: str | Path,
+    topic: str,
+    question: str,
+    *,
+    reason: str,
+    reference_pages: list[str] | None,
+) -> dict[str, Any]:
+    """Validate the request and file one reported gap in a single commit."""
+    cleaned_topic = _validate_topic(topic)
+    pages = _validate_reference_pages(reference_pages)
+    result = report_gap(
+        store,
+        root,
+        cleaned_topic,
+        question,
+        reason=reason or None,
+        reference_pages=pages,
+    )
+    return {
+        "topic": result.topic,
+        "gap_id": result.gap_id,
+        "qa_id": result.qa_id,
+        "question": result.question,
+        "fault_class": result.fault_class,
+        "status": result.status,
+        "origin": result.origin,
+        "reason": result.reason,
+        "reference_pages": list(result.reference_pages),
+        "written": result.written,
+        "duplicate": not result.written,
+    }
+
+
+def _validate_reference_pages(reference_pages: list[str] | None) -> tuple[str, ...]:
+    """Coerce the optional reference-pages argument to a bounded tuple of strings."""
+    if reference_pages is None:
+        return ()
+    if not isinstance(reference_pages, list) or any(
+        not isinstance(page, str) for page in reference_pages
+    ):
+        raise KnoticaError(
+            ErrorCode.INVALID_CURSOR,
+            f"reference_pages must be a list of strings, got {reference_pages!r}",
+            fix="Pass reference_pages as a JSON array of page-name strings, or omit it.",
+        )
+    if len(reference_pages) > _REPORT_MAX_REFERENCE_PAGES:
+        raise KnoticaError(
+            ErrorCode.INVALID_CURSOR,
+            f"reference_pages may name at most {_REPORT_MAX_REFERENCE_PAGES} pages, "
+            f"got {len(reference_pages)}",
+            fix=f"Pass at most {_REPORT_MAX_REFERENCE_PAGES} reference pages.",
+        )
+    return tuple(reference_pages)
 
 
 # ---------------------------------------------------------------------------

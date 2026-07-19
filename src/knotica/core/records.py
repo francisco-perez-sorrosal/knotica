@@ -30,6 +30,9 @@ from knotica.core.page import parse_page, serialize_frontmatter
 __all__ = [
     "COMMIT_SUBJECT_RE",
     "GAP_FAULT_CLASSES",
+    "GAP_ORIGINS",
+    "GAP_ORIGIN_MEASURED",
+    "GAP_ORIGIN_REPORTED",
     "GAP_SCHEMA_VERSION",
     "GAP_STATUSES",
     "LOG_ENTRY_RE",
@@ -81,6 +84,15 @@ SOURCE_TYPES: frozenset[str] = frozenset({"html", "pdf", "markdown", "text"})
 GAP_FAULT_CLASSES: frozenset[str] = frozenset({"genuine_gap", "dilution"})
 #: Lifecycle of one gap record: P1 writes ``open``; P3/P4 flip it terminal.
 GAP_STATUSES: frozenset[str] = frozenset({"open", "resolved", "dismissed"})
+
+#: Provenance of a gap record. ``measured`` gaps are eval-proven (the loop's
+#: regression classifier wrote them from a scored delta); ``reported`` gaps are
+#: filed conversationally by the client-as-brain via the ``gap_report`` tool and
+#: carry no per-id eval evidence (their evidence fields are zero/empty by
+#: construction). Additive-only: pre-provenance records parse as ``measured``.
+GAP_ORIGIN_MEASURED = "measured"
+GAP_ORIGIN_REPORTED = "reported"
+GAP_ORIGINS: frozenset[str] = frozenset({GAP_ORIGIN_MEASURED, GAP_ORIGIN_REPORTED})
 
 #: Lifecycle of one suggestion record. The discovery writer stages ``pending``;
 #: the human gate flips ``approved``/``rejected``/``deferred`` in place; the
@@ -344,11 +356,13 @@ class GapRecord:
     reference_pages_exist: bool
     evidence: GapEvidence
     manifest_ref: str
+    origin: str = GAP_ORIGIN_MEASURED
 
     def __post_init__(self) -> None:
         _validate_schema_version(self.schema_version)
         _validate_enum("fault_class", self.fault_class, GAP_FAULT_CLASSES)
         _validate_enum("status", self.status, GAP_STATUSES)
+        _validate_enum("origin", self.origin, GAP_ORIGINS)
 
     def to_json_line(self) -> str:
         """Serialize to one JSON line (no trailing newline), fields in schema order."""
@@ -377,6 +391,7 @@ class GapRecord:
                 "prior_generation": self.evidence.prior_generation,
             },
             "manifest_ref": self.manifest_ref,
+            "origin": self.origin,
         }
         return json.dumps(payload, ensure_ascii=False)
 
@@ -422,6 +437,9 @@ class GapRecord:
                 prior_generation=_required_int(evidence, "prior_generation", record="gaps.jsonl"),
             ),
             manifest_ref=_required_str(data, "manifest_ref", record="gaps.jsonl"),
+            origin=_optional_str_or_default(
+                data, "origin", GAP_ORIGIN_MEASURED, record="gaps.jsonl"
+            ),
         )
 
 
@@ -483,6 +501,10 @@ class SuggestionRecord:
     decided_reason: str | None
     ingested_at: str | None
     detected_generation: int
+    #: Provenance carried from the originating gap (``measured``/``reported``);
+    #: ``None`` on pre-provenance suggestions, so a consumer can distinguish
+    #: eval-proven from conversationally reported. Additive-only optional field.
+    gap_origin: str | None = None
 
     def __post_init__(self) -> None:
         _validate_schema_version(self.schema_version)
@@ -510,6 +532,7 @@ class SuggestionRecord:
             "decided_reason": self.decided_reason,
             "ingested_at": self.ingested_at,
             "detected_generation": self.detected_generation,
+            "gap_origin": self.gap_origin,
         }
         return json.dumps(payload, ensure_ascii=False)
 
@@ -539,6 +562,7 @@ class SuggestionRecord:
             detected_generation=_required_int(
                 data, "detected_generation", record="suggestions.jsonl"
             ),
+            gap_origin=_optional_str_absent(data, "gap_origin", record="suggestions.jsonl"),
         )
 
 
@@ -816,6 +840,28 @@ def _optional_str(data: Mapping[str, object], key: str, *, record: str) -> str |
         raise RecordParseError(
             f"{record} record field {key!r} must be a string or null, got {value!r}"
         )
+    return value
+
+
+def _optional_str_absent(data: Mapping[str, object], key: str, *, record: str) -> str | None:
+    """A string field that may be wholly absent (additive-only); missing/``null`` -> ``None``."""
+    if key not in data or data[key] is None:
+        return None
+    value = data[key]
+    if not isinstance(value, str):
+        raise RecordParseError(f"{record} record field {key!r} must be a string, got {value!r}")
+    return value
+
+
+def _optional_str_or_default(
+    data: Mapping[str, object], key: str, default: str, *, record: str
+) -> str:
+    """A string field that may be absent (additive-only); missing/``null`` -> ``default``."""
+    if key not in data or data[key] is None:
+        return default
+    value = data[key]
+    if not isinstance(value, str):
+        raise RecordParseError(f"{record} record field {key!r} must be a string, got {value!r}")
     return value
 
 

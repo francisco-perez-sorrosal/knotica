@@ -36,8 +36,10 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 from knotica.core.errors import ErrorCode, KnoticaError
-from knotica.core.gap_classifier import FaultClass, gaps_path
+from knotica.core.gap_classifier import FaultClass, gaps_path, write_gap_records
 from knotica.core.records import (
+    GAP_ORIGIN_REPORTED,
+    GapEvidence,
     GapRecord,
     SuggestionRecord,
     parse_gaps_jsonl,
@@ -55,12 +57,14 @@ if TYPE_CHECKING:
 __all__ = [
     "DecisionResult",
     "RefreshResult",
+    "ReportedGapResult",
     "apply_decision",
     "build_default_discovery_service",
     "build_suggestion_records",
     "formulate_query",
     "plan_decision",
     "refresh_suggestions_for_gaps",
+    "report_gap",
     "suggestions_path",
 ]
 
@@ -77,6 +81,15 @@ _REVIEW_OP = "suggestion_review"
 #: Candidate cap per formulated query -- the deterministic v1 formulation asks for
 #: the ``SearchQuery`` default breadth; a wider cap is a ``proposer_version`` bump.
 DEFAULT_MAX_RESULTS = 10
+
+#: Sentinel eval-provenance fields on a reported gap: it was not produced by the
+#: regression classifier (``origin="reported"`` carries that signal) and belongs
+#: to no eval generation, so both read as 0 rather than a fabricated version/gen.
+_NO_CLASSIFIER = 0
+_NO_GENERATION = 0
+#: Prefix marking a synthetic ``qa_id`` derived from reported question text (no
+#: golden record backs it) -- mirrors ``evals.golden``'s ``golden-<hash>`` scheme.
+_REPORTED_QA_ID_PREFIX = "reported-"
 
 #: The D2 lifecycle state machine: which source statuses each decision may act on.
 _ALLOWED_FROM: Mapping[str, frozenset[str]] = {
@@ -143,6 +156,28 @@ class DecisionResult:
     commit_sha: str
 
 
+@dataclass(frozen=True)
+class ReportedGapResult:
+    """The outcome of one :func:`report_gap`, for the tool envelope to render.
+
+    ``written`` is ``False`` when an open gap with the same deterministic ``qa_id``
+    already existed -- the write is a dedup no-op (composes with
+    ``write_gap_records``' own ``(qa_id, fault_class)`` dedup), so a repeated
+    identical report never appends a duplicate record.
+    """
+
+    topic: str
+    gap_id: str
+    qa_id: str
+    question: str
+    fault_class: str
+    status: str
+    origin: str
+    reason: str | None
+    reference_pages: tuple[str, ...]
+    written: bool
+
+
 def formulate_query(gap: GapRecord) -> SearchQuery:
     """Deterministically map one gap to a search request (no LLM, no wall clock).
 
@@ -175,7 +210,7 @@ def build_suggestion_records(
     """Join one gap to its ranked candidates as ``pending`` suggestion records (pure).
 
     ``gap``'s display fields (``qa_id``/``fault_class``/``question``/
-    ``reference_pages``/``detected_generation``) are copied verbatim so a card
+    ``reference_pages``/``detected_generation``/``origin``) are copied verbatim so a card
     renders with zero cross-file join; each candidate is embedded as its opaque
     ``to_record()`` dict. ``rank`` is 1-based in the given order (the service owns
     ordering). ``proposer_version`` identifies the formulation logic; the v1 record
@@ -206,6 +241,7 @@ def build_suggestion_records(
                 decided_reason=None,
                 ingested_at=None,
                 detected_generation=gap.detected_generation,
+                gap_origin=gap.origin,
             )
         )
     return records
@@ -379,6 +415,98 @@ def apply_decision(
         candidate_title=_candidate_title(record.candidate),
         changed=txn.result.changed,
         commit_sha=txn.result.commit_sha,
+    )
+
+
+def report_gap(
+    store: VaultStore,
+    root: str | Path,
+    topic: str,
+    question: str,
+    *,
+    reason: str | None = None,
+    reference_pages: Sequence[str] = (),
+    clock: Callable[[], str] | None = None,
+) -> ReportedGapResult:
+    """File one conversationally reported ``genuine_gap`` into the P1 queue.
+
+    The client-as-brain calls this when a wiki query is answered poorly and the
+    user confirms the gap. Constructs a ``genuine_gap``/``open`` :class:`GapRecord`
+    with ``origin="reported"``, a ``qa_id`` derived deterministically from the
+    question text (so identical reports collide), and empty eval-evidence fields
+    (a reported gap carries no per-id score). Writes via the existing
+    ``write_gap_records`` path in its own ``VaultTransaction`` -- whose
+    ``(qa_id, fault_class)`` open-dedup drops a repeat of the same question, so a
+    chatty client cannot spam the queue. ``reason`` is advisory context surfaced
+    in the result; the v1 record has no field for it (additive-only: only
+    ``origin`` was added), so it is not persisted. ``clock`` injects the
+    ``detected_at`` stamp for deterministic tests. Raises a typed ``KnoticaError``
+    on an empty/blank question (never fabricates content).
+    """
+    cleaned_question = question.strip()
+    if not cleaned_question:
+        raise _invalid(
+            "a reported gap requires a non-empty question",
+            "Pass the actual wiki query the user could not get answered.",
+        )
+    stamp = clock or _utc_now_iso
+    qa_id = _reported_qa_id(cleaned_question)
+    fault_class = FaultClass.GENUINE_GAP
+    already_open = any(gap.qa_id == qa_id for gap in _open_genuine_gaps(store, topic))
+    pages = tuple(reference_pages)
+    record = _build_reported_gap(
+        topic, qa_id, fault_class, cleaned_question, pages, detected_at=stamp()
+    )
+    write_gap_records(store, root, topic, [record])
+    return ReportedGapResult(
+        topic=topic,
+        gap_id=record.gap_id,
+        qa_id=qa_id,
+        question=cleaned_question,
+        fault_class=fault_class,
+        status="open",
+        origin=GAP_ORIGIN_REPORTED,
+        reason=(reason.strip() or None) if reason else None,
+        reference_pages=pages,
+        written=not already_open,
+    )
+
+
+def _build_reported_gap(
+    topic: str,
+    qa_id: str,
+    fault_class: str,
+    question: str,
+    reference_pages: tuple[str, ...],
+    *,
+    detected_at: str,
+) -> GapRecord:
+    """Compose the ``origin="reported"`` gap record with empty eval evidence."""
+    return GapRecord(
+        gap_id=_reported_gap_id(topic, qa_id, fault_class),
+        topic=topic,
+        qa_id=qa_id,
+        fault_class=fault_class,
+        status="open",
+        classifier_version=_NO_CLASSIFIER,
+        detected_generation=_NO_GENERATION,
+        detected_at=detected_at,
+        scalar_at_detection=0.0,
+        baseline_scalar=0.0,
+        question=question,
+        reference_pages=reference_pages,
+        reference_pages_exist=False,
+        evidence=GapEvidence(
+            quality_delta=0.0,
+            qa_accuracy_delta=0.0,
+            citation_validity_delta=0.0,
+            retrieval_trace=(),
+            pages_added=(),
+            pages_removed=(),
+            prior_generation=_NO_GENERATION,
+        ),
+        manifest_ref="",
+        origin=GAP_ORIGIN_REPORTED,
     )
 
 
@@ -559,6 +687,26 @@ def _suggestion_id(topic: str, gap_id: str, source_key: str) -> str:
     import hashlib
 
     return hashlib.sha1(f"{topic}|{gap_id}|{source_key}".encode()).hexdigest()[:16]
+
+
+def _reported_qa_id(question: str) -> str:
+    """A deterministic synthetic ``qa_id`` from question text (stable across reports).
+
+    Mirrors ``evals.golden``'s content-addressed id hashing (sha256, 16-hex slug)
+    so identical reported questions collide on the same ``qa_id`` -- the property
+    ``write_gap_records``' open-dedup relies on to reject a repeat report.
+    """
+    import hashlib
+
+    digest = hashlib.sha256(question.encode("utf-8")).hexdigest()
+    return f"{_REPORTED_QA_ID_PREFIX}{digest[:16]}"
+
+
+def _reported_gap_id(topic: str, qa_id: str, fault_class: str) -> str:
+    """Stable 16-hex gap id over the identifying triple (mirrors the classifier's scheme)."""
+    import hashlib
+
+    return hashlib.sha1(f"{topic}|{qa_id}|{fault_class}".encode()).hexdigest()[:16]
 
 
 def _invalid(message: str, fix: str) -> KnoticaError:

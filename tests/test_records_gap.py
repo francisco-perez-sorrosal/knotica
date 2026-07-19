@@ -52,6 +52,7 @@ GAP_RECORD_FIELDS = frozenset(
         "reference_pages_exist",
         "evidence",
         "manifest_ref",
+        "origin",
     }
 )
 
@@ -176,6 +177,50 @@ def test_each_lifecycle_status_round_trips(status):
 def test_schema_version_below_one_is_rejected():
     with pytest.raises(ValueError, match="schema_version"):
         _gap_record(schema_version=0)
+
+
+# ---------------------------------------------------------------------------
+# origin -- additive provenance field (measured|reported), dec-025/piece-B
+# ---------------------------------------------------------------------------
+
+
+def test_gap_record_defaults_origin_to_measured_when_not_given():
+    # ``_gap_record()`` never sets ``origin`` in its payload -- the default
+    # applies exactly as it would for any pre-feature construction site.
+    record = _gap_record()
+
+    assert record.origin == "measured", (
+        "a gap record built without an explicit origin must default to 'measured' -- "
+        "every existing (pre-feature) loop-written record is measured"
+    )
+
+
+def test_gap_record_accepts_reported_origin_and_round_trips_it():
+    record = _gap_record(origin="reported")
+
+    rendered = json.loads(record.to_json_line())
+    parsed = _records_module().GapRecord.from_json_line(record.to_json_line())
+
+    assert rendered["origin"] == "reported"
+    assert parsed.origin == "reported"
+
+
+@pytest.mark.parametrize("origin", ["synthetic", "loop", ""])
+def test_origin_outside_the_provenance_domain_is_rejected(origin):
+    with pytest.raises(ValueError, match="origin"):
+        _gap_record(origin=origin)
+
+
+def test_gap_line_missing_origin_defaults_to_measured():
+    """A ``gaps.jsonl`` line written before this feature has no ``origin`` key at
+    all -- the additive field must default on *parse*, not just on construction,
+    so every pre-existing record still parses unaffected."""
+    payload = json.loads(_gap_record().to_json_line())
+    del payload["origin"]
+
+    record = _records_module().GapRecord.from_json_line(json.dumps(payload))
+
+    assert record.origin == "measured"
 
 
 # ---------------------------------------------------------------------------
