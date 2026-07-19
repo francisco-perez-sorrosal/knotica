@@ -3,6 +3,7 @@ import { useEffect, useState } from "preact/hooks";
 import type { ToolClient } from "./toolClient";
 import type {
   GapOrigin,
+  GateOutcome,
   SuggestionAction,
   SuggestionRecord,
   SuggestionReputability,
@@ -95,6 +96,12 @@ export function SourcesPane({
 
   const suggestions = result?.suggestions ?? [];
   const counts = result?.status_counts;
+  // Best-effort: only the currently loaded page is fetched (no wiki_status call
+  // in this pane), so this undercounts refused suggestions outside the current
+  // filter/page. The tooltip below discloses that.
+  const refusedCount = suggestions.filter(
+    (suggestion) => suggestion.gate_outcome?.verdict === "refused",
+  ).length;
 
   return (
     <section class="panel sources-panel" aria-label="Gap-fill suggestions">
@@ -123,6 +130,23 @@ export function SourcesPane({
           </button>
         </div>
       </header>
+
+      {counts ? (
+        <div
+          class="sources-filters sources-status-badges"
+          role="group"
+          aria-label="Suggestion counts by outcome"
+        >
+          <span class="health-chip">approved {counts.approved}</span>
+          <span
+            class="health-chip warn"
+            title="Approved suggestions whose most recent gate pass was refused (loaded page only)"
+          >
+            <span aria-hidden="true">⚠</span> refused {refusedCount}
+          </span>
+          <span class="health-chip">ingested {counts.ingested}</span>
+        </div>
+      ) : null}
 
       {error ? (
         <p class="sources-error" role="alert">
@@ -275,10 +299,13 @@ function SuggestionCard({
       </div>
 
       {decided ? (
-        <p class="muted sources-decided">
-          Decision recorded: <strong>{suggestion.status}</strong>
-          {suggestion.decided_reason ? ` — ${suggestion.decided_reason}` : ""}
-        </p>
+        <>
+          <p class="muted sources-decided">
+            Decision recorded: <strong>{suggestion.status}</strong>
+            {suggestion.decided_reason ? ` — ${suggestion.decided_reason}` : ""}
+          </p>
+          <GateOutcomeNote outcome={suggestion.gate_outcome} />
+        </>
       ) : (
         <div class="sources-card-actions">
           <button type="button" class="primary" disabled={disabled} onClick={onApprove}>
@@ -327,6 +354,47 @@ function SuggestionCard({
         </div>
       ) : null}
     </li>
+  );
+}
+
+/** Refused-gate note: reason + top regressed questions (already in the record — no extra call). */
+function GateOutcomeNote({ outcome }: { outcome?: GateOutcome | null }) {
+  const [expanded, setExpanded] = useState(false);
+  if (!outcome || outcome.verdict !== "refused") return null;
+  const regressed = outcome.regressed_questions ?? [];
+  const delta = outcome.scalar - outcome.baseline_scalar;
+
+  return (
+    <div class="sources-gate-refused">
+      <p class="muted">
+        <span class="health-chip warn">
+          <span aria-hidden="true">⚠</span> refused
+        </span>{" "}
+        {delta.toFixed(4)} — {outcome.reason}
+        {regressed.length > 0 ? (
+          <button
+            type="button"
+            class="ghost sources-view-diff"
+            onClick={() => setExpanded((value) => !value)}
+          >
+            {expanded ? "hide diff" : "[view diff]"}
+          </button>
+        ) : null}
+      </p>
+      {expanded ? (
+        <div class="sources-regressed-questions">
+          <p class="muted">quarantined at {outcome.ref}</p>
+          <ul>
+            {regressed.map((row) => (
+              <li key={row.qa_id} class="muted">
+                “{row.question}” {row.baseline_score.toFixed(2)} → {row.candidate_score.toFixed(2)}{" "}
+                ({row.delta.toFixed(2)})
+              </li>
+            ))}
+          </ul>
+        </div>
+      ) : null}
+    </div>
   );
 }
 

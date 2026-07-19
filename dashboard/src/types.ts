@@ -674,6 +674,8 @@ export interface SuggestionStatusSummary {
   rejected: number;
   ingested: number;
   newest_proposed_at: string | null;
+  /** Approved records whose most recent gate pass was refused — re-workable, not re-submitted. */
+  refused_awaiting_rework: number;
 }
 
 /** Gap provenance: eval-proven, conversationally reported, or guillotine-weakened. */
@@ -719,6 +721,35 @@ export interface SuggestionCandidate {
 
 export type SuggestionStatus = "pending" | "approved" | "rejected" | "deferred" | "ingested";
 
+export type GateOutcomeVerdict = "merged" | "refused";
+
+/** One bounded per-question dilution row from a refused gate pass (worst-first, capped). */
+export interface GateOutcomeRegressedQuestion {
+  qa_id: string;
+  question: string;
+  baseline_score: number;
+  candidate_score: number;
+  delta: number;
+}
+
+/**
+ * The gate's verdict on a suggestion's ingested source candidate, stamped once a
+ * ``source`` candidate has been evaluated. Null before gating. This is the
+ * record's stored shape (``ref``/``reason``/``regressed_questions``) as returned by
+ * ``suggestions_read`` — not the ``source_ingest_submit`` wire envelope, which
+ * renames these to ``refused_ref``/``diff_summary``.
+ */
+export interface GateOutcome {
+  verdict: GateOutcomeVerdict;
+  scalar: number;
+  baseline_scalar: number;
+  ref: string;
+  /** Present on ``refused`` only. */
+  reason?: string;
+  /** Present on ``refused`` only. */
+  regressed_questions?: GateOutcomeRegressedQuestion[];
+}
+
 export interface SuggestionRecord {
   schema_version: number;
   suggestion_id: string;
@@ -739,6 +770,8 @@ export interface SuggestionRecord {
   detected_generation: number;
   /** Provenance carried from the originating gap; null on pre-feature records. */
   gap_origin?: GapOrigin | null;
+  /** The gate's verdict on this suggestion's candidate; null until gated. */
+  gate_outcome?: GateOutcome | null;
 }
 
 export type SuggestionsStatusFilter = SuggestionStatus | "all";
