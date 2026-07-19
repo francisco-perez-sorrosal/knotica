@@ -131,3 +131,8 @@ ingested` — `deferred` added for the review UX), the decision reason field is 
 is not persisted on the record (the record's `schema_version` is the capability probe; formulation
 versioning rides on the queue module, not each row). The committed-queue and opaque-candidate
 decisions of this ADR are unchanged.
+
+**Addendum (2026-07-19, verifier W-01/td-010 closure):** the P4 hand-forward field is
+`ingested_at` (timestamp), not the earlier-sketched `ingest_ref`; the `ingested` transition is
+reachable in P3 via the explicit `mark_ingested` review action (P4 may automate the transition and
+may add a branch-reference field then — that would be an additive schema evolution, not v1).
