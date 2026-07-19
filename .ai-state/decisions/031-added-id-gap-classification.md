@@ -1,7 +1,7 @@
 ---
-id: dec-draft-2f56e06e
+id: dec-031
 title: Added-and-failing golden ids classify through the gap cascade
-status: proposed
+status: accepted
 category: behavioral
 date: 2026-07-19
 summary: Ids in held_out_delta.ids_added whose current scores fail a named floor enter the four-way cascade like per-id regressors, so newly frozen questions can surface genuine gaps.

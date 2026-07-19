@@ -285,7 +285,7 @@ Phase P2 — gap-fill discovery layer (this pipeline, `gapfill-discovery`; draft
 
 Phase P3 — gap-fill suggestion queue + approval surface (this pipeline, `gapfill-queue`; **Built**, draft ids finalize at merge):
 
-- **dec-draft-3020a1a6** — Suggestion record schema v1: the P1-gap × P2-candidate join persists as a new
+- **dec-030** — Suggestion record schema v1: the P1-gap × P2-candidate join persists as a new
   `schema_version`ed `SuggestionRecord` (in `core/records.py`) to a **committed** append-only
   `<topic>/.knotica/suggestions/suggestions.jsonl`, own `VaultTransaction`, observe-safe `.knotica/` path,
   `(gap_id, source_key)`-dedup. Lifecycle `pending → approved|rejected` (P3) → `ingested` (P4), mutated in
@@ -294,7 +294,7 @@ Phase P3 — gap-fill suggestion queue + approval surface (this pipeline, `gapfi
   `discovery/` (MCP cold-start boundary, dec-013). Committed-not-staged (dashboard MCP server reads it in a
   separate process — re-affirms dec-025 Option B; the golden.py staging precedent does not transfer). Re-affirms
   dec-025 + dec-006.
-- **dec-draft-4dc7adc0** — Discovery trigger placement: **on-demand primary** (`knotica gapfill discover` CLI)
+- **dec-029** — Discovery trigger placement: **on-demand primary** (`knotica gapfill discover` CLI)
   keeps outbound network off the loop's mandatory offline-deterministic heal path; a **config-gated opt-in
   loop-side batch** (`[gapfill] discover_on_regression`, default off) shares the same drain, failure-isolated
   (classifier try/except) + separate transaction. Fixed-budget defense: one drain per regression *event*

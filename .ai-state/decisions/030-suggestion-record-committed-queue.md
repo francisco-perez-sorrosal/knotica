@@ -1,7 +1,7 @@
 ---
-id: dec-draft-3020a1a6
+id: dec-030
 title: Suggestion record schema v1 — the committed P3 queue, lifecycle, and candidate-as-opaque-dict boundary
-status: proposed
+status: accepted
 category: architectural
 date: 2026-07-19
 summary: The P1 gap + P2 candidate join is persisted as a new schema-versioned SuggestionRecord to a committed append-only <topic>/.knotica/suggestions/suggestions.jsonl (not an uncommitted staging file — a cross-process reader needs committed state, dec-025 Option B), with a pending/approved/rejected/ingested lifecycle mutated in place one-commit-per-transition; the candidate is embedded as an opaque JSON dict (not a typed SourceCandidate) to keep core/records.py off any edge into discovery/ and preserve the MCP cold-start boundary.

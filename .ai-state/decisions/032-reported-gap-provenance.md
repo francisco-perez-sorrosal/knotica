@@ -1,7 +1,7 @@
 ---
-id: dec-draft-1b59b7aa
+id: dec-032
 title: NL-reported gaps — origin provenance on GapRecord and a deterministic gap_report tool
-status: proposed
+status: accepted
 category: behavioral
 date: 2026-07-19
 summary: GapRecord gains an additive origin field (measured|reported); a gap_report MCP tool lets the client-as-brain file candidate gaps from conversation, flowing into the same discovery queue with distinguishable provenance.

@@ -16,6 +16,9 @@ affected_files:
 affected_reqs: [REQ-06, REQ-08]
 re_affirms: dec-006
 dissent: A committed append-only jsonl grows unbounded and re-logs a persistent gap every cycle; an uncommitted staging file (the golden.staging.jsonl precedent) would avoid git-history bloat, at the cost of a stateless MCP tool being unable to read a pending queue that was never committed.
+re_affirmed_by:
+  - dec-030
+  - dec-032
 ---
 
 ## Context

@@ -1,7 +1,7 @@
 ---
-id: dec-draft-79dc148d
+id: dec-033
 title: Guillotine becomes verdict + report + gap-filing only; content rewriting moves to the client-approved re-grounding path
-status: proposed
+status: accepted
 category: architectural
 date: 2026-07-19
 summary: Strip the guillotine's hardcoded, claim-specific replacement text and its in-code regex demotion voice; the guillotine keeps classification, risk scoring, report/diff rendering, and retracted-gap filing, and content rewriting flows through the existing gap→suggestion→approved-ingest path where the client-as-brain writes grounded prose.

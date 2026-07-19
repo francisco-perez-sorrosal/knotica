@@ -1,7 +1,7 @@
 ---
-id: dec-draft-8bdcb018
+id: dec-028
 title: Suggestion-queue interface — two-tool decomposition with action-parameterized review
-status: proposed
+status: accepted
 category: architectural
 date: 2026-07-19
 summary: The P3 gap-fill approval surface exposes two deterministic MCP tools — a read-only paginated suggestions_read (dec-002 cursor envelope) and a two-phase mutating suggestions_review(action ∈ {approve,reject,defer,mark_ingested}, mode ∈ {dry-run,apply}); the SuggestionRecord denormalizes the SourceCandidate and the motivating gap's display fields so a card renders with zero cross-file join; the approved record IS the queued ingest instruction, surfaced to the interactive client via an additive wiki_status.suggestions block and an ingest-protocol text hook.

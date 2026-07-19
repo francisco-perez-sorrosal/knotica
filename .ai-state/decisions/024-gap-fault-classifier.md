@@ -16,6 +16,8 @@ affected_files:
 affected_reqs: [REQ-01, REQ-02, REQ-03, REQ-04, REQ-05, REQ-07]
 re_affirms: dec-023
 dissent: An always-fire-arena (additive-only) contract is simpler and never risks losing self-healing on a mixed regression; skipping the arena on an all-knowledge-cause regression is an optimization whose only proof that arena is futile is the dilution war-story, not a general guarantee.
+re_affirmed_by:
+  - dec-031
 ---
 
 ## Context
