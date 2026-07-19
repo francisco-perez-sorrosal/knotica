@@ -200,11 +200,14 @@ def _suggestion_block(store: VaultStore, topic: str) -> dict[str, Any]:
 
     Counts each lifecycle status and surfaces ``approved_awaiting_ingest`` (the
     approved-but-not-yet-ingested backlog that matters for the interactive
-    ingest handoff) plus the newest ``proposed_at``. Reads ``suggestions.jsonl``
-    line-by-line and skips a malformed line rather than raising, so a single
-    corrupt record never breaks the status readout (mirrors ``_golden_count``).
+    ingest handoff), ``refused_awaiting_rework`` (approved records whose most
+    recent gate pass was refused -- still re-workable, not yet re-submitted),
+    plus the newest ``proposed_at``. Reads ``suggestions.jsonl`` line-by-line
+    and skips a malformed line rather than raising, so a single corrupt record
+    never breaks the status readout (mirrors ``_golden_count``).
     """
     counts = Counter[str]()
+    refused_awaiting_rework = 0
     newest: str | None = None
     path = suggestions_path(topic)
     if store.exists(path):
@@ -218,6 +221,8 @@ def _suggestion_block(store: VaultStore, topic: str) -> dict[str, Any]:
             counts[record.status] += 1
             if newest is None or record.proposed_at > newest:
                 newest = record.proposed_at
+            if record.status == "approved" and _is_refused(record):
+                refused_awaiting_rework += 1
     return {
         "pending": counts.get("pending", 0),
         "approved_awaiting_ingest": counts.get("approved", 0),
@@ -225,7 +230,14 @@ def _suggestion_block(store: VaultStore, topic: str) -> dict[str, Any]:
         "rejected": counts.get("rejected", 0),
         "ingested": counts.get("ingested", 0),
         "newest_proposed_at": newest,
+        "refused_awaiting_rework": refused_awaiting_rework,
     }
+
+
+def _is_refused(record: SuggestionRecord) -> bool:
+    """Whether ``record``'s ``gate_outcome`` (if any) carries a refused verdict."""
+    outcome = record.gate_outcome
+    return outcome is not None and outcome.get("verdict") == "refused"
 
 
 def _gap_block(store: VaultStore, topic: str) -> dict[str, Any]:

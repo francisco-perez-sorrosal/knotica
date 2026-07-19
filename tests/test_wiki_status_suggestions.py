@@ -241,3 +241,91 @@ def test_wiki_status_suggestions_block_is_additive_to_the_existing_contract(
         "existing per-topic fields must survive the new suggestions block unchanged"
     )
     _suggestions_block(body)  # must be present without disturbing the above
+
+
+# ---------------------------------------------------------------------------
+# refused_awaiting_rework -- approved records whose most recent gate pass was
+# refused (still re-workable, not yet re-submitted)
+# ---------------------------------------------------------------------------
+
+
+def _refused_gate_outcome(**overrides: object) -> dict[str, object]:
+    payload: dict[str, object] = {
+        "verdict": "refused",
+        "scalar": 0.9201,
+        "baseline_scalar": 0.9655,
+        "ref": "loop/x/agentic-systems/source-a1b2c3d4",
+        "reason": "regressed 3 previously-passing golden questions",
+        "regressed_questions": ["q-0001", "q-0007", "q-0012"],
+    }
+    payload.update(overrides)
+    return payload
+
+
+def _merged_gate_outcome(**overrides: object) -> dict[str, object]:
+    payload: dict[str, object] = {
+        "verdict": "merged",
+        "scalar": 0.97,
+        "baseline_scalar": 0.9655,
+        "ref": "loop/r/abc123def456",
+        "reason": None,
+        "regressed_questions": None,
+    }
+    payload.update(overrides)
+    return payload
+
+
+def test_refused_awaiting_rework_counts_only_approved_records_with_a_refused_gate_verdict(
+    vault_config: Path, template_vault: Path
+) -> None:
+    del vault_config
+    _seed_suggestions(
+        template_vault,
+        [
+            _suggestion_record(
+                suggestion_id="s-refused-1",
+                status="approved",
+                gate_outcome=_refused_gate_outcome(ref="loop/x/agentic-systems/source-aaaaaaaa"),
+            ),
+            _suggestion_record(
+                suggestion_id="s-refused-2",
+                status="approved",
+                gate_outcome=_refused_gate_outcome(ref="loop/x/agentic-systems/source-bbbbbbbb"),
+            ),
+            # An approved record with no gate outcome yet -- never submitted to
+            # the gate, so it is not "awaiting rework".
+            _suggestion_record(suggestion_id="s-approved-pregate", status="approved"),
+            # An approved record whose gate outcome is a merge, not a refusal --
+            # a merge auto-transitions status to "ingested" in practice, but the
+            # count must key on the verdict, never assume the status followed.
+            _suggestion_record(
+                suggestion_id="s-approved-merged-verdict",
+                status="approved",
+                gate_outcome=_merged_gate_outcome(),
+            ),
+            # A rejected record carrying a refused-shaped gate outcome must not
+            # count -- the field is scoped to the approved backlog only.
+            _suggestion_record(
+                suggestion_id="s-rejected-with-refused-outcome",
+                status="rejected",
+                decided_reason="not relevant",
+                gate_outcome=_refused_gate_outcome(ref="loop/x/agentic-systems/source-cccccccc"),
+            ),
+        ],
+    )
+
+    body = assert_success(call_tool("wiki_status", {"topic": TOPIC}))
+    block = _suggestions_block(body)
+
+    assert block["refused_awaiting_rework"] == 2
+
+
+def test_refused_awaiting_rework_is_zero_when_no_suggestions_exist(
+    vault_config: Path, template_vault: Path
+) -> None:
+    del vault_config, template_vault  # no suggestions.jsonl ever written
+
+    body = assert_success(call_tool("wiki_status", {"topic": TOPIC}))
+    block = _suggestions_block(body)
+
+    assert block["refused_awaiting_rework"] == 0

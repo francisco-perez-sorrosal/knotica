@@ -327,6 +327,61 @@ def test_suggestions_read_is_visible_across_a_fresh_process_read(
 
 
 # ---------------------------------------------------------------------------
+# suggestions_read -- gate_outcome surfacing (null pre-gate, full object post-gate)
+# ---------------------------------------------------------------------------
+
+
+def test_suggestions_read_reports_gate_outcome_as_null_for_a_record_not_yet_gated(
+    vault_config: Path, template_vault: Path
+) -> None:
+    del vault_config
+    _seed_suggestions(
+        template_vault, [_suggestion_record(suggestion_id="pre-gate", status="approved")]
+    )
+
+    body = assert_success(call_tool("suggestions_read", {"topic": TOPIC, "status": "approved"}))
+
+    record = next(s for s in body["suggestions"] if s["suggestion_id"] == "pre-gate")
+    assert record["gate_outcome"] is None
+
+
+def test_suggestions_read_surfaces_the_full_gate_outcome_after_a_gate_verdict_is_recorded(
+    vault_config: Path, template_vault: Path
+) -> None:
+    del vault_config
+    from knotica.core.gapfill import apply_gate_outcome
+    from knotica.store import LocalFSStore
+
+    _seed_suggestions(
+        template_vault, [_suggestion_record(suggestion_id="gated-refused", status="approved")]
+    )
+    refused_outcome: dict[str, object] = {
+        "verdict": "refused",
+        "scalar": 0.9201,
+        "baseline_scalar": 0.9655,
+        "ref": "loop/x/agentic-systems/source-a1b2c3d4",
+        "reason": "regressed 3 previously-passing golden questions",
+        "regressed_questions": ["q-0001", "q-0007", "q-0012"],
+    }
+    store = LocalFSStore(template_vault)
+    apply_gate_outcome(
+        store,
+        template_vault,
+        TOPIC,
+        "gated-refused",
+        verdict="refused",
+        gate_outcome=refused_outcome,
+    )
+
+    body = assert_success(call_tool("suggestions_read", {"topic": TOPIC, "status": "approved"}))
+
+    record = next(s for s in body["suggestions"] if s["suggestion_id"] == "gated-refused")
+    assert record["gate_outcome"] == refused_outcome, (
+        "the full gate outcome object must round-trip through the wire dict, not a subset"
+    )
+
+
+# ---------------------------------------------------------------------------
 # suggestions_review -- dry-run previews without mutating; apply commits once
 # ---------------------------------------------------------------------------
 
