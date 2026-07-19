@@ -39,6 +39,13 @@ Invariants (each is load-bearing; the module structure makes them evident):
   :func:`~knotica.core.scrub.scrub` at declaration time; every redaction is
   reported on the result (with spans located in the caller's original text),
   even when the transaction turns out to be a no-op.
+* **The lock always targets the canonical vault, even for a worktree-scoped
+  transaction.** The optional ``work_dir`` argument redirects commit and
+  rollback to a git worktree's own branch (a source-candidate ingest
+  session), but the exclusive flock is still acquired against the canonical
+  ``vault_root`` -- so a worktree write still serializes with every
+  default-branch writer through the one lock, and never disturbs the
+  default working tree or ref.
 
 The transaction knows nothing about MCP, the CLI, or config resolution: it
 takes an already-resolved vault root and an already-constructed store. Failure
@@ -149,6 +156,13 @@ class VaultTransaction:
         title: The human-readable title slot.
         lock_timeout: Maximum seconds to wait for the vault lock before
             failing with the retryable lock-busy error.
+        work_dir: When set, redirects commit and rollback to a git worktree
+            checked out elsewhere on its own branch -- ``store`` must already
+            be scoped to write into ``work_dir`` (the transaction does not
+            re-root it). The flock is still acquired against ``vault_root``
+            (the canonical vault), never ``work_dir``. ``None`` (the default)
+            is the existing default-branch path: identical to omitting this
+            argument entirely.
 
     Raises:
         ValueError: At construction, when ``op``/``topic``/``title`` violate
@@ -166,9 +180,21 @@ class VaultTransaction:
         title: str,
         *,
         lock_timeout: float = DEFAULT_ACQUIRE_TIMEOUT_SECONDS,
+        work_dir: str | PurePath | None = None,
     ) -> None:
         self._store = store
-        self._vcs = VaultVcs(vault_root)
+        canonical_vcs = VaultVcs(vault_root)
+        # The lock always brackets the canonical vault, regardless of which
+        # branch the commit itself lands on -- see the module-level
+        # invariant above.
+        self._lock_root = canonical_vcs.root
+        if work_dir is not None and VaultVcs(work_dir).root == canonical_vcs.root:
+            raise ValueError(
+                "work_dir must be a worktree distinct from the canonical vault root; "
+                "passing the canonical root (or swapping the two arguments) would "
+                "silently collapse the lock domain and the commit target"
+            )
+        self._vcs = VaultVcs(work_dir) if work_dir is not None else canonical_vcs
         # Rendering the subject now validates op/topic/title against the
         # frozen grammar before any lock is taken or byte is written.
         self._commit_subject = format_commit_subject(op, topic, title)
@@ -185,7 +211,7 @@ class VaultTransaction:
     def __enter__(self) -> "VaultTransaction":
         if self._active or self._result is not None:
             raise RuntimeError("VaultTransaction is single-use; create a new one per operation")
-        lock = vault_lock(self._vcs.root, timeout=self._lock_timeout)
+        lock = vault_lock(self._lock_root, timeout=self._lock_timeout)
         try:
             lock.__enter__()
         except LockBusyError as error:

@@ -499,3 +499,206 @@ def test_write_rejects_the_reserved_log_path(template_vault: Path) -> None:
     ) as txn:
         with pytest.raises(ValueError):
             txn.write(LOG_PATH, "the transaction owns the log; callers may not write it")
+
+
+# ---------------------------------------------------------------------------
+# 8. Worktree-targeted transactions — an isolated multi-step ingest session
+#
+# A worktree lets a multi-step client-driven session (store a source, then
+# write several pages, one transaction per step) land on its own branch
+# without ever touching the canonical vault's checked-out branch or working
+# tree. PINNED interface assumption, flagged rather than silently resolved:
+# an additive ``work_dir`` keyword on ``VaultTransaction`` redirects both the
+# file writes and the git commit onto the worktree's checked-out branch,
+# while ``vault_root`` keeps naming the *canonical* root the vault lock is
+# taken against (mirroring ``VaultVcs``'s own worktree primitives already
+# exercised in ``test_vcs.py``). If the shipped parameter name differs, the
+# integration checkpoint reconciles this file against it.
+# ---------------------------------------------------------------------------
+
+
+def _canonical_tree_snapshot(vault: Path) -> dict[str, bytes]:
+    """Every file's vault-relative path -> bytes, excluding ``.git`` and the lock file.
+
+    The lock file (``.knotica/locks/vault.lock``) is gitignored runtime
+    infrastructure that a transaction's own lock acquisition creates as a
+    side effect -- taking the lock at all is not a change to vault *content*,
+    so it is excluded the same way the vault's own ``.gitignore`` excludes it.
+    """
+    return {
+        str(rel): path.read_bytes()
+        for path in vault.rglob("*")
+        if path.is_file()
+        and ".git" not in (rel := path.relative_to(vault)).parts
+        and rel.as_posix() != ".knotica/locks/vault.lock"
+    }
+
+
+def _open_worktree(template_vault: Path, tmp_path: Path, name: str) -> tuple[VaultVcs, Path, str]:
+    """Create a worktree off the canonical vault's current HEAD.
+
+    Returns ``(canonical_vcs, work_dir, branch)``.
+    """
+    vcs = VaultVcs(template_vault)
+    work_dir = tmp_path / "wip" / name
+    branch = f"loop/wip/agentic-systems/{name}"
+    vcs.add_worktree(work_dir, branch=branch, start_ref="HEAD")
+    return vcs, work_dir, branch
+
+
+def test_worktree_targeted_transaction_commits_on_the_worktree_branch_not_the_canonical_one(
+    template_vault: Path, tmp_path: Path
+) -> None:
+    vcs, work_dir, branch = _open_worktree(template_vault, tmp_path, "source-branch")
+    canonical_branch_before = vcs.current_branch()
+    canonical_head_before = vcs.head_sha()
+    worktree_store = LocalFSStore(work_dir)
+
+    with VaultTransaction(
+        worktree_store,
+        template_vault,
+        "write_page",
+        "agentic-systems",
+        "Worktree Page",
+        work_dir=work_dir,
+    ) as txn:
+        txn.write(PAGE_B, PAGE_B_CONTENT)
+
+    worktree_vcs = VaultVcs(work_dir)
+    assert worktree_vcs.current_branch() == branch, "the commit must land on the worktree's branch"
+    assert txn.result.commit_sha == worktree_vcs.head_sha()
+    assert (work_dir / PAGE_B).read_text(encoding="utf-8") == PAGE_B_CONTENT
+    # The canonical repo's own checkout must never move or gain the new page.
+    assert vcs.current_branch() == canonical_branch_before
+    assert vcs.head_sha() == canonical_head_before
+    assert not (template_vault / PAGE_B).exists(), (
+        "the write must not appear in the canonical working tree"
+    )
+
+
+def test_worktree_transaction_lock_blocks_a_concurrent_canonical_transaction(
+    template_vault: Path, tmp_path: Path
+) -> None:
+    _, work_dir, _ = _open_worktree(template_vault, tmp_path, "source-lock-a")
+    worktree_store = LocalFSStore(work_dir)
+    canonical_store = _store(template_vault)
+
+    with VaultTransaction(
+        worktree_store,
+        template_vault,
+        "write_page",
+        "agentic-systems",
+        "A",
+        work_dir=work_dir,
+    ) as outer:
+        outer.write(PAGE_B, PAGE_B_CONTENT)
+
+        with pytest.raises(KnoticaError) as caught:
+            with VaultTransaction(
+                canonical_store,
+                template_vault,
+                "write_page",
+                "agentic-systems",
+                "B",
+                lock_timeout=0.2,
+            ) as inner:
+                inner.write("agentic-systems/canonical-during-worktree.md", "B content\n")
+
+    assert caught.value.code is ErrorCode.LOCK_BUSY
+    assert caught.value.retryable is True
+
+
+def test_canonical_transaction_lock_blocks_a_concurrent_worktree_transaction(
+    template_vault: Path, tmp_path: Path
+) -> None:
+    _, work_dir, _ = _open_worktree(template_vault, tmp_path, "source-lock-b")
+    worktree_store = LocalFSStore(work_dir)
+    canonical_store = _store(template_vault)
+
+    with VaultTransaction(
+        canonical_store,
+        template_vault,
+        "write_page",
+        "agentic-systems",
+        "A",
+    ) as outer:
+        outer.write("agentic-systems/canonical-first.md", "A content\n")
+
+        with pytest.raises(KnoticaError) as caught:
+            with VaultTransaction(
+                worktree_store,
+                template_vault,
+                "write_page",
+                "agentic-systems",
+                "B",
+                work_dir=work_dir,
+                lock_timeout=0.2,
+            ) as inner:
+                inner.write(PAGE_B, PAGE_B_CONTENT)
+
+    assert caught.value.code is ErrorCode.LOCK_BUSY
+    assert caught.value.retryable is True
+
+
+def test_a_multi_step_worktree_ingest_leaves_the_canonical_vault_byte_identical(
+    template_vault: Path, tmp_path: Path
+) -> None:
+    # The load-bearing proof behind the whole worktree-transaction seam: a
+    # simulated multi-step ingest session (several separate transactions, the
+    # way a client-driven store-source-then-write-pages session would run)
+    # must never move the canonical vault's default-branch head or change one
+    # byte of its working tree, however many worktree-scoped commits it makes.
+    vcs, work_dir, _ = _open_worktree(template_vault, tmp_path, "source-multi-step")
+    worktree_store = LocalFSStore(work_dir)
+    head_before = vcs.head_sha()
+    commit_count_before = git_commit_count(template_vault)
+    status_before = git_status_porcelain(template_vault)
+    snapshot_before = _canonical_tree_snapshot(template_vault)
+
+    with VaultTransaction(
+        worktree_store,
+        template_vault,
+        "store_source",
+        "agentic-systems",
+        "Source",
+        work_dir=work_dir,
+    ) as step_one:
+        step_one.write(
+            "sources/agentic-systems/new-source.md",
+            "# Source\n\nFull source text, faithfully stored.\n",
+        )
+
+    with VaultTransaction(
+        worktree_store,
+        template_vault,
+        "write_page",
+        "agentic-systems",
+        "First Page",
+        work_dir=work_dir,
+    ) as step_two:
+        step_two.write(PAGE_B, PAGE_B_CONTENT)
+
+    with VaultTransaction(
+        worktree_store,
+        template_vault,
+        "write_page",
+        "agentic-systems",
+        "Second Page",
+        work_dir=work_dir,
+    ) as step_three:
+        step_three.write("agentic-systems/react.md", "# ReAct\n\nReason then act.\n")
+
+    worktree_vcs = VaultVcs(work_dir)
+    assert worktree_vcs.head_sha() != head_before, (
+        "sanity check: the worktree branch actually advanced across the three steps"
+    )
+    assert vcs.head_sha() == head_before, "the canonical default-branch ref must not move"
+    assert git_commit_count(template_vault) == commit_count_before, (
+        "the canonical vault must gain zero commits from a worktree-scoped ingest"
+    )
+    assert git_status_porcelain(template_vault) == status_before, (
+        "the canonical working tree must report no changes"
+    )
+    assert _canonical_tree_snapshot(template_vault) == snapshot_before, (
+        "the canonical working tree's bytes must be identical before and after"
+    )

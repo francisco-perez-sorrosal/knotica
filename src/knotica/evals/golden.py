@@ -518,6 +518,7 @@ def bootstrap(
     topic: str,
     llm_client: LLMClient,
     snapshot: str,
+    pages: Sequence[str] | None = None,
 ) -> list[dict[str, object]]:
     """Synthesize golden-set candidates from a topic's entity pages (the generate stage).
 
@@ -538,17 +539,28 @@ def bootstrap(
             zero-network run.
         snapshot: The exact dated model snapshot to synthesize with (the caller
             passes the pinned worker/strong snapshot from ``evals.config``).
+        pages: Optionally restricts synthesis to a subset of the topic's entity
+            pages, matched by vault-relative path and filtered in place
+            (existing page order is preserved). ``None`` (the default)
+            synthesizes from every entity page -- today's behavior,
+            byte-identical. An explicit empty sequence selects zero pages and
+            returns (and stages) an empty candidate list rather than falling
+            back to "all pages".
 
     Returns:
-        The generated candidate dicts, one per entity page, in page order.
+        The generated candidate dicts, one per selected entity page, in page
+        order.
 
     Raises:
         GoldenCandidateError: If a synthesis response does not parse into the
             candidate shape.
     """
+    selected_pages = entity_pages(store, topic)
+    if pages is not None:
+        allowed_paths = set(pages)
+        selected_pages = [page for page in selected_pages if page.path in allowed_paths]
     candidates = [
-        _synthesize_candidate(llm_client, snapshot, topic, page)
-        for page in entity_pages(store, topic)
+        _synthesize_candidate(llm_client, snapshot, topic, page) for page in selected_pages
     ]
     _write_staging(store, topic, candidates)
     return candidates

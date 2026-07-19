@@ -66,6 +66,7 @@ from pathlib import Path
 
 import pytest
 
+from knotica.core.page import topic_relative_page_name
 from knotica.core.records import QARecord
 from knotica.evals.golden import (
     EVAL_MIN_GOLDEN,
@@ -754,6 +755,94 @@ def test_a_bootstrapped_but_unfrozen_topic_still_reports_no_golden_set(
     # staged candidates present, load still reports the set as absent.
     with pytest.raises(GoldenSetMissingError):
         load(store, TOPIC)
+
+
+# --------------------------------------------------------------------------- #
+# bootstrap page-subset filter -- restricting which entity pages seed candidates
+# --------------------------------------------------------------------------- #
+
+
+def test_bootstrap_with_explicit_pages_none_covers_every_entity_page(
+    template_vault: Path, isolated_home: Path
+) -> None:
+    from knotica.evals.golden import bootstrap, entity_pages
+
+    store = LocalFSStore(template_vault)
+    all_pages = entity_pages(store, TOPIC)
+    fake = FakeLLMClient(_distinct_completions(len(all_pages)))
+
+    candidates = bootstrap(store, TOPIC, fake, BOOTSTRAP_SNAPSHOT, pages=None)
+
+    assert len(candidates) == len(all_pages), (
+        "an explicit pages=None still synthesizes one candidate per entity page, the same as "
+        "omitting the argument entirely"
+    )
+    assert fake.call_count == len(all_pages)
+
+
+def test_bootstrap_restricts_generation_to_the_given_page_subset(
+    template_vault: Path, isolated_home: Path
+) -> None:
+    from knotica.evals.golden import bootstrap, entity_pages
+
+    store = LocalFSStore(template_vault)
+    all_pages = entity_pages(store, TOPIC)
+    assert len(all_pages) >= 2, "the fixture vault must offer at least two entity pages"
+    target = all_pages[0]
+    target_name = topic_relative_page_name(TOPIC, target.path)
+    excluded_names = {topic_relative_page_name(TOPIC, page.path) for page in all_pages[1:]}
+
+    fake = FakeLLMClient(_distinct_completions(1))
+    candidates = bootstrap(store, TOPIC, fake, BOOTSTRAP_SNAPSHOT, pages=[target.path])
+
+    assert len(candidates) == 1, "only the named page is synthesized from"
+    assert candidates[0]["pages_used"] == [target_name], (
+        "the sole candidate is grounded in the page named by the subset"
+    )
+    assert not any(
+        candidate["pages_used"] == [name] for candidate in candidates for name in excluded_names
+    ), "pages outside the subset contribute no candidates"
+    assert fake.call_count == 1, "the worker model is called exactly once, for the named page"
+
+
+def test_bootstrap_with_a_page_subset_never_touches_the_frozen_golden_set(
+    template_vault: Path, isolated_home: Path
+) -> None:
+    from knotica.evals.golden import bootstrap, entity_pages, freeze
+
+    store = LocalFSStore(template_vault)
+    freeze(
+        store,
+        template_vault,
+        TOPIC,
+        [_candidate(question="What is the frozen baseline question?")],
+    )
+    frozen_before = (template_vault / golden_dataset_path(TOPIC)).read_text(encoding="utf-8")
+
+    all_pages = entity_pages(store, TOPIC)
+    fake = FakeLLMClient(_distinct_completions(1))
+
+    bootstrap(store, TOPIC, fake, BOOTSTRAP_SNAPSHOT, pages=[all_pages[0].path])
+
+    frozen_after = (template_vault / golden_dataset_path(TOPIC)).read_text(encoding="utf-8")
+    assert frozen_after == frozen_before, (
+        "a page-restricted bootstrap only writes the uncommitted review staging file -- the "
+        "already-frozen golden set is left untouched"
+    )
+
+
+def test_bootstrap_with_an_empty_page_list_produces_no_candidates_without_error(
+    template_vault: Path, isolated_home: Path
+) -> None:
+    from knotica.evals.golden import bootstrap
+
+    store = LocalFSStore(template_vault)
+    fake = FakeLLMClient(_distinct_completions(1))
+
+    candidates = bootstrap(store, TOPIC, fake, BOOTSTRAP_SNAPSHOT, pages=[])
+
+    assert candidates == [], "an empty page subset is a deliberate no-op, not an error"
+    assert fake.call_count == 0, "no page means no worker calls at all"
 
 
 # --------------------------------------------------------------------------- #

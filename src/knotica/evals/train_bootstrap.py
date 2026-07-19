@@ -13,7 +13,7 @@ scaffolding without any migration step.
 from __future__ import annotations
 
 import json
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from datetime import UTC, datetime
 from pathlib import Path, PurePath
 
@@ -59,6 +59,7 @@ def bootstrap_trainset(
     *,
     target_n: int = _DEFAULT_TARGET,
     per_page: int = _DEFAULT_PER_PAGE,
+    pages: Sequence[str] | None = None,
     on_page: Callable[[int, int, str], None] | None = None,
 ) -> dict[str, object]:
     """Synthesize up to ``target_n`` seeded train records from the topic's pages.
@@ -68,6 +69,13 @@ def bootstrap_trainset(
     at generation time, not just read time). Records land in one
     ``VaultTransaction`` commit with ``source: seed_train`` and the generating
     ``snapshot`` recorded in ``model`` — auditable cold-start provenance.
+
+    ``pages`` optionally restricts synthesis to a subset of the topic's entity
+    pages, matched by vault-relative path and filtered in place (existing page
+    order is preserved). ``None`` (the default) synthesizes from every entity
+    page — today's behavior, byte-identical. An explicit empty sequence selects
+    zero pages and returns with zero appended records rather than falling back
+    to "all pages".
     """
     cleaned = topic.strip().strip("/")
     if not cleaned or "/" in cleaned or not store.exists(cleaned):
@@ -75,13 +83,14 @@ def bootstrap_trainset(
             ErrorCode.TOPIC_NOT_FOUND,
             f"trainset bootstrap failed because topic {topic!r} does not exist.",
         )
-    pages = entity_pages(store, cleaned)
-    if not pages:
+    all_pages = entity_pages(store, cleaned)
+    if not all_pages:
         raise KnoticaError(
             ErrorCode.NOT_CONFIGURED,
             f"trainset bootstrap failed because topic '{cleaned}' has no entity pages.",
             fix="Ingest at least one source into the topic first.",
         )
+    selected_pages = all_pages if pages is None else _filter_pages(all_pages, pages)
 
     try:
         golden_questions = {record.query.strip() for record in load_golden(store, cleaned)}
@@ -94,12 +103,12 @@ def bootstrap_trainset(
 
     created = datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
     new_records: list[QARecord] = []
-    for index, page in enumerate(pages, start=1):
+    for index, page in enumerate(selected_pages, start=1):
         if len(new_records) >= target_n:
             break
         if on_page is not None:
             try:
-                on_page(index, len(pages), page.path)
+                on_page(index, len(selected_pages), page.path)
             except Exception:  # noqa: BLE001 — progress must never break the run
                 pass
         for question, answer in _synthesize_pairs(llm_client, snapshot, page, per_page):
@@ -127,6 +136,18 @@ def bootstrap_trainset(
             )
 
     if not new_records:
+        if pages is not None and not selected_pages:
+            # An explicit page filter matched nothing (including an explicit
+            # empty `pages=[]`) — a deliberate zero-page request, not a
+            # dedup-exhaustion failure, so it succeeds with nothing appended.
+            return {
+                "topic": cleaned,
+                "appended": 0,
+                "pages_read": 0,
+                "path": dataset_path,
+                "source": SEED_SOURCE,
+                "snapshot": snapshot,
+            }
         raise KnoticaError(
             ErrorCode.NOT_CONFIGURED,
             "trainset bootstrap produced no new records (all candidates duplicated "
@@ -143,11 +164,17 @@ def bootstrap_trainset(
     return {
         "topic": cleaned,
         "appended": len(new_records),
-        "pages_read": len(pages),
+        "pages_read": len(selected_pages),
         "path": dataset_path,
         "source": SEED_SOURCE,
         "snapshot": snapshot,
     }
+
+
+def _filter_pages(pages: list[Page], allowed: Sequence[str]) -> list[Page]:
+    """Restrict ``pages`` to those whose path is in ``allowed``, preserving order."""
+    allowed_paths = set(allowed)
+    return [page for page in pages if page.path in allowed_paths]
 
 
 def _synthesize_pairs(
