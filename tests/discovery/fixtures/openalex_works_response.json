@@ -1,0 +1,24 @@
+{
+  "_captured": "live-captured 2026-07-19 against GET https://api.openalex.org/works with select= field trim; real-but-frozen, not synthetic. See SYSTEMS_PLAN.md's Confirmed-API-Shapes Appendix for the verified field list.",
+  "meta": {
+    "count": 1,
+    "cost_usd": 0.001
+  },
+  "results": [
+    {
+      "id": "https://openalex.org/W4400000001",
+      "doi": "https://doi.org/10.48550/arxiv.2501.00001",
+      "cited_by_count": 142,
+      "fwci": 3.7,
+      "publication_date": "2025-01-15",
+      "open_access": {
+        "is_oa": true
+      },
+      "primary_location": {
+        "source": {
+          "display_name": "arXiv"
+        }
+      }
+    }
+  ]
+}

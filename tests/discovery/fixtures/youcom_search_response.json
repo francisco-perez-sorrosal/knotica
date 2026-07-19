@@ -1,0 +1,18 @@
+{
+  "_synthetic": true,
+  "_note": "Authored from the documented (unverified) you.com Search REST shape -- see SYSTEMS_PLAN.md's Confirmed-API-Shapes Appendix, 'you.com -- NOT verified'. This is NOT a live-captured response. Deferred Step 31 replaces this fixture with a real capture once a KNOTICA_YOUCOM_API_KEY is available, at which point this file (and the '_synthetic'/'_note' keys) should be removed.",
+  "hits": [
+    {
+      "url": "https://arxiv.org/abs/2501.00001",
+      "title": "Compounding Knowledge Wikis for Autonomous Agents",
+      "snippet": "A short synthetic abstract describing a compounding wiki system for agentic self-improvement.",
+      "author": "Ada Researcher, Grace Engineer",
+      "page_age": "2025-01-15"
+    },
+    {
+      "url": "https://example.com/blog/agentic-loops",
+      "title": "Notes on Agentic Self-Improvement Loops",
+      "snippet": "A general-web synthetic hit with no author or publication date."
+    }
+  ]
+}
