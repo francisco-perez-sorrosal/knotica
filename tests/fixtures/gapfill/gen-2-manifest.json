@@ -1,0 +1,437 @@
+{
+  "T": 57424,
+  "T_target": 74651.2,
+  "auth_mode": "api_key",
+  "ceilings": {
+    "max_total_tokens": 5000000,
+    "max_usd": 10.0
+  },
+  "corpus_ref": "git:d357af5bde2aefb1c01f337f9dc45135785a90bb",
+  "cost_factor": 1.0,
+  "cost_usd": 4.201995,
+  "dataset_sha256": "f0b1ce499a71f6e3c1e705c62c4550fea2c7968d3fe6a13d0206d2770e96af36",
+  "deterministic": true,
+  "evaluate": {
+    "failure_score": 0.0,
+    "num_threads": 1
+  },
+  "generation": 2,
+  "harness_version": "ac9ffce37f338a3c1c258302b34257bf62b57d6e3caf25025bb7db1d19ac60c1",
+  "held_out_delta": null,
+  "judge": {
+    "cache_hit_rate": 0.5,
+    "cache_hits": 25,
+    "cache_misses": 25,
+    "n_samples": 3,
+    "prompt_hash": "e1eb3c2838701dab5f2ec7c23bef5626cbd34474442d88c772aca2b76e441ad8",
+    "snapshot": "claude-opus-4-6"
+  },
+  "lambda": 0.3,
+  "manifest_schema_version": 2,
+  "n_examples": 25,
+  "per_example": [
+    {
+      "citation_validity": 1.0,
+      "id": "golden-604dcb432884687d",
+      "pages": [
+        "agent-memory-frontiers",
+        "agent-memory-benchmarks",
+        "memory-in-the-age-of-ai-agents",
+        "sources/agentic-systems/zhang2025dgm",
+        "sources/agentic-systems/ren2026siagents-s8-evaluation"
+      ],
+      "qa_accuracy": 1.0,
+      "quality": 1.0,
+      "question": "Which benchmarks are categorized under the 'self-evolving-agent' tier in the memory-specific benchmark groupings?",
+      "total_tokens": 47070
+    },
+    {
+      "citation_validity": 1.0,
+      "id": "golden-08f6c7444681c1f6",
+      "pages": [
+        "agent-memory-frontiers",
+        "memory-in-the-age-of-ai-agents",
+        "memory-functions-taxonomy",
+        "sources/agentic-systems/hu2025memory-s3-form",
+        "sources/agentic-systems/hu2025memory-s2-prelim"
+      ],
+      "qa_accuracy": 1.0,
+      "quality": 1.0,
+      "question": "According to the survey's frontiers section, what are the three pillars that trustworthy memory rests on?",
+      "total_tokens": 22043
+    },
+    {
+      "citation_validity": 1.0,
+      "id": "golden-f861e8214d0acb3e",
+      "pages": [
+        "memory-in-the-age-of-ai-agents",
+        "reports/guillotine/2026-07-08-reasoning-only-systems-hallucinate-because-they-are-closed",
+        "self-improving-agents-survey",
+        "sources/agentic-systems/zhang2025dgm",
+        "sources/agentic-systems/hu2025memory-s2-prelim"
+      ],
+      "qa_accuracy": 1.0,
+      "quality": 1.0,
+      "question": "According to the Hu et al. survey, what are the three orthogonal lenses used to organize the field of agent memory, and what does each lens address?",
+      "total_tokens": 55091
+    },
+    {
+      "citation_validity": 1.0,
+      "id": "golden-e5b2bc607b968574",
+      "pages": [
+        "self-improving-agents",
+        "reports/guillotine/2026-07-07-reasoning-only-systems-hallucinate-because-they-are-closed",
+        "reports/guillotine/2026-07-08-reasoning-only-systems-hallucinate-because-they-are-closed",
+        "sources/agentic-systems/wang2024awm",
+        "sources/agentic-systems/zhang2025dgm"
+      ],
+      "qa_accuracy": 1.0,
+      "quality": 1.0,
+      "question": "By what relative success rate percentages does AWM improve over the baseline on Mind2Web and WebArena respectively?",
+      "total_tokens": 64371
+    },
+    {
+      "citation_validity": 1.0,
+      "id": "golden-8ea1531bde9a3592",
+      "pages": [
+        "cognee",
+        "memory-as-database-workload",
+        "reports/guillotine/2026-07-07-react-s-reasoning-acting-synergy-is-the-dominant",
+        "sources/agentic-systems/zhang2025dgm",
+        "sources/agentic-systems/markovic2026cognee1"
+      ],
+      "qa_accuracy": 1.0,
+      "quality": 1.0,
+      "question": "What are the four memory-native API verbs exposed by cognee 1.0, and what does each one do?",
+      "total_tokens": 47472
+    },
+    {
+      "citation_validity": 1.0,
+      "id": "golden-1957b7f5310845cb",
+      "pages": [
+        "darwin-godel-machine",
+        "self-improving-agents-survey",
+        "self-improving-agents",
+        "sources/agentic-systems/zhang2025dgm",
+        "sources/agentic-systems/wang2024awm"
+      ],
+      "qa_accuracy": 1.0,
+      "quality": 1.0,
+      "question": "What performance improvement did the Darwin Gödel Machine achieve on SWE-bench over 80 iterations, and what was the final score?",
+      "total_tokens": 59064
+    },
+    {
+      "citation_validity": 1.0,
+      "id": "golden-2492f283e6054699",
+      "pages": [
+        "trellis-experience-graphs",
+        "memory-as-database-workload",
+        "training-views-from-experience-graphs",
+        "sources/agentic-systems/hu2025memory-s3-form",
+        "sources/agentic-systems/liao2026experience-s2-agentic"
+      ],
+      "qa_accuracy": 0.9,
+      "quality": 0.9299999999999999,
+      "question": "According to Liao et al., what three data properties make the experience graph a database rather than a document store?",
+      "total_tokens": 19079
+    },
+    {
+      "citation_validity": 1.0,
+      "id": "golden-4e9bbb53af05bc33",
+      "pages": [
+        "reports/guillotine/2026-07-08-reasoning-only-systems-hallucinate-because-they-are-closed",
+        "trellis-experience-graphs",
+        "reports/guillotine/2026-07-07-reasoning-only-systems-hallucinate-because-they-are-closed",
+        "sources/agentic-systems/zhang2025dgm",
+        "sources/agentic-systems/hu2025memory-s2-prelim"
+      ],
+      "qa_accuracy": 0.0,
+      "quality": 0.3,
+      "question": "According to the Experience Graphs paper, what are the eight operations agents run against memory, and how are they characterized in terms of system architecture?",
+      "total_tokens": 58040
+    },
+    {
+      "citation_validity": 1.0,
+      "id": "golden-8e1b25ddf7efbb53",
+      "pages": [
+        "memory-in-the-age-of-ai-agents",
+        "memory-dynamics",
+        "agent-memory-benchmarks",
+        "sources/agentic-systems/hu2025memory-s3-form",
+        "sources/agentic-systems/hu2025memory-s2-prelim"
+      ],
+      "qa_accuracy": 1.0,
+      "quality": 1.0,
+      "question": "What are the five categories of memory formation identified in the memory dynamics framework?",
+      "total_tokens": 21946
+    },
+    {
+      "citation_validity": 1.0,
+      "id": "golden-dd8a50820f06ea5e",
+      "pages": [
+        "memory-in-the-age-of-ai-agents",
+        "memory-functions-taxonomy",
+        "memory-forms-taxonomy",
+        "sources/agentic-systems/hu2025memory-s3-form",
+        "sources/agentic-systems/hu2025memory-s2-prelim"
+      ],
+      "qa_accuracy": 1.0,
+      "quality": 1.0,
+      "question": "According to the Hu et al. survey's memory forms taxonomy, how is token-level memory sub-classified, and what are the trade-offs of each sub-type?",
+      "total_tokens": 22746
+    },
+    {
+      "citation_validity": 1.0,
+      "id": "golden-7064de11ec54e5cb",
+      "pages": [
+        "memory-functions-taxonomy",
+        "memory-in-the-age-of-ai-agents",
+        "agent-memory-frontiers",
+        "sources/agentic-systems/hu2025memory-s3-form",
+        "sources/agentic-systems/hu2025memory-s2-prelim"
+      ],
+      "qa_accuracy": 1.0,
+      "quality": 1.0,
+      "question": "According to the memory functions taxonomy, what are the four sub-forms of experiential memory described in the survey?",
+      "total_tokens": 22211
+    },
+    {
+      "citation_validity": 1.0,
+      "id": "golden-b556c9a9ce8c1275",
+      "pages": [
+        "memory-in-the-age-of-ai-agents",
+        "reports/guillotine/2026-07-08-reasoning-only-systems-hallucinate-because-they-are-closed",
+        "reports/guillotine/2026-07-07-reasoning-only-systems-hallucinate-because-they-are-closed",
+        "sources/agentic-systems/zhang2025dgm",
+        "sources/agentic-systems/hu2025memory-s2-prelim"
+      ],
+      "qa_accuracy": 1.0,
+      "quality": 1.0,
+      "question": "What three orthogonal lenses does the survey propose to reorganize agent memory terminology, and what does each lens address?",
+      "total_tokens": 57424
+    },
+    {
+      "citation_validity": 1.0,
+      "id": "golden-b2621ea96ccffe3d",
+      "pages": [
+        "reports/guillotine/2026-07-08-reasoning-only-systems-hallucinate-because-they-are-closed",
+        "reports/guillotine/2026-07-07-reasoning-only-systems-hallucinate-because-they-are-closed",
+        "self-improving-agents-survey",
+        "sources/agentic-systems/zhang2025dgm",
+        "sources/agentic-systems/wang2024awm"
+      ],
+      "qa_accuracy": 0.9,
+      "quality": 0.9299999999999999,
+      "question": "According to the DGM ablation study, what happens when an agent keeps only the most recent solution instead of maintaining an archive?",
+      "total_tokens": 65103
+    },
+    {
+      "citation_validity": 1.0,
+      "id": "golden-72c431a0cdbd7ead",
+      "pages": [
+        "reports/guillotine/2026-07-07-reasoning-only-systems-hallucinate-because-they-are-closed",
+        "reports/guillotine/2026-07-08-reasoning-only-systems-hallucinate-because-they-are-closed",
+        "react",
+        "sources/agentic-systems/yao2022react",
+        "sources/agentic-systems/zhang2025dgm"
+      ],
+      "qa_accuracy": 0.9,
+      "quality": 0.9299999999999999,
+      "question": "According to the ReAct prompting page, what advantage do smaller finetuned models trained on ReAct-format trajectories have over larger prompted models?",
+      "total_tokens": 64443
+    },
+    {
+      "citation_validity": 1.0,
+      "id": "golden-ca65df8c18240ec0",
+      "pages": [
+        "react",
+        "reports/guillotine/2026-07-07-reasoning-only-systems-hallucinate-because-they-are-closed",
+        "reports/guillotine/2026-07-08-reasoning-only-systems-hallucinate-because-they-are-closed",
+        "sources/agentic-systems/yao2022react",
+        "sources/agentic-systems/wang2024awm"
+      ],
+      "qa_accuracy": 1.0,
+      "quality": 1.0,
+      "question": "By what absolute success rate margins does ReAct outperform imitation- and reinforcement-learning methods on ALFWorld and WebShop respectively, and how many in-context examples does it use?",
+      "total_tokens": 42273
+    },
+    {
+      "citation_validity": 1.0,
+      "id": "golden-40eb3e2dc5231976",
+      "pages": [
+        "reports/guillotine/2026-07-08-reasoning-only-systems-hallucinate-because-they-are-closed",
+        "reports/guillotine/2026-07-07-reasoning-only-systems-hallucinate-because-they-are-closed",
+        "reports/guillotine/2026-07-07-react-s-reasoning-acting-synergy-is-the-dominant",
+        "sources/agentic-systems/zhang2025dgm",
+        "sources/agentic-systems/hu2025memory-s2-prelim"
+      ],
+      "qa_accuracy": 0.9,
+      "quality": 0.9299999999999999,
+      "question": "According to the reasoning–acting synergy concept, why are reasoning-only systems prone to hallucination?",
+      "total_tokens": 57519
+    },
+    {
+      "citation_validity": 1.0,
+      "id": "golden-7dbecc47108f3a9c",
+      "pages": [
+        "reports/guillotine/2026-07-08-reasoning-only-systems-hallucinate-because-they-are-closed",
+        "reports/guillotine/2026-07-07-reasoning-only-systems-hallucinate-because-they-are-closed",
+        "reports/guillotine/2026-07-07-react-s-reasoning-acting-synergy-is-the-dominant",
+        "sources/agentic-systems/zhang2025dgm",
+        "sources/agentic-systems/hu2025memory-s2-prelim"
+      ],
+      "qa_accuracy": 1.0,
+      "quality": 1.0,
+      "question": "What was the final triage score and recommended verdict for the claim that ReAct's reasoning-acting synergy is the dominant paradigm for agentic systems?",
+      "total_tokens": 57387
+    },
+    {
+      "citation_validity": 1.0,
+      "id": "golden-b98f241eeed7d9e2",
+      "pages": [
+        "reports/guillotine/2026-07-08-reasoning-only-systems-hallucinate-because-they-are-closed",
+        "reports/guillotine/2026-07-07-reasoning-only-systems-hallucinate-because-they-are-closed",
+        "reports/guillotine/2026-07-07-react-s-reasoning-acting-synergy-is-the-dominant",
+        "sources/agentic-systems/zhang2025dgm",
+        "sources/agentic-systems/hu2025memory-s3-form"
+      ],
+      "qa_accuracy": 1.0,
+      "quality": 1.0,
+      "question": "What verdict did the Memory Guillotine Report assign to the claim that reasoning-only systems hallucinate because they are closed-loop over the model's own representations, and what risk score was calculated?",
+      "total_tokens": 57842
+    },
+    {
+      "citation_validity": 1.0,
+      "id": "golden-dbe75195e803435c",
+      "pages": [
+        "reports/guillotine/2026-07-08-reasoning-only-systems-hallucinate-because-they-are-closed",
+        "reports/guillotine/2026-07-07-reasoning-only-systems-hallucinate-because-they-are-closed",
+        "reports/guillotine/2026-07-07-react-s-reasoning-acting-synergy-is-the-dominant",
+        "sources/agentic-systems/zhang2025dgm",
+        "sources/agentic-systems/hu2025memory-s3-form"
+      ],
+      "qa_accuracy": 1.0,
+      "quality": 1.0,
+      "question": "What verdict did the Memory Guillotine Report recommend for the claim that reasoning-only systems hallucinate because they are closed-loop over the model's own representations, and what was the final risk score?",
+      "total_tokens": 57788
+    },
+    {
+      "citation_validity": 1.0,
+      "id": "golden-0cd074b9fe3d0cf4",
+      "pages": [
+        "reports/okf/2026-07-08-okf-repair",
+        "reports/guillotine/2026-07-07-react-s-reasoning-acting-synergy-is-the-dominant",
+        "reports/guillotine/2026-07-07-reasoning-only-systems-hallucinate-because-they-are-closed",
+        "sources/agentic-systems/zhang2025dgm",
+        "sources/agentic-systems/ren2026siagents-s8-evaluation"
+      ],
+      "qa_accuracy": 1.0,
+      "quality": 1.0,
+      "question": "How many files were changed in the OKF Repair Report dated 2026-07-08?",
+      "total_tokens": 49236
+    },
+    {
+      "citation_validity": 1.0,
+      "id": "golden-a570c5a4d74df2d3",
+      "pages": [
+        "reports/guillotine/2026-07-08-reasoning-only-systems-hallucinate-because-they-are-closed",
+        "reports/guillotine/2026-07-07-reasoning-only-systems-hallucinate-because-they-are-closed",
+        "self-improving-agents-survey",
+        "sources/agentic-systems/wang2024awm",
+        "sources/agentic-systems/zhang2025dgm"
+      ],
+      "qa_accuracy": 0.82,
+      "quality": 0.8739999999999999,
+      "question": "By how much did Agent Workflow Memory improve web agent success rates, and what type of change did it require to achieve this?",
+      "total_tokens": 65175
+    },
+    {
+      "citation_validity": 1.0,
+      "id": "golden-499d626a82102b10",
+      "pages": [
+        "swe-bench",
+        "self-improving-agents",
+        "darwin-godel-machine",
+        "sources/agentic-systems/zhang2025dgm",
+        "sources/agentic-systems/wang2024awm"
+      ],
+      "qa_accuracy": 0.9,
+      "quality": 0.9299999999999999,
+      "question": "What distinguishes SWE-bench tasks from Polyglot's tasks in terms of code editing scope?",
+      "total_tokens": 57877
+    },
+    {
+      "citation_validity": 1.0,
+      "id": "golden-bc802729c0184aed",
+      "pages": [
+        "trellis-experience-graphs",
+        "training-views-from-experience-graphs",
+        "experience-graph",
+        "sources/agentic-systems/zhang2025dgm",
+        "sources/agentic-systems/wang2024awm"
+      ],
+      "qa_accuracy": 1.0,
+      "quality": 1.0,
+      "question": "According to the Experience Graphs paper, why must SFT trajectories read each node 'as of' its own step rather than replaying from the final state?",
+      "total_tokens": 59603
+    },
+    {
+      "citation_validity": 1.0,
+      "id": "golden-f376f6db81f1e89f",
+      "pages": [
+        "trellis-experience-graphs",
+        "memory-in-the-age-of-ai-agents",
+        "memory-as-database-workload",
+        "sources/agentic-systems/zhang2025dgm",
+        "sources/agentic-systems/hu2025memory-s3-form"
+      ],
+      "qa_accuracy": 1.0,
+      "quality": 1.0,
+      "question": "In the KernelEvolve study reported in the Trellis paper, how much faster did cross-session memory reach the 1.2× target speedup compared to a cold start, and what was the token cost reduction per valid solution?",
+      "total_tokens": 52834
+    },
+    {
+      "citation_validity": 1.0,
+      "id": "golden-9b75b24cc8cbe872",
+      "pages": [
+        "reports/guillotine/2026-07-08-reasoning-only-systems-hallucinate-because-they-are-closed",
+        "reports/guillotine/2026-07-07-reasoning-only-systems-hallucinate-because-they-are-closed",
+        "memory-in-the-age-of-ai-agents",
+        "sources/agentic-systems/wang2024awm",
+        "sources/agentic-systems/zhang2025dgm"
+      ],
+      "qa_accuracy": 1.0,
+      "quality": 1.0,
+      "question": "What are the two modes in which workflows can be induced according to the agent workflow memory method, and what distinguishes them?",
+      "total_tokens": 64719
+    }
+  ],
+  "scalar": 0.960016,
+  "scalar_formula_version": 1,
+  "tau": 1.3,
+  "token_usage": {
+    "by_snapshot": {
+      "claude-opus-4-6": {
+        "input_tokens": 45870,
+        "output_tokens": 5433
+      },
+      "claude-sonnet-4-6": {
+        "input_tokens": 1240710,
+        "output_tokens": 7646
+      }
+    },
+    "total": 1299659
+  },
+  "topic": "agentic-systems",
+  "weights": {
+    "w_cite": 0.3,
+    "w_lint": 0.15,
+    "w_qa": 0.7
+  },
+  "worker": {
+    "cache_hit_rate": 0.0,
+    "cache_hits": 0,
+    "cache_misses": 25,
+    "snapshot": "claude-sonnet-4-6"
+  }
+}

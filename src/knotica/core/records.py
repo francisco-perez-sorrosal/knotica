@@ -29,6 +29,9 @@ from knotica.core.page import parse_page, serialize_frontmatter
 
 __all__ = [
     "COMMIT_SUBJECT_RE",
+    "GAP_FAULT_CLASSES",
+    "GAP_SCHEMA_VERSION",
+    "GAP_STATUSES",
     "LOG_ENTRY_RE",
     "METRICS_SCHEMA_VERSION",
     "PROVENANCE_SCHEMA_VERSION",
@@ -37,6 +40,8 @@ __all__ = [
     "QA_VERDICTS",
     "SOURCE_TYPES",
     "CommitSubject",
+    "GapEvidence",
+    "GapRecord",
     "LogEntry",
     "MetricsComponents",
     "MetricsRecord",
@@ -47,6 +52,7 @@ __all__ = [
     "format_commit_subject",
     "format_log_entry",
     "parse_commit_subject",
+    "parse_gaps_jsonl",
     "parse_log_entries",
     "parse_qa_jsonl",
     "parse_source_document",
@@ -57,12 +63,19 @@ __all__ = [
 QA_SCHEMA_VERSION = 1
 METRICS_SCHEMA_VERSION = 1
 PROVENANCE_SCHEMA_VERSION = 1
+GAP_SCHEMA_VERSION = 1
 
 QA_VERDICTS: frozenset[str] = frozenset({"good", "bad", "corrected"})
 #: ``seed_train`` has no producer anymore (the demo seeder was removed); it stays
 #: accepted so vaults that ran it keep parsing — frozen record shapes, dec-006.
 QA_SOURCES: frozenset[str] = frozenset({"curate_example", "distillation", "seed_train"})
 SOURCE_TYPES: frozenset[str] = frozenset({"html", "pdf", "markdown", "text"})
+
+#: Only knowledge-cause verdicts are ever persisted as a gap record; a prompt-cause
+#: fault (generation/retrieval) routes to the arena heal and is never written here.
+GAP_FAULT_CLASSES: frozenset[str] = frozenset({"genuine_gap", "dilution"})
+#: Lifecycle of one gap record: P1 writes ``open``; P3/P4 flip it terminal.
+GAP_STATUSES: frozenset[str] = frozenset({"open", "resolved", "dismissed"})
 
 #: Log-entry H2 line: ``## [YYYY-MM-DD] <op> | <topic> | <title>``.
 LOG_ENTRY_RE = re.compile(
@@ -263,6 +276,156 @@ class MetricsRecord:
             corpus_ref=_required_str(data, "corpus_ref", record="metrics.jsonl"),
             artifact_ref=_optional_str(data, "artifact_ref", record="metrics.jsonl"),
         )
+
+
+# ---------------------------------------------------------------------------
+# gaps.jsonl -- one knowledge-gap record per detected regression id
+# ---------------------------------------------------------------------------
+
+
+@dataclass(frozen=True, kw_only=True)
+class GapEvidence:
+    """The advisory, detection-time snapshot attached to one gap record.
+
+    A frozen snapshot of the score deltas and retrieval-trace set-diffs that
+    justified the verdict -- mirrors :class:`MetricsComponents`'s nested-object
+    precedent. Values are stored verbatim from the eval manifest's per-id delta
+    and per-example trace; a consumer may rank on them but must not assume they
+    still hold at read time (the vault moves on).
+    """
+
+    quality_delta: float
+    qa_accuracy_delta: float
+    citation_validity_delta: float
+    retrieval_trace: tuple[str, ...]
+    pages_added: tuple[str, ...]
+    pages_removed: tuple[str, ...]
+    prior_generation: int
+
+
+@dataclass(frozen=True, kw_only=True)
+class GapRecord:
+    """One knowledge-gap record, a single ``gaps.jsonl`` line.
+
+    Written by the loop's regression classifier for every ``genuine_gap`` or
+    ``dilution`` verdict, consumed out-of-process by the P3 suggestion queue.
+    ``reference_pages`` and ``evidence.retrieval_trace`` are stored verbatim from
+    ``QARecord.pages_used`` / the manifest trace (no re-derivation), so the P3
+    page-name join holds. Parsing tolerates unknown extra fields and probes
+    ``schema_version`` first (dec-006 record-schema-freeze discipline).
+    """
+
+    gap_id: str
+    schema_version: int = GAP_SCHEMA_VERSION
+    topic: str
+    qa_id: str
+    fault_class: str
+    status: str
+    classifier_version: int
+    detected_generation: int
+    detected_at: str
+    scalar_at_detection: float
+    baseline_scalar: float
+    question: str
+    reference_pages: tuple[str, ...]
+    reference_pages_exist: bool
+    evidence: GapEvidence
+    manifest_ref: str
+
+    def __post_init__(self) -> None:
+        _validate_schema_version(self.schema_version)
+        _validate_enum("fault_class", self.fault_class, GAP_FAULT_CLASSES)
+        _validate_enum("status", self.status, GAP_STATUSES)
+
+    def to_json_line(self) -> str:
+        """Serialize to one JSON line (no trailing newline), fields in schema order."""
+        payload = {
+            "schema_version": self.schema_version,
+            "gap_id": self.gap_id,
+            "topic": self.topic,
+            "qa_id": self.qa_id,
+            "fault_class": self.fault_class,
+            "status": self.status,
+            "classifier_version": self.classifier_version,
+            "detected_generation": self.detected_generation,
+            "detected_at": self.detected_at,
+            "scalar_at_detection": self.scalar_at_detection,
+            "baseline_scalar": self.baseline_scalar,
+            "question": self.question,
+            "reference_pages": list(self.reference_pages),
+            "reference_pages_exist": self.reference_pages_exist,
+            "evidence": {
+                "quality_delta": self.evidence.quality_delta,
+                "qa_accuracy_delta": self.evidence.qa_accuracy_delta,
+                "citation_validity_delta": self.evidence.citation_validity_delta,
+                "retrieval_trace": list(self.evidence.retrieval_trace),
+                "pages_added": list(self.evidence.pages_added),
+                "pages_removed": list(self.evidence.pages_removed),
+                "prior_generation": self.evidence.prior_generation,
+            },
+            "manifest_ref": self.manifest_ref,
+        }
+        return json.dumps(payload, ensure_ascii=False)
+
+    @classmethod
+    def from_json_line(cls, line: str) -> "GapRecord":
+        """Parse one ``gaps.jsonl`` line; unknown extra fields are tolerated."""
+        data = _load_json_object(line, record="gaps.jsonl")
+        evidence = data.get("evidence")
+        if not isinstance(evidence, dict):
+            raise RecordParseError(
+                f"gaps.jsonl record field 'evidence' must be an object, got {evidence!r}"
+            )
+        return cls(
+            gap_id=_required_str(data, "gap_id", record="gaps.jsonl"),
+            schema_version=_required_int(data, "schema_version", record="gaps.jsonl"),
+            topic=_required_str(data, "topic", record="gaps.jsonl"),
+            qa_id=_required_str(data, "qa_id", record="gaps.jsonl"),
+            fault_class=_required_str(data, "fault_class", record="gaps.jsonl"),
+            status=_required_str(data, "status", record="gaps.jsonl"),
+            classifier_version=_required_int(data, "classifier_version", record="gaps.jsonl"),
+            detected_generation=_required_int(data, "detected_generation", record="gaps.jsonl"),
+            detected_at=_required_str(data, "detected_at", record="gaps.jsonl"),
+            scalar_at_detection=_required_number(data, "scalar_at_detection", record="gaps.jsonl"),
+            baseline_scalar=_required_number(data, "baseline_scalar", record="gaps.jsonl"),
+            question=_required_str(data, "question", record="gaps.jsonl"),
+            reference_pages=_required_str_tuple(data, "reference_pages", record="gaps.jsonl"),
+            reference_pages_exist=_required_bool(
+                data, "reference_pages_exist", record="gaps.jsonl"
+            ),
+            evidence=GapEvidence(
+                quality_delta=_required_number(evidence, "quality_delta", record="gaps.jsonl"),
+                qa_accuracy_delta=_required_number(
+                    evidence, "qa_accuracy_delta", record="gaps.jsonl"
+                ),
+                citation_validity_delta=_required_number(
+                    evidence, "citation_validity_delta", record="gaps.jsonl"
+                ),
+                retrieval_trace=_required_str_tuple(
+                    evidence, "retrieval_trace", record="gaps.jsonl"
+                ),
+                pages_added=_required_str_tuple(evidence, "pages_added", record="gaps.jsonl"),
+                pages_removed=_required_str_tuple(evidence, "pages_removed", record="gaps.jsonl"),
+                prior_generation=_required_int(evidence, "prior_generation", record="gaps.jsonl"),
+            ),
+            manifest_ref=_required_str(data, "manifest_ref", record="gaps.jsonl"),
+        )
+
+
+def parse_gaps_jsonl(text: str) -> list[GapRecord]:
+    """Parse a full ``gaps.jsonl`` body; blank lines are skipped.
+
+    Errors carry the 1-based line number of the offending record.
+    """
+    records: list[GapRecord] = []
+    for line_number, line in enumerate(text.splitlines(), start=1):
+        if not line.strip():
+            continue
+        try:
+            records.append(GapRecord.from_json_line(line))
+        except (RecordParseError, ValueError) as error:
+            raise RecordParseError(f"gaps.jsonl line {line_number}: {error}") from error
+    return records
 
 
 # ---------------------------------------------------------------------------
@@ -530,6 +693,13 @@ def _required_int(data: Mapping[str, object], key: str, *, record: str) -> int:
     value = _required_field(data, key, record=record)
     if not isinstance(value, int) or isinstance(value, bool):
         raise RecordParseError(f"{record} record field {key!r} must be an integer, got {value!r}")
+    return value
+
+
+def _required_bool(data: Mapping[str, object], key: str, *, record: str) -> bool:
+    value = _required_field(data, key, record=record)
+    if not isinstance(value, bool):
+        raise RecordParseError(f"{record} record field {key!r} must be a boolean, got {value!r}")
     return value
 
 
