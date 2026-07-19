@@ -33,6 +33,7 @@ __all__ = [
     "GAP_ORIGINS",
     "GAP_ORIGIN_MEASURED",
     "GAP_ORIGIN_REPORTED",
+    "GAP_ORIGIN_RETRACTED",
     "GAP_SCHEMA_VERSION",
     "GAP_STATUSES",
     "LOG_ENTRY_RE",
@@ -87,12 +88,18 @@ GAP_STATUSES: frozenset[str] = frozenset({"open", "resolved", "dismissed"})
 
 #: Provenance of a gap record. ``measured`` gaps are eval-proven (the loop's
 #: regression classifier wrote them from a scored delta); ``reported`` gaps are
-#: filed conversationally by the client-as-brain via the ``gap_report`` tool and
-#: carry no per-id eval evidence (their evidence fields are zero/empty by
-#: construction). Additive-only: pre-provenance records parse as ``measured``.
+#: filed conversationally by the client-as-brain via the ``gap_report`` tool;
+#: ``retracted`` gaps are filed by the guillotine when an applied verdict weakens
+#: knowledge (a retract/demote/dispute/delete leaves a hole to re-source). Neither
+#: ``reported`` nor ``retracted`` gaps carry per-id eval evidence (their evidence
+#: fields are zero/empty by construction). Additive-only: pre-provenance records
+#: parse as ``measured``.
 GAP_ORIGIN_MEASURED = "measured"
 GAP_ORIGIN_REPORTED = "reported"
-GAP_ORIGINS: frozenset[str] = frozenset({GAP_ORIGIN_MEASURED, GAP_ORIGIN_REPORTED})
+GAP_ORIGIN_RETRACTED = "retracted"
+GAP_ORIGINS: frozenset[str] = frozenset(
+    {GAP_ORIGIN_MEASURED, GAP_ORIGIN_REPORTED, GAP_ORIGIN_RETRACTED}
+)
 
 #: Lifecycle of one suggestion record. The discovery writer stages ``pending``;
 #: the human gate flips ``approved``/``rejected``/``deferred`` in place; the
@@ -357,6 +364,12 @@ class GapRecord:
     evidence: GapEvidence
     manifest_ref: str
     origin: str = GAP_ORIGIN_MEASURED
+    #: Proposer-supplied context for a non-``measured`` gap: the ``reason`` a
+    #: reporter gave (``gap_report``) or the guillotine verdict + report path
+    #: (``retracted``). ``None`` on ``measured`` gaps and pre-feature records.
+    #: Additive-only optional field (schema stays v1); kept on the gap only —
+    #: never threaded onto the derived suggestion.
+    reported_reason: str | None = None
 
     def __post_init__(self) -> None:
         _validate_schema_version(self.schema_version)
@@ -392,6 +405,7 @@ class GapRecord:
             },
             "manifest_ref": self.manifest_ref,
             "origin": self.origin,
+            "reported_reason": self.reported_reason,
         }
         return json.dumps(payload, ensure_ascii=False)
 
@@ -440,6 +454,7 @@ class GapRecord:
             origin=_optional_str_or_default(
                 data, "origin", GAP_ORIGIN_MEASURED, record="gaps.jsonl"
             ),
+            reported_reason=_optional_str_absent(data, "reported_reason", record="gaps.jsonl"),
         )
 
 

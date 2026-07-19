@@ -2,6 +2,7 @@ import { useEffect, useState } from "preact/hooks";
 
 import type { ToolClient } from "./toolClient";
 import type {
+  GapOrigin,
   SuggestionAction,
   SuggestionRecord,
   SuggestionReputability,
@@ -21,6 +22,13 @@ const TIER_TREATMENT: Record<string, { glyph: string; tone: string }> = {
   preprint_known_lab: { glyph: "◐", tone: "warn" }, // ◐
   established_org: { glyph: "○", tone: "warn" }, // ○
   general_web: { glyph: "·", tone: "" }, // ·
+};
+
+/** Gap origin -> (shape glyph, tone class) — shape + label, never color alone. */
+const ORIGIN_TREATMENT: Record<GapOrigin, { glyph: string; tone: string; label: string }> = {
+  measured: { glyph: "◆", tone: "ok", label: "measured" }, // eval-proven
+  reported: { glyph: "✎", tone: "warn", label: "reported" }, // conversationally filed
+  retracted: { glyph: "⌫", tone: "warn", label: "retracted" }, // guillotine-weakened
 };
 
 export function SourcesPane({
@@ -219,7 +227,10 @@ function SuggestionCard({
         <span class="status-chip">
           {suggestion.fault_class} · gen-{suggestion.detected_generation} · rank #{suggestion.rank}
         </span>
-        <ReputabilityBadge reputability={candidate.reputability} />
+        <span class="sources-card-badges">
+          <GapOriginBadge origin={suggestion.gap_origin} />
+          <ReputabilityBadge reputability={candidate.reputability} />
+        </span>
       </div>
 
       <div class="sources-card-question">
@@ -316,6 +327,17 @@ function SuggestionCard({
         </div>
       ) : null}
     </li>
+  );
+}
+
+function GapOriginBadge({ origin }: { origin?: GapOrigin | null }) {
+  if (!origin) return null; // older records carry no provenance — omit the badge
+  const treatment = ORIGIN_TREATMENT[origin];
+  if (!treatment) return null;
+  return (
+    <span class={`health-chip sources-origin ${treatment.tone}`} title={`gap origin: ${treatment.label}`}>
+      <span aria-hidden="true">{treatment.glyph}</span> {treatment.label}
+    </span>
   );
 }
 

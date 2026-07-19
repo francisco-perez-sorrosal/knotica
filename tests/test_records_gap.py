@@ -53,6 +53,7 @@ GAP_RECORD_FIELDS = frozenset(
         "evidence",
         "manifest_ref",
         "origin",
+        "reported_reason",
     }
 )
 
@@ -211,6 +212,18 @@ def test_origin_outside_the_provenance_domain_is_rejected(origin):
         _gap_record(origin=origin)
 
 
+def test_gap_record_accepts_retracted_origin_and_round_trips_it():
+    # A guillotine-filed retraction gap carries origin="retracted" -- a third
+    # provenance value distinct from measured/reported (dec-025 lineage, D).
+    record = _gap_record(origin="retracted")
+
+    rendered = json.loads(record.to_json_line())
+    parsed = _records_module().GapRecord.from_json_line(record.to_json_line())
+
+    assert rendered["origin"] == "retracted"
+    assert parsed.origin == "retracted"
+
+
 def test_gap_line_missing_origin_defaults_to_measured():
     """A ``gaps.jsonl`` line written before this feature has no ``origin`` key at
     all -- the additive field must default on *parse*, not just on construction,
@@ -221,6 +234,42 @@ def test_gap_line_missing_origin_defaults_to_measured():
     record = _records_module().GapRecord.from_json_line(json.dumps(payload))
 
     assert record.origin == "measured"
+
+
+# ---------------------------------------------------------------------------
+# reported_reason -- additive, persisted advisory context
+# ---------------------------------------------------------------------------
+
+
+def test_gap_record_defaults_reported_reason_to_none_when_not_given():
+    record = _gap_record()
+
+    assert record.reported_reason is None, (
+        "a gap built without an explicit reported_reason must default to None -- "
+        "every existing (pre-feature) record has no reason attached"
+    )
+
+
+def test_gap_record_accepts_a_reported_reason_and_round_trips_it():
+    record = _gap_record(reported_reason="the wiki could not answer this at all")
+
+    rendered = json.loads(record.to_json_line())
+    parsed = _records_module().GapRecord.from_json_line(record.to_json_line())
+
+    assert rendered["reported_reason"] == "the wiki could not answer this at all"
+    assert parsed.reported_reason == "the wiki could not answer this at all"
+
+
+def test_gap_line_missing_reported_reason_defaults_to_none():
+    """A ``gaps.jsonl`` line written before this field existed has no
+    ``reported_reason`` key at all -- it must default on parse, so every
+    pre-existing record (measured or reported) still parses unaffected."""
+    payload = json.loads(_gap_record().to_json_line())
+    del payload["reported_reason"]
+
+    record = _records_module().GapRecord.from_json_line(json.dumps(payload))
+
+    assert record.reported_reason is None
 
 
 # ---------------------------------------------------------------------------

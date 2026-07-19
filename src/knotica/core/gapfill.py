@@ -39,6 +39,7 @@ from knotica.core.errors import ErrorCode, KnoticaError
 from knotica.core.gap_classifier import FaultClass, gaps_path, write_gap_records
 from knotica.core.records import (
     GAP_ORIGIN_REPORTED,
+    GAP_ORIGIN_RETRACTED,
     GapEvidence,
     GapRecord,
     SuggestionRecord,
@@ -61,6 +62,7 @@ __all__ = [
     "apply_decision",
     "build_default_discovery_service",
     "build_suggestion_records",
+    "file_retracted_gap",
     "formulate_query",
     "plan_decision",
     "refresh_suggestions_for_gaps",
@@ -87,9 +89,14 @@ DEFAULT_MAX_RESULTS = 10
 #: to no eval generation, so both read as 0 rather than a fabricated version/gen.
 _NO_CLASSIFIER = 0
 _NO_GENERATION = 0
-#: Prefix marking a synthetic ``qa_id`` derived from reported question text (no
+#: Per-origin prefix for a synthetic ``qa_id`` derived from proposer text (no
 #: golden record backs it) -- mirrors ``evals.golden``'s ``golden-<hash>`` scheme.
-_REPORTED_QA_ID_PREFIX = "reported-"
+#: The prefix keeps a reported gap and a retracted gap distinct even when their
+#: source text is byte-identical (different provenance must not dedup together).
+_ORIGIN_QA_ID_PREFIX: Mapping[str, str] = {
+    GAP_ORIGIN_REPORTED: "reported-",
+    GAP_ORIGIN_RETRACTED: "retracted-",
+}
 
 #: The D2 lifecycle state machine: which source statuses each decision may act on.
 _ALLOWED_FROM: Mapping[str, frozenset[str]] = {
@@ -449,39 +456,121 @@ def report_gap(
             "a reported gap requires a non-empty question",
             "Pass the actual wiki query the user could not get answered.",
         )
+    return _file_synthetic_gap(
+        store,
+        root,
+        topic,
+        cleaned_question,
+        origin=GAP_ORIGIN_REPORTED,
+        reason=reason,
+        reference_pages=reference_pages,
+        clock=clock,
+    )
+
+
+def file_retracted_gap(
+    store: VaultStore,
+    root: str | Path,
+    topic: str,
+    claim: str,
+    *,
+    verdict: str,
+    report_path: str,
+    reference_pages: Sequence[str] = (),
+    clock: Callable[[], str] | None = None,
+) -> ReportedGapResult:
+    """File one ``origin="retracted"`` gap for a claim a guillotine verdict weakened.
+
+    Called by the guillotine apply path after a RETRACT / DEMOTE / DISPUTE /
+    DELETE_UNSUPPORTED_SYNTHESIS commit lands: the weakened claim text becomes the
+    gap question verbatim (that knowledge now needs re-sourcing) and
+    ``reported_reason`` records the verdict name + the guillotine report path. The
+    ``qa_id`` is derived deterministically from the claim (shared with
+    ``report_gap``) under a distinct ``retracted-`` prefix, so re-applying the same
+    verdict dedups but a same-text *reported* gap stays separate. Writes via the
+    existing ``write_gap_records`` path in its own ``VaultTransaction``. Raises a
+    typed ``KnoticaError`` on an empty/blank claim (the caller isolates failures).
+    """
+    cleaned_claim = claim.strip()
+    if not cleaned_claim:
+        raise _invalid(
+            "a retracted gap requires a non-empty claim",
+            "Pass the weakened claim text the guillotine acted on.",
+        )
+    return _file_synthetic_gap(
+        store,
+        root,
+        topic,
+        cleaned_claim,
+        origin=GAP_ORIGIN_RETRACTED,
+        reason=f"{verdict} · {report_path}",
+        reference_pages=reference_pages,
+        clock=clock,
+    )
+
+
+def _file_synthetic_gap(
+    store: VaultStore,
+    root: str | Path,
+    topic: str,
+    text: str,
+    *,
+    origin: str,
+    reason: str | None,
+    reference_pages: Sequence[str],
+    clock: Callable[[], str] | None,
+) -> ReportedGapResult:
+    """Shared body for filing an origin-tagged synthetic ``genuine_gap`` (no eval evidence).
+
+    ``text`` is the already-cleaned proposer text (question or weakened claim);
+    the ``origin`` selects the ``qa_id`` prefix so different-provenance gaps with
+    identical text never collide. The record is written through the reused
+    ``write_gap_records`` path, whose ``(qa_id, fault_class)`` open-dedup drops a
+    repeat, so ``written`` reports whether this call actually appended a record.
+    """
     stamp = clock or _utc_now_iso
-    qa_id = _reported_qa_id(cleaned_question)
+    qa_id = _synthetic_qa_id(text, origin)
     fault_class = FaultClass.GENUINE_GAP
     already_open = any(gap.qa_id == qa_id for gap in _open_genuine_gaps(store, topic))
     pages = tuple(reference_pages)
-    record = _build_reported_gap(
-        topic, qa_id, fault_class, cleaned_question, pages, detected_at=stamp()
+    cleaned_reason = (reason.strip() or None) if reason else None
+    record = _build_synthetic_gap(
+        topic,
+        qa_id,
+        fault_class,
+        text,
+        pages,
+        origin=origin,
+        reported_reason=cleaned_reason,
+        detected_at=stamp(),
     )
     write_gap_records(store, root, topic, [record])
     return ReportedGapResult(
         topic=topic,
         gap_id=record.gap_id,
         qa_id=qa_id,
-        question=cleaned_question,
+        question=text,
         fault_class=fault_class,
         status="open",
-        origin=GAP_ORIGIN_REPORTED,
-        reason=(reason.strip() or None) if reason else None,
+        origin=origin,
+        reason=cleaned_reason,
         reference_pages=pages,
         written=not already_open,
     )
 
 
-def _build_reported_gap(
+def _build_synthetic_gap(
     topic: str,
     qa_id: str,
     fault_class: str,
     question: str,
     reference_pages: tuple[str, ...],
     *,
+    origin: str,
+    reported_reason: str | None,
     detected_at: str,
 ) -> GapRecord:
-    """Compose the ``origin="reported"`` gap record with empty eval evidence."""
+    """Compose an origin-tagged synthetic gap record with empty eval evidence."""
     return GapRecord(
         gap_id=_reported_gap_id(topic, qa_id, fault_class),
         topic=topic,
@@ -506,7 +595,8 @@ def _build_reported_gap(
             prior_generation=_NO_GENERATION,
         ),
         manifest_ref="",
-        origin=GAP_ORIGIN_REPORTED,
+        origin=origin,
+        reported_reason=reported_reason,
     )
 
 
@@ -689,17 +779,19 @@ def _suggestion_id(topic: str, gap_id: str, source_key: str) -> str:
     return hashlib.sha1(f"{topic}|{gap_id}|{source_key}".encode()).hexdigest()[:16]
 
 
-def _reported_qa_id(question: str) -> str:
-    """A deterministic synthetic ``qa_id`` from question text (stable across reports).
+def _synthetic_qa_id(text: str, origin: str) -> str:
+    """A deterministic synthetic ``qa_id`` from proposer text (stable across calls).
 
     Mirrors ``evals.golden``'s content-addressed id hashing (sha256, 16-hex slug)
-    so identical reported questions collide on the same ``qa_id`` -- the property
-    ``write_gap_records``' open-dedup relies on to reject a repeat report.
+    so identical text collides on the same ``qa_id`` -- the property
+    ``write_gap_records``' open-dedup relies on to reject a repeat. The origin's
+    prefix keeps a ``reported`` and a ``retracted`` gap distinct even when their
+    source text is byte-identical.
     """
     import hashlib
 
-    digest = hashlib.sha256(question.encode("utf-8")).hexdigest()
-    return f"{_REPORTED_QA_ID_PREFIX}{digest[:16]}"
+    digest = hashlib.sha256(text.encode("utf-8")).hexdigest()
+    return f"{_ORIGIN_QA_ID_PREFIX[origin]}{digest[:16]}"
 
 
 def _reported_gap_id(topic: str, qa_id: str, fault_class: str) -> str:

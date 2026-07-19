@@ -25,8 +25,17 @@ from knotica.core.loop_progress import read_progress
 from knotica.core.loop_state import LoopState, compute_gate, read_loop_state
 from knotica.core.metrics import last_eval_summary, read_last_metrics
 from knotica.core.page import TopicNotFoundError
+from knotica.core.gap_classifier import gaps_path
 from knotica.core.gapfill import suggestions_path
-from knotica.core.records import RecordParseError, SuggestionRecord, parse_log_entries
+from knotica.core.records import (
+    GAP_ORIGIN_MEASURED,
+    GAP_ORIGIN_REPORTED,
+    GAP_ORIGIN_RETRACTED,
+    GapRecord,
+    RecordParseError,
+    SuggestionRecord,
+    parse_log_entries,
+)
 from knotica.core.schema import overlay_path
 from knotica.core.trainset import count_query_train_examples
 from knotica.core.vcs import GitError, VaultVcs
@@ -65,6 +74,7 @@ class TopicStatus:
     lint_violations: int
     last_eval: dict[str, Any] | None
     suggestions: dict[str, Any]
+    gaps: dict[str, Any]
 
     @property
     def to_compile_ready(self) -> int:
@@ -85,6 +95,7 @@ class TopicStatus:
             "lint_violations": self.lint_violations,
             "last_eval": self.last_eval,
             "suggestions": self.suggestions,
+            "gaps": self.gaps,
         }
 
 
@@ -180,6 +191,7 @@ def _topic_status(store: VaultStore, name: str, *, lint_violations: int) -> Topi
         lint_violations=lint_violations,
         last_eval=last_eval_summary(read_last_metrics(store, name)),
         suggestions=_suggestion_block(store, name),
+        gaps=_gap_block(store, name),
     )
 
 
@@ -213,6 +225,39 @@ def _suggestion_block(store: VaultStore, topic: str) -> dict[str, Any]:
         "rejected": counts.get("rejected", 0),
         "ingested": counts.get("ingested", 0),
         "newest_proposed_at": newest,
+    }
+
+
+def _gap_block(store: VaultStore, topic: str) -> dict[str, Any]:
+    """The per-topic open-gap summary by provenance origin (all-zero when empty).
+
+    Counts every *open* gap record (any fault_class) bucketed by ``origin``
+    (``measured`` = eval-proven, ``reported`` = conversationally filed,
+    ``retracted`` = guillotine-weakened) plus ``open_total``. Reads
+    ``gaps.jsonl`` line-by-line and skips a malformed line rather than raising,
+    so a single corrupt record never breaks the status readout (mirrors
+    :func:`_suggestion_block`). Honest zeros when the file is absent.
+    """
+    counts = Counter[str]()
+    open_total = 0
+    path = gaps_path(topic)
+    if store.exists(path):
+        for line in store.read_text(path).splitlines():
+            if not line.strip():
+                continue
+            try:
+                record = GapRecord.from_json_line(line)
+            except (ValueError, RecordParseError):
+                continue
+            if record.status != "open":
+                continue
+            counts[record.origin] += 1
+            open_total += 1
+    return {
+        GAP_ORIGIN_MEASURED: counts.get(GAP_ORIGIN_MEASURED, 0),
+        GAP_ORIGIN_REPORTED: counts.get(GAP_ORIGIN_REPORTED, 0),
+        GAP_ORIGIN_RETRACTED: counts.get(GAP_ORIGIN_RETRACTED, 0),
+        "open_total": open_total,
     }
 
 

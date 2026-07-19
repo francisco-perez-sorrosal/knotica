@@ -4,12 +4,13 @@ from __future__ import annotations
 
 import json
 from datetime import UTC, datetime
-from pathlib import PurePath
+from pathlib import Path, PurePath
 
 from knotica.core.errors import ErrorCode, KnoticaError, err, ok
+from knotica.core.gapfill import file_retracted_gap
 from knotica.core.index_catalog import INDEX_PATH, REPORTS_SECTION, upsert_index_bullet
 from knotica.core.transaction import VaultTransaction
-from knotica.guillotine.models import GuillotineResult
+from knotica.guillotine.models import GuillotineResult, Verdict
 from knotica.guillotine.patch import apply_patches_to_contents
 from knotica.guillotine.report import (
     artifact_paths_for,
@@ -20,6 +21,18 @@ from knotica.guillotine.report import (
 from knotica.store import VaultStore
 
 __all__ = ["apply_guillotine", "persist_guillotine_artifacts"]
+
+#: Applied verdicts that weaken existing knowledge -- each leaves a hole the wiki
+#: can no longer answer, so it files a ``retracted`` gap into the P1 queue for
+#: re-sourcing. KEEP / QUALIFY / QUARANTINE_SOURCE do not weaken and file nothing.
+_WEAKENING_VERDICTS: frozenset[Verdict] = frozenset(
+    {
+        Verdict.RETRACT,
+        Verdict.DEMOTE,
+        Verdict.DISPUTE,
+        Verdict.DELETE_UNSUPPORTED_SYNTHESIS,
+    }
+)
 
 
 def _artifact_bundle(
@@ -165,7 +178,7 @@ def apply_guillotine(
     )
     file_contents = {patch.path: store.read_text(patch.path) for patch in result.patches}
     updated = apply_patches_to_contents(file_contents, list(result.patches))
-    return _write_guillotine_transaction(
+    envelope = _write_guillotine_transaction(
         store,
         vault_root,
         result,
@@ -179,3 +192,50 @@ def apply_guillotine(
         dry_run=False,
         page_updates=updated,
     )
+    _maybe_file_retracted_gap(store, vault_root, result, report_path, envelope)
+    return envelope
+
+
+def _maybe_file_retracted_gap(
+    store: VaultStore,
+    vault_root: str | PurePath,
+    result: GuillotineResult,
+    report_path: str,
+    envelope: dict[str, object],
+) -> None:
+    """File a ``retracted`` gap when an applied weakening verdict left a hole.
+
+    Runs only after a successful apply commit (never on an error envelope) and
+    only for a weakening verdict. The gap is written in its **own**
+    ``VaultTransaction`` (separate from the guillotine artifact commit) and is
+    **failure-isolated**: a gap-write failure surfaces as a warning on the
+    envelope but never fails the guillotine apply, which has already committed.
+    """
+    if "error" in envelope or result.recommendation not in _WEAKENING_VERDICTS:
+        return
+    try:
+        file_retracted_gap(
+            store,
+            Path(vault_root),
+            result.topic,
+            result.claim,
+            verdict=result.recommendation.value,
+            report_path=report_path,
+        )
+    except Exception as error:  # noqa: BLE001 — gap filing must never fail an applied retraction
+        warning = {
+            "code": "gap_write_skipped",
+            "message": (
+                f"{result.recommendation.value} was applied, but filing the "
+                f"retracted-knowledge gap failed: {error}"
+            ),
+            "fix": (
+                "The claim change committed successfully; re-file the gap with "
+                "gap_report if the wiki still cannot answer this."
+            ),
+        }
+        warnings = envelope.get("warnings")
+        if isinstance(warnings, list):
+            warnings.append(warning)
+        else:
+            envelope["warnings"] = [warning]

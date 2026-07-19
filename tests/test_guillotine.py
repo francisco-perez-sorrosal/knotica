@@ -24,7 +24,7 @@ from knotica.guillotine.search import (
     resolve_search_scope,
 )
 from knotica.store import LocalFSStore
-from support.vault import parse_knotica_commit, run_git
+from support.vault import git_commit_count, git_head_sha, parse_knotica_commit, run_git
 
 DEMO_CLAIM = "Open-source agents are inherently unsafe for serious users."
 GUILLOTINE_REPORTS = reports_dir("agentic-systems")
@@ -325,10 +325,13 @@ def test_guillotine_apply_creates_knotica_commit(guillotine_vault: Path) -> None
         store, guillotine_vault, result, diff, summary="unsafe agents claim"
     )
     assert "error" not in envelope
-    subject = run_git(guillotine_vault, "log", "-1", "--format=%s").strip()
-    parsed = parse_knotica_commit(subject)
-    assert parsed is not None
-    assert parsed["op"] == "guillotine"
+    # A knowledge-weakening verdict files a follow-up gap record in its own
+    # commit after the guillotine commit, so HEAD is not necessarily the
+    # guillotine op -- assert the guillotine commit exists in recent history
+    # (behavior), not that it sits at HEAD (implementation ordering).
+    subjects = run_git(guillotine_vault, "log", "-5", "--format=%s").strip().splitlines()
+    ops = [parsed["op"] for s in subjects if (parsed := parse_knotica_commit(s)) is not None]
+    assert "guillotine" in ops
 
 
 def test_guillotine_cli_summary_mentions_risk(guillotine_vault: Path) -> None:
@@ -537,3 +540,178 @@ def test_guillotine_repeat_dry_run_dedupes_log_entry(guillotine_vault: Path) -> 
     log_text = (guillotine_vault / "log.md").read_text(encoding="utf-8")
     report_stem = artifact_paths_for(result).report_path.removesuffix(".md")
     assert log_text.count(f"[[{report_stem}]]") == 1
+
+
+# ---------------------------------------------------------------------------
+# Applying a knowledge-weakening verdict files a retraction gap
+#
+# Import-only reuse of ``core.gap_classifier.gaps_path``/``core.records`` to
+# read ``gaps.jsonl`` back -- these tests characterize the observable side
+# effect of ``apply_guillotine``, never a private accessor.
+# ---------------------------------------------------------------------------
+
+
+def _filed_gaps(store: LocalFSStore) -> list:
+    from knotica.core.gap_classifier import gaps_path
+    from knotica.core.records import parse_gaps_jsonl
+
+    path = gaps_path("agentic-systems")
+    if not store.exists(path):
+        return []
+    return parse_gaps_jsonl(store.read_text(path))
+
+
+def test_applying_a_retract_verdict_files_exactly_one_open_retracted_gap_naming_the_verdict(
+    guillotine_vault: Path,
+) -> None:
+    store = LocalFSStore(guillotine_vault)
+    result, diff = run_guillotine(
+        store, guillotine_vault, DEMO_CLAIM, topic="agentic-systems", verdict="retract"
+    )
+
+    apply_guillotine(store, guillotine_vault, result, diff, summary="retract unsafe claim")
+
+    gaps = _filed_gaps(store)
+    assert len(gaps) == 1
+    gap = gaps[0]
+    assert gap.origin == "retracted"
+    assert gap.status == "open"
+    assert gap.fault_class == "genuine_gap"
+    assert result.recommendation.value in (gap.reported_reason or ""), (
+        "the filed gap's reported_reason must name the verdict that caused the retraction"
+    )
+
+
+def test_applying_a_dispute_verdict_files_exactly_one_open_retracted_gap(
+    guillotine_vault: Path,
+) -> None:
+    # DISPUTE is the other knowledge-weakening verdict alongside RETRACT/DEMOTE
+    # -- representative coverage of that equivalence class.
+    store = LocalFSStore(guillotine_vault)
+    result, diff = run_guillotine(
+        store, guillotine_vault, DEMO_CLAIM, topic="agentic-systems", verdict="dispute"
+    )
+
+    apply_guillotine(store, guillotine_vault, result, diff, summary="dispute unsafe claim")
+
+    gaps = _filed_gaps(store)
+    assert len(gaps) == 1
+    assert gaps[0].origin == "retracted"
+
+
+def test_applying_a_qualify_verdict_files_no_gap(guillotine_vault: Path) -> None:
+    store = LocalFSStore(guillotine_vault)
+    result, diff = run_guillotine(
+        store, guillotine_vault, DEMO_CLAIM, topic="agentic-systems", verdict="qualify"
+    )
+
+    envelope = apply_guillotine(store, guillotine_vault, result, diff, summary="qualify claim")
+
+    assert "error" not in envelope
+    assert _filed_gaps(store) == [], "QUALIFY is advisory, not knowledge-weakening -- no gap"
+
+
+def test_applying_a_keep_verdict_files_no_gap(guillotine_vault: Path) -> None:
+    store = LocalFSStore(guillotine_vault)
+    result, diff = run_guillotine(
+        store, guillotine_vault, DEMO_CLAIM, topic="agentic-systems", verdict="keep"
+    )
+
+    apply_guillotine(store, guillotine_vault, result, diff, summary="keep claim")
+
+    assert _filed_gaps(store) == []
+
+
+def test_the_filed_gap_commit_is_separate_from_the_guillotine_artifact_commit(
+    guillotine_vault: Path,
+) -> None:
+    store = LocalFSStore(guillotine_vault)
+    result, diff = run_guillotine(
+        store, guillotine_vault, DEMO_CLAIM, topic="agentic-systems", verdict="retract"
+    )
+    before_count = git_commit_count(guillotine_vault)
+    before_sha = git_head_sha(guillotine_vault)
+
+    apply_guillotine(store, guillotine_vault, result, diff, summary="retract unsafe claim")
+
+    after_count = git_commit_count(guillotine_vault)
+    assert after_count == before_count + 2, (
+        "the guillotine artifact/patch commit and the gap-file commit must land as two "
+        "distinct commits, never bundled together"
+    )
+    subjects = (
+        run_git(guillotine_vault, "log", f"{before_sha}..HEAD", "--format=%s").strip().splitlines()
+    )
+    ops = [parse_knotica_commit(subject) for subject in subjects if parse_knotica_commit(subject)]
+    assert {parsed["op"] for parsed in ops if parsed} & {"guillotine"}, (
+        "one of the two new commits must still be the guillotine op"
+    )
+
+
+def test_repeat_application_of_the_same_retract_result_dedupes_the_filed_gap(
+    guillotine_vault: Path,
+) -> None:
+    store = LocalFSStore(guillotine_vault)
+    result, diff = run_guillotine(
+        store, guillotine_vault, DEMO_CLAIM, topic="agentic-systems", verdict="retract"
+    )
+
+    apply_guillotine(store, guillotine_vault, result, diff, summary="retract unsafe claim")
+    apply_guillotine(store, guillotine_vault, result, diff, summary="retract unsafe claim")
+
+    gaps = _filed_gaps(store)
+    assert len(gaps) == 1, (
+        "re-applying the identical retraction verdict must not spam the gap queue -- the "
+        "same (topic, claim) must derive the same deterministic qa_id and dedup on it"
+    )
+
+
+def test_a_gap_write_failure_does_not_fail_the_guillotine_apply(
+    guillotine_vault: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The gap-filing side effect is isolated from the primary guillotine
+    operation -- an injected failure in the gap write must not prevent the
+    artifact/patch commit from succeeding, and must not silently fabricate a
+    gap record either."""
+    from knotica.core.gap_classifier import gaps_path
+    from knotica.core.transaction import VaultTransaction
+
+    store = LocalFSStore(guillotine_vault)
+    result, diff = run_guillotine(
+        store, guillotine_vault, DEMO_CLAIM, topic="agentic-systems", verdict="retract"
+    )
+    target_path = gaps_path("agentic-systems")
+    original_write = VaultTransaction.write
+    before = (guillotine_vault / "agentic-systems/agent-safety.md").read_text(encoding="utf-8")
+
+    def _raising_write(self: VaultTransaction, path, content: str) -> None:  # type: ignore[no-untyped-def]
+        if str(path) == target_path:
+            raise RuntimeError("injected gap-write failure")
+        return original_write(self, path, content)
+
+    monkeypatch.setattr(VaultTransaction, "write", _raising_write)
+
+    envelope = apply_guillotine(store, guillotine_vault, result, diff, summary="retract claim")
+
+    assert "error" not in envelope, (
+        "a failure isolated to the gap-filing side effect must not fail the primary "
+        "guillotine apply"
+    )
+    assert envelope.get("commit_sha"), "the guillotine artifact/patch commit must still land"
+    updated = (guillotine_vault / "agentic-systems/agent-safety.md").read_text(encoding="utf-8")
+    assert updated != before, "the primary page patch must still be applied"
+    assert not store.exists(target_path), (
+        "the injected failure must leave gaps.jsonl genuinely absent -- never a silently "
+        "fabricated success"
+    )
+
+
+def test_dry_run_persist_files_no_gap_even_for_a_retract_verdict(guillotine_vault: Path) -> None:
+    store = LocalFSStore(guillotine_vault)
+    result, diff = run_guillotine(
+        store, guillotine_vault, DEMO_CLAIM, topic="agentic-systems", verdict="retract"
+    )
+
+    _persist_dry_run(store, guillotine_vault, result, diff)
+
+    assert _filed_gaps(store) == [], "a dry-run trial must never file a gap -- nothing was applied"

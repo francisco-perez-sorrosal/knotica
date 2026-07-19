@@ -2622,6 +2622,15 @@ button.danger:hover:not(:disabled) {
 }
 .sources-reputability.ok { color: var(--good); border-color: color-mix(in srgb, var(--good) 55%, var(--line)); }
 .sources-reputability.warn { color: var(--warn); border-color: color-mix(in srgb, var(--warn) 55%, var(--line)); }
+.sources-card-badges {
+  display: flex;
+  align-items: center;
+  gap: .5rem;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+.sources-origin.ok { color: var(--good); border-color: color-mix(in srgb, var(--good) 55%, var(--line)); }
+.sources-origin.warn { color: var(--warn); border-color: color-mix(in srgb, var(--warn) 55%, var(--line)); }
 .sources-load-more { margin-top: 1rem; }
 
 @media (max-width: 720px) {

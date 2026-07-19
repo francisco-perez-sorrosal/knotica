@@ -201,6 +201,7 @@ export interface WikiStatus {
     lint_violations: number;
     last_eval: MetricsRecord | null;
     suggestions?: SuggestionStatusSummary;
+    gaps?: GapStatusSummary;
   }>;
   totals: { topics: number; pages: number; curated: number; lint_violations: number };
   last_lint: string | null;
@@ -665,7 +666,7 @@ export interface VaultMetadataTree {
   children: MetadataTreeNode[];
 }
 
-/** ``wiki_status``'s per-topic gap-fill queue summary (D6.1) — all-zero when empty. */
+/** ``wiki_status``'s per-topic gap-fill queue summary — all-zero when empty. */
 export interface SuggestionStatusSummary {
   pending: number;
   approved_awaiting_ingest: number;
@@ -673,6 +674,17 @@ export interface SuggestionStatusSummary {
   rejected: number;
   ingested: number;
   newest_proposed_at: string | null;
+}
+
+/** Gap provenance: eval-proven, conversationally reported, or guillotine-weakened. */
+export type GapOrigin = "measured" | "reported" | "retracted";
+
+/** ``wiki_status``'s per-topic open-gap summary by origin — all-zero when empty. */
+export interface GapStatusSummary {
+  measured: number;
+  reported: number;
+  retracted: number;
+  open_total: number;
 }
 
 export type ReputabilityTier =
@@ -725,6 +737,8 @@ export interface SuggestionRecord {
   decided_reason: string | null;
   ingested_at: string | null;
   detected_generation: number;
+  /** Provenance carried from the originating gap; null on pre-feature records. */
+  gap_origin?: GapOrigin | null;
 }
 
 export type SuggestionsStatusFilter = SuggestionStatus | "all";
