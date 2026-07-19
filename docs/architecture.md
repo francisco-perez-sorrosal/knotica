@@ -175,7 +175,7 @@ results are proven identical to a sequential run by test.
 
 #### Diagnostic manifest schema v2
 
-> Status: **Built** (dec-draft-ef07d3ff, gap-fill P0) — landed with the gapfill-substrate pipeline;
+> Status: **Built** (dec-023, gap-fill P0) — landed with the gapfill-substrate pipeline;
 > verified end-to-end against the live vault (gen-4 run: 25/25 id join, populated `held_out_delta`).
 
 The per-run manifest (`<topic>/.knotica/eval-runs/gen-<N>/manifest.json`) is the diagnostic substrate the

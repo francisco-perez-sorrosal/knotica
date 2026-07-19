@@ -97,7 +97,7 @@ Every tool/prompt honors the `unconfigured` contract (structured result, not an 
 - `harness_version(judge_prompt_hash, config=DEFAULT_CONFIG) -> str` — the instrument fingerprint recorded
   per run so two scalars from different instruments are never silently compared.
 
-**Diagnostic manifest schema v2 (Phase 3a gap-fill P0 — built, dec-draft-ef07d3ff):**
+**Diagnostic manifest schema v2 (Phase 3a gap-fill P0 — built, dec-023):**
 The per-run manifest (`<topic>/.knotica/eval-runs/gen-<N>/manifest.json`, the `artifact_ref` target) is
 the diagnostic substrate the P1 four-way fault classifier reads. Additive over the current shape, it
 self-versions via `manifest_schema_version` (the read-time capability probe; today's unversioned shape
@@ -243,7 +243,7 @@ Phase 2 — eval harness (this pipeline, `eval-harness`):
 
 Phase 3a — gap-fill diagnostic substrate (this pipeline, `gapfill-substrate`):
 
-- **dec-draft-ef07d3ff** — Eval-manifest diagnostic substrate: manifest schema v2 self-versions and adds
+- **dec-023** — Eval-manifest diagnostic substrate: manifest schema v2 self-versions and adds
   `per_example[].id` (stable join key), `per_example[].pages` (ordered retrieval trace), and a wired
   `held_out_delta` object — the substrate the P1 four-way fault classifier consumes. Additive over
   dec-006-frozen records (re-affirms dec-006); no scalar / fingerprint / `metrics.jsonl` change, hence

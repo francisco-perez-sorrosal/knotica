@@ -1,7 +1,7 @@
 ---
-id: dec-draft-ef07d3ff
+id: dec-023
 title: Eval-manifest diagnostic substrate — manifest schema v2 (per-question id, retrieval trace, held_out_delta)
-status: proposed
+status: accepted
 category: architectural
 date: 2026-07-18
 summary: The per-run eval manifest self-versions (manifest_schema_version) and gains stable per-question ids, an ordered retrieval-trace, and a wired cross-generation held_out_delta — a diagnostic substrate consumed by the P1 four-way fault classifier, additive over dec-006-frozen records.
