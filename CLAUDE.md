@@ -24,18 +24,18 @@ AI-maintained, compounding knowledge wiki (Karpathy's llm-wiki pattern) living i
 
 ## Current status
 
-Phases 0–3a are implemented locally (vault template, core/MCP/plugin, eval harness, DSPy compile,
-dashboard MCP App, autonomous loop layer, gap-fill classifier, discovery, and suggestion queue). 
-The **gap-fill pipeline** (P1–P3) diagnoses regressions into four fault classes, discovers ranked 
-sources for genuine knowledge gaps, and surfaces a human-approval queue: `knotica gapfill discover` 
+Phases 0–4 are implemented locally (vault template, core/MCP/plugin, eval harness, DSPy compile,
+dashboard MCP App, autonomous loop layer, gap-fill classifier, discovery, suggestion queue, and source-candidate gate). 
+The **gap-fill pipeline** (P1–P4) diagnoses regressions into four fault classes, discovers ranked 
+sources for genuine knowledge gaps, surfaces a human-approval queue, and gates ingests onto isolated worktree candidate branches: `knotica gapfill discover` 
 on-demand + optional loop-side batch, MCP tool `gap_report` for conversational gaps, `suggestions_read`/`suggestions_review`, 
-and dashboard **Suggestions** pane. Gaps have three origins: `measured` (loop regressions), `reported` (client-as-brain via `gap_report`), 
+dashboard **Suggestions** pane, and P4 source-ingest tools (`source_ingest_open`/`source_ingest_submit`). Gaps have three origins: `measured` (loop regressions), `reported` (client-as-brain via `gap_report`), 
 and `retracted` (guillotine disputes). The loop watches the default branch, auto-freezes the first 
-observation as the gate baseline, gates `loop/c/*` candidates, and heals prompt regressions via 
-the arena — all state surfaced through `wiki_status` (runner liveness, per-question eval progress, 
-LLM availability, suggestion counts). Guillotine refactored to verdict + risk report + triage score 
+observation as the gate baseline, gates `loop/c/*` candidates (distinguishing source from prompt candidates by branch name), and heals prompt regressions via 
+the arena — source-candidate pass auto-marks suggestions ingested and triggers a page-subset dataset upgrade; refuse quarantines to `loop/x/*` with bounded per-question diff, never arena. State surfaced through `wiki_status` (runner liveness, per-question eval progress, 
+LLM availability, suggestion counts, refused-awaiting-rework). Guillotine refactored to verdict + risk report + triage score 
 + gap filing only; content rewriting flows through the gap→suggestion→approved-ingest path where 
-the client-as-brain writes grounded prose. Trainset cold-start is data-driven (`knotica datasets bootstrap-train` 
+the client-as-brain writes grounded prose and drives the candidate-scoped ingest protocol. Trainset cold-start is data-driven (`knotica datasets bootstrap-train` 
 / `datasets_bootstrap_train` tool: QA synthesized from the topic's own pages, `source: seed_train`; 
 curated examples displace seeds in compile demo selection). No demo content remains in code: no 
 hardcoded questions/prompt appendices, no fabricated offline compile scores (typed error without 

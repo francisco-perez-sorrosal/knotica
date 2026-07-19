@@ -98,6 +98,15 @@ ingested.
 Suggestions land in a committed, observe-safe `<topic>/.knotica/suggestions/suggestions.jsonl`. No LLM
 anywhere; approval queues an ingest instruction but never ingests (dec-014 untouched).
 
+**Built (Phase P4, gap-fill source-candidate gate):** the interactive client ingests an approved source onto a server-managed git worktree (isolated from the live default branch), and the loop's existing gate merges gap-closing sources (auto-marking suggestions ingested with page-subset dataset upgrade) or quarantines dilutive ones (never arena).
+
+| Component | Responsibility | Path (verified on disk) |
+|---|---|---|
+| `source_ingest.py` | Session lifecycle for source ingests (open WIP branch on worktree, publish to `loop/c/*`, abandon); stateless via explicit suggestion-id argument per call | `src/knotica/core/source_ingest.py` |
+| `source_gate.py` | Candidate-kind classifier (source vs prompt by branch name); gate dispatch (merge with auto-`mark_ingested` + trainset grower on pass; quarantine to `loop/x/*` with per-question diff on refuse) | `src/knotica/core/source_gate.py` |
+| `tools_source_ingest.py` | MCP tools `source_ingest_open` (start WIP ingest, refuse non-approved suggestions) and `source_ingest_submit` (dry-run lint/gate-eligibility check, apply publishes candidate branch and synchronously gates) | `src/knotica/mcp_server/tools_source_ingest.py` |
+| `candidate_scope.py` | Helper: resolve worktree/branch from suggestion-id handle; used by `store_source`/`write_page` to route writes onto candidate worktree when `candidate=<handle>` argument is present | `src/knotica/core/operations/candidate_scope.py` |
+
 ## 3a. Loop Lifecycle (`knotica loop --topic <t>`)
 
 `LoopRunner` (`core/loop.py`) drives one topic's self-improvement watch loop. Each tick:
@@ -177,14 +186,14 @@ Three `loop/`-prefixed branch families, with distinct lifetimes:
 | Prefix | Meaning | Lifetime |
 |---|---|---|
 | `loop/c/*` | Pending candidates awaiting the gate (prompt candidates `loop/c/<sha>`; **source** candidates `loop/c/<topic>/source-<id8>`, gap-fill P4) | Deleted on keep (fast-forward) or discard; a refused source is renamed to `loop/x/*` |
-| `loop/wip/*` | **(P4, planned)** In-flight source ingest on a server-managed worktree (`loop/wip/<topic>/source-<id8>`) — invisible to the gate until `source_ingest_submit` publishes it to `loop/c/*` | Published (→ `loop/c/*`) or abandoned |
-| `loop/x/*` | **(P4, planned)** Quarantined refused source candidates (`loop/x/<topic>/source-<id8>`) carrying a bounded per-question dilution diff — kept, not deleted | Pruned to newest 5 per topic (mirrors `loop/r/*`) |
+| `loop/wip/*` | **(P4, Built)** In-flight source ingest on a server-managed worktree (`loop/wip/<topic>/source-<id8>`) — invisible to the gate until `source_ingest_submit` publishes it to `loop/c/*` | Published (→ `loop/c/*`) or abandoned |
+| `loop/x/*` | **(P4, Built)** Quarantined refused source candidates (`loop/x/<topic>/source-<id8>`) carrying a bounded per-question dilution diff — kept, not deleted | Pruned to newest 5 per topic (mirrors `loop/r/*`) |
 | `compile/*` | Pending compile proposals awaiting promotion | Deleted on promote or discard |
 | `loop/r/*` | Merged observation-eval audit pointers | Already ancestors of the default branch post-merge; **not** divergent branches — the history lives in `main`, the pointer is convenience only |
 
 `_prune_result_branches` deletes merged `loop/r/*` pointers beyond the newest 5 after every merge;
 unmerged ones are left in place as evidence of an interrupted run. Pruning is best-effort and never fails
-the observation that triggered it. **Gap-fill P4 (planned, `gapfill-source-gate`):** the `loop/c/*` gate
+the observation that triggered it. **Gap-fill P4 (Built):** the `loop/c/*` gate
 distinguishes a **source** candidate from a prompt candidate by branch name alone (no persisted
 `candidate_kind`); a source candidate is ingested onto its branch by the interactive client through a
 server-managed git **worktree keyed by suggestion_id** (default working tree untouched); on pass it merges
@@ -194,6 +203,16 @@ arena heals prompt regressions, not content dilution) and the suggestion records
 See ADRs `dec-draft-0a5dd23b` (ingest-onto-branch), `dec-draft-3b1145b5` (candidate_kind + arena
 exclusion), `dec-draft-97c5122a` (quarantine + `gate_outcome` + contamination-guarded dataset upgrade)
 — finalize to `dec-NNN` at merge.
+
+#### Source-candidate detection and dispatch (P4)
+
+The gate's `poll_once` call on each `loop/c/*` candidate begins by classifying the branch:
+`classify_candidate(branch)` parses the branch name to distinguish **source** candidates (`loop/c/<topic>/source-<id8>`) from **prompt** candidates (`loop/c/<sha>`). Source candidates are never raced through the arena; instead, `source_gate.py::handle_source_pass` and `handle_source_refuse` route them according to the eval scalar:
+
+- **Pass** (scalar ≥ baseline): fast-forward merge onto default, auto-call `mark_ingested` to transition the suggestion from `approved → ingested`, record `gate_outcome={verdict: merged, ref: loop/r/<sha>}`, and trigger `bootstrap_trainset` with only the git-derived newly-merged entity pages (not all pages — contamination guard via page subset).
+- **Refuse** (scalar < baseline): rename the candidate branch from `loop/c/...` to `loop/x/...` (kept as a quarantine record, not deleted), write a bounded (≤10) per-question dilution diff artifact onto the quarantine branch, record `gate_outcome={verdict: refused, ref: loop/x/..., regressed_questions: [...]}` on the suggestion (status stays `approved`), and **never invoke the arena** — content dilution is caught here, not papered over by prompt variants.
+
+Prompt candidates continue through the existing keep/discard/arena flow unchanged.
 
 #### `log.md` union merge
 

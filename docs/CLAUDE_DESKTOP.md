@@ -356,7 +356,7 @@ In the dashboard **Suggestions** pane (or via `suggestions_read` / `suggestions_
 - Reject with a reason, defer to later, or mark as ingested once you've handled it manually
 - The `wiki_status.suggestions` block shows per-topic counts: `pending`, `approved_awaiting_ingest`; see gap origin (`measured`, `reported`, `retracted`) to understand source provenance
 
-Suggestion discovery runs on-demand via `knotica gapfill discover --topic <t>` (primary) or auto-batches from loop regression hooks when configured. Approved suggestions await manual ingest through the normal `ingest` protocol — the suggestion queue is a filter/gate, not an autopilot.
+Suggestion discovery runs on-demand via `knotica gapfill discover --topic <t>` (primary) or auto-batches from loop regression hooks when configured. **Approved suggestions flow through a candidate-branch-gated ingest** (P4): call `source_ingest_open(suggestion_id)` to begin a WIP ingest on a server-managed worktree (isolated from the live vault); fetch the source and drive `store_source` / `write_page` with the returned `candidate` handle (per-call flock, one commit per write); then `source_ingest_submit(candidate, mode="dry-run")` for a lint/gate-eligibility check, followed by `mode="apply"` to publish the candidate branch and synchronously gate it — the loop evaluates and merges gap-closing sources (auto-marking the suggestion ingested with a page-subset trainset upgrade) or quarantines dilutive ones to `loop/x/*` with a per-question diff artifact (suggestion stays `approved` with a `gate_outcome` record for rework). The candidate branch is invisible to the gate until finalize; a half-built ingest is never evaluated.
 
 ### Gate policy
 
