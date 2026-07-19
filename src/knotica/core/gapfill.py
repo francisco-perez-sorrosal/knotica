@@ -56,10 +56,13 @@ if TYPE_CHECKING:
     from knotica.discovery.service import DiscoveryService
 
 __all__ = [
+    "GATE_VERDICT_MERGED",
+    "GATE_VERDICT_REFUSED",
     "DecisionResult",
     "RefreshResult",
     "ReportedGapResult",
     "apply_decision",
+    "apply_gate_outcome",
     "build_default_discovery_service",
     "build_suggestion_records",
     "file_retracted_gap",
@@ -114,6 +117,15 @@ _TARGET_STATUS: Mapping[str, str] = {
 }
 #: Decisions that carry a decided_reason (required for reject, optional for defer).
 _REASON_STATUSES: frozenset[str] = frozenset({"reject", "defer"})
+
+#: Gate verdicts the machine gate-path stamps -- distinct from the human
+#: approve/reject/defer/mark_ingested decisions above. A ``merged`` verdict
+#: auto-advances ``approved -> ingested`` (mirroring ``mark_ingested``'s
+#: legality); a ``refused`` verdict stamps the outcome and leaves ``status``
+#: unchanged (the suggestion stays re-workable).
+GATE_VERDICT_MERGED = "merged"
+GATE_VERDICT_REFUSED = "refused"
+_GATE_VERDICTS: frozenset[str] = frozenset({GATE_VERDICT_MERGED, GATE_VERDICT_REFUSED})
 
 
 @dataclass(frozen=True)
@@ -423,6 +435,89 @@ def apply_decision(
         changed=txn.result.changed,
         commit_sha=txn.result.commit_sha,
     )
+
+
+def apply_gate_outcome(
+    store: VaultStore,
+    root: str | Path,
+    topic: str,
+    suggestion_id: str,
+    *,
+    verdict: str,
+    gate_outcome: Mapping[str, object],
+    clock: Callable[[], str] | None = None,
+) -> DecisionResult:
+    """Stamp a source candidate's gate ``gate_outcome`` in one commit (machine path).
+
+    The gate-path companion to :func:`apply_decision`: where that mediates the
+    *human* approve / reject / defer / mark-ingested lifecycle, this records the
+    *machine* gate verdict on an already-approved source candidate. On
+    ``verdict="merged"`` it auto-advances ``approved -> ingested`` (mirroring
+    ``mark_ingested``'s legality check -- legal only from ``approved``) and stamps
+    ``ingested_at``; on ``verdict="refused"`` it leaves ``status`` untouched (the
+    suggestion stays re-workable). Either way it rewrites exactly one record's
+    ``gate_outcome`` and commits the whole file once in its own
+    :class:`VaultTransaction`. The human-decision tables
+    (:data:`_ALLOWED_FROM` / :data:`_TARGET_STATUS` / :func:`apply_decision`) are
+    untouched. Raises ``ValueError`` when no record has ``suggestion_id``.
+    """
+    if verdict not in _GATE_VERDICTS:
+        raise _invalid(
+            f"gate verdict must be one of {'|'.join(sorted(_GATE_VERDICTS))}, got {verdict!r}",
+            "Pass verdict='merged' or verdict='refused'.",
+        )
+    stamp = clock or _utc_now_iso
+    path = suggestions_path(topic)
+    records = _read_suggestions(store, topic)
+    index = _index_of(records, suggestion_id)
+    if index is None:
+        raise ValueError(f"no suggestion {suggestion_id!r} in topic {topic!r}")
+
+    record = records[index]
+    updated = _stamp_gate_outcome(
+        record, verdict=verdict, gate_outcome=dict(gate_outcome), stamp=stamp
+    )
+    body = _serialize(_replace_at(records, index, updated))
+    title = f"gate {verdict} suggestion {suggestion_id[:8]}"
+    with VaultTransaction(store, Path(root), _REVIEW_OP, topic, title) as txn:
+        txn.write(path, body)
+    return DecisionResult(
+        suggestion_id=suggestion_id,
+        decision=f"gate_{verdict}",
+        from_status=record.status,
+        to_status=updated.status,
+        decided_at=updated.decided_at,
+        decided_reason=updated.decided_reason,
+        ingested_at=updated.ingested_at,
+        candidate_title=_candidate_title(record.candidate),
+        changed=txn.result.changed,
+        commit_sha=txn.result.commit_sha,
+    )
+
+
+def _stamp_gate_outcome(
+    record: SuggestionRecord,
+    *,
+    verdict: str,
+    gate_outcome: dict[str, object],
+    stamp: Callable[[], str],
+) -> SuggestionRecord:
+    """Return ``record`` with ``gate_outcome`` set; on merge advance approved->ingested.
+
+    A ``refused`` verdict leaves ``status`` (and every timestamp) unchanged; a
+    ``merged`` verdict requires the record be ``approved`` (mirroring
+    ``mark_ingested``'s legality) and moves it to ``ingested`` with a fresh
+    ``ingested_at``.
+    """
+    if verdict == GATE_VERDICT_MERGED:
+        if record.status != "approved":
+            raise _invalid(
+                f"suggestion {record.suggestion_id!r} is {record.status!r}; the gate can only "
+                "merge (auto-ingest) an approved source candidate",
+                "Only an approved suggestion's source candidate is auto-ingested on a gate pass.",
+            )
+        return replace(record, status="ingested", ingested_at=stamp(), gate_outcome=gate_outcome)
+    return replace(record, gate_outcome=gate_outcome)
 
 
 def report_gap(

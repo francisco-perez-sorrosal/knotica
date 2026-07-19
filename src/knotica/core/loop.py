@@ -810,6 +810,16 @@ class LoopRunner:
                 message=f"eval failed: {exc}",
             )
 
+        # A source candidate (an ingested gap-fill source, named
+        # ``loop/c/<topic>/source-<id8>``) is gated separately and is NEVER raced
+        # through the arena: content dilution is not prompt-fixable, and racing
+        # could surface a prompt that masks it. The orchestration lives in
+        # ``source_gate`` to keep it out of this file.
+        from knotica.core import source_gate
+
+        if source_gate.classify_candidate(branch) == "source":
+            return source_gate.gate_source_candidate(self, state, branch, sha, outcome)
+
         passed = float(outcome.scalar) >= float(state.baseline_scalar or 0.0)
         if passed:
             return self._keep(state, branch, sha, outcome)
