@@ -28,14 +28,18 @@ Phases 0–3a are implemented locally (vault template, core/MCP/plugin, eval har
 dashboard MCP App, autonomous loop layer, gap-fill classifier, discovery, and suggestion queue). 
 The **gap-fill pipeline** (P1–P3) diagnoses regressions into four fault classes, discovers ranked 
 sources for genuine knowledge gaps, and surfaces a human-approval queue: `knotica gapfill discover` 
-on-demand + optional loop-side batch, MCP tools `suggestions_read`/`suggestions_review`, and 
-dashboard **Suggestions** pane. The loop watches the default branch, auto-freezes the first 
+on-demand + optional loop-side batch, MCP tool `gap_report` for conversational gaps, `suggestions_read`/`suggestions_review`, 
+and dashboard **Suggestions** pane. Gaps have three origins: `measured` (loop regressions), `reported` (client-as-brain via `gap_report`), 
+and `retracted` (guillotine disputes). The loop watches the default branch, auto-freezes the first 
 observation as the gate baseline, gates `loop/c/*` candidates, and heals prompt regressions via 
 the arena — all state surfaced through `wiki_status` (runner liveness, per-question eval progress, 
-LLM availability, suggestion counts). Trainset cold-start is data-driven (`knotica datasets bootstrap-train` 
+LLM availability, suggestion counts). Guillotine refactored to verdict + risk report + triage score 
++ gap filing only; content rewriting flows through the gap→suggestion→approved-ingest path where 
+the client-as-brain writes grounded prose. Trainset cold-start is data-driven (`knotica datasets bootstrap-train` 
 / `datasets_bootstrap_train` tool: QA synthesized from the topic's own pages, `source: seed_train`; 
 curated examples displace seeds in compile demo selection). No demo content remains in code: no 
 hardcoded questions/prompt appendices, no fabricated offline compile scores (typed error without 
-credentials), MIPRO fallbacks recorded on the artifact (`optimizer`/`fallback_reason`). End-user 
-Desktop install walkthrough: `docs/CLAUDE_DESKTOP.md`; developer architecture guide: `docs/architecture.md`.
-See `docs/PRE_PLAN.md` § Phases & execution. Remote (Railway) remains gated on local smoothness.
+credentials), MIPRO fallbacks recorded on the artifact (`optimizer`/`fallback_reason`). Coherence-audited 
+spine with cross-spine integration test. End-user Desktop install walkthrough: `docs/CLAUDE_DESKTOP.md`; 
+developer architecture guide: `docs/architecture.md`. See `docs/PRE_PLAN.md` § Phases & execution. 
+Remote (Railway) remains gated on local smoothness.

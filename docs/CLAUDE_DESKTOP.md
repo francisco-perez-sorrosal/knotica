@@ -348,13 +348,13 @@ Do **not** freeze the loop gate from this probe — run ``knotica eval`` or comp
 
 ### Suggestion queue (P3 gap-fill approval)
 
-When the loop observes a regression, the fault classifier (P1) diagnoses whether it is a genuine knowledge gap, retrieval fault, or generation fault. Genuine gaps are persisted to a queue for human approval (P3).
+When the loop observes a regression, the fault classifier (P1) diagnoses whether it is a genuine knowledge gap, retrieval fault, or generation fault. Genuine gaps are persisted to a queue for human approval (P3). You can also file gaps conversationally: if the wiki answers poorly and you confirm a gap, call knotica `gap_report` (topic, question text) to file a reported gap flowing into the same discovery queue. Guillotine disputes (weakened claims on `--apply`) also file retracted gaps that feed the queue.
 
 In the dashboard **Suggestions** pane (or via `suggestions_read` / `suggestions_review` tools):
 - View pending suggestions joining a diagnosed gap to a ranked source (P2 discovery)
 - Approve to queue an ingest instruction (no auto-ingest)
 - Reject with a reason, defer to later, or mark as ingested once you've handled it manually
-- The `wiki_status.suggestions` block shows per-topic counts: `pending`, `approved_awaiting_ingest`
+- The `wiki_status.suggestions` block shows per-topic counts: `pending`, `approved_awaiting_ingest`; see gap origin (`measured`, `reported`, `retracted`) to understand source provenance
 
 Suggestion discovery runs on-demand via `knotica gapfill discover --topic <t>` (primary) or auto-batches from loop regression hooks when configured. Approved suggestions await manual ingest through the normal `ingest` protocol — the suggestion queue is a filter/gate, not an autopilot.
 

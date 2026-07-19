@@ -231,7 +231,8 @@ At the **Heal** step, before racing prompt variants, `core/gap_classifier.py` di
 *why* an observation regressed rather than blindly healing. Reading the v2 manifest above on the eval
 clone (`held_out_delta` per-id score + retrieval-trace diffs), the golden set (`QARecord.pages_used`), and
 a clone page-existence check, it classifies each regressed golden question into one of four faults
-via an ordered first-match cascade:
+via an ordered first-match cascade. Gap records have three origins: `measured` (loop regression classifier),
+`reported` (client-as-brain via `gap_report` MCP tool), and `retracted` (guillotine verdicts on weakened claims).
 
 | Fault class | Signal | Route |
 |---|---|---|

@@ -562,11 +562,12 @@ def freeze(
 ) -> FreezeResult:
     """Freeze human-accepted candidates into the topic's held-out golden set.
 
-    Builds a :class:`~knotica.core.records.QARecord` from each accepted candidate
-    (``source: curate_example``), verifies the set is disjoint from the flywheel
-    trainset **before** writing anything, then writes ``golden.jsonl`` and its
-    sibling ``MANIFEST.json`` (``sha256`` content-addressing the frozen bytes,
-    ``split: held_out``) through exactly one
+    Replaces the entire frozen ``golden.jsonl`` with the accepted candidates
+    (does not append to an existing set). Builds a :class:`~knotica.core.records.QARecord`
+    from each accepted candidate (``source: curate_example``), verifies the set is
+    disjoint from the flywheel trainset **before** writing anything, then writes
+    ``golden.jsonl`` and its sibling ``MANIFEST.json`` (``sha256`` content-addressing
+    the frozen bytes, ``split: held_out``) through exactly one
     :class:`~knotica.core.transaction.VaultTransaction` -- one commit. Freezing
     fewer than :data:`EVAL_MIN_GOLDEN` records still succeeds but emits a
     :class:`GoldenSetFloorWarning` (the human is the gate).
