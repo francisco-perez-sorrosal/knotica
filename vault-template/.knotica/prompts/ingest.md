@@ -154,6 +154,77 @@ page's catalog line (full-path wikilink + your one-line description) **in the sa
 commit** that writes the page. You cannot write a page and forget the index; never read
 or rewrite `index.md` yourself.
 
+## Ingesting an approved suggestion
+
+When the user asks to ingest an approved gap-fill suggestion, or you discover one via
+`suggestions_read(status="approved")`, the ingest follows the same protocol above but
+on an isolated candidate context — the loop will gate the result before it touches
+the wiki.
+
+**1. Open the candidate.** Call `source_ingest_open` with the resolved `topic` and
+the suggestion's `suggestion_id`. Save the returned `candidate` handle (an opaque string)
+and the `provenance` block. If the response carries `state: "resumed"`, the ingest is
+resuming an earlier partial session — read `resume.pages_present` and write only the
+pages not yet written; never restart. Idempotent: opening twice returns the same handle
+and current state.
+
+**2. Fetch and store the source.** Follow steps 3–4 of the main protocol exactly as
+normal, except: pass the `candidate` handle to every `store_source` call (it scopes the
+write to the suggestion's candidate context instead of the default branch). Use
+`provenance.source_url` as `source_url` and `provenance.citation_hint` as the
+`citation_key` — these are pre-derived from the gap's origin.
+
+**3. Distil pages — with provenance.** Follow step 5 of the main protocol, writing each
+`write_page` with the same `candidate` handle. In every page's frontmatter, add a
+`provenance` block:
+
+```yaml
+provenance:
+  suggestion_id: <from provenance.suggestion_id>
+  gap_id: <from provenance.gap_id>
+  qa_id: <from provenance.qa_id>
+```
+
+(The `query_text` is not copied per-page — it lives on the suggestion record.) The
+`index_entry` upserts via `write_page` exactly as step 6 describes; the index updates
+on the candidate context.
+
+**4. Stage held-out golden candidates (contamination guard).** Before or interleaved
+with page-writing, call `golden_review_save` to stage client-authored held-out
+candidates derived from the source text — examples the wiki should answer after the
+ingest. Pass them as `accepted_json` — a JSON array of candidate objects
+(`question`, `reference_answer`, `citations`, `pages_used`; optional `support`).
+These stage disjoint from `qa.jsonl` and will reach the frozen set only
+through the `golden_review_load` → accept → `golden.freeze` flow below (never a direct
+freeze call). The contamination guard is the protocol ordering: stage the held-out
+candidates *before* the gate evaluates the ingest.
+
+**5. Review and freeze held-out golden candidates.** Any human freeze of the staged
+candidates must route through `golden_review_load` (reads the current frozen set),
+followed by acceptance and `golden.freeze` (atomically replaces the frozen set). This
+read-merge-freeze pattern is load-bearing — never call freeze without reading first,
+or prior golden entries will be lost.
+
+**6. Submit to the gate.** Call `source_ingest_submit` with the `topic` and
+`suggestion_id`. Mode defaults to `"dry-run"`, which checks lint-clean, source present,
+≥1 page written, and gate eligibility (topic has a frozen baseline) without making
+changes. Then call it again with `mode: "apply"` to finalize and hand the candidate to
+the loop's gate — it evaluates the wiki WITH the new source and either merges it
+(closes the gap without regressing others) or refuses it (quarantined, reworkable).
+
+**7. Report the verdict.** The `source_ingest_submit` apply response carries the
+verdict:
+
+- **merged** → the source closed the gap without regression; the suggestion is now
+  `ingested` automatically. Report success to the user.
+- **refused** → the source made other answers worse. Show the user the `diff_summary`
+  and top regressed questions. The suggestion stays `approved` and is resumable — you
+  or the user can improve the distillation and re-run steps 1–6 (open/fetch/distil/
+  review/submit) to try again.
+
+**Never write `suggestions.jsonl`, `log.md`, or `index.md` yourself; never pass
+`candidate` on a normal (non-suggestion) ingest.**
+
 ## If a tool returns an error
 
 Errors arrive inside the tool result as `{"error": {"code", "message", "fix",

@@ -1199,3 +1199,174 @@ def test_freeze_tolerates_a_support_carrying_accepted_candidate(
     assert "line_start" not in golden_text, (
         "the support provenance never leaks into the frozen golden.jsonl bytes"
     )
+
+
+# =========================================================================== #
+# Composition characterization -- the review-then-freeze plumbing a source
+# ingest depends on.
+#
+# A source ingest generates held-out golden candidates from the source text
+# before the source itself is committed, stages them for human review through
+# ``knotica.core.golden_review``, and only later promotes the accepted subset
+# into the frozen golden set through ``freeze``. These tests pin three
+# behaviors of that existing plumbing with no production code changes:
+#
+# 1. Staging a candidate for review never touches the flywheel trainset --
+#    the staged file and ``qa.jsonl`` are unrelated paths.
+# 2. ``freeze``'s disjointness guard governs a staged-and-reloaded candidate
+#    exactly as it governs any other: a collision with the trainset is
+#    rejected, a genuinely new question is accepted.
+# 3. ``freeze`` always replaces the whole frozen set rather than appending --
+#    so re-freezing with only a new candidate silently drops every
+#    previously frozen question, unless the caller reads the existing frozen
+#    set first and freezes the union.
+# =========================================================================== #
+
+
+def _review_candidate(
+    *,
+    question: str,
+    reference_answer: str = "Grounded strictly in the source text, before the source is ingested.",
+    citations: tuple[str, ...] = (),
+    pages_used: tuple[str, ...] = (),
+) -> dict[str, object]:
+    """One human-reviewable candidate in the ``golden_review`` save/load shape.
+
+    Distinct from :func:`_candidate` above: this shape carries ``pages_used``
+    (the field ``golden_review.save_golden_review`` requires), not
+    ``supporting_pages``.
+    """
+    return {
+        "question": question,
+        "reference_answer": reference_answer,
+        "citations": list(citations),
+        "pages_used": list(pages_used),
+    }
+
+
+def test_staging_a_source_derived_candidate_leaves_the_flywheel_trainset_untouched(
+    template_vault: Path, isolated_home: Path
+) -> None:
+    from knotica.core.golden_review import save_golden_review
+
+    _write_flywheel(template_vault, TOPIC, [_qa_record(record_id="qa-0001")])
+    trainset_path = _datasets_dir(template_vault, TOPIC) / "qa.jsonl"
+    trainset_before = trainset_path.read_text(encoding="utf-8")
+    staged_question = "What does this source say about induced routines, before it is ingested?"
+    store = LocalFSStore(template_vault)
+
+    save_golden_review(store, template_vault, TOPIC, [_review_candidate(question=staged_question)])
+
+    trainset_after = trainset_path.read_text(encoding="utf-8")
+    assert trainset_after == trainset_before, (
+        "staging a held-out candidate for review must never touch the flywheel trainset"
+    )
+    assert staged_question not in trainset_after, (
+        "the staged, not-yet-ingested question must stay absent from qa.jsonl"
+    )
+
+
+def test_freezing_a_staged_candidate_disjoint_from_the_trainset_succeeds(
+    template_vault: Path, isolated_home: Path
+) -> None:
+    from knotica.core.golden_review import load_golden_review, save_golden_review
+    from knotica.evals.golden import freeze
+
+    _write_flywheel(
+        template_vault,
+        TOPIC,
+        [_qa_record(record_id="qa-0001", query="An existing flywheel question?")],
+    )
+    new_question = "A genuinely new held-out question the source answers?"
+    store = LocalFSStore(template_vault)
+    save_golden_review(store, template_vault, TOPIC, [_review_candidate(question=new_question)])
+    staged = load_golden_review(store, template_vault, TOPIC)["candidates"]
+
+    freeze(store, template_vault, TOPIC, staged)  # must not raise: no overlap with the trainset
+
+    loaded = load(store, TOPIC)
+    assert [record.query for record in loaded] == [new_question], (
+        "a staged candidate disjoint from the trainset, read back through golden_review_load, "
+        "freezes cleanly"
+    )
+
+
+def test_freezing_a_staged_candidate_that_collides_with_the_trainset_is_rejected(
+    template_vault: Path, isolated_home: Path
+) -> None:
+    from knotica.core.golden_review import load_golden_review, save_golden_review
+    from knotica.evals.golden import freeze
+
+    shared_question = "What distinguishes an agentic workflow memory?"
+    _write_flywheel(template_vault, TOPIC, [_qa_record(record_id="qa-0001", query=shared_question)])
+    store = LocalFSStore(template_vault)
+    save_golden_review(store, template_vault, TOPIC, [_review_candidate(question=shared_question)])
+    staged = load_golden_review(store, template_vault, TOPIC)["candidates"]
+    commits_before_freeze = git_commit_count(template_vault)
+
+    with pytest.raises(GoldenSetContaminationError):
+        freeze(store, template_vault, TOPIC, staged)
+
+    assert not store.exists(golden_dataset_path(TOPIC)), (
+        "a staged candidate colliding with the trainset must never reach the frozen set"
+    )
+    assert git_commit_count(template_vault) == commits_before_freeze, (
+        "contamination is caught before any commit -- the rejected freeze lands nothing"
+    )
+
+
+def test_freeze_replaces_the_whole_frozen_set_so_a_naive_refreeze_loses_prior_entries(
+    template_vault: Path, isolated_home: Path
+) -> None:
+    from knotica.evals.golden import freeze
+
+    store = LocalFSStore(template_vault)
+    prior_question = "What was frozen before this source was ingested?"
+    freeze(store, template_vault, TOPIC, [_candidate(question=prior_question)])
+
+    new_question = "What does the newly ingested source add?"
+    # A naive re-freeze: only the new candidate, without first reading what is
+    # already frozen.
+    freeze(store, template_vault, TOPIC, [_candidate(question=new_question)])
+
+    loaded = load(store, TOPIC)
+    assert [record.query for record in loaded] == [new_question], (
+        "freeze replaced the whole frozen set -- the prior question, never re-supplied, is "
+        f"gone; got {[record.query for record in loaded]!r}"
+    )
+
+
+def test_reading_the_existing_frozen_set_before_refreezing_preserves_prior_entries(
+    template_vault: Path, isolated_home: Path
+) -> None:
+    from knotica.core.golden_review import load_golden_review, save_golden_review
+    from knotica.evals.golden import freeze
+
+    store = LocalFSStore(template_vault)
+    prior_question = "What was frozen before this source was ingested?"
+    freeze(store, template_vault, TOPIC, [_candidate(question=prior_question)])
+    already_frozen = load(store, TOPIC)
+
+    new_question = "What does the newly ingested source add?"
+    save_golden_review(store, template_vault, TOPIC, [_review_candidate(question=new_question)])
+    newly_staged = load_golden_review(store, template_vault, TOPIC)["candidates"]
+
+    # The protocol-correct flow: merge what is already frozen with the newly
+    # staged candidate, then freeze the union -- never the new candidate alone.
+    merged = [
+        {
+            "question": record.query,
+            "reference_answer": record.answer,
+            "citations": list(record.citations),
+            "pages_used": list(record.pages_used),
+        }
+        for record in already_frozen
+    ] + newly_staged
+
+    freeze(store, template_vault, TOPIC, merged)
+
+    loaded = load(store, TOPIC)
+    assert sorted(record.query for record in loaded) == sorted([prior_question, new_question]), (
+        "reading the existing frozen set before re-freezing keeps the prior question alongside "
+        f"the newly staged one; got {[record.query for record in loaded]!r}"
+    )
