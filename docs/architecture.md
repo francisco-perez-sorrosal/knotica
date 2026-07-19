@@ -75,8 +75,8 @@ metadata-only reputability scorer — producing ranked, frozen `SourceCandidate`
 suggestion queue. It is a pure outbound-network boundary (no vault access, no LLM) and stays off the MCP
 cold-start path. **Note:** the you.com API wire shape is documented from the public REST spec but not yet live-verified
 (Step 31 deferred); the fixtures are synthetic. Config stays provider-aware for future extension.
-Contract and rationale: [`.ai-state/DESIGN.md` § 3](../.ai-state/DESIGN.md#3-components) and ADRs `dec-draft-f4584c2f` /
-`dec-draft-c7d82c89` (finalize to `dec-NNN` at merge).
+Contract and rationale: [`.ai-state/DESIGN.md` § 3](../.ai-state/DESIGN.md#3-components) and ADRs `dec-027` /
+`dec-026` (finalize to `dec-NNN` at merge).
 
 ## 3a. Loop Lifecycle (`knotica loop --topic <t>`)
 
@@ -204,8 +204,8 @@ re-freeze; it leaves every dec-006-frozen record (`metrics.jsonl`) byte-stable.
 > Status: **Built** (gap-fill P1, `gapfill-classifier` pipeline) — `src/knotica/core/gap_classifier.py`
 > and `records.GapRecord`, wired into `LoopRunner.observe_default` via the lazily-imported
 > `_maybe_redirect_to_gaps` hook. Contract and rationale:
-> [`.ai-state/DESIGN.md` § 3](../.ai-state/DESIGN.md#3-components) and ADRs `dec-draft-315e275a` /
-> `dec-draft-d777755b` (finalize to `dec-NNN` at merge).
+> [`.ai-state/DESIGN.md` § 3](../.ai-state/DESIGN.md#3-components) and ADRs `dec-024` /
+> `dec-025` (finalize to `dec-NNN` at merge).
 
 At the **Heal** step, before racing prompt variants, `core/gap_classifier.py` diagnoses
 *why* an observation regressed rather than blindly healing. Reading the v2 manifest above on the eval

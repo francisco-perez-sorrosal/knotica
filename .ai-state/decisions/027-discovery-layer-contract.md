@@ -1,7 +1,7 @@
 ---
-id: dec-draft-f4584c2f
+id: dec-027
 title: Gap-fill discovery contract — SearchProvider protocol, frozen SourceCandidate, separate batched enrichment
-status: proposed
+status: accepted
 category: architectural
 date: 2026-07-19
 summary: The discovery layer exposes a SearchProvider protocol producing a frozen, schema_versioned SourceCandidate; reputability metadata is stamped by a separate provider-agnostic OpenAlex enrichment pass (batched by DOI), and reputability is a deterministic metadata-only tier + score — never textual.

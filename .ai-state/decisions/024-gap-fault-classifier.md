@@ -1,7 +1,7 @@
 ---
-id: dec-draft-315e275a
+id: dec-024
 title: Four-way fault classifier at the loop regression hook — ordered decision procedure + heal-redirect contract
-status: proposed
+status: accepted
 category: architectural
 date: 2026-07-18
 summary: A deterministic ordered cascade classifies each regressed golden question into dilution / retrieval-fault / generation-fault / genuine-gap from the dec-023 v2 manifest, then routes prompt-cause to the existing arena heal and knowledge-cause to a persisted gap record; the arena is skipped only when every regressed id is knowledge-cause, and a classifier exception always falls through to heal.

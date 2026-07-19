@@ -19,6 +19,8 @@ affected_files:
 affected_reqs: [REQ-01, REQ-02, REQ-03, REQ-04, REQ-05]
 re_affirms: dec-006
 dissent: A per-run manifest that self-versions independently of metrics.jsonl introduces a second schema-version namespace; a purist reading of dec-006 would fold the manifest under METRICS_SCHEMA_VERSION instead of minting manifest_schema_version.
+re_affirmed_by:
+  - dec-024
 ---
 
 ## Context

@@ -1,7 +1,7 @@
 ---
-id: dec-draft-d777755b
+id: dec-025
 title: Gap-record schema v1 — the persisted P1→P3 knowledge-gap contract
-status: proposed
+status: accepted
 category: architectural
 date: 2026-07-18
 summary: Knowledge-cause fault verdicts (genuine_gap, dilution) are persisted as a new schema-versioned GapRecord to a committed append-only <topic>/.knotica/gaps/gaps.jsonl, written in its own VaultTransaction under a bookkeeping path that does not re-trigger observation; the record carries a stable gap_id/qa_id join key, a status lifecycle, and a self-contained evidence snapshot the P3 discovery queue consumes.

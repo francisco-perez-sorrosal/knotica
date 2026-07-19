@@ -1,7 +1,7 @@
 ---
-id: dec-draft-c7d82c89
+id: dec-026
 title: Discovery HTTP boundary — direct httpx REST, zero provider SDKs, env-only keys
-status: proposed
+status: accepted
 category: architectural
 date: 2026-07-19
 summary: The discovery layer reaches every provider (Exa, you.com, OpenAlex) via direct httpx REST behind one thin shared client, adopting no provider SDK; exa-py is rejected because it drags openai + python-dotenv. Credentials resolve from the environment only, at use time, failing before the network — mirroring evals/llm.py.
