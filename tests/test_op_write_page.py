@@ -20,12 +20,17 @@ INTERFACE_DESIGN §1.3–1.5, and the mutation-discipline design):
 6. **Secret scrub** — real credential content is redacted-in-content and the
    redaction is surfaced (loud, never silent); a false-positive corpus of
    legitimate token-like research strings is committed verbatim, unflagged.
+7. **Candidate-scoped writes** — an additive ``candidate`` handle from an open
+   ingest session routes the write onto that candidate's worktree branch
+   instead of the canonical default branch, leaving the canonical vault's
+   working tree and ``head_sha()`` untouched; an unopened/unknown handle fails
+   fast with an actionable error pointing back at opening an ingest first.
 
 Operations are config-agnostic: they take an already-resolved ``store`` and
 ``vault_root`` and return a result envelope (a success pointer or a
 ``{"error": {...}}`` failure) rather than raising. The production ``operations``
 package is imported inside each test (deferred), so collection succeeds while
-Step-25 code is still in flight.
+the paired implementer's work is still in flight.
 """
 
 from pathlib import Path
@@ -33,6 +38,7 @@ from pathlib import Path
 import pytest
 
 from knotica.core.records import parse_log_entries
+from knotica.core.vcs import VaultVcs
 from support.vault import (
     git_commit_count,
     git_head_sha,
@@ -81,7 +87,7 @@ topic: agentic-systems
 def _write_page(vault: Path, **kwargs):
     """Call the operation under test with a real store bound to ``vault``.
 
-    Deferred import keeps collection green until the Step-25 operation lands.
+    Deferred import keeps collection green until the paired implementation lands.
     """
     from knotica.core.operations.write_page import write_page
     from knotica.store.local import LocalFSStore
@@ -395,3 +401,151 @@ def test_false_positive_corpus_is_committed_verbatim(template_vault):
         )
     assert "[REDACTED:" not in stored
     assert "SECRET_SCRUBBED" not in _warnings_text(result)
+
+
+# ---------------------------------------------------------------------------
+# 7. Candidate-scoped writes -- an open ingest's worktree branch, never the
+#    canonical default branch
+# ---------------------------------------------------------------------------
+
+CANDIDATE_PAGE = "candidate-page"
+CANDIDATE_PAGE_PATH = f"{TOPIC}/{CANDIDATE_PAGE}.md"
+
+
+def _approved_suggestion(vault: Path, store) -> str:
+    """Build one gap-fill suggestion and drive it to ``approved`` through the
+    real decision state machine (never hand-forged), returning its id."""
+    from knotica.core import gapfill
+    from knotica.core.records import GapEvidence, GapRecord
+    from knotica.core.transaction import VaultTransaction
+    from knotica.discovery.records import SourceCandidate
+
+    evidence = GapEvidence(
+        quality_delta=-0.5,
+        qa_accuracy_delta=-0.5,
+        citation_validity_delta=0.0,
+        retrieval_trace=(),
+        pages_added=(),
+        pages_removed=(),
+        prior_generation=4,
+    )
+    gap = GapRecord(
+        gap_id="gap-candidate-write-page",
+        topic=TOPIC,
+        qa_id="golden-candidate-write-page",
+        fault_class="genuine_gap",
+        status="open",
+        classifier_version=1,
+        detected_generation=5,
+        detected_at="2026-07-18T23:01:00Z",
+        scalar_at_detection=0.9493,
+        baseline_scalar=0.96,
+        question="What closes this gap?",
+        reference_pages=("agent-workflow-memory",),
+        reference_pages_exist=False,
+        evidence=evidence,
+        manifest_ref="agentic-systems/.knotica/eval-runs/gen-5/manifest.json",
+    )
+    source_candidate = SourceCandidate(
+        url="https://arxiv.org/abs/2409.07429",
+        title="Agent Workflow Memory",
+        snippet="We propose inducing reusable workflows from past experience...",
+        source_provider="fake",
+        doi="10.48550/arXiv.2409.07429",
+        citation_count=12,
+    )
+    records = gapfill.build_suggestion_records(
+        gap, [source_candidate], proposer_version=1, clock=lambda: "2026-07-19T00:00:00Z"
+    )
+    path = gapfill.suggestions_path(TOPIC)
+    body = "\n".join(record.to_json_line() for record in records) + "\n"
+    with VaultTransaction(store, vault, "test_seed", TOPIC, "seed suggestions for test") as txn:
+        txn.write(path, body)
+    suggestion_id = records[0].suggestion_id
+    gapfill.apply_decision(store, vault, TOPIC, suggestion_id, decision="approve")
+    return suggestion_id
+
+
+def _open_candidate(vault: Path) -> str:
+    """Open a real ingest session (a private worktree + WIP branch) and return
+    its opaque candidate handle, exactly as a client receives it from
+    ``source_ingest_open``."""
+    from knotica.core.source_ingest import open_ingest
+    from knotica.store.local import LocalFSStore
+
+    store = LocalFSStore(vault)
+    suggestion_id = _approved_suggestion(vault, store)
+    handle = open_ingest(store, vault, TOPIC, suggestion_id)
+    return handle.candidate
+
+
+def _worktree_dir(vault: Path, candidate: str) -> Path:
+    """Locate the worktree checkout backing an open candidate handle."""
+    entry = next(wt for wt in VaultVcs(vault).list_worktrees() if wt.get("branch") == candidate)
+    return Path(entry["path"])
+
+
+def test_write_page_with_an_open_candidate_lands_on_the_worktree_branch(template_vault):
+    candidate = _open_candidate(template_vault)
+    vcs = VaultVcs(template_vault)
+    wip_tip_before = vcs.ref_sha(candidate)
+
+    _write_page(
+        template_vault,
+        topic=TOPIC,
+        page=CANDIDATE_PAGE,
+        content=VALID_PAGE,
+        summary="Add candidate-scoped page",
+        candidate=candidate,
+    )
+
+    assert vcs.ref_sha(candidate) != wip_tip_before, (
+        "the write must land as a new commit on the candidate's worktree branch"
+    )
+    worktree = _worktree_dir(template_vault, candidate)
+    assert (worktree / CANDIDATE_PAGE_PATH).exists(), (
+        "the page must be written into the worktree's checkout, not the canonical vault"
+    )
+
+
+def test_write_page_with_an_open_candidate_leaves_the_canonical_vault_untouched(template_vault):
+    candidate = _open_candidate(template_vault)
+    vcs = VaultVcs(template_vault)
+    canonical_head_before = vcs.head_sha()
+    canonical_branch_before = vcs.current_branch()
+
+    _write_page(
+        template_vault,
+        topic=TOPIC,
+        page=CANDIDATE_PAGE,
+        content=VALID_PAGE,
+        summary="Add candidate-scoped page",
+        candidate=candidate,
+    )
+
+    assert vcs.head_sha() == canonical_head_before, "the canonical default-branch ref must not move"
+    assert vcs.current_branch() == canonical_branch_before
+    assert git_status_porcelain(template_vault) == "", "the canonical working tree must stay clean"
+    assert not (template_vault / CANDIDATE_PAGE_PATH).exists(), (
+        "a candidate-scoped page must never appear in the canonical working tree"
+    )
+
+
+def test_write_page_with_an_unopened_candidate_handle_fails_and_points_to_open(template_vault):
+    unopened = f"loop/wip/{TOPIC}/source-deadbeef"
+
+    result = _write_page(
+        template_vault,
+        topic=TOPIC,
+        page=CANDIDATE_PAGE,
+        content=VALID_PAGE,
+        summary="should not commit",
+        candidate=unopened,
+    )
+
+    assert _error_code(result) == "SUGGESTION_NOT_FOUND"
+    fix = result["error"]["fix"]
+    assert "source_ingest_open" in fix, (
+        f"the fix text must direct the caller to open first: {fix!r}"
+    )
+    assert not (template_vault / CANDIDATE_PAGE_PATH).exists()

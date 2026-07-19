@@ -26,6 +26,10 @@ here is the observable protocol-band write contract from INTERFACE_DESIGN:
 - ``SECRET_SCRUBBED`` is a **warning on a success result**, not an error: a write
   whose content carries a token-shaped secret succeeds and carries a ``warnings``
   entry (the write still lands).
+- an additive ``candidate`` handle threads through both ``store_source`` and
+  ``write_page``: a whole client-driven ingest chain (source, then a page)
+  sharing one open candidate lands both commits on that candidate's worktree
+  branch, never touching the canonical default branch.
 
 Async coroutines are driven from sync test bodies via ``anyio.run`` (mcp depends
 on anyio; there is no pytest async plugin configured). Production imports of the
@@ -42,8 +46,10 @@ from typing import Any
 import anyio
 import pytest
 
+from knotica.core.vcs import VaultVcs
 from support.vault import (
     git_commit_count,
+    git_status_porcelain,
     parse_knotica_commit,
     parse_log_entries,
     run_git,
@@ -523,4 +529,133 @@ def test_write_page_with_a_secret_succeeds_and_warns(
     assert git_commit_count(template_vault) == before + 1, "the scrubbed write still commits"
     assert "SECRET_SCRUBBED" in json.dumps(body), (
         f"the secret redaction must surface as a warning on the success result: {body!r}"
+    )
+
+
+# ---------------------------------------------------------------------------
+# Candidate-scoped ingest chain -- store_source then write_page sharing one
+# open candidate handle both land on that candidate's worktree branch.
+# ---------------------------------------------------------------------------
+
+
+def _approved_suggestion(vault: Path, store) -> str:
+    """Build one gap-fill suggestion and drive it to ``approved`` through the
+    real decision state machine (never hand-forged), returning its id."""
+    from knotica.core import gapfill
+    from knotica.core.records import GapEvidence, GapRecord
+    from knotica.core.transaction import VaultTransaction
+    from knotica.discovery.records import SourceCandidate
+
+    evidence = GapEvidence(
+        quality_delta=-0.5,
+        qa_accuracy_delta=-0.5,
+        citation_validity_delta=0.0,
+        retrieval_trace=(),
+        pages_added=(),
+        pages_removed=(),
+        prior_generation=4,
+    )
+    gap = GapRecord(
+        gap_id="gap-candidate-mcp-chain",
+        topic=TOPIC,
+        qa_id="golden-candidate-mcp-chain",
+        fault_class="genuine_gap",
+        status="open",
+        classifier_version=1,
+        detected_generation=5,
+        detected_at="2026-07-18T23:01:00Z",
+        scalar_at_detection=0.9493,
+        baseline_scalar=0.96,
+        question="What closes this gap?",
+        reference_pages=("agent-workflow-memory",),
+        reference_pages_exist=False,
+        evidence=evidence,
+        manifest_ref="agentic-systems/.knotica/eval-runs/gen-5/manifest.json",
+    )
+    source_candidate = SourceCandidate(
+        url="https://arxiv.org/abs/2409.07429",
+        title="Agent Workflow Memory",
+        snippet="We propose inducing reusable workflows from past experience...",
+        source_provider="fake",
+        doi="10.48550/arXiv.2409.07429",
+        citation_count=12,
+    )
+    records = gapfill.build_suggestion_records(
+        gap, [source_candidate], proposer_version=1, clock=lambda: "2026-07-19T00:00:00Z"
+    )
+    path = gapfill.suggestions_path(TOPIC)
+    body = "\n".join(record.to_json_line() for record in records) + "\n"
+    with VaultTransaction(store, vault, "test_seed", TOPIC, "seed suggestions for test") as txn:
+        txn.write(path, body)
+    suggestion_id = records[0].suggestion_id
+    gapfill.apply_decision(store, vault, TOPIC, suggestion_id, decision="approve")
+    return suggestion_id
+
+
+def _open_candidate(vault: Path) -> str:
+    """Open a real ingest session (a private worktree + WIP branch) and return
+    its opaque candidate handle, exactly as a client receives it from
+    ``source_ingest_open``."""
+    from knotica.core.source_ingest import open_ingest
+    from knotica.store.local import LocalFSStore
+
+    store = LocalFSStore(vault)
+    suggestion_id = _approved_suggestion(vault, store)
+    handle = open_ingest(store, vault, TOPIC, suggestion_id)
+    return handle.candidate
+
+
+def test_candidate_scoped_store_source_then_write_page_share_the_worktree_branch(
+    vault_config: Path, template_vault: Path
+) -> None:
+    """A store_source and write_page call sharing one open candidate handle
+    both commit onto that candidate's worktree branch -- the canonical vault's
+    default branch and working tree never move across either call."""
+    candidate = _open_candidate(template_vault)
+    vcs = VaultVcs(template_vault)
+    canonical_head_before = vcs.head_sha()
+    wip_tip_after_open = vcs.ref_sha(candidate)
+
+    assert_success(
+        call_tool(
+            "store_source",
+            {
+                "topic": TOPIC,
+                "citation_key": "candidate-mcp-source",
+                "title": "Candidate MCP source",
+                "content": "# Candidate source\n\nFetched via the MCP write band.",
+                "source_url": "https://arxiv.org/abs/2409.07429",
+                "candidate": candidate,
+            },
+        )
+    )
+    tip_after_source = vcs.ref_sha(candidate)
+    assert tip_after_source != wip_tip_after_open, (
+        "store_source with an open candidate must commit onto the worktree branch"
+    )
+
+    assert_success(
+        call_tool(
+            "write_page",
+            {
+                "topic": TOPIC,
+                "page": "candidate-mcp-page",
+                "content": VALID_PAGE,
+                "summary": "add candidate-scoped page",
+                "candidate": candidate,
+            },
+        )
+    )
+    tip_after_page = vcs.ref_sha(candidate)
+    assert tip_after_page != tip_after_source, (
+        "write_page with the same open candidate must land as a second commit on the same branch"
+    )
+
+    assert vcs.head_sha() == canonical_head_before, "the canonical default branch must never move"
+    assert git_status_porcelain(template_vault) == "", "the canonical working tree must stay clean"
+    assert not (template_vault / "sources" / TOPIC / "candidate-mcp-source.md").exists(), (
+        "the candidate-scoped source must never appear in the canonical working tree"
+    )
+    assert not (template_vault / TOPIC / "candidate-mcp-page.md").exists(), (
+        "the candidate-scoped page must never appear in the canonical working tree"
     )

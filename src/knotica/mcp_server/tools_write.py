@@ -37,7 +37,10 @@ _WRITE_PAGE_DESCRIPTION = (
     "made and changed=false is returned. Does NOT create topics (use create_topic). NEVER "
     "target index.md, log.md, or SCHEMA.md as the 'page' — those reserved files are maintained "
     "only as side effects here (pass index_entry to update the catalog); a reserved 'page' fails "
-    "fast with RESERVED_NAME. Also fails fast on invalid frontmatter."
+    "fast with RESERVED_NAME. Also fails fast on invalid frontmatter. "
+    "When candidate is set to a handle from source_ingest_open, this write lands on that "
+    "suggestion's candidate context instead of the default branch; leave it empty for a normal "
+    "ingest. Idempotency and the one-commit-per-write contract are unchanged."
 )
 
 _STORE_SOURCE_DESCRIPTION = (
@@ -46,7 +49,10 @@ _STORE_SOURCE_DESCRIPTION = (
     "markdown first (client-as-brain); this tool only persists what you pass. Immutable: if "
     "citation_key already exists with identical content the call is a no-op success; if it exists "
     "with DIFFERENT content the call FAILS (SOURCE_EXISTS) — pick a new citation_key. Use the "
-    "paper's citation key as the filename (e.g. 'wang2024awm')."
+    "paper's citation key as the filename (e.g. 'wang2024awm'). "
+    "When candidate is set to a handle from source_ingest_open, this write lands on that "
+    "suggestion's candidate context instead of the default branch; leave it empty for a normal "
+    "ingest. Idempotency and the one-commit-per-write contract are unchanged."
 )
 
 _CREATE_TOPIC_DESCRIPTION = (
@@ -80,10 +86,18 @@ def register_write_tools(mcp: FastMCP) -> None:
         content: str,
         summary: str,
         index_entry: str = "",
+        candidate: str = "",
     ) -> ToolResult:
         return _write(
             lambda store, root: operations.write_page(
-                store, root, topic, page, content, summary, index_entry=index_entry or None
+                store,
+                root,
+                topic,
+                page,
+                content,
+                summary,
+                index_entry=index_entry or None,
+                candidate=candidate,
             ),
             activity=lambda result: {
                 "topic": topic,
@@ -105,10 +119,19 @@ def register_write_tools(mcp: FastMCP) -> None:
         content: str,
         source_url: str,
         source_type: str = "markdown",
+        candidate: str = "",
     ) -> ToolResult:
         return _write(
             lambda store, root: operations.store_source(
-                store, root, topic, citation_key, title, content, source_url, source_type
+                store,
+                root,
+                topic,
+                citation_key,
+                title,
+                content,
+                source_url,
+                source_type,
+                candidate=candidate,
             ),
             activity=lambda result: {
                 "topic": topic,

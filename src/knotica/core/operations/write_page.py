@@ -15,6 +15,7 @@ from pathlib import PurePath
 from knotica.core.errors import ErrorCode, KnoticaError, err, ok
 from knotica.core.index_catalog import INDEX_PATH, upsert_index_bullet
 from knotica.core.lint import RESERVED_TOP_LEVEL_NAMES
+from knotica.core.operations.candidate_scope import resolve_candidate_scope
 from knotica.core.page import (
     FieldProblem,
     TopicNotFoundError,
@@ -37,6 +38,7 @@ def write_page(
     summary: str,
     *,
     index_entry: str | None = None,
+    candidate: str = "",
 ) -> dict[str, object]:
     """Create or replace one wiki page atomically (scrub + write + commit + log).
 
@@ -49,19 +51,32 @@ def write_page(
         summary: One-line change summary for the commit subject and log entry.
         index_entry: Optional catalog line text; when set, this page's root
             ``index.md`` line is upserted in the same commit.
+        candidate: Empty for a normal default-branch write (byte-identical to
+            omitting it), or the WIP branch handle of an open ingest session --
+            the page (and its index upsert) then land on that candidate's
+            private worktree, never the default branch.
 
     Returns:
         A success envelope with pointer ``{path, commit_sha, changed}`` (plus any
         secret-scrub warnings), or a typed failure envelope.
     """
     try:
+        write_store, work_dir = resolve_candidate_scope(store, vault_root, candidate)
         cleaned_topic = validated_topic(topic)
         target = _validate_page_target(page)
-        resolve_schema(store, cleaned_topic)
+        resolve_schema(write_store, cleaned_topic)
         _validate_content_frontmatter(content)
         path = page_path(cleaned_topic, page)
         return _commit_page(
-            store, vault_root, cleaned_topic, target, path, content, summary, index_entry
+            write_store,
+            vault_root,
+            cleaned_topic,
+            target,
+            path,
+            content,
+            summary,
+            index_entry,
+            work_dir,
         )
     except _WritePageRejected as rejected:
         return rejected.envelope
@@ -141,9 +156,19 @@ def _commit_page(
     content: str,
     summary: str,
     index_entry: str | None,
+    work_dir: PurePath | None,
 ) -> dict[str, object]:
-    """Open the transaction, declare the page (and optional index) write, envelope the result."""
-    with VaultTransaction(store, vault_root, "write_page", topic, summary) as txn:
+    """Open the transaction, declare the page (and optional index) write, envelope the result.
+
+    ``work_dir`` redirects the commit onto a candidate worktree's branch when
+    set (the lock still brackets the canonical ``vault_root``); ``None`` is the
+    default-branch path. The index catalog is read from ``store`` -- already the
+    worktree-scoped store for a candidate write -- so its upsert stays on the
+    candidate context, never the canonical index.
+    """
+    with VaultTransaction(
+        store, vault_root, "write_page", topic, summary, work_dir=work_dir
+    ) as txn:
         txn.write(path, content)
         if index_entry:
             existing_index = store.read_text(INDEX_PATH) if store.exists(INDEX_PATH) else ""

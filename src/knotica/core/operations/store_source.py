@@ -20,6 +20,7 @@ from knotica.core.records import (
     parse_source_document,
     render_source_document,
 )
+from knotica.core.operations.candidate_scope import resolve_candidate_scope
 from knotica.core.scrub import scrub
 from knotica.core.text_reflow import reflow_pdf_markdown
 from knotica.core.transaction import VaultTransaction
@@ -45,6 +46,7 @@ def store_source(
     content: str,
     source_url: str,
     source_type: str = _DEFAULT_SOURCE_TYPE,
+    candidate: str = "",
 ) -> dict[str, object]:
     """Persist a raw source immutably under ``sources/<topic>/<citation_key>.md``.
 
@@ -57,21 +59,27 @@ def store_source(
         content: The source content as markdown/text (client already converted it).
         source_url: Origin URL recorded in provenance.
         source_type: Original format (``html`` / ``pdf`` / ``markdown`` / ``text``).
+        candidate: Empty for a normal default-branch store (byte-identical to
+            omitting it), or the WIP branch handle of an open ingest session --
+            the store then lands on that candidate's private worktree, never the
+            default branch.
 
     Returns:
         A success envelope with pointer ``{path, commit_sha, changed}`` (plus any
         secret-scrub warnings), or a ``SOURCE_EXISTS`` failure envelope.
     """
     try:
+        write_store, work_dir = resolve_candidate_scope(store, vault_root, candidate)
+        commit_root = work_dir if work_dir is not None else vault_root
         path = _source_path(topic, citation_key)
         prepared_body = _prepare_source_body(content, source_type)
         scrubbed_body, _spans = scrub(prepared_body)
-        conflict = _idempotency_check(store, vault_root, path, scrubbed_body)
+        conflict = _idempotency_check(write_store, commit_root, path, scrubbed_body)
         if conflict is not None:
             return conflict
         provenance = _build_provenance(topic, citation_key, source_url, source_type, scrubbed_body)
         document = render_source_document(provenance, scrubbed_body)
-        return _commit_source(store, vault_root, topic, title, path, document)
+        return _commit_source(write_store, vault_root, topic, title, path, document, work_dir)
     except KnoticaError as error:
         return error.envelope()
 
@@ -95,19 +103,21 @@ def _source_path(topic: str, citation_key: str) -> str:
 
 
 def _idempotency_check(
-    store: VaultStore, vault_root: str | PurePath, path: str, scrubbed_body: str
+    store: VaultStore, commit_root: str | PurePath, path: str, scrubbed_body: str
 ) -> dict[str, object] | None:
     """Return a no-op success or a ``SOURCE_EXISTS`` failure when the key is taken; else ``None``.
 
     A source with identical stored content is a no-op success (no transaction);
     a source with the same key but different content is a hard immutability
     failure. An absent key returns ``None`` -- the caller proceeds to write.
+    ``commit_root`` is the git root whose ``HEAD`` the no-op pointer reports --
+    the worktree for a candidate-scoped store, the canonical vault otherwise.
     """
     if not store.exists(path):
         return None
     _provenance, existing_body = parse_source_document(store.read_text(path))
     if existing_body == scrubbed_body:
-        pointer = {"path": path, "commit_sha": VaultVcs(vault_root).head_sha(), "changed": False}
+        pointer = {"path": path, "commit_sha": VaultVcs(commit_root).head_sha(), "changed": False}
         return ok(pointer)
     return err(
         ErrorCode.SOURCE_EXISTS,
@@ -138,9 +148,17 @@ def _commit_source(
     title: str,
     path: str,
     document: str,
+    work_dir: PurePath | None,
 ) -> dict[str, object]:
-    """Open the transaction, declare the source write, and envelope the result."""
-    with VaultTransaction(store, vault_root, "store_source", topic, title) as txn:
+    """Open the transaction, declare the source write, and envelope the result.
+
+    ``work_dir`` redirects the commit onto a candidate worktree's branch when
+    set (the lock still brackets the canonical ``vault_root``); ``None`` is the
+    default-branch path.
+    """
+    with VaultTransaction(
+        store, vault_root, "store_source", topic, title, work_dir=work_dir
+    ) as txn:
         txn.write(path, document)
     result = txn.result
     pointer = {"path": path, "commit_sha": result.commit_sha, "changed": result.changed}
