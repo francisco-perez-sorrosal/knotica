@@ -571,3 +571,17 @@ def test_publish_branch_never_touches_the_checked_out_default_branch(
     assert vcs.current_branch() == default_branch_before
     assert vcs.head_sha() == default_head_before
     assert git_status_porcelain(template_vault) == status_before
+
+
+def test_list_branch_tips_sees_branches_nested_below_the_prefix(vcs: VaultVcs) -> None:
+    """A tip scan must find names with extra path segments under the prefix.
+
+    Candidate branches for source ingests carry a topic segment and a
+    suggestion infix (``loop/c/<topic>/source-<id8>``), so a glob that stops
+    at the first ``/`` would leave them permanently undiscoverable.
+    """
+    run_git(vcs.root, "branch", "loop/c/abc123")
+    run_git(vcs.root, "branch", "loop/c/agentic-systems/source-deadbeef")
+    names = {name for name, _sha in vcs.list_branch_tips("loop/c/")}
+    assert "loop/c/abc123" in names
+    assert "loop/c/agentic-systems/source-deadbeef" in names

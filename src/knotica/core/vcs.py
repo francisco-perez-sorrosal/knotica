@@ -266,9 +266,10 @@ class VaultVcs:
         """Return ``(branch_name, tip_sha)`` for local heads under ``prefix``.
 
         Read-only. Empty when no matching branches exist. ``prefix`` may be empty
-        to list every local head (``refs/heads/*``).
+        to list every local head. The glob is ``**`` so nested branch names
+        (``loop/c/<topic>/source-<id8>``) match — a single ``*`` stops at ``/``.
         """
-        pattern = f"refs/heads/{prefix}*" if prefix else "refs/heads/*"
+        pattern = f"refs/heads/{prefix}**" if prefix else "refs/heads/**"
         result = self._run(
             ["for-each-ref", "--format=%(refname:short)\t%(objectname)", pattern],
             check=False,
