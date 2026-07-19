@@ -176,13 +176,24 @@ Three `loop/`-prefixed branch families, with distinct lifetimes:
 
 | Prefix | Meaning | Lifetime |
 |---|---|---|
-| `loop/c/*` | Pending candidates awaiting the gate | Deleted on keep (fast-forward) or discard |
+| `loop/c/*` | Pending candidates awaiting the gate (prompt candidates `loop/c/<sha>`; **source** candidates `loop/c/<topic>/source-<id8>`, gap-fill P4) | Deleted on keep (fast-forward) or discard; a refused source is renamed to `loop/x/*` |
+| `loop/wip/*` | **(P4, planned)** In-flight source ingest on a server-managed worktree (`loop/wip/<topic>/source-<id8>`) — invisible to the gate until `source_ingest_submit` publishes it to `loop/c/*` | Published (→ `loop/c/*`) or abandoned |
+| `loop/x/*` | **(P4, planned)** Quarantined refused source candidates (`loop/x/<topic>/source-<id8>`) carrying a bounded per-question dilution diff — kept, not deleted | Pruned to newest 5 per topic (mirrors `loop/r/*`) |
 | `compile/*` | Pending compile proposals awaiting promotion | Deleted on promote or discard |
 | `loop/r/*` | Merged observation-eval audit pointers | Already ancestors of the default branch post-merge; **not** divergent branches — the history lives in `main`, the pointer is convenience only |
 
 `_prune_result_branches` deletes merged `loop/r/*` pointers beyond the newest 5 after every merge;
 unmerged ones are left in place as evidence of an interrupted run. Pruning is best-effort and never fails
-the observation that triggered it.
+the observation that triggered it. **Gap-fill P4 (planned, `gapfill-source-gate`):** the `loop/c/*` gate
+distinguishes a **source** candidate from a prompt candidate by branch name alone (no persisted
+`candidate_kind`); a source candidate is ingested onto its branch by the interactive client through a
+server-managed git **worktree keyed by suggestion_id** (default working tree untouched); on pass it merges
+and auto-`mark_ingested`s the driving suggestion (page-subset trainset upgrade over the git-derived
+newly-merged pages); on regression it is **quarantined** (`loop/x/*`, never raced through the arena — the
+arena heals prompt regressions, not content dilution) and the suggestion records an additive `gate_outcome`.
+See ADRs `dec-draft-0a5dd23b` (ingest-onto-branch), `dec-draft-3b1145b5` (candidate_kind + arena
+exclusion), `dec-draft-97c5122a` (quarantine + `gate_outcome` + contamination-guarded dataset upgrade)
+— finalize to `dec-NNN` at merge.
 
 #### `log.md` union merge
 
