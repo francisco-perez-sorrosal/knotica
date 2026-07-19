@@ -48,6 +48,11 @@ RETRYABLE_BY_CODE = {
     # transient by default -- raisers pass retryable=False explicitly for
     # non-transient statuses such as auth rejections.
     "LLM_API_ERROR": True,
+    # Discovery-layer (gapfill P2) search-provider transport failures: same
+    # transient-by-default posture as LLM_API_ERROR -- rate limits and 5xx
+    # clear on their own; a raiser passes retryable=False for non-transient
+    # statuses (e.g. auth rejections).
+    "SEARCH_API_ERROR": True,
 }
 
 ERROR_CODE_NAMES = frozenset(RETRYABLE_BY_CODE)

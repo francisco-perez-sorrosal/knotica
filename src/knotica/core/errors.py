@@ -39,6 +39,7 @@ class ErrorCode(StrEnum):
     GIT_ERROR = "GIT_ERROR"
     INVALID_CURSOR = "INVALID_CURSOR"
     LLM_API_ERROR = "LLM_API_ERROR"
+    SEARCH_API_ERROR = "SEARCH_API_ERROR"
 
 
 #: Canonical fix text per code (the static part of the contract). Callers may
@@ -69,14 +70,21 @@ DEFAULT_FIX: Mapping[ErrorCode, str] = MappingProxyType(
             "Check the eval credential mode and your plan limits; transient rate"
             " limits and server errors clear on their own -- wait and re-run."
         ),
+        ErrorCode.SEARCH_API_ERROR: (
+            "Check the search provider's status and your rate limits; transient"
+            " rate limits and server errors clear on their own -- wait and re-run."
+        ),
     }
 )
 
-#: The retryable codes: lock contention and LLM transport throttling both clear
-#: on their own; every other failure needs a *different* call, not the same one
-#: again. (An LLM_API_ERROR raiser passes retryable=False explicitly for
-#: non-transient statuses such as auth rejections.)
-RETRYABLE_CODES: frozenset[ErrorCode] = frozenset({ErrorCode.LOCK_BUSY, ErrorCode.LLM_API_ERROR})
+#: The retryable codes: lock contention plus LLM and search-provider transport
+#: throttling all clear on their own; every other failure needs a *different*
+#: call, not the same one again. (An LLM_API_ERROR or SEARCH_API_ERROR raiser
+#: passes retryable=False explicitly for non-transient statuses such as auth
+#: rejections.)
+RETRYABLE_CODES: frozenset[ErrorCode] = frozenset(
+    {ErrorCode.LOCK_BUSY, ErrorCode.LLM_API_ERROR, ErrorCode.SEARCH_API_ERROR}
+)
 
 #: Codes that ride on *success* envelopes as warnings and can never be errors.
 WARNING_CODES: frozenset[ErrorCode] = frozenset({ErrorCode.SECRET_SCRUBBED})
