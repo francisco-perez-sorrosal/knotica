@@ -68,6 +68,16 @@ Navigation:
   `loop_progress.py`; CLI entry `src/knotica/cli/loop.py`.
 - Plugin layer → repo root (`.claude-plugin/`, `.mcp.json`, `commands/`, `hooks/`, `skills/wiki-maintenance/`).
 
+**Built (Phase P2, gap-fill discovery):** `src/knotica/discovery/` provides a pluggable
+source-discovery layer — a `SearchProvider` protocol with an `httpx`-REST adapter (`YouComProvider` with bearer auth; Exa was cut by user directive but the protocol stays pluggable for future adapters), a separate
+provider-agnostic OpenAlex enrichment pass stamping citation/venue/open-access metadata, and a deterministic
+metadata-only reputability scorer — producing ranked, frozen `SourceCandidate` records for the loop's gap-fill
+suggestion queue. It is a pure outbound-network boundary (no vault access, no LLM) and stays off the MCP
+cold-start path. **Note:** the you.com API wire shape is documented from the public REST spec but not yet live-verified
+(Step 31 deferred); the fixtures are synthetic. Config stays provider-aware for future extension.
+Contract and rationale: [`.ai-state/DESIGN.md` § 3](../.ai-state/DESIGN.md#3-components) and ADRs `dec-draft-f4584c2f` /
+`dec-draft-c7d82c89` (finalize to `dec-NNN` at merge).
+
 ## 3a. Loop Lifecycle (`knotica loop --topic <t>`)
 
 `LoopRunner` (`core/loop.py`) drives one topic's self-improvement watch loop. Each tick:
@@ -188,6 +198,37 @@ placeholder today) with a scalar delta plus a per-`id` vector of score deltas an
 diffed against the prior generation's manifest and `null`-never-`0` when no comparable prior exists.
 The change touches no eval scalar and no `harness_version` fingerprint input, so it triggers no baseline
 re-freeze; it leaves every dec-006-frozen record (`metrics.jsonl`) byte-stable.
+
+#### Four-way fault classifier (Phase P1)
+
+> Status: **Built** (gap-fill P1, `gapfill-classifier` pipeline) — `src/knotica/core/gap_classifier.py`
+> and `records.GapRecord`, wired into `LoopRunner.observe_default` via the lazily-imported
+> `_maybe_redirect_to_gaps` hook. Contract and rationale:
+> [`.ai-state/DESIGN.md` § 3](../.ai-state/DESIGN.md#3-components) and ADRs `dec-draft-315e275a` /
+> `dec-draft-d777755b` (finalize to `dec-NNN` at merge).
+
+At the **Heal** step, before racing prompt variants, `core/gap_classifier.py` diagnoses
+*why* an observation regressed rather than blindly healing. Reading the v2 manifest above on the eval
+clone (`held_out_delta` per-id score + retrieval-trace diffs), the golden set (`QARecord.pages_used`), and
+a clone page-existence check, it classifies each regressed golden question into one of four faults
+via an ordered first-match cascade:
+
+| Fault class | Signal | Route |
+|---|---|---|
+| `genuine_gap` | reference page(s) do not exist on the clone | persist gap record → P3 discovery |
+| `generation_fault` | reference page is in the retrieval trace, answer still degraded | existing arena heal |
+| `dilution` | reference page was in the prior trace, absent now, a new page displaced it | persist gap record → P4 quarantine |
+| `retrieval_fault` | reference exists, absent from trace, no fresh displacement | existing arena heal (conservative) |
+
+The arena heal is **skipped only** when every regressed question is knowledge-cause (`genuine_gap` /
+`dilution`); any prompt/neutral/ambiguous fault, a null delta, or a classifier exception falls through to
+the current heal path unchanged (self-healing is never lost). Every knowledge-cause verdict is persisted
+regardless of route — a mixed regression logs its knowledge gaps *and* still races the arena for the
+prompt-recoverable ones. Knowledge-cause verdicts persist as
+`schema_version 1` `GapRecord`s to a committed append-only `<topic>/.knotica/gaps/gaps.jsonl` — its own
+`VaultTransaction` under an observe-safe `.knotica/` path — the committed P1→P3 hand-forward queue. The
+classifier is deterministic (no LLM), lives in `core/` with core-only deps, is imported lazily by the
+loop, and is not part of the eval harness, so it rotates no fingerprint.
 
 **`wiki_status` loop/LLM fields** (`core/status.py::gather_wiki_status`, single-topic scope only):
 
