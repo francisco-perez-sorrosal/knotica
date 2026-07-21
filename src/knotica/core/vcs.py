@@ -17,8 +17,10 @@ messages are composed by the caller (the frozen grammar lives in the vault
 constitution and ``core.records``); this module treats them as opaque strings.
 
 Failures surface as :class:`GitError`, which the transaction layer maps to the
-user-facing git-failure contract. Transient ``index.lock`` contention (another
-git process mid-operation) is retried a few times before giving up.
+user-facing git-failure contract. Transient contention from another git
+process racing this one -- an ``index.lock`` collision, or a scoped commit
+landing in the narrow window while a concurrent merge holds ``MERGE_HEAD`` --
+is retried a few times before giving up.
 """
 
 import os
@@ -27,10 +29,28 @@ import time
 from collections.abc import Sequence
 from pathlib import Path, PurePath
 
-#: Seconds to wait before retrying a git command that lost an ``index.lock`` race.
+#: Seconds to wait before retrying a git command that lost a transient race
+#: against another concurrent git process on the same working tree.
 INDEX_LOCK_RETRY_WAIT_SECONDS = 2.0
-#: Number of retries (beyond the first attempt) on ``index.lock`` contention.
+#: Number of retries (beyond the first attempt) on transient git contention.
 INDEX_LOCK_RETRIES = 3
+
+#: Error substrings that mark a *transient* collision with another git
+#: process on the same working tree -- self-clearing once that process's own
+#: command finishes, so a short retry (not a real failure) is the correct
+#: response. Beyond the literal ``index.lock`` file, two ``LoopRunner``
+#: passes can genuinely overlap: one's scoped ``git commit`` can land in the
+#: narrow window while another's ``git merge`` still holds ``MERGE_HEAD``, or
+#: while its own ref update is in flight. A *real*, non-transient conflict
+#: (actual overlapping content) still surfaces as a ``GitError`` once retries
+#: are exhausted -- this only smooths the timing race, never masks a genuine
+#: failure.
+_TRANSIENT_GIT_RACE_SIGNATURES = (
+    "index.lock",
+    "unable to write index",
+    "cannot do a partial commit during a merge",
+    "cannot lock ref",
+)
 
 #: Committer identity stamped locally on an eval clone. A fresh ``git clone``
 #: inherits no committer identity from the source's *local* config, so on a
@@ -635,7 +655,7 @@ class VaultVcs:
         retry_index_lock: bool = False,
         optional_locks: bool = True,
     ) -> subprocess.CompletedProcess[str]:
-        """Run git in the vault root; retry on ``index.lock`` contention.
+        """Run git in the vault root; retry on transient concurrent-git contention.
 
         ``--literal-pathspecs`` disables glob magic so vault paths are always
         taken verbatim -- a page named ``*.md`` must never widen a pathspec.
@@ -656,8 +676,10 @@ class VaultVcs:
             )
             if result.returncode == 0 or not check:
                 return result
-            index_lock_race = "index.lock" in result.stderr
-            if index_lock_race and attempt < attempts - 1:
+            transient_race = any(
+                signature in result.stderr.lower() for signature in _TRANSIENT_GIT_RACE_SIGNATURES
+            )
+            if transient_race and attempt < attempts - 1:
                 time.sleep(INDEX_LOCK_RETRY_WAIT_SECONDS)
                 continue
             raise GitError(
