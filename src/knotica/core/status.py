@@ -17,6 +17,7 @@ from typing import Any
 from knotica.core.arena import read_arena_state
 from knotica.core.compiled import load_compiled
 from knotica.core.compile_state import CompileState, empty_compile_state, read_compile_state
+from knotica.core.errors import ErrorCode, KnoticaError
 from knotica.core.links import iter_page_paths
 from knotica.core.lint import LOG_PATH, RESERVED_TOP_LEVEL_NAMES, lint_vault
 from knotica.core.loop import DEFAULT_BRANCH_PREFIX
@@ -45,12 +46,19 @@ from knotica.store import VaultStore
 __all__ = [
     "COMPILE_READY_MIN_EXAMPLES",
     "STATUS_SCHEMA_VERSION",
+    "VALID_STATUS_VIEWS",
     "TopicStatus",
     "gather_wiki_status",
 ]
 
 #: Stable version of the ``wiki_status`` / ``knotica status --json`` envelope.
 STATUS_SCHEMA_VERSION = 1
+
+#: Recognized ``wiki_status`` ``view`` values. ``summary`` is the default,
+#: byte-identical to the pre-``view``-param payload. ``scope`` is the
+#: cheapest view -- topic enumeration only, no per-topic stats, no lint, no
+#: loop/runner reads -- for the client-side conversational routing scope-check.
+VALID_STATUS_VIEWS = frozenset({"summary", "scope"})
 
 #: Query-style curated examples required before a topic can run DSPy compile
 #: (PRE_PLAN Phase 3a floor ~30–50; ingest-style qa lines do not count).
@@ -107,24 +115,43 @@ def gather_wiki_status(
     vault_name: str = "",
     default_vault: str = "",
     available_vaults: list[dict[str, Any]] | None = None,
+    view: str = "summary",
 ) -> dict[str, Any]:
     """Build the ``wiki_status`` payload for the whole vault or one topic.
 
     Raises :class:`~knotica.core.page.TopicNotFoundError` when ``topic`` is
-    non-empty and does not name an existing topic directory.
+    non-empty and does not name an existing topic directory. Raises
+    :class:`~knotica.core.errors.KnoticaError` (``INVALID_ARGUMENT``) when
+    ``view`` is not one of :data:`VALID_STATUS_VIEWS`.
 
     ``vault`` remains the absolute path (compat). Prefer ``vault_name`` /
     ``vault_path`` for new surfaces. ``available_vaults`` feeds a future
     multi-vault switcher (entries from :func:`knotica.core.config.list_vaults`).
+
+    ``view="summary"`` (default) is today's full payload, unchanged.
+    ``view="scope"`` is the cheapest view -- topic enumeration only, no
+    per-topic stats -- for the client-side conversational routing check.
     """
+    if view not in VALID_STATUS_VIEWS:
+        raise KnoticaError(
+            code=ErrorCode.INVALID_ARGUMENT,
+            message=(
+                f"wiki_status failed because view must be one of "
+                f"{sorted(VALID_STATUS_VIEWS)}, got {view!r}"
+            ),
+            fix=f"Pass view as one of: {', '.join(sorted(VALID_STATUS_VIEWS))}.",
+        )
     scope = topic.strip()
+    name = vault_name or vault_path.name
+    if view == "scope":
+        return _scope_status(store, name, scope=scope)
+
     topics = _topic_statuses(store, scope=scope or None)
     last_lint = _last_lint(store)
     unpushed = _unpushed(vault_path)
     gate, loop = _gate_and_loop(store, vault_path, topics)
     compile_info = _compile_info(store, topics)
     path = str(vault_path)
-    name = vault_name or vault_path.name
     return {
         "schema_version": STATUS_SCHEMA_VERSION,
         "vault": path,
@@ -147,6 +174,31 @@ def gather_wiki_status(
         "loop": loop,
         "compile": compile_info,
         "llm": _llm_availability(),
+    }
+
+
+def _scope_status(store: VaultStore, vault_name: str, *, scope: str) -> dict[str, Any]:
+    """The ``view="scope"`` payload: topic enumeration only, no per-topic stats.
+
+    Deliberately cheap -- no lint, no compile/trainset/golden counts, no
+    loop-state or runner-liveness reads. Config resolution + a directory
+    listing only, so it stays safe to call speculatively during ordinary
+    conversation (the client-side routing scope-check).
+
+    Raises :class:`~knotica.core.page.TopicNotFoundError` when ``scope`` is
+    non-empty and does not name an existing topic directory.
+    """
+    if scope:
+        if not _is_topic(store, scope):
+            raise TopicNotFoundError(scope)
+        names = [scope]
+    else:
+        names = _topic_directories(store)
+    return {
+        "schema_version": STATUS_SCHEMA_VERSION,
+        "vault_name": vault_name,
+        "topics": names,
+        "totals": {"topics": len(names)},
     }
 
 
