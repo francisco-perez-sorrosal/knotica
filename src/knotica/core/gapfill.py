@@ -921,8 +921,8 @@ def _reported_gap_id(topic: str, qa_id: str, fault_class: str) -> str:
 
 
 def _invalid(message: str, fix: str) -> KnoticaError:
-    """A typed argument-validation error (reusing the house ``INVALID_CURSOR`` slot)."""
-    return KnoticaError(ErrorCode.INVALID_CURSOR, message, fix=fix)
+    """A typed argument-validation error (the house ``INVALID_ARGUMENT`` code)."""
+    return KnoticaError(ErrorCode.INVALID_ARGUMENT, message, fix=fix)
 
 
 def _append_jsonl_lines(existing_text: str, lines: Sequence[str]) -> str:

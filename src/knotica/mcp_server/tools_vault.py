@@ -234,7 +234,7 @@ def _doctor_repair_payload(
     cleaned = mode.strip().lower().replace("_", "-")
     if cleaned not in {"dry-run", "apply"}:
         raise KnoticaError(
-            code=ErrorCode.INVALID_CURSOR,
+            code=ErrorCode.INVALID_ARGUMENT,
             message=f"doctor_repair mode must be 'dry-run' or 'apply', got {mode!r}",
             fix="Pass mode='dry-run' or mode='apply'.",
         )
@@ -242,13 +242,13 @@ def _doctor_repair_payload(
         parsed = json.loads(paths_json) if paths_json.strip() else []
     except json.JSONDecodeError as exc:
         raise KnoticaError(
-            code=ErrorCode.INVALID_CURSOR,
+            code=ErrorCode.INVALID_ARGUMENT,
             message="doctor_repair failed because paths_json is not valid JSON",
             fix="Pass paths_json as a JSON array of strings, e.g. '[\"index.md\"]'.",
         ) from exc
     if not isinstance(parsed, list) or not all(isinstance(item, str) for item in parsed):
         raise KnoticaError(
-            code=ErrorCode.INVALID_CURSOR,
+            code=ErrorCode.INVALID_ARGUMENT,
             message="doctor_repair failed because paths_json must be a JSON array of strings",
             fix="Pass paths_json like '[\"topic/page.md\"]'.",
         )
@@ -302,7 +302,7 @@ def _okf_repair_payload(store: VaultStore, *, mode: str, force: bool) -> dict[st
     cleaned = mode.strip().lower().replace("_", "-")
     if cleaned not in {"dry-run", "apply"}:
         raise KnoticaError(
-            code=ErrorCode.INVALID_CURSOR,
+            code=ErrorCode.INVALID_ARGUMENT,
             message=f"okf_repair mode must be 'dry-run' or 'apply', got {mode!r}",
             fix="Pass mode='dry-run' to preview, or mode='apply' to commit repairs.",
         )

@@ -116,6 +116,35 @@ def test_doctor_repair_apply_requires_selection(vault_config: Path) -> None:
     payload = payload_of(result)
     assert "error" in payload
     assert "paths" in payload["error"]["message"] or "all-tracked" in payload["error"]["message"]
+    assert payload["error"]["code"] == "INVALID_ARGUMENT", (
+        "no selection is an argument problem, not a stale cursor"
+    )
+
+
+def test_doctor_repair_rejects_a_bad_mode_as_invalid_argument(vault_config: Path) -> None:
+    del vault_config
+    result = call_tool("doctor_repair", {"mode": "yolo"})
+    assert result.isError
+    payload = payload_of(result)
+    assert payload["error"]["code"] == "INVALID_ARGUMENT"
+
+
+def test_doctor_repair_rejects_malformed_paths_json_as_invalid_argument(
+    vault_config: Path,
+) -> None:
+    del vault_config
+    result = call_tool("doctor_repair", {"mode": "apply", "paths_json": "not-json"})
+    assert result.isError
+    payload = payload_of(result)
+    assert payload["error"]["code"] == "INVALID_ARGUMENT"
+
+
+def test_okf_repair_rejects_a_bad_mode_as_invalid_argument(vault_config: Path) -> None:
+    del vault_config
+    result = call_tool("okf_repair", {"mode": "yolo"})
+    assert result.isError
+    payload = payload_of(result)
+    assert payload["error"]["code"] == "INVALID_ARGUMENT"
 
 
 def test_okf_check_and_dry_run_repair(vault_config: Path, template_vault: Path) -> None:

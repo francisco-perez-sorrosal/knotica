@@ -62,7 +62,7 @@ def compile_promote(
         "/"
     ):
         return err(
-            ErrorCode.INVALID_CURSOR,
+            ErrorCode.INVALID_ARGUMENT,
             (
                 f"compile promote failed because branch {branch!r} must start with "
                 f"{required_prefix!r} and include a commit suffix"

@@ -89,7 +89,7 @@ def register_scoreboard_tools(mcp: FastMCP) -> None:
         cleaned_kind = kind.strip().lower()
         if cleaned_kind not in {"compile", "loop"}:
             raise KnoticaError(
-                code=ErrorCode.INVALID_CURSOR,
+                code=ErrorCode.INVALID_ARGUMENT,
                 message=f"branch_promote kind must be 'compile' or 'loop', got {kind!r}",
                 fix="Pass kind=compile for compile/<topic>/ branches or kind=loop for loop/r branches.",
             )
@@ -136,7 +136,7 @@ def _promote_payload(
     cleaned = mode.strip().lower().replace("_", "-")
     if cleaned not in {"dry-run", "apply"}:
         raise KnoticaError(
-            code=ErrorCode.INVALID_CURSOR,
+            code=ErrorCode.INVALID_ARGUMENT,
             message=f"promote mode must be 'dry-run' or 'apply', got {mode!r}",
             fix="Pass mode='dry-run' to preview or mode='apply' to merge after review.",
         )
@@ -162,7 +162,7 @@ def _delete_payload(
     cleaned = mode.strip().lower().replace("_", "-")
     if cleaned not in {"dry-run", "apply"}:
         raise KnoticaError(
-            code=ErrorCode.INVALID_CURSOR,
+            code=ErrorCode.INVALID_ARGUMENT,
             message=f"branch_delete mode must be 'dry-run' or 'apply', got {mode!r}",
             fix="Pass mode='dry-run' to preview or mode='apply' to delete after review.",
         )

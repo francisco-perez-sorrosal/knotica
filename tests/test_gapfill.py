@@ -550,6 +550,26 @@ def test_plan_decision_previews_the_exact_transition_apply_performs(template_vau
     assert applied.decided_reason == plan.decided_reason
 
 
+def test_plan_decision_rejects_an_unknown_decision_as_invalid_argument_not_invalid_cursor(
+    template_vault: Path,
+):
+    """An unrecognized ``decision`` value is an argument problem -- not a stale
+    pagination cursor (pure function, no store, no I/O)."""
+    from knotica.core.errors import ErrorCode, KnoticaError
+
+    mod = _gapfill_module()
+    store = LocalFSStore(template_vault)
+    _pending_suggestion(
+        template_vault, store, qa_id="golden-bad-decision", gap_id="gap-bad-decision"
+    )
+    record = _records_of(store, mod)[0]
+
+    with pytest.raises(KnoticaError) as excinfo:
+        mod.plan_decision(record, decision="obliterate")
+
+    assert excinfo.value.code == ErrorCode.INVALID_ARGUMENT
+
+
 # ---------------------------------------------------------------------------
 # report_gap -- NL-reported gaps from Claude Desktop (piece B, dec-025)
 #

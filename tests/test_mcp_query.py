@@ -99,3 +99,14 @@ def test_query_tool_answers_via_facade(vault_config: Path, template_vault: Path)
     assert payload["citations"] == ["wang2024awm"]
     assert "engine" not in payload
     del runner  # silence unused when patch active
+
+
+def test_query_tool_rejects_an_empty_question_as_invalid_argument(
+    vault_config: Path, template_vault: Path
+) -> None:
+    """An empty question is an argument problem, not a stale cursor."""
+    del vault_config, template_vault
+    result = call_tool("query", {"topic": "agentic-systems", "question": "   "})
+    assert result.isError
+    payload = payload_of(result)
+    assert payload["error"]["code"] == "INVALID_ARGUMENT"

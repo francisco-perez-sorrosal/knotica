@@ -8,7 +8,9 @@ from typing import Any
 
 import anyio
 
+from knotica.core.compile_promote import compile_promote
 from knotica.core.compile_run import run_compile
+from knotica.core.errors import ErrorCode
 from support.trainset import populate_query_trainset
 from knotica.programs.query import bootstrap_query_artifact
 from knotica.store import LocalFSStore
@@ -76,3 +78,38 @@ def test_compile_promote_mcp_dry_run(vault_config: Path, template_vault: Path) -
     assert payload["mode"] == "dry-run"
     assert payload["merged"] is False
     assert payload["branch"] == result.branch
+
+
+def test_compile_promote_rejects_a_branch_with_the_wrong_prefix_as_invalid_argument(
+    template_vault: Path,
+) -> None:
+    """A branch outside compile/<topic>/ is an argument problem, not a stale cursor."""
+    store = LocalFSStore(template_vault)
+    payload = compile_promote(store, template_vault, TOPIC, "not-a-compile-branch", apply=False)
+    assert payload["error"]["code"] == ErrorCode.INVALID_ARGUMENT.value
+
+
+def test_compile_promote_tool_rejects_a_bad_mode_as_invalid_argument(
+    vault_config: Path, template_vault: Path
+) -> None:
+    """``mode`` must be dry-run or apply -- an unknown value is an argument
+    problem, not a stale cursor (routed through the real MCP tool call)."""
+    del vault_config
+    store = LocalFSStore(template_vault)
+    populate_query_trainset(store, template_vault, TOPIC)
+    result = run_compile(
+        store,
+        template_vault,
+        TOPIC,
+        use_mipro=False,
+        optimize_fn=lambda s, t, train, **k: bootstrap_query_artifact(s, t, train, golden_n=20),
+        compare_fn=lambda *a: (0.41, 0.72),
+    )
+
+    tool_result = call_tool(
+        "compile_promote",
+        {"topic": TOPIC, "branch": result.branch, "mode": "yolo"},
+    )
+    assert tool_result.isError
+    payload = payload_of(tool_result)
+    assert payload["error"]["code"] == "INVALID_ARGUMENT"

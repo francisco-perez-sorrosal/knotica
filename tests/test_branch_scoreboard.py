@@ -17,7 +17,7 @@ from knotica.core.compile_state import (
 )
 from knotica.core.loop import DEFAULT_BRANCH_PREFIX, RESULT_BRANCH_PREFIX
 from knotica.core.loop_promote import loop_promote, loop_result_branch_name
-from knotica.core.loop_state import LoopDecision, LoopStage, empty_loop_state, write_loop_state
+from knotica.core.loop_state import empty_loop_state, write_loop_state
 from knotica.core.vcs import VaultVcs
 from knotica.store import LocalFSStore
 from support.vault import run_git
@@ -185,7 +185,6 @@ def test_branch_scoreboard_merged_compile_branch_deletable_not_promotable(
 
 
 def test_branch_delete_allows_merged_winner(template_vault: Path) -> None:
-    from knotica.core.branch_delete import branch_delete
 
     store = LocalFSStore(template_vault)
     vcs = VaultVcs(template_vault)
@@ -258,6 +257,17 @@ def test_branch_scoreboard_surfaces_arena_variants(template_vault: Path) -> None
     assert winner["scalar"] == 0.59
 
 
+def test_loop_promote_rejects_a_branch_with_the_wrong_prefix_as_invalid_argument(
+    template_vault: Path,
+) -> None:
+    """A branch outside loop/r/ or loop/c/ is an argument problem, not a stale cursor."""
+    from knotica.core.errors import ErrorCode
+
+    store = LocalFSStore(template_vault)
+    payload = loop_promote(store, template_vault, TOPIC, "not-a-loop-branch", apply=False)
+    assert payload["error"]["code"] == ErrorCode.INVALID_ARGUMENT.value
+
+
 def test_loop_promote_rejects_missing_result_branch(template_vault: Path) -> None:
     store = LocalFSStore(template_vault)
     payload = loop_promote(
@@ -324,7 +334,6 @@ def test_mcp_branch_scoreboard_registered() -> None:
 
 
 def test_branch_delete_dry_run_and_apply(template_vault: Path) -> None:
-    from knotica.core.branch_delete import branch_delete
 
     store = LocalFSStore(template_vault)
     vcs = VaultVcs(template_vault)
@@ -366,7 +375,6 @@ def test_branch_delete_dry_run_and_apply(template_vault: Path) -> None:
 
 
 def test_branch_delete_rejects_default_and_head(template_vault: Path) -> None:
-    from knotica.core.branch_delete import branch_delete
 
     store = LocalFSStore(template_vault)
     vcs = VaultVcs(template_vault)
@@ -385,6 +393,17 @@ def test_branch_delete_rejects_default_and_head(template_vault: Path) -> None:
     head_result = branch_delete(store, template_vault, TOPIC, branch, apply=False)
     assert head_result.get("error") is not None
     vcs.checkout_branch(default)
+
+
+def test_branch_delete_rejects_a_branch_with_the_wrong_prefix_as_invalid_argument(
+    template_vault: Path,
+) -> None:
+    """A branch outside compile/<topic>/ is an argument problem, not a stale cursor."""
+    from knotica.core.errors import ErrorCode
+
+    store = LocalFSStore(template_vault)
+    payload = branch_delete(store, template_vault, TOPIC, "not-a-compile-branch", apply=False)
+    assert payload["error"]["code"] == ErrorCode.INVALID_ARGUMENT.value
 
 
 def test_branch_scoreboard_archived_deleted_compile_history(template_vault: Path) -> None:

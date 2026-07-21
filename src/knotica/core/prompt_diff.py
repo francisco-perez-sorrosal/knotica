@@ -95,7 +95,7 @@ def prompt_diff(
         )
         if resolved is None:
             raise KnoticaError(
-                code=ErrorCode.INVALID_CURSOR,
+                code=ErrorCode.INVALID_ARGUMENT,
                 message=("No preserved SHAs for this compile run — can't rebuild diff."),
                 fix=(
                     "Re-run compile, or recover parents from a merge commit on the "
@@ -214,7 +214,7 @@ def compiled_prompt_diff(
         )
         if resolved is None:
             raise KnoticaError(
-                code=ErrorCode.INVALID_CURSOR,
+                code=ErrorCode.INVALID_ARGUMENT,
                 message="No preserved SHAs for this compile run — can't rebuild diff.",
                 fix=(
                     "Re-run compile, or recover parents from a merge commit on the "
@@ -225,7 +225,7 @@ def compiled_prompt_diff(
     elif cleaned_branch:
         if not vcs.branch_exists(cleaned_branch):
             raise KnoticaError(
-                code=ErrorCode.INVALID_CURSOR,
+                code=ErrorCode.INVALID_ARGUMENT,
                 message=f"Compile branch {cleaned_branch!r} does not exist locally.",
                 fix="Re-run compile or fetch the branch before comparing prompts.",
             )

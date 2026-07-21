@@ -14,7 +14,7 @@ from knotica.core.compile_state import (
     read_compile_state,
     write_compile_state,
 )
-from knotica.core.errors import KnoticaError
+from knotica.core.errors import ErrorCode, KnoticaError
 from knotica.core.metrics import read_last_metrics
 from knotica.core.compiled import (
     CompiledArtifact,
@@ -203,8 +203,20 @@ def test_prompt_diff_merge_commit_fallback(template_vault: Path) -> None:
 def test_prompt_diff_missing_shas_raises(template_vault: Path) -> None:
     store = LocalFSStore(template_vault)
     branch = f"compile/{TOPIC}/missing000001"
-    with pytest.raises(KnoticaError, match="No preserved SHAs"):
+    with pytest.raises(KnoticaError, match="No preserved SHAs") as excinfo:
         prompt_diff(store, template_vault, TOPIC, branch=branch)
+    assert excinfo.value.code == ErrorCode.INVALID_ARGUMENT, (
+        "an unresolvable branch/history_id is an argument problem, not a stale cursor"
+    )
+
+
+def test_compiled_prompt_diff_missing_shas_is_invalid_argument_not_invalid_cursor(
+    template_vault: Path,
+) -> None:
+    store = LocalFSStore(template_vault)
+    with pytest.raises(KnoticaError, match="No preserved SHAs") as excinfo:
+        compiled_prompt_diff(store, template_vault, TOPIC, history_id="does-not-exist")
+    assert excinfo.value.code == ErrorCode.INVALID_ARGUMENT
 
 
 def test_branch_delete_preserves_history_shas(template_vault: Path) -> None:

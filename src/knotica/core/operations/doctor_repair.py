@@ -76,7 +76,7 @@ def doctor_repair(
     except KnoticaError as error:
         return error.envelope()
     except ValueError as error:
-        return err(ErrorCode.INVALID_CURSOR, str(error), fix=str(error))
+        return err(ErrorCode.INVALID_ARGUMENT, str(error), fix=str(error))
 
     if not selected:
         return ok(
@@ -94,7 +94,7 @@ def doctor_repair(
     except KnoticaError as error:
         return error.envelope()
     except ValueError as error:
-        return err(ErrorCode.INVALID_CURSOR, str(error))
+        return err(ErrorCode.INVALID_ARGUMENT, str(error))
 
     return ok(
         {
@@ -117,7 +117,7 @@ def _resolve_apply_paths(
     dirty_by_path = {str(entry["path"]): entry for entry in dirty}
     if all_tracked and paths:
         raise KnoticaError(
-            ErrorCode.INVALID_CURSOR,
+            ErrorCode.INVALID_ARGUMENT,
             "doctor repair failed because --all-tracked and --paths cannot be combined",
             fix="Pass either --all-tracked or an explicit --paths list.",
         )
@@ -128,7 +128,7 @@ def _resolve_apply_paths(
         return selected
     if not paths:
         raise KnoticaError(
-            ErrorCode.INVALID_CURSOR,
+            ErrorCode.INVALID_ARGUMENT,
             "doctor repair --apply requires --paths PATH... or --all-tracked",
             fix=(
                 "Run `knotica doctor repair --dry-run`, then "
@@ -143,13 +143,13 @@ def _resolve_apply_paths(
         entry = dirty_by_path.get(path)
         if entry is None:
             raise KnoticaError(
-                ErrorCode.INVALID_CURSOR,
+                ErrorCode.INVALID_ARGUMENT,
                 f"doctor repair failed because {path!r} is not currently dirty",
                 fix="Re-run --dry-run; only dirty paths can be restored.",
             )
         if entry["untracked"] and not delete_untracked:
             raise KnoticaError(
-                ErrorCode.INVALID_CURSOR,
+                ErrorCode.INVALID_ARGUMENT,
                 f"doctor repair failed because {path!r} is untracked",
                 fix=(
                     "Omit untracked paths, or pass --delete-untracked to remove them "

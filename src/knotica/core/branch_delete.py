@@ -53,7 +53,7 @@ def branch_delete(
         "/"
     ):
         return err(
-            ErrorCode.INVALID_CURSOR,
+            ErrorCode.INVALID_ARGUMENT,
             (
                 f"branch delete failed because branch {branch!r} must start with "
                 f"{required_prefix!r} and include a commit suffix"
@@ -77,14 +77,14 @@ def branch_delete(
 
     if cleaned_branch == default:
         return err(
-            ErrorCode.INVALID_CURSOR,
+            ErrorCode.INVALID_ARGUMENT,
             f"branch delete failed because {cleaned_branch!r} is the vault default branch",
             fix="Only compile/<topic>/… result branches may be deleted.",
         )
 
     if current == cleaned_branch:
         return err(
-            ErrorCode.INVALID_CURSOR,
+            ErrorCode.INVALID_ARGUMENT,
             (f"branch delete failed because {cleaned_branch!r} is the current checked-out branch"),
             fix=f"Checkout {default!r} (or another branch) before deleting this compile branch.",
         )

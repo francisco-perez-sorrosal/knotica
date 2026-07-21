@@ -66,7 +66,7 @@ def loop_promote(
         or cleaned_branch.startswith(DEFAULT_BRANCH_PREFIX)
     ):
         return err(
-            ErrorCode.INVALID_CURSOR,
+            ErrorCode.INVALID_ARGUMENT,
             (
                 f"loop promote failed because branch {branch!r} must start with "
                 f"{RESULT_BRANCH_PREFIX!r} or {DEFAULT_BRANCH_PREFIX!r}"

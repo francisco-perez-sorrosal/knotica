@@ -46,7 +46,7 @@ def _query_payload(store: VaultStore, *, topic: str, question: str) -> dict[str,
         result = answer_question(store, topic, question)
     except ValueError as exc:
         raise KnoticaError(
-            code=ErrorCode.INVALID_CURSOR,
+            code=ErrorCode.INVALID_ARGUMENT,
             message=str(exc),
             fix="Pass a non-empty question string.",
         ) from exc

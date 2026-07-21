@@ -225,7 +225,7 @@ def test_compile_promote_rejects_wrong_branch_prefix(template_vault: Path) -> No
         apply=False,
     )
     assert "error" in payload
-    assert payload["error"]["code"] == ErrorCode.INVALID_CURSOR.value
+    assert payload["error"]["code"] == ErrorCode.INVALID_ARGUMENT.value
 
 
 def test_compile_promote_dry_run_after_compile(template_vault: Path) -> None:
