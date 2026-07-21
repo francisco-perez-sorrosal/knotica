@@ -27,7 +27,7 @@ from knotica.core import source_ingest
 from knotica.core.arena import heuristic_arena_score
 from knotica.core.errors import ErrorCode, KnoticaError
 from knotica.core.gapfill import GATE_VERDICT_MERGED, GATE_VERDICT_REFUSED, suggestions_path
-from knotica.core.loop import LoopRunner, harness_evaluate
+from knotica.core.loop import LoopRunner, build_loop_runner, harness_evaluate
 from knotica.core.loop_state import read_loop_state
 from knotica.core.page import TopicNotFoundError
 from knotica.core.records import SuggestionRecord, parse_suggestions_jsonl
@@ -233,13 +233,16 @@ def _apply_payload(
 
 def _run_gate(store: VaultStore, vault_path: Path, topic: str, target_branch: str) -> None:
     """Drive the loop's gate synchronously until ``target_branch`` is processed."""
-    runner = LoopRunner(
+    runner = build_loop_runner(
         vault_path,
         topic,
         evaluate=harness_evaluate,
         store=store,
         arena_enabled=True,
         arena_score=heuristic_arena_score,
+        # Pass this module's own ``LoopRunner`` binding so a test that substitutes it
+        # still intercepts construction routed through the shared factory.
+        runner_cls=LoopRunner,
     )
     for _ in range(_MAX_GATE_CYCLES):
         result = runner.poll_once()
