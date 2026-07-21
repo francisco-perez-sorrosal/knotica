@@ -54,8 +54,8 @@ failures raise ``KnoticaError(GIT_ERROR)``; any other exception propagates
 unchanged after the rollback has restored the transaction's own paths.
 """
 
-from collections.abc import Sequence
-from contextlib import AbstractContextManager
+from collections.abc import Iterator, Sequence
+from contextlib import AbstractContextManager, contextmanager
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import PurePath
@@ -63,7 +63,12 @@ from types import TracebackType
 from typing import Literal, NoReturn
 
 from knotica.core.errors import ErrorCode, KnoticaError, KnoticaWarning, secret_scrubbed_warning
-from knotica.core.lock import DEFAULT_ACQUIRE_TIMEOUT_SECONDS, LockBusyError, vault_lock
+from knotica.core.lock import (
+    DEFAULT_ACQUIRE_TIMEOUT_SECONDS,
+    LockBusyError,
+    vault_lock,
+    vault_span_lock,
+)
 from knotica.core.records import format_commit_subject
 from knotica.okf.log_fmt import prepend_operation_log
 from knotica.core.scrub import RedactedSpan, scrub
@@ -357,6 +362,48 @@ class VaultTransaction:
             title=self._title,
             pages=pages,
         )
+
+
+@contextmanager
+def vault_mutation_span(
+    vault_root: str | PurePath,
+    *,
+    lock_timeout: float = DEFAULT_ACQUIRE_TIMEOUT_SECONDS,
+) -> Iterator[None]:
+    """Bracket a contiguous real-vault git-mutation span under the vault flock.
+
+    Widens the exclusive vault lock (:func:`~knotica.core.lock.vault_span_lock`)
+    to cover a full multi-step git sequence -- checkout, merge, branch delete,
+    commit -- rather than a single commit. Two loop passes contending on one vault
+    (a background watcher and a synchronous gate) can otherwise interleave those
+    steps and corrupt the tree (``MERGE_HEAD exists`` / ``cannot lock ref``).
+    Reentrant: a :class:`VaultTransaction` opened inside the span reuses the held
+    flock instead of self-deadlocking on a second descriptor.
+
+    On the outermost entry the vault is self-healed first --
+    :meth:`~knotica.core.vcs.VaultVcs.heal_git_mutation_state` clears a crash-left
+    dangling ``MERGE_HEAD`` or stale ``index.lock`` (a crash mid-span
+    auto-releases the flock but may leave the tree dirty) so the span starts
+    clean. Only fast git work belongs inside the span; eval and the arena race run
+    on a throwaway clone and must stay outside it.
+
+    Raises:
+        KnoticaError: ``LOCK_BUSY`` (retryable) when the span flock is contended
+            past ``lock_timeout`` -- a synchronous gate degrades to a retryable
+            error rather than hanging.
+    """
+    vcs = VaultVcs(vault_root)
+    span = vault_span_lock(vcs.root, timeout=lock_timeout)
+    try:
+        is_outermost = span.__enter__()
+    except LockBusyError as error:
+        raise KnoticaError(ErrorCode.LOCK_BUSY, str(error)) from error
+    try:
+        if is_outermost:
+            vcs.heal_git_mutation_state()
+        yield
+    finally:
+        span.__exit__(None, None, None)
 
 
 def restore_worktree_paths(

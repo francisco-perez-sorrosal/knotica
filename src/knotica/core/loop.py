@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import time
 from collections.abc import Callable
+from contextlib import AbstractContextManager
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Protocol
@@ -38,7 +39,7 @@ from knotica.core.loop_state import (
     read_loop_state,
     write_loop_state,
 )
-from knotica.core.transaction import VaultTransaction
+from knotica.core.transaction import VaultTransaction, vault_mutation_span
 from knotica.core.vcs import VaultVcs
 from knotica.store import LocalFSStore, VaultStore
 
@@ -275,79 +276,88 @@ class LoopRunner:
             )
 
         # Bring the metrics commit home so the chart reflects the observation.
-        result_branch = f"{RESULT_BRANCH_PREFIX}{eval_ref[:12]}"
-        self._vcs.fetch_ref_from(outcome.clone_root, "HEAD", result_branch)
-        self._vcs.checkout_branch(default)
-        self._vcs.merge_branch(result_branch, ff_only=False)
-        if self._push_remote:
-            self._vcs.push(self._push_remote, default)
-        self._prune_result_branches()
+        # The merge, the post-merge head read, and the cursor-advancing state
+        # write are ONE atomic span: a concurrent pass must not move the default
+        # branch's HEAD between the merge and ``mark_processed`` (that would mark
+        # someone else's commit observed and silently skip a real content change).
+        with self._mutation_span():
+            result_branch = f"{RESULT_BRANCH_PREFIX}{eval_ref[:12]}"
+            self._vcs.fetch_ref_from(outcome.clone_root, "HEAD", result_branch)
+            self._vcs.checkout_branch(default)
+            self._vcs.merge_branch(result_branch, ff_only=False)
+            if self._push_remote:
+                self._vcs.push(self._push_remote, default)
+            self._prune_result_branches()
 
-        scalar = float(outcome.scalar)
-        baseline = state.baseline_scalar
-        updates: dict[str, object] = {
-            "last_scalar": scalar,
-            "last_generation": int(outcome.generation),
-            "last_harness_version": outcome.harness_version,
-            "candidate_branch": None,
-            "candidate_sha": None,
-            "last_error": None,
-        }
-        # A baseline is only comparable under the instrument that produced it.
-        # When the harness fingerprint rotates (judge prompt edit, model
-        # rotation, dspy upgrade), the first observation on the new instrument
-        # re-freezes the reference — the old scalar is not a valid bar anymore.
-        instrument_changed = (
-            baseline is not None
-            and state.baseline_harness_version is not None
-            and state.baseline_harness_version != outcome.harness_version
-        )
-        if baseline is None and auto_baseline:
-            updates |= {
-                "baseline_scalar": scalar,
-                "baseline_harness_version": outcome.harness_version,
-                "baseline_corpus_ref": outcome.corpus_ref,
-                "stage": LoopStage.passed,
-                "last_decision": LoopDecision.pass_,
+            scalar = float(outcome.scalar)
+            baseline = state.baseline_scalar
+            updates: dict[str, object] = {
+                "last_scalar": scalar,
+                "last_generation": int(outcome.generation),
+                "last_harness_version": outcome.harness_version,
+                "candidate_branch": None,
+                "candidate_sha": None,
+                "last_error": None,
             }
-            message = f"first observation auto-froze baseline at {scalar:.4f}"
-        elif instrument_changed and auto_baseline:
-            updates |= {
-                "baseline_scalar": scalar,
-                "baseline_harness_version": outcome.harness_version,
-                "baseline_corpus_ref": outcome.corpus_ref,
-                "stage": LoopStage.passed,
-                "last_decision": LoopDecision.pass_,
-            }
-            message = (
-                f"instrument changed; baseline re-frozen at {scalar:.4f} "
-                f"(was {float(baseline):.4f} under a previous harness)"
+            # A baseline is only comparable under the instrument that produced it.
+            # When the harness fingerprint rotates (judge prompt edit, model
+            # rotation, dspy upgrade), the first observation on the new instrument
+            # re-freezes the reference — the old scalar is not a valid bar anymore.
+            instrument_changed = (
+                baseline is not None
+                and state.baseline_harness_version is not None
+                and state.baseline_harness_version != outcome.harness_version
             )
-        elif baseline is not None and scalar > float(baseline) and state.baseline_policy == "best":
-            # High-water-mark policy: a better reading raises the bar itself.
-            updates |= {
-                "baseline_scalar": scalar,
-                "baseline_harness_version": outcome.harness_version,
-                "baseline_corpus_ref": outcome.corpus_ref,
-                "stage": LoopStage.passed,
-                "last_decision": LoopDecision.pass_,
-            }
-            message = f"new high-water baseline {scalar:.4f} (was {float(baseline):.4f})"
-        elif baseline is None or scalar >= float(baseline):
-            updates |= {"stage": LoopStage.passed, "last_decision": LoopDecision.pass_}
-            message = f"observation {scalar:.4f} holds baseline"
-        else:
-            message = f"observation {scalar:.4f} regressed below baseline {float(baseline):.4f}"
+            if baseline is None and auto_baseline:
+                updates |= {
+                    "baseline_scalar": scalar,
+                    "baseline_harness_version": outcome.harness_version,
+                    "baseline_corpus_ref": outcome.corpus_ref,
+                    "stage": LoopStage.passed,
+                    "last_decision": LoopDecision.pass_,
+                }
+                message = f"first observation auto-froze baseline at {scalar:.4f}"
+            elif instrument_changed and auto_baseline:
+                updates |= {
+                    "baseline_scalar": scalar,
+                    "baseline_harness_version": outcome.harness_version,
+                    "baseline_corpus_ref": outcome.corpus_ref,
+                    "stage": LoopStage.passed,
+                    "last_decision": LoopDecision.pass_,
+                }
+                message = (
+                    f"instrument changed; baseline re-frozen at {scalar:.4f} "
+                    f"(was {float(baseline):.4f} under a previous harness)"
+                )
+            elif (
+                baseline is not None
+                and scalar > float(baseline)
+                and state.baseline_policy == "best"
+            ):
+                # High-water-mark policy: a better reading raises the bar itself.
+                updates |= {
+                    "baseline_scalar": scalar,
+                    "baseline_harness_version": outcome.harness_version,
+                    "baseline_corpus_ref": outcome.corpus_ref,
+                    "stage": LoopStage.passed,
+                    "last_decision": LoopDecision.pass_,
+                }
+                message = f"new high-water baseline {scalar:.4f} (was {float(baseline):.4f})"
+            elif baseline is None or scalar >= float(baseline):
+                updates |= {"stage": LoopStage.passed, "last_decision": LoopDecision.pass_}
+                message = f"observation {scalar:.4f} holds baseline"
+            else:
+                message = f"observation {scalar:.4f} regressed below baseline {float(baseline):.4f}"
 
-        # Mark the POST-merge head processed so the metrics commit itself never
-        # re-triggers an observation (the merge moved HEAD past ``head``).
-        merged_head = self._vcs.head_sha()
-        state = write_loop_state(
-            self._store,
-            self._root,
-            state.model_copy(update=updates).mark_processed(default, merged_head),
-            title=message,
-        )
+            # Mark the POST-merge head processed so the metrics commit itself never
+            # re-triggers an observation (the merge moved HEAD past ``head``).
+            merged_head = self._vcs.head_sha()
+            state = write_loop_state(
+                self._store,
+                self._root,
+                state.model_copy(update=updates).mark_processed(default, merged_head),
+                title=message,
+            )
 
         # A re-frozen (instrument-changed) baseline is by definition not a
         # regression: cross-instrument scalars are incomparable.
@@ -870,42 +880,47 @@ class LoopRunner:
         self, state: LoopState, branch: str, sha: str, outcome: EvalOutcome
     ) -> LoopCycleResult:
         """Fetch eval tip → FF-merge onto default branch → mark passed."""
-        state = write_loop_state(
-            self._store,
-            self._root,
-            state.model_copy(update={"stage": LoopStage.merging}),
-            title=f"merging {branch}",
-        )
-        default = self._vcs.default_branch()
-        result_branch = f"{RESULT_BRANCH_PREFIX}{sha[:12]}"
-        # Pull the clone tip (includes the eval metrics commit) onto the source.
-        self._vcs.fetch_ref_from(outcome.clone_root, "HEAD", result_branch)
-        self._vcs.checkout_branch(default)
-        self._vcs.merge_branch(result_branch, ff_only=False)
-        # Candidate is consumed; drop it so the watch does not re-fire.
-        self._safe_delete_branch(branch)
-        if self._push_remote:
-            self._vcs.push(self._push_remote, default)
-            self._vcs.push(self._push_remote, result_branch)
-        self._prune_result_branches()
+        # One atomic span: the fetch/checkout/merge/delete sequence and the
+        # pass-recording state write must not interleave with a concurrent pass's
+        # own git steps on this working tree (reentrant when the source gate calls
+        # this inside its own span).
+        with self._mutation_span():
+            state = write_loop_state(
+                self._store,
+                self._root,
+                state.model_copy(update={"stage": LoopStage.merging}),
+                title=f"merging {branch}",
+            )
+            default = self._vcs.default_branch()
+            result_branch = f"{RESULT_BRANCH_PREFIX}{sha[:12]}"
+            # Pull the clone tip (includes the eval metrics commit) onto the source.
+            self._vcs.fetch_ref_from(outcome.clone_root, "HEAD", result_branch)
+            self._vcs.checkout_branch(default)
+            self._vcs.merge_branch(result_branch, ff_only=False)
+            # Candidate is consumed; drop it so the watch does not re-fire.
+            self._safe_delete_branch(branch)
+            if self._push_remote:
+                self._vcs.push(self._push_remote, default)
+                self._vcs.push(self._push_remote, result_branch)
+            self._prune_result_branches()
 
-        state = write_loop_state(
-            self._store,
-            self._root,
-            state.model_copy(
-                update={
-                    "stage": LoopStage.passed,
-                    "last_scalar": float(outcome.scalar),
-                    "last_generation": int(outcome.generation),
-                    "last_harness_version": outcome.harness_version,
-                    "last_decision": LoopDecision.pass_,
-                    "candidate_branch": None,
-                    "candidate_sha": None,
-                    "last_error": None,
-                }
-            ).mark_processed(branch, sha),
-            title=f"kept {branch} scalar={outcome.scalar:.4f}",
-        )
+            state = write_loop_state(
+                self._store,
+                self._root,
+                state.model_copy(
+                    update={
+                        "stage": LoopStage.passed,
+                        "last_scalar": float(outcome.scalar),
+                        "last_generation": int(outcome.generation),
+                        "last_harness_version": outcome.harness_version,
+                        "last_decision": LoopDecision.pass_,
+                        "candidate_branch": None,
+                        "candidate_sha": None,
+                        "last_error": None,
+                    }
+                ).mark_processed(branch, sha),
+                title=f"kept {branch} scalar={outcome.scalar:.4f}",
+            )
         return LoopCycleResult(
             acted=True,
             branch=branch,
@@ -919,34 +934,37 @@ class LoopRunner:
         self, state: LoopState, branch: str, sha: str, outcome: EvalOutcome
     ) -> LoopCycleResult:
         """Delete the candidate branch; leave default branch untouched."""
-        state = write_loop_state(
-            self._store,
-            self._root,
-            state.model_copy(update={"stage": LoopStage.reverting}),
-            title=f"reverting {branch}",
-        )
-        default = self._vcs.default_branch()
-        if self._vcs.current_branch() == branch:
-            self._vcs.checkout_branch(default)
-        self._safe_delete_branch(branch)
+        # One atomic span: the checkout/delete and the fail-recording state write
+        # must not interleave with a concurrent pass's git steps on this tree.
+        with self._mutation_span():
+            state = write_loop_state(
+                self._store,
+                self._root,
+                state.model_copy(update={"stage": LoopStage.reverting}),
+                title=f"reverting {branch}",
+            )
+            default = self._vcs.default_branch()
+            if self._vcs.current_branch() == branch:
+                self._vcs.checkout_branch(default)
+            self._safe_delete_branch(branch)
 
-        write_loop_state(
-            self._store,
-            self._root,
-            state.model_copy(
-                update={
-                    "stage": LoopStage.failed,
-                    "last_scalar": float(outcome.scalar),
-                    "last_generation": int(outcome.generation),
-                    "last_harness_version": outcome.harness_version,
-                    "last_decision": LoopDecision.fail,
-                    "candidate_branch": None,
-                    "candidate_sha": None,
-                    "last_error": None,
-                }
-            ).mark_processed(branch, sha),
-            title=f"reverted {branch} scalar={outcome.scalar:.4f}",
-        )
+            write_loop_state(
+                self._store,
+                self._root,
+                state.model_copy(
+                    update={
+                        "stage": LoopStage.failed,
+                        "last_scalar": float(outcome.scalar),
+                        "last_generation": int(outcome.generation),
+                        "last_harness_version": outcome.harness_version,
+                        "last_decision": LoopDecision.fail,
+                        "candidate_branch": None,
+                        "candidate_sha": None,
+                        "last_error": None,
+                    }
+                ).mark_processed(branch, sha),
+                title=f"reverted {branch} scalar={outcome.scalar:.4f}",
+            )
         return LoopCycleResult(
             acted=True,
             branch=branch,
@@ -982,22 +1000,26 @@ class LoopRunner:
             self._safe_delete_branch(branch)
 
         def _on_win(arena: ArenaState) -> LoopCycleResult:
-            _drop_candidate()
-            write_loop_state(
-                self._store,
-                self._root,
-                state.model_copy(
-                    update={
-                        "stage": LoopStage.passed,
-                        "last_scalar": float(arena.winner_scalar or outcome.scalar),
-                        "last_decision": LoopDecision.pass_,
-                        "candidate_branch": None,
-                        "candidate_sha": None,
-                        "last_error": None,
-                    }
-                ).mark_processed(branch, sha),
-                title=f"arena healed {branch}",
-            )
+            # Post-race resolve: the winner promotion already moved HEAD (its own
+            # transaction); this span brackets the candidate cleanup + state write
+            # so a concurrent pass cannot interleave. The race itself ran unlocked.
+            with self._mutation_span():
+                _drop_candidate()
+                write_loop_state(
+                    self._store,
+                    self._root,
+                    state.model_copy(
+                        update={
+                            "stage": LoopStage.passed,
+                            "last_scalar": float(arena.winner_scalar or outcome.scalar),
+                            "last_decision": LoopDecision.pass_,
+                            "candidate_branch": None,
+                            "candidate_sha": None,
+                            "last_error": None,
+                        }
+                    ).mark_processed(branch, sha),
+                    title=f"arena healed {branch}",
+                )
             return LoopCycleResult(
                 acted=True,
                 branch=branch,
@@ -1008,21 +1030,24 @@ class LoopRunner:
             )
 
         def _on_lose(arena: ArenaState) -> LoopCycleResult:
-            _drop_candidate()
-            write_loop_state(
-                self._store,
-                self._root,
-                state.model_copy(
-                    update={
-                        "stage": LoopStage.failed,
-                        "last_decision": LoopDecision.fail,
-                        "candidate_branch": None,
-                        "candidate_sha": None,
-                        "last_error": arena.message,
-                    }
-                ).mark_processed(branch, sha),
-                title=f"arena no-winner; reverted {branch}",
-            )
+            # Post-race resolve (no winner): bracket the candidate cleanup + state
+            # write; the race itself ran unlocked on a throwaway clone.
+            with self._mutation_span():
+                _drop_candidate()
+                write_loop_state(
+                    self._store,
+                    self._root,
+                    state.model_copy(
+                        update={
+                            "stage": LoopStage.failed,
+                            "last_decision": LoopDecision.fail,
+                            "candidate_branch": None,
+                            "candidate_sha": None,
+                            "last_error": arena.message,
+                        }
+                    ).mark_processed(branch, sha),
+                    title=f"arena no-winner; reverted {branch}",
+                )
             return LoopCycleResult(
                 acted=True,
                 branch=branch,
@@ -1038,6 +1063,17 @@ class LoopRunner:
             on_win=_on_win,
             on_lose=_on_lose,
         )
+
+    def _mutation_span(self) -> AbstractContextManager[None]:
+        """The widened, reentrant flock bracketing this pass's real-vault git span.
+
+        Every contiguous checkout/merge/branch-delete/commit sequence on the live
+        vault runs inside one of these so a concurrent pass (a background watcher
+        vs. a synchronous gate) cannot interleave its git steps and corrupt the
+        tree. Nested acquisitions reuse the held flock; eval and the arena race
+        stay outside it (they run on a throwaway clone).
+        """
+        return vault_mutation_span(self._root)
 
     def _safe_delete_branch(self, branch: str) -> None:
         """Delete ``branch`` if it still exists."""

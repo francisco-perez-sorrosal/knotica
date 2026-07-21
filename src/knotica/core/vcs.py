@@ -438,6 +438,29 @@ class VaultVcs:
         """Abort an in-progress merge and restore ``HEAD``."""
         self._run(["merge", "--abort"], retry_index_lock=True)
 
+    def heal_git_mutation_state(self) -> None:
+        """Clear crash-left mutation state so a fresh span starts git-clean.
+
+        A pass that crashed mid-span auto-releases its vault flock (the OS drops
+        it on process death) but can leave a dangling ``MERGE_HEAD`` or a stale
+        ``.git/index.lock`` behind, either of which would break the next pass's
+        commit. Called at span entry *while the vault flock is held* -- so no live
+        knotica git process owns that index lock and any leftover is a crash
+        remnant, safe to clear. The stale index lock is removed before aborting
+        the merge because ``git merge --abort`` itself needs the index.
+        Idempotent: a no-op on an already-clean tree.
+        """
+        self._clear_stale_index_lock()
+        if self.is_merge_in_progress():
+            self.abort_merge()
+
+    def _clear_stale_index_lock(self) -> None:
+        """Remove a leftover ``.git/index.lock`` (safe only under the vault flock)."""
+        git_dir = self._root / ".git"
+        if not git_dir.is_dir():
+            return
+        (git_dir / "index.lock").unlink(missing_ok=True)
+
     def push(self, remote: str, refspec: str) -> None:
         """Push ``refspec`` to ``remote`` (e.g. ``main`` or ``loop/result/abc``)."""
         self._run(["push", remote, refspec], retry_index_lock=True)

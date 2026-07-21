@@ -34,6 +34,15 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 TEMPLATE_DIR = REPO_ROOT / "vault-template"
 
 
+def pytest_configure(config: pytest.Config) -> None:
+    """Register custom markers so ``@pytest.mark.slow`` never warns as unknown."""
+    config.addinivalue_line(
+        "markers",
+        "slow: heavier integration test (real clones, threads, barrier-synced "
+        "contention) — deterministic but multi-second; safe to deselect for a fast loop.",
+    )
+
+
 @pytest.fixture(scope="session")
 def vault_seed(tmp_path_factory: pytest.TempPathFactory) -> Path:
     """Copy-source cache: template + git init + initial commit, built once per session.

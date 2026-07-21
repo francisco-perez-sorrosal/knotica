@@ -138,24 +138,29 @@ def handle_source_pass(
     # Read-only: the default branch's tip *before* the merge, independent of
     # whatever is currently checked out (``_keep`` checks out default itself).
     merge_base = runner._vcs.ref_sha(runner._vcs.default_branch())
-    result = runner._keep(state, branch, sha, outcome)
-    # ``_keep`` checks out the default branch (or raises); re-verify before the
-    # load-bearing record commit so it can never land on the wrong branch.
-    _require_default_checkout(runner)
-    gate_outcome = {
-        "verdict": GATE_VERDICT_MERGED,
-        "scalar": float(outcome.scalar),
-        "baseline_scalar": float(state.baseline_scalar or 0.0),
-        "ref": f"{RESULT_BRANCH_PREFIX}{sha[:12]}",
-    }
-    apply_gate_outcome(
-        runner._store,
-        runner._root,
-        topic,
-        suggestion_id,
-        verdict=GATE_VERDICT_MERGED,
-        gate_outcome=gate_outcome,
-    )
+    # One atomic span brackets the merge and the load-bearing gate-outcome commit
+    # so a concurrent pass cannot change the checked-out branch between them
+    # (``_keep`` opens its own span, which reuses this one reentrantly). The
+    # best-effort trainset grower may call an LLM and runs *outside* the span.
+    with runner._mutation_span():
+        result = runner._keep(state, branch, sha, outcome)
+        # ``_keep`` checks out the default branch (or raises); re-verify before
+        # the load-bearing record commit so it can never land on the wrong branch.
+        _require_default_checkout(runner)
+        gate_outcome = {
+            "verdict": GATE_VERDICT_MERGED,
+            "scalar": float(outcome.scalar),
+            "baseline_scalar": float(state.baseline_scalar or 0.0),
+            "ref": f"{RESULT_BRANCH_PREFIX}{sha[:12]}",
+        }
+        apply_gate_outcome(
+            runner._store,
+            runner._root,
+            topic,
+            suggestion_id,
+            verdict=GATE_VERDICT_MERGED,
+            gate_outcome=gate_outcome,
+        )
     _grow_trainset_from_merge(runner, topic, merge_base, runner._vcs.head_sha())
     return result
 
@@ -183,29 +188,34 @@ def handle_source_refuse(
     quarantine = f"{QUARANTINE_BRANCH_PREFIX}{topic}/{_SOURCE_INFIX}{id8}"
     regressed = _regressed_questions(outcome, topic)
 
-    runner._vcs.publish_branch(branch, quarantine)
-    _commit_quarantine_diff(runner, quarantine, topic, id8, regressed)
-    # The diff commit above briefly checked out the quarantine branch; verify
-    # the checkout is back on default before the load-bearing record commit so a
-    # failed restore fails loud rather than misrouting the commit onto loop/x.
-    _require_default_checkout(runner)
-    apply_gate_outcome(
-        runner._store,
-        runner._root,
-        topic,
-        suggestion_id,
-        verdict=GATE_VERDICT_REFUSED,
-        gate_outcome={
-            "verdict": GATE_VERDICT_REFUSED,
-            "scalar": float(outcome.scalar),
-            "baseline_scalar": float(state.baseline_scalar or 0.0),
-            "ref": quarantine,
-            "reason": _refusal_reason(outcome, state, regressed),
-            "regressed_questions": list(regressed),
-        },
-    )
-    _prune_quarantine_branches(runner, topic)
-    _record_refusal_state(runner, state, branch, sha, outcome)
+    # One atomic span brackets the whole refusal git sequence (rename ->
+    # quarantine-diff commit -> gate-outcome commit -> prune -> record) so a
+    # concurrent pass cannot interleave its checkout/merge and misroute the
+    # load-bearing commits. The clone-manifest read above stays outside it.
+    with runner._mutation_span():
+        runner._vcs.publish_branch(branch, quarantine)
+        _commit_quarantine_diff(runner, quarantine, topic, id8, regressed)
+        # The diff commit above briefly checked out the quarantine branch; verify
+        # the checkout is back on default before the load-bearing record commit so
+        # a failed restore fails loud rather than misrouting the commit onto loop/x.
+        _require_default_checkout(runner)
+        apply_gate_outcome(
+            runner._store,
+            runner._root,
+            topic,
+            suggestion_id,
+            verdict=GATE_VERDICT_REFUSED,
+            gate_outcome={
+                "verdict": GATE_VERDICT_REFUSED,
+                "scalar": float(outcome.scalar),
+                "baseline_scalar": float(state.baseline_scalar or 0.0),
+                "ref": quarantine,
+                "reason": _refusal_reason(outcome, state, regressed),
+                "regressed_questions": list(regressed),
+            },
+        )
+        _prune_quarantine_branches(runner, topic)
+        _record_refusal_state(runner, state, branch, sha, outcome)
     return LoopCycleResult(
         acted=True,
         branch=branch,
