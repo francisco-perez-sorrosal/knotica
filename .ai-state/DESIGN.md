@@ -329,3 +329,46 @@ Phase P4 — gap-fill source-candidate gate (this pipeline, `gapfill-source-gate
   over dec-030 (re-affirms it; the Addendum pre-sanctioned an additive branch-ref field). Reconciled with the
   interface-designer's `dec-035` (adopts its `gate_outcome` shape + `loop/x/*` namespace) and
   `dec-034` (the `candidate` handle + `source_ingest_open`/`submit` surface).
+
+<!-- aac:authored owner=systems-architect last-reviewed=2026-07-21 -->
+### Consolidation target — PLANNED direction (loop-consolidation pipeline)
+
+**Status: PLANNED, not current state.** The rows in §3 above describe the codebase as
+Built on `main` (dec-001..038). The consolidation pass (`.ai-work/loop-consolidation/SYSTEMS_PLAN.md`)
+reshapes surfaces and internals **without changing any dec-001..038 semantics**. Draft
+ADRs (finalize to `dec-NNN` at merge):
+
+- **dec-draft-1785275a** — Tiered MCP tool-surface topology: thin conversational core
+  (~18 tools, dec-003 principle re-affirmed) + operator long-tail collapsed into 7
+  action-parameterized dispatchers (`loop`/`branches`/`compile`/`datasets`/`arena`/`golden`/
+  `vault_health`); one server (Option A) now, lazy catalog meta-tool (B) deferred as the
+  future-preferred evolution gated on client capability, second server (C) rejected;
+  additive-alias non-breaking migration (49 → ~29 model-facing tools). Companion:
+  interface-designer `dec-draft-ac2898b1` (dispatcher shapes) + `dec-draft-19d50c6b`
+  (`INVALID_ARGUMENT` error code, adopted).
+- **dec-draft-c5032c8e** — Conversational routing & transparency: per-client routing-
+  reliability tiers accepted (Tier-1 Claude Code / Tier-2 Desktop); `server.py`
+  `_INSTRUCTIONS` slimmed to detection heuristics + stable invariant guards + a
+  `read_protocol` pointer (no enumerated evolvable steps — kills the drifted duplicate at
+  the root, no boot-time vault read); new cheapest `wiki_status(view=scope)`; a
+  SessionStart topic-awareness seed (Tier-1, proactive detection); read/offer over-routing
+  guard load-bearing. Companion: interface-designer `dec-draft-d6edd5ef` (routing-artifact
+  separation).
+- **dec-draft-3fc197ba** — Loop-internals consolidation (behavior-preserving,
+  characterization-tests-first): `core/branch_namespaces.py` single-source-of-truth for the
+  five branch prefixes; one shared best-effort primitive; one `_run_arena_and_resolve`
+  helper; one `build_loop_runner` factory (preserves current per-site config values); and a
+  credential-conditional `discover_on_regression` default (realizes dec-029's named
+  reversal). `loop.py` returns under ceiling incidentally (td-008). Deferred: candidate-gate
+  Protocol, records-schema base (td-009), `harness`/`golden` splits (td-002).
+- **dec-draft-64a38a63** — Loop becomes a **lifecycle-managed service** (supersedes the
+  PRE_PLAN "No periodic daemon in MVP" stance per user guidance): the `knotica loop --watch`
+  watcher is automatically installed/spawned/supervised (leading candidate: an OS service
+  manager registered by the install flow) under a one-click-install / zero-user-burden bar.
+  **Lifecycle only** — loop semantics, client-as-brain (the loop is a headless loop), and the
+  stateless MCP server (a *separate* process) are all unchanged. PRE_PLAN's Safety-net clause
+  is updated at implementation.
+
+Dashboard stays a **full dual-mode independent peer** (MCP App + standalone HTTP, dec-020);
+conversation is added as a co-equal first-class decision surface, not a replacement.
+<!-- aac:end -->

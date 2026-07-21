@@ -27,6 +27,19 @@ Knotica is an AI-maintained markdown wiki in an Obsidian vault. The **Claude cli
 the server exposes deterministic tools and holds no session state. Every vault mutation flows through a
 single `VaultTransaction` (flock + atomic write + log append + secret-scrub + one git commit).
 
+> **PLANNED — Consolidation direction (not yet Built).** A consolidation pass
+> (`.ai-work/loop-consolidation/SYSTEMS_PLAN.md`, draft ADRs `dec-draft-1785275a` /
+> `c5032c8e` / `3fc197ba` / `64a38a63`) reshapes surfaces and internals **without changing
+> gap-fill semantics**: the ~49-tool flat MCP surface collapses toward ~29 (thin
+> conversational core + 7 operator dispatchers); conversational routing lets the client
+> enter wiki operations from natural language (client-side detection + a `wiki_status(view=
+> scope)` scope-check + a SessionStart topic seed); the loop's internals consolidate
+> (single branch-namespace, shared best-effort/arena-race/runner-factory primitives); and
+> the `knotica loop --watch` watcher becomes an **automatically supervised service** (no
+> manual start — supersedes the MVP no-daemon stance). The dashboard remains a full
+> dual-mode peer (MCP App + standalone HTTP). This block is a forward pointer; the sections
+> below describe the current Built state.
+
 ## 2. System Context
 
 <!-- TODO(diagram): render docs/diagrams/architecture/rendered/context.svg from the LikeC4 source
