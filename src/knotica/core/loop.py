@@ -18,6 +18,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Protocol
 
+from knotica.core import branch_namespaces
 from knotica.core.arena import (
     ArenaStage,
     ScoreFn,
@@ -49,8 +50,11 @@ __all__ = [
     "wrap_harness_result",
 ]
 
-DEFAULT_BRANCH_PREFIX = "loop/c/"
-RESULT_BRANCH_PREFIX = "loop/r/"
+# Re-exported from the branch-namespace single source of truth so the loop's
+# historical public names (``loop.DEFAULT_BRANCH_PREFIX`` / ``RESULT_BRANCH_PREFIX``,
+# imported by cli/loop, branch_scoreboard, loop_promote, status) keep resolving.
+DEFAULT_BRANCH_PREFIX = branch_namespaces.DEFAULT_BRANCH_PREFIX
+RESULT_BRANCH_PREFIX = branch_namespaces.RESULT_BRANCH_PREFIX
 
 #: ``log.md`` is an append-only journal: concurrent branches legitimately add
 #: different lines at the same location, so it must merge with git's union

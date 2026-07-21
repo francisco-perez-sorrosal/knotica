@@ -10,6 +10,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
+from knotica.core.branch_namespaces import compile_branch_prefix
 from knotica.core.compiled import load_compiled
 from knotica.core.compile_state import (
     compile_state_path,
@@ -29,17 +30,6 @@ from knotica.core.vcs import GitError, VaultVcs
 from knotica.store import VaultStore
 
 __all__ = ["compile_branch_prefix", "compile_promote"]
-
-
-def compile_branch_prefix(topic: str) -> str:
-    """Return the required ``compile/<topic>/`` prefix for promote targets."""
-    cleaned = topic.strip().strip("/")
-    if not cleaned or "/" in cleaned:
-        raise KnoticaError(
-            ErrorCode.TOPIC_NOT_FOUND,
-            f"compile promote failed because topic {topic!r} is invalid",
-        )
-    return f"compile/{cleaned}/"
 
 
 def compile_promote(

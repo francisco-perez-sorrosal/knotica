@@ -36,16 +36,23 @@ from __future__ import annotations
 
 import json
 import logging
-from typing import TYPE_CHECKING, Literal
+from typing import TYPE_CHECKING
 
+# Branch-name literals + classify/parse helpers come from the single source of
+# truth (:mod:`knotica.core.branch_namespaces`); this module re-exports
+# ``QUARANTINE_BRANCH_PREFIX``/``classify_candidate``/``suggestion_id_from_branch``
+# for its historical callers.
+from knotica.core.branch_namespaces import (
+    QUARANTINE_BRANCH_PREFIX,
+    RESULT_BRANCH_PREFIX,
+    _parse_candidate_branch,
+    _SOURCE_INFIX,
+    classify_candidate,
+    suggestion_id_from_branch,
+)
 from knotica.core.errors import ErrorCode, KnoticaError
-from knotica.core.loop import RESULT_BRANCH_PREFIX, LoopCycleResult
+from knotica.core.loop import LoopCycleResult
 from knotica.core.loop_state import LoopDecision, LoopStage, write_loop_state
-
-# Reuse the source-candidate naming convention from its minting module (single
-# source of truth for the ``loop/c/`` prefix and the ``source-`` infix) rather
-# than re-deriving the literals here.
-from knotica.core.source_ingest import CANDIDATE_BRANCH_PREFIX, _SOURCE_INFIX
 from knotica.core.transaction import VaultTransaction
 
 if TYPE_CHECKING:
@@ -62,10 +69,6 @@ __all__ = [
     "handle_source_refuse",
     "suggestion_id_from_branch",
 ]
-
-#: A refused source candidate is renamed here (kept, never deleted) -- invisible
-#: to the loop's ``loop/c/`` candidate scan, but preserved as an audit trail.
-QUARANTINE_BRANCH_PREFIX = "loop/x/"
 
 #: Where a refused candidate's bounded per-question dilution diff is committed on
 #: its quarantine branch (mirrors the per-topic ``.knotica/`` placement of gaps
@@ -88,33 +91,6 @@ _MAX_REGRESSED_QUESTIONS = 10
 #: surface (the same precedent :mod:`knotica.core.source_ingest` sets for
 #: ``_SOURCES_DIR``).
 _SCHEMA_OVERLAY_FILENAME = "SCHEMA.md"
-
-
-def classify_candidate(branch: str) -> Literal["source", "prompt"] | None:
-    """Classify a candidate branch by name alone (no state, no git read).
-
-    Returns ``"source"`` for a ``loop/c/<topic>/source-<id8>`` branch,
-    ``"prompt"`` for any other ``loop/c/*`` tip (today's arena/keep/discard
-    candidate), and ``None`` for a branch that is not a candidate at all.
-    """
-    if not branch.startswith(CANDIDATE_BRANCH_PREFIX):
-        return None
-    topic, sep, leaf = branch.removeprefix(CANDIDATE_BRANCH_PREFIX).partition("/")
-    if sep and topic and leaf.startswith(_SOURCE_INFIX) and leaf.removeprefix(_SOURCE_INFIX):
-        return "source"
-    return "prompt"
-
-
-def suggestion_id_from_branch(branch: str) -> str:
-    """Recover the ``id8`` a source candidate branch encodes.
-
-    The branch carries the linked suggestion's id truncated to its infix length
-    (``suggestion_id[:8]``); the full id is resolved against ``suggestions.jsonl``
-    at gate time (see :func:`_resolve_suggestion_id`). Raises ``ValueError`` for a
-    branch that is not a source candidate.
-    """
-    _topic, id8 = _parse_candidate_branch(branch)
-    return id8
 
 
 def gate_source_candidate(
@@ -312,22 +288,8 @@ def _is_entity_page_path(topic: str, path: str) -> bool:
 
 
 # ---------------------------------------------------------------------------
-# Branch-name parsing + suggestion resolution
+# Suggestion resolution (branch-name parsing lives in ``branch_namespaces``)
 # ---------------------------------------------------------------------------
-
-
-def _parse_candidate_branch(branch: str) -> tuple[str, str]:
-    """Parse ``loop/c/<topic>/source-<id8>`` into ``(topic, id8)``.
-
-    Raises ``ValueError`` for any branch that is not a source candidate.
-    """
-    if not branch.startswith(CANDIDATE_BRANCH_PREFIX):
-        raise ValueError(f"{branch!r} is not a source candidate branch")
-    topic, sep, leaf = branch.removeprefix(CANDIDATE_BRANCH_PREFIX).partition("/")
-    id8 = leaf.removeprefix(_SOURCE_INFIX)
-    if not (sep and topic and leaf.startswith(_SOURCE_INFIX) and id8):
-        raise ValueError(f"{branch!r} is not a source candidate branch")
-    return topic, id8
 
 
 def _resolve_suggestion_id(runner: "LoopRunner", topic: str, id8: str) -> str:

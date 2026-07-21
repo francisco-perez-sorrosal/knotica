@@ -53,6 +53,15 @@ from dataclasses import dataclass
 from pathlib import Path, PurePath
 from typing import Literal
 
+from knotica.core.branch_namespaces import (
+    CANDIDATE_BRANCH_PREFIX,
+    WIP_BRANCH_PREFIX,
+    _id8,
+    _parse_wip_branch,
+    _SOURCE_INFIX,
+    candidate_branch_name,
+    wip_branch_name,
+)
 from knotica.core.errors import ErrorCode, KnoticaError
 from knotica.core.gapfill import suggestions_path
 from knotica.core.lint import INDEX_PATH
@@ -62,6 +71,8 @@ from knotica.core.vcs import VaultVcs
 from knotica.store import VaultStore
 
 __all__ = [
+    "CANDIDATE_BRANCH_PREFIX",
+    "WIP_BRANCH_PREFIX",
     "IngestHandle",
     "ResumeState",
     "abandon_ingest",
@@ -77,16 +88,11 @@ __all__ = [
 #: locks/`` runtime-artifact precedent (see module docstring).
 _WORKTREE_ROOT = PurePath(".knotica/worktrees")
 
-#: Branch-name conventions an ingest session moves through: private while
-#: the client is writing, public once submitted.
-WIP_BRANCH_PREFIX = "loop/wip/"
-CANDIDATE_BRANCH_PREFIX = "loop/c/"
-
-#: The infix marking a branch leaf as a source candidate (vs. a prompt
-#: candidate, which carries no such convention) and the id truncation both
-#: prefixes share.
-_SOURCE_INFIX = "source-"
-_ID_INFIX_LENGTH = 8
+#: Branch-name conventions an ingest session moves through (private while the
+#: client is writing, public once submitted) and the ``source-`` leaf infix are
+#: owned by :mod:`knotica.core.branch_namespaces`; imported above and re-exported
+#: here so external callers keep resolving ``source_ingest.CANDIDATE_BRANCH_PREFIX``
+#: et al.
 
 #: Mirrors ``operations/store_source.py``'s own (private, unexported)
 #: constant -- a fixed vault-layout literal, not shared logic, so a small
@@ -142,16 +148,6 @@ class IngestHandle:
     resume: ResumeState
     provenance: dict[str, object]
     vault_root: Path
-
-
-def wip_branch_name(topic: str, suggestion_id: str) -> str:
-    """The private branch an ingest session writes to before it is submitted."""
-    return f"{WIP_BRANCH_PREFIX}{_branch_leaf(topic, suggestion_id)}"
-
-
-def candidate_branch_name(topic: str, suggestion_id: str) -> str:
-    """The public candidate branch name a submitted ingest publishes to."""
-    return f"{CANDIDATE_BRANCH_PREFIX}{_branch_leaf(topic, suggestion_id)}"
 
 
 def worktree_path_for(vault_root: str | Path, topic: str, suggestion_id: str) -> Path:
@@ -371,32 +367,3 @@ def _resume_state(vcs: VaultVcs, topic: str, branch: str) -> ResumeState:
 def _find_worktree(vcs: VaultVcs, branch: str) -> dict[str, str] | None:
     """The registered worktree checked out on ``branch``, if any (read-only)."""
     return next((wt for wt in vcs.list_worktrees() if wt.get("branch") == branch), None)
-
-
-def _parse_wip_branch(candidate: str) -> tuple[str, str]:
-    """Parse ``loop/wip/<topic>/source-<id8>`` into ``(topic, id8)``."""
-    malformed = KnoticaError(
-        ErrorCode.SUGGESTION_NOT_FOUND,
-        f"{candidate!r} is not a well-formed ingest handle "
-        f"(expected {WIP_BRANCH_PREFIX!r} + '<topic>/{_SOURCE_INFIX}<id8>').",
-        fix="Call source_ingest_open first to obtain a candidate handle.",
-    )
-    if not candidate.startswith(WIP_BRANCH_PREFIX):
-        raise malformed
-    topic, _, leaf = candidate.removeprefix(WIP_BRANCH_PREFIX).partition("/")
-    if not topic or not leaf.startswith(_SOURCE_INFIX):
-        raise malformed
-    id8 = leaf.removeprefix(_SOURCE_INFIX)
-    if not id8:
-        raise malformed
-    return topic, id8
-
-
-def _branch_leaf(topic: str, suggestion_id: str) -> str:
-    """The ``<topic>/source-<id8>`` suffix shared by the WIP and candidate names."""
-    return f"{topic}/{_SOURCE_INFIX}{_id8(suggestion_id)}"
-
-
-def _id8(suggestion_id: str) -> str:
-    """Truncate a full ``suggestion_id`` to the branch-name infix length."""
-    return suggestion_id[:_ID_INFIX_LENGTH]
