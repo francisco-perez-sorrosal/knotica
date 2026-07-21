@@ -404,6 +404,30 @@ def test_reopening_an_already_open_ingest_is_idempotent_and_resumes(
 
 
 # ---------------------------------------------------------------------------
+# source_ingest_submit -- argument validation
+# ---------------------------------------------------------------------------
+
+
+def test_bad_mode_on_source_ingest_submit_is_invalid_argument_not_invalid_cursor(
+    vault_config: Path, template_vault: Path
+) -> None:
+    """A bad mode is an argument-shape problem, not a pagination-cursor problem
+    -- it must carry its own code even before any suggestion/candidate state is
+    consulted (mode validation runs first)."""
+    del vault_config
+
+    err = error_of(
+        call_tool(
+            "source_ingest_submit",
+            {"topic": TOPIC, "suggestion_id": "does-not-matter", "mode": "yolo"},
+        )
+    )
+
+    assert_error_shape(err, code="INVALID_ARGUMENT")
+    assert "mode" in err["fix"].lower()
+
+
+# ---------------------------------------------------------------------------
 # source_ingest_submit -- dry-run
 # ---------------------------------------------------------------------------
 
@@ -464,7 +488,7 @@ def test_submit_apply_with_no_committed_content_fails_with_actionable_guidance(
         )
     )
 
-    assert_error_shape(err, code="INVALID_CURSOR")
+    assert_error_shape(err, code="INVALID_ARGUMENT")
     assert err["fix"], "the refusal must tell the caller to open and write content first"
 
 

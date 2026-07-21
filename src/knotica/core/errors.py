@@ -38,6 +38,7 @@ class ErrorCode(StrEnum):
     LOCK_BUSY = "LOCK_BUSY"
     GIT_ERROR = "GIT_ERROR"
     INVALID_CURSOR = "INVALID_CURSOR"
+    INVALID_ARGUMENT = "INVALID_ARGUMENT"
     LLM_API_ERROR = "LLM_API_ERROR"
     SEARCH_API_ERROR = "SEARCH_API_ERROR"
     SUGGESTION_NOT_FOUND = "SUGGESTION_NOT_FOUND"
@@ -68,6 +69,7 @@ DEFAULT_FIX: Mapping[ErrorCode, str] = MappingProxyType(
             "Run `knotica doctor` / `/knotica:doctor` to inspect and offer rollback."
         ),
         ErrorCode.INVALID_CURSOR: "Restart the search without a cursor.",
+        ErrorCode.INVALID_ARGUMENT: "Correct the named argument and call again.",
         ErrorCode.LLM_API_ERROR: (
             "Check the eval credential mode and your plan limits; transient rate"
             " limits and server errors clear on their own -- wait and re-run."

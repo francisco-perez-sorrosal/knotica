@@ -44,6 +44,10 @@ RETRYABLE_BY_CODE = {
     "LOCK_BUSY": True,
     "GIT_ERROR": False,
     "INVALID_CURSOR": False,
+    # Plain argument-validation failures (bad mode/status/limit/action/shape) --
+    # a dedicated code so they stop masquerading as a cursor problem; the fix is
+    # always "correct this argument and call again," never a retry.
+    "INVALID_ARGUMENT": False,
     # Eval-harness LLM transport failures (rate limit / server error / network):
     # transient by default -- raisers pass retryable=False explicitly for
     # non-transient statuses such as auth rejections.
@@ -250,6 +254,33 @@ def test_lock_busy_fix_tells_the_model_to_retry():
     errors = _errors_module()
     err = _make_error(errors, "LOCK_BUSY", "write_page failed because the vault lock is held.")
     assert "retry" in err.fix.lower()
+
+
+# ---------------------------------------------------------------------------
+# INVALID_ARGUMENT vs INVALID_CURSOR -- one code per recovery class
+# ---------------------------------------------------------------------------
+
+
+def test_invalid_argument_fix_tells_the_model_to_correct_the_argument_not_restart_a_cursor():
+    """The whole point of the split: a bad-argument fix must never repeat the
+    cursor-restart instruction, which is actively wrong for this recovery class."""
+    errors = _errors_module()
+    err = _make_error(errors, "INVALID_ARGUMENT", "mode must be 'dry-run' or 'apply', got 'aply'.")
+    fix = err.fix.lower()
+    assert "argument" in fix
+    assert "cursor" not in fix
+    assert "restart" not in fix
+
+
+def test_invalid_argument_and_invalid_cursor_carry_distinct_default_fix_text():
+    """The two codes must not be aliases of each other -- each maps to exactly
+    one recovery class, per the one-code-one-recovery-class contract."""
+    errors = _errors_module()
+    argument_err = _make_error(errors, "INVALID_ARGUMENT", "limit must be in 1..50, got 0.")
+    cursor_err = _make_error(errors, "INVALID_CURSOR", "cursor is stale.")
+    assert argument_err.fix != cursor_err.fix
+    assert argument_err.retryable is False
+    assert cursor_err.retryable is False
 
 
 # ---------------------------------------------------------------------------

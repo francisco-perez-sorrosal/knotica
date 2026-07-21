@@ -31,6 +31,7 @@ ERROR_CODES = frozenset(
         "LOCK_BUSY",
         "GIT_ERROR",
         "INVALID_CURSOR",
+        "INVALID_ARGUMENT",
     }
 )
 
@@ -250,7 +251,13 @@ def test_metrics_read_windows_ascending(vault_config: Path, template_vault: Path
 def test_metrics_read_rejects_bad_limit(vault_config: Path) -> None:
     del vault_config
     err = error_of(call_tool("metrics_read", {"topic": TOPIC, "limit": 0}))
-    assert_error_shape(err, code="INVALID_CURSOR")
+    assert_error_shape(err, code="INVALID_ARGUMENT")
+
+
+def test_metrics_read_rejects_negative_before_generation(vault_config: Path) -> None:
+    del vault_config
+    err = error_of(call_tool("metrics_read", {"topic": TOPIC, "before_generation": -1}))
+    assert_error_shape(err, code="INVALID_ARGUMENT")
 
 
 def test_metrics_read_rejects_empty_topic(vault_config: Path) -> None:

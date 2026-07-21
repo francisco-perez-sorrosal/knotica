@@ -129,7 +129,7 @@ def _metrics_payload(
         raise TopicNotFoundError(topic or "(empty)")
     if limit < 1 or limit > MAX_METRICS_LIMIT:
         raise KnoticaError(
-            code=ErrorCode.INVALID_CURSOR,
+            code=ErrorCode.INVALID_ARGUMENT,
             message=(
                 f"metrics_read failed because limit must be in 1..{MAX_METRICS_LIMIT}, got {limit}"
             ),
@@ -137,12 +137,12 @@ def _metrics_payload(
         )
     if before_generation is not None and before_generation < 0:
         raise KnoticaError(
-            code=ErrorCode.INVALID_CURSOR,
+            code=ErrorCode.INVALID_ARGUMENT,
             message=(
                 "metrics_read failed because before_generation must be >= 0, "
                 f"got {before_generation}"
             ),
-            fix="Restart the metrics window without before_generation, or pass a non-negative generation.",
+            fix="Pass a non-negative before_generation, or omit it to read the newest window.",
         )
     return render_metrics_window(
         store,

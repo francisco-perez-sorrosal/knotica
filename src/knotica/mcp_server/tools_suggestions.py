@@ -387,13 +387,13 @@ def _validate_reference_pages(reference_pages: list[str] | None) -> tuple[str, .
         not isinstance(page, str) for page in reference_pages
     ):
         raise KnoticaError(
-            ErrorCode.INVALID_CURSOR,
+            ErrorCode.INVALID_ARGUMENT,
             f"reference_pages must be a list of strings, got {reference_pages!r}",
             fix="Pass reference_pages as a JSON array of page-name strings, or omit it.",
         )
     if len(reference_pages) > _REPORT_MAX_REFERENCE_PAGES:
         raise KnoticaError(
-            ErrorCode.INVALID_CURSOR,
+            ErrorCode.INVALID_ARGUMENT,
             f"reference_pages may name at most {_REPORT_MAX_REFERENCE_PAGES} pages, "
             f"got {len(reference_pages)}",
             fix=f"Pass at most {_REPORT_MAX_REFERENCE_PAGES} reference pages.",
@@ -450,7 +450,7 @@ def _validate_status_filter(status: str) -> str:
     cleaned = status.strip().lower()
     if cleaned not in _STATUS_FILTERS:
         raise KnoticaError(
-            ErrorCode.INVALID_CURSOR,
+            ErrorCode.INVALID_ARGUMENT,
             f"status must be one of {'|'.join(_STATUS_VALUES)}|{_ALL_FILTER}, got {status!r}",
             fix=f"Pass status as one of: {', '.join(sorted(_STATUS_FILTERS))}.",
         )
@@ -460,7 +460,7 @@ def _validate_status_filter(status: str) -> str:
 def _validate_limit(limit: int) -> int:
     if limit < 1 or limit > _MAX_LIMIT:
         raise KnoticaError(
-            ErrorCode.INVALID_CURSOR,
+            ErrorCode.INVALID_ARGUMENT,
             f"limit must be in 1..{_MAX_LIMIT}, got {limit}",
             fix=f"Pass limit between 1 and {_MAX_LIMIT}.",
         )
@@ -471,7 +471,7 @@ def _validate_mode(mode: str) -> str:
     cleaned = mode.strip().lower().replace("_", "-")
     if cleaned not in _MODES:
         raise KnoticaError(
-            ErrorCode.INVALID_CURSOR,
+            ErrorCode.INVALID_ARGUMENT,
             f"mode must be 'dry-run' or 'apply', got {mode!r}",
             fix="Pass mode='dry-run' to preview or mode='apply' to record the decision.",
         )
@@ -482,7 +482,7 @@ def _validate_action(action: str) -> str:
     cleaned = action.strip().lower()
     if cleaned not in _ACTIONS:
         raise KnoticaError(
-            ErrorCode.INVALID_CURSOR,
+            ErrorCode.INVALID_ARGUMENT,
             f"action must be one of {'|'.join(_ACTIONS)}, got {action!r}",
             fix=f"Pass action as one of: {', '.join(_ACTIONS)}.",
         )

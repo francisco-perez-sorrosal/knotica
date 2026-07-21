@@ -201,7 +201,7 @@ def _apply_payload(
     handle = source_ingest.open_ingest(store, vault_path, topic, suggestion_id)
     if not (handle.resume.source_present and handle.resume.pages_present):
         raise KnoticaError(
-            ErrorCode.INVALID_CURSOR,
+            ErrorCode.INVALID_ARGUMENT,
             f"source_ingest_submit failed because no source/pages exist on the "
             f"candidate for suggestion {suggestion_id!r}.",
             fix="Run source_ingest_open then store_source/write_page with "
@@ -338,7 +338,7 @@ def _validate_mode(mode: str) -> str:
     cleaned = mode.strip().lower().replace("_", "-")
     if cleaned not in _MODES:
         raise KnoticaError(
-            ErrorCode.INVALID_CURSOR,
+            ErrorCode.INVALID_ARGUMENT,
             f"mode must be 'dry-run' or 'apply', got {mode!r}",
             fix="Pass mode='dry-run' to preview or mode='apply' to submit.",
         )

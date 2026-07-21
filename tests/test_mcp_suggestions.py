@@ -42,6 +42,7 @@ ERROR_CODES = frozenset(
         "LOCK_BUSY",
         "GIT_ERROR",
         "INVALID_CURSOR",
+        "INVALID_ARGUMENT",
         "LLM_API_ERROR",
         "SEARCH_API_ERROR",
         "SUGGESTION_NOT_FOUND",
@@ -532,7 +533,9 @@ def test_unknown_suggestion_id_is_suggestion_not_found(
     assert_error_shape(err, code="SUGGESTION_NOT_FOUND")
 
 
-def test_bad_mode_is_a_typed_error(vault_config: Path, template_vault: Path) -> None:
+def test_bad_mode_is_invalid_argument_not_invalid_cursor(
+    vault_config: Path, template_vault: Path
+) -> None:
     del vault_config
     _seed_suggestions(template_vault, [_suggestion_record(suggestion_id="bad-mode")])
 
@@ -548,10 +551,13 @@ def test_bad_mode_is_a_typed_error(vault_config: Path, template_vault: Path) -> 
         )
     )
 
-    assert_error_shape(err)
+    assert_error_shape(err, code="INVALID_ARGUMENT")
+    assert "mode" in err["fix"].lower()
 
 
-def test_bad_action_is_a_typed_error(vault_config: Path, template_vault: Path) -> None:
+def test_bad_action_is_invalid_argument_not_invalid_cursor(
+    vault_config: Path, template_vault: Path
+) -> None:
     del vault_config
     _seed_suggestions(template_vault, [_suggestion_record(suggestion_id="bad-action")])
 
@@ -567,7 +573,62 @@ def test_bad_action_is_a_typed_error(vault_config: Path, template_vault: Path) -
         )
     )
 
-    assert_error_shape(err)
+    assert_error_shape(err, code="INVALID_ARGUMENT")
+    assert "action" in err["fix"].lower()
+
+
+def test_bad_status_filter_on_suggestions_read_is_invalid_argument(
+    vault_config: Path, template_vault: Path
+) -> None:
+    del vault_config
+
+    err = error_of(call_tool("suggestions_read", {"topic": TOPIC, "status": "nonsense"}))
+
+    assert_error_shape(err, code="INVALID_ARGUMENT")
+
+
+def test_limit_out_of_bounds_on_suggestions_read_is_invalid_argument(
+    vault_config: Path, template_vault: Path
+) -> None:
+    del vault_config
+
+    err = error_of(call_tool("suggestions_read", {"topic": TOPIC, "limit": 51}))
+
+    assert_error_shape(err, code="INVALID_ARGUMENT")
+
+
+def test_malformed_cursor_on_suggestions_read_still_returns_invalid_cursor(
+    vault_config: Path, template_vault: Path
+) -> None:
+    """The argument-validation split narrows INVALID_CURSOR's meaning -- it must
+    not vanish: a genuinely malformed pagination token on the very same tool is
+    still a cursor problem, not an argument problem."""
+    del vault_config
+
+    err = error_of(
+        call_tool("suggestions_read", {"topic": TOPIC, "cursor": "not-a-real-cursor-token"})
+    )
+
+    assert_error_shape(err, code="INVALID_CURSOR")
+
+
+def test_gap_report_rejects_too_many_reference_pages_as_invalid_argument(
+    vault_config: Path, template_vault: Path
+) -> None:
+    del vault_config
+
+    err = error_of(
+        call_tool(
+            "gap_report",
+            {
+                "topic": TOPIC,
+                "question": "Why does ReAct outperform Reflexion here?",
+                "reference_pages": [f"page-{i}" for i in range(21)],
+            },
+        )
+    )
+
+    assert_error_shape(err, code="INVALID_ARGUMENT")
 
 
 # ---------------------------------------------------------------------------
