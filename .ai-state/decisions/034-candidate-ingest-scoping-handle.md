@@ -1,7 +1,7 @@
 ---
-id: dec-draft-9a95faae
+id: dec-034
 title: Candidate-ingest scoping via an opaque handle threaded through the write tools (open/submit session pair)
-status: proposed
+status: accepted
 category: architectural
 date: 2026-07-19
 summary: A client-driven source ingest lands on a loop/c/* candidate context via TWO new thin tools (source_ingest_open → returns an opaque `candidate` handle + resume state; source_ingest_submit → seals + hands to the gate) plus an additive optional `candidate` argument on store_source/write_page; the handle is round-tripped by the model exactly as dec-002's next_cursor is, keeping the surface stateless, thin (dec-003), and mechanism-agnostic about how writes are routed off the default branch.

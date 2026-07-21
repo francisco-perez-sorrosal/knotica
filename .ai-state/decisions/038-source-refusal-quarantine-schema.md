@@ -1,7 +1,7 @@
 ---
-id: dec-draft-97c5122a
+id: dec-038
 title: Source-gate outcome — quarantine (loop/x/*) with a bounded per-question diff, one additive gate_outcome field, auto-mark_ingested on merge, and a git-derived contamination-guarded dataset upgrade
-status: proposed
+status: accepted
 category: architectural
 date: 2026-07-19
 summary: A refused source candidate is renamed (not deleted) to a quarantine branch loop/x/<topic>/source-<id8> carrying a bounded top-N per-question dilution diff (from the dec-023 v2 manifest retrieval-trace deltas); the suggestion records one additive nullable gate_outcome field (merge → status advances to ingested via auto mark_ingested + gate_outcome{merged,loop/r ptr}; refuse → status stays approved + gate_outcome{refused,loop/x ptr,reason}, gate-terminal, ingest-queue consumers filter status==approved AND gate_outcome is null); on merge the trainset grows only for the git-derived newly-merged pages via a page-subset filter on bootstrap_trainset/golden.bootstrap; held-out golden candidates are client-synthesized from the source text BEFORE ingest, kept disjoint from qa.jsonl, and frozen only through the existing human-gated read-merge-freeze.
@@ -23,15 +23,15 @@ dissent: A single gate_outcome field leaves a refused source at status=approved,
 
 ## Context
 
-Once the U1 ingest (dec-draft-0a5dd23b) publishes a `loop/c/<topic>/source-<id8>` candidate and
-the gate classifies it source (dec-draft-3b1145b5), P4 must wire the two outcomes and the
+Once the U1 ingest (dec-037) publishes a `loop/c/<topic>/source-<id8>` candidate and
+the gate classifies it source (dec-036), P4 must wire the two outcomes and the
 post-merge dataset evolution — the halves SYNTHESIS §Layer 5 names.
 
 Today `_keep` merges and deletes the candidate; `_discard` **deletes** a failed candidate,
 losing all explanation. dec-030 froze `SuggestionRecord` v1 (five-state lifecycle
 `pending/approved/rejected/deferred/ingested`; `ingested_at`; `mark_ingested` an explicit
 `approved→ingested` action) and its Addendum sanctioned the gate automating `mark_ingested` and
-adding an **additive** branch-reference field. The interface-designer shadow (dec-draft-64b4196f)
+adding an **additive** branch-reference field. The interface-designer shadow (dec-035)
 independently proposed surfacing the gate outcome through a single additive nullable
 `gate_outcome` field and quarantining under a `loop/x/…` namespace with a bounded,
 pointer-not-payload diff. `bootstrap_trainset` and `golden.bootstrap` both iterate **ALL**
@@ -51,7 +51,7 @@ read-merge-freeze.
 the newest 5 per topic, mirroring `_prune_result_branches`.
 
 **One additive nullable `gate_outcome` field** on `SuggestionRecord` (adopting
-dec-draft-64b4196f's surface-schema shape over this plan's first sketch of a separate `refused`
+dec-035's surface-schema shape over this plan's first sketch of a separate `refused`
 status + `gate_ref`/`gate_reason`):
 - **merge** — `_keep` merges onto default; the gate auto `mark_ingested` (status
   `approved → ingested`, `ingested_at` set — dec-030 Addendum) and sets `gate_outcome =
@@ -139,6 +139,6 @@ loop's sanctioned headless LLM. Re-affirms dec-030 (additive, self-versioned) an
 Re-affirms **dec-030** (self-versioned, additive `SuggestionRecord`; the Addendum's sanction of
 gate-automated `mark_ingested` and an additive branch-reference field is exactly the evolution
 `gate_outcome` performs) and **dec-018** (human-gated whole-set golden freeze; the contamination
-guard preserves read-merge-freeze). Depends on dec-draft-3b1145b5 (which selects the quarantine
-route for source-fail) and cross-references the interface-designer's dec-draft-64b4196f (the
+guard preserves read-merge-freeze). Depends on dec-036 (which selects the quarantine
+route for source-fail) and cross-references the interface-designer's dec-035 (the
 `gate_outcome` surface shape and `loop/x/*` namespace this decision implements gate-side).

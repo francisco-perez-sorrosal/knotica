@@ -1,10 +1,10 @@
 ---
-id: dec-draft-3b1145b5
+id: dec-036
 title: candidate_kind is a branch-name convention, and a source candidate that fails the gate is quarantined, never raced through the arena
-status: proposed
+status: accepted
 category: architectural
 date: 2026-07-19
-summary: The loop distinguishes a source candidate from a prompt candidate by branch name alone (loop/c/<topic>/source-<suggestion_id[:8]>), not a persisted loop-state field or marker file — git-derived, stateless (dec-004), and the linked suggestion_id recovers for free; _process_candidate gains a thin kind-branch so a source candidate that regresses the scalar routes straight to quarantine (dec-draft-97c5122a) and is never raced through the arena, because the arena heals prompt regressions and a content-dilution regression is not prompt-fixable — racing it risks a prompt variant that masks the dilution (a reward-hacking hazard the autoresearch defenses guard against).
+summary: The loop distinguishes a source candidate from a prompt candidate by branch name alone (loop/c/<topic>/source-<suggestion_id[:8]>), not a persisted loop-state field or marker file — git-derived, stateless (dec-004), and the linked suggestion_id recovers for free; _process_candidate gains a thin kind-branch so a source candidate that regresses the scalar routes straight to quarantine (dec-038) and is never raced through the arena, because the arena heals prompt regressions and a content-dilution regression is not prompt-fixable — racing it risks a prompt variant that masks the dilution (a reward-hacking hazard the autoresearch defenses guard against).
 tags: [gapfill, phase-p4, source-gate, candidate-kind, loop, arena, stateless-server, dec-004, branch-topology]
 made_by: agent
 agent_type: systems-architect
@@ -34,7 +34,7 @@ state is `loop_state` (via `VaultTransaction`) and the git branch tips it scans.
 ## Decision
 
 **Kind is a branch-name convention, not persisted state.** A source candidate is published (by
-the U1 ingest, dec-draft-0a5dd23b) at `loop/c/<topic>/source-<id8>` where `id8 =
+the U1 ingest, dec-037) at `loop/c/<topic>/source-<id8>` where `id8 =
 suggestion_id[:8]`; any other `loop/c/*` tip (e.g. `loop/c/<sha>` from a prompt/arena flow) is
 a prompt candidate — today's behavior. Detection is a pure function of the branch name
 (`classify_candidate(branch) -> "source" | "prompt"` keyed on a named `/source-` infix
@@ -50,7 +50,7 @@ migration, no second source of truth.
 - **source candidate, pass** (scalar ≥ baseline) — `_keep` (FF/merge onto default), then auto
   `mark_ingested` the linked suggestion + set `gate_outcome` + trigger the page-subset trainset
   grower.
-- **source candidate, fail** (scalar < baseline) — **quarantine** (dec-draft-97c5122a): never
+- **source candidate, fail** (scalar < baseline) — **quarantine** (dec-038): never
   the arena.
 
 **Source-fail never races the arena.** The arena mutates the query-prompt substrate to heal a
@@ -114,5 +114,5 @@ the deferred td-008 ceiling rather than worsening it).
 
 Re-affirms **dec-004** (stateless server): candidate kind and the linked suggestion id are both
 derived from git branch names, adding no persisted cross-call state. Depends on
-dec-draft-0a5dd23b (which mints the `loop/c/<topic>/source-<id8>` name) and pairs with
-dec-draft-97c5122a (the quarantine route this decision selects for source-fail).
+dec-037 (which mints the `loop/c/<topic>/source-<id8>` name) and pairs with
+dec-038 (the quarantine route this decision selects for source-fail).

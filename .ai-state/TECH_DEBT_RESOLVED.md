@@ -1,0 +1,16 @@
+# Resolved Tech Debt
+
+<!-- Sibling of TECH_DEBT_LEDGER.md holding rows with terminal status (resolved / wontfix).
+     Rows arrive via scripts/finalize_tech_debt_ledger.py migration when status transitions
+     to a terminal value. Schema, lifecycle, and re-open semantics are defined canonically
+     in skills/software-planning/references/tech-debt-ledger.md. Do not duplicate
+     the schema here — the skill reference is the single source of truth. -->
+
+**Schema**: 14 row fields + 1 structural `dedup_key`. See [`skills/software-planning/references/tech-debt-ledger.md`](../skills/software-planning/references/tech-debt-ledger.md) § Schema for field definitions.
+
+**Rows arrive here automatically** when status transitions to `resolved` or `wontfix`. The pair forms one logical namespace with `TECH_DEBT_LEDGER.md`: `id` and `dedup_key` are unique across both files. Cross-file `dedup_key` matches trigger re-open (the historical resolved row moves back to LEDGER).
+
+| id | severity | class | direction | location | goal-ref-type | goal-ref-value | source | first-seen | last-seen | owner-role | status | resolved-by | notes | dedup_key |
+|----|----------|-------|-----------|----------|---------------|----------------|--------|------------|-----------|-----------|--------|-------------|-------|-----------|
+| td-007 | suggested | coverage-gap | code-to-goals | src/knotica/evals/llm.py:337-352, 384-419 | code-quality |  | verifier | 2026-07-18 | 2026-07-18 | implementer | resolved |  | `complete()` has no in-process retry loop: a 429/529/5xx is flagged `retryable=True` on the envelope but re-raised immediately — metered mode relies on the SDK's own backoff, OAuth mode on manual re-run. Surfaced by gapfill-substrate verifier as a follow-up. RESOLVED 2026-07-18 at pipeline close-out: both SDK client constructions now pass `max_retries=_SDK_MAX_RETRIES` (5; SDK default was 2) so transient 429/5xx/connection errors retry in-process with the SDK's backoff honoring retry-after; regression test `test_sdk_client_carries_the_raised_in_process_retry_budget` covers both auth modes. A hand-rolled jitter loop was rejected as duplicating SDK behavior | llm-429-no-inprocess-retry |
+| td-010 | suggested | drift | goals-to-code | .ai-work/gapfill-queue/SYSTEMS_PLAN.md:426-429 (§P4 Consumer Contract #4), .ai-state/decisions/drafts/20260719-1210-...-suggestion-record-committed-queue.md (body §Decision/Consequences) | adr | dec-030 | verifier | 2026-07-19 | 2026-07-19 | systems-architect | resolved |  | P3→P4 hand-forward drift: both the SYSTEMS_PLAN §P4 Consumer Contract and the ADR body reserve an `ingest_ref` field and mark the `ingested` transition P4-only, but as-built ships `ingested_at` (no `ingest_ref`) and implements `mark_ingested` as a live P3 action (per INTERFACE_DESIGN §D1/§D2). The ADR amendment reconciled 3 of 4 §D2 deltas (five states, decided_reason, no proposer_version) but missed this one. SYSTEMS_PLAN is ephemeral; the ADR finalizes to dec-NNN and will mislead P4 (look for a non-existent `ingest_ref`, re-implement an existing mark_ingested). Fix = one-line ADR amendment addendum: field is `ingested_at`, `mark_ingested` enum slot lands in P3, calling ownership is the P4 coordination note | p3-p4-handforward-ingest-ref-drift |

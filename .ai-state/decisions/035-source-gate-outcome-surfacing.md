@@ -1,7 +1,7 @@
 ---
-id: dec-draft-64b4196f
+id: dec-035
 title: Source-gate outcome surfacing — additive gate_outcome field, quarantine ref, bounded per-question diff, auto-mark_ingested
-status: proposed
+status: accepted
 category: architectural
 date: 2026-07-19
 summary: A source-candidate gate verdict is surfaced by ONE additive nullable `gate_outcome` block on SuggestionRecord v1 (dec-030 Addendum sanction) carrying {verdict, scalar, baseline_scalar, refused_ref, regressed_questions[top-N]}; on merge the loop auto-flips approved→ingested (reusing the existing mark_ingested state-machine; the manual review action stays); on refuse the candidate branch is retained under a quarantine namespace (loop/x/…) rather than deleted, with the full per-question diff as a pointer, not an inline payload (dec-002 pointer discipline).

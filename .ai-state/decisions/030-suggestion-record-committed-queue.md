@@ -17,6 +17,8 @@ affected_files:
 affected_reqs: [REQ-03, REQ-04, REQ-05, REQ-06]
 re_affirms: dec-025
 dissent: A committed suggestions.jsonl grows unbounded and commits machine-proposed pending rows before any human sees them; an uncommitted staging file would keep pending noise out of git history and honor the golden.py precedent the brief cites — at the cost of the dashboard MCP server (a separate process) being unable to read a queue that was never committed.
+re_affirmed_by:
+  - dec-038
 ---
 
 ## Context

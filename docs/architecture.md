@@ -200,8 +200,8 @@ server-managed git **worktree keyed by suggestion_id** (default working tree unt
 and auto-`mark_ingested`s the driving suggestion (page-subset trainset upgrade over the git-derived
 newly-merged pages); on regression it is **quarantined** (`loop/x/*`, never raced through the arena — the
 arena heals prompt regressions, not content dilution) and the suggestion records an additive `gate_outcome`.
-See ADRs `dec-draft-0a5dd23b` (ingest-onto-branch), `dec-draft-3b1145b5` (candidate_kind + arena
-exclusion), `dec-draft-97c5122a` (quarantine + `gate_outcome` + contamination-guarded dataset upgrade)
+See ADRs `dec-037` (ingest-onto-branch), `dec-036` (candidate_kind + arena
+exclusion), `dec-038` (quarantine + `gate_outcome` + contamination-guarded dataset upgrade)
 — finalize to `dec-NNN` at merge.
 
 #### Source-candidate detection and dispatch (P4)

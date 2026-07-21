@@ -1,7 +1,7 @@
 ---
-id: dec-draft-0a5dd23b
+id: dec-037
 title: Client-driven source ingest lands on a loop/c/* candidate branch via a server-managed git worktree keyed by suggestion_id
-status: proposed
+status: accepted
 category: architectural
 date: 2026-07-19
 summary: The interactive, client-as-brain, multi-commit ingest of an approved gap-fill source lands on an isolated candidate branch through a server-managed git worktree keyed by suggestion_id (resolved per call from an explicit id / opaque handle — no server session state), building on a private loop/wip/* branch that source_ingest_submit publishes atomically to loop/c/<topic>/source-<id8>; the default working tree and default-branch ref are never touched during ingest, statelessness (dec-004) and one-commit-per-mutation (dec-008) both hold, and the branch is natively gate-eligible with no push/fetch.
@@ -36,7 +36,7 @@ other stateless MCP session depend on.
 Hard invariants in tension: statelessness — no session state between calls, git + config are
 the only state (dec-004); one commit per mutating op (dec-008); observe-safety — candidate
 writes must not re-trigger `observe_default`; and the gate must never process a half-built
-candidate. The interface-designer shadow (dec-draft-9a95faae) independently required **per-call
+candidate. The interface-designer shadow (dec-034) independently required **per-call
 scoping** — rejecting any session-long flock or persistent switched checkout as de-facto
 session state that would starve the watcher for the minutes-to-turns a long ingest takes. This
 is a **one-way-door**: the branch-landing mechanism is the load-bearing contract every P4
@@ -46,7 +46,7 @@ behavior sits on.
 
 Land the ingest on the candidate branch through a **server-managed git worktree keyed by
 `suggestion_id`**, resolved **per call** from an explicit id (surfaced to the client as the
-opaque `candidate` handle of dec-draft-9a95faae):
+opaque `candidate` handle of dec-034):
 
 1. `source_ingest_open(suggestion_id)` (refuses a non-approved suggestion with a typed
    `SUGGESTION_NOT_APPROVED`) creates a worktree at a deterministic server-managed path
@@ -138,5 +138,5 @@ same discipline dec-004 applies to topic/vault resolution, extended to ingest-br
 Depends on **dec-008** (one commit per mutation, preserved: each ingest write is its own
 transaction) and **dec-014** (server-side LLM boundary, untouched: the ingest path is
 deterministic; the client's LLM does all cognitive work). Cross-references the
-interface-designer's **dec-draft-9a95faae** (the opaque `candidate` handle + open/submit tools
+interface-designer's **dec-034** (the opaque `candidate` handle + open/submit tools
 this mechanism sits behind).
