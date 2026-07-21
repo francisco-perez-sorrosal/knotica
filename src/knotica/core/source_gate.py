@@ -50,6 +50,7 @@ from knotica.core.branch_namespaces import (
     classify_candidate,
     suggestion_id_from_branch,
 )
+from knotica.core.best_effort import best_effort
 from knotica.core.errors import ErrorCode, KnoticaError
 from knotica.core.loop import LoopCycleResult
 from knotica.core.loop_state import LoopDecision, LoopStage, write_loop_state
@@ -247,7 +248,21 @@ def _grow_trainset_from_merge(
     ]
     if not changed_pages:
         return
-    try:
+
+    def _log_grow_failure(exc: BaseException) -> None:
+        # A missing credential (KnoticaError) is an expected, quiet skip; any
+        # other failure is unexpected and logged with its traceback. Both are
+        # swallowed -- the merge this runs after has already committed.
+        if isinstance(exc, KnoticaError):
+            _LOGGER.info("skipping post-merge trainset grower for %s: %s", topic, exc)
+        else:
+            _LOGGER.warning(
+                "post-merge trainset grower failed for %s (best-effort, merge unaffected)",
+                topic,
+                exc_info=True,
+            )
+
+    with best_effort(on_error=_log_grow_failure):
         from knotica.evals.config import WORKER_SNAPSHOT
         from knotica.evals.llm import AnthropicClient
         from knotica.evals.train_bootstrap import bootstrap_trainset
@@ -259,14 +274,6 @@ def _grow_trainset_from_merge(
             AnthropicClient(),
             WORKER_SNAPSHOT,
             pages=changed_pages,
-        )
-    except KnoticaError as error:
-        _LOGGER.info("skipping post-merge trainset grower for %s: %s", topic, error)
-    except Exception:  # noqa: BLE001 -- the grower is best-effort; never fails an already-merged candidate
-        _LOGGER.warning(
-            "post-merge trainset grower failed for %s (best-effort, merge unaffected)",
-            topic,
-            exc_info=True,
         )
 
 
@@ -432,25 +439,26 @@ def _commit_quarantine_diff(
         # live tree on a non-default branch we were not the one to switch to.
         return
     try:
-        runner._vcs.checkout_branch(quarantine)
-        body = (
-            json.dumps(
-                {
-                    "topic": topic,
-                    "candidate": f"{_SOURCE_INFIX}{id8}",
-                    "regressed_questions": list(regressed),
-                },
-                ensure_ascii=False,
-                indent=2,
+        # The artifact write is best-effort; the checkout RESTORE in the
+        # ``finally`` is deliberately outside it and stays un-swallowed.
+        with best_effort():
+            runner._vcs.checkout_branch(quarantine)
+            body = (
+                json.dumps(
+                    {
+                        "topic": topic,
+                        "candidate": f"{_SOURCE_INFIX}{id8}",
+                        "regressed_questions": list(regressed),
+                    },
+                    ensure_ascii=False,
+                    indent=2,
+                )
+                + "\n"
             )
-            + "\n"
-        )
-        with VaultTransaction(
-            runner._store, runner._root, _QUARANTINE_OP, topic, f"quarantine diff {id8}"
-        ) as txn:
-            txn.write(_quarantine_diff_path(topic, id8), body)
-    except Exception:  # noqa: BLE001 -- the artifact is best-effort; never fail the refusal
-        pass
+            with VaultTransaction(
+                runner._store, runner._root, _QUARANTINE_OP, topic, f"quarantine diff {id8}"
+            ) as txn:
+                txn.write(_quarantine_diff_path(topic, id8), body)
     finally:
         # Un-swallowed by design: a failure to return to the default branch must
         # surface, not be masked into a wrong-branch gate-outcome commit.
@@ -486,7 +494,7 @@ def _prune_quarantine_branches(
 ) -> None:
     """Drop quarantine branches beyond the newest ``keep`` for ``topic`` (best-effort)."""
     prefix = f"{QUARANTINE_BRANCH_PREFIX}{topic}/"
-    try:
+    with best_effort():
         tips = [
             (runner._vcs.commit_timestamp(sha), name)
             for name, sha in runner._vcs.list_branch_tips(prefix)
@@ -494,8 +502,6 @@ def _prune_quarantine_branches(
         tips.sort(reverse=True)
         for _timestamp, name in tips[keep:]:
             runner._safe_delete_branch(name)
-    except Exception:  # noqa: BLE001 -- housekeeping must never break the gate
-        pass
 
 
 def _record_refusal_state(

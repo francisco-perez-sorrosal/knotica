@@ -27,6 +27,7 @@ from knotica.core.arena import (
     load_base_query_body,
     race_variants,
 )
+from knotica.core.best_effort import best_effort
 from knotica.core.loop_state import (
     LoopDecision,
     LoopStage,
@@ -505,18 +506,21 @@ class LoopRunner:
         to the live vault so the next observe (bookkeeping-only diff under
         ``.knotica/gaps/``) and the out-of-process P3 reader both see them.
         """
-        try:
-            classified = self._classify_and_persist_gaps(outcome, scalar, baseline)
-            if classified is None:
-                return None
-            classification, records = classified
-        except Exception as exc:  # noqa: BLE001 — isolate any classifier failure from the heal
+
+        def _record_classification_failure(exc: BaseException) -> None:
             write_loop_state(
                 self._store,
                 self._root,
                 state.model_copy(update={"last_error": f"gap classification skipped: {exc}"}),
                 title="gap classification failed; falling through to arena heal",
             )
+
+        with best_effort(on_error=_record_classification_failure) as attempt:
+            classified = self._classify_and_persist_gaps(outcome, scalar, baseline)
+            if classified is None:
+                return None
+            classification, records = classified
+        if attempt.failed:
             return None
 
         if classification.route != "REDIRECT":
@@ -615,7 +619,7 @@ class LoopRunner:
             return
         from knotica.core import gapfill
 
-        try:
+        with best_effort():
             service = gapfill.build_default_discovery_service()
             gapfill.refresh_suggestions_for_gaps(
                 self._store,
@@ -624,8 +628,6 @@ class LoopRunner:
                 service=service,
                 max_gaps=self._gapfill_max_gaps,
             )
-        except Exception:  # noqa: BLE001 — discovery is best-effort; never block the heal
-            return
 
     def _heal_prompts_after_regression(
         self, state: LoopState, default: str, head: str, scalar: float
@@ -1022,7 +1024,7 @@ class LoopRunner:
         interrupted run and is deliberately left for recovery). Best-effort:
         pruning failures never fail the observation that triggered them.
         """
-        try:
+        with best_effort():
             merged = [
                 (self._vcs.commit_timestamp(sha), branch)
                 for branch, sha in self._vcs.list_branch_tips(RESULT_BRANCH_PREFIX)
@@ -1031,8 +1033,6 @@ class LoopRunner:
             merged.sort(reverse=True)
             for _, branch in merged[keep:]:
                 self._safe_delete_branch(branch)
-        except Exception:  # noqa: BLE001 — housekeeping must never break the loop
-            pass
 
 
 def wrap_harness_result(result: object) -> EvalOutcome:
