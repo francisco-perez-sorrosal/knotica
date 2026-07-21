@@ -21,6 +21,7 @@ from typing import Protocol
 from knotica.core import branch_namespaces
 from knotica.core.arena import (
     ArenaStage,
+    ArenaState,
     ScoreFn,
     VariantSpec,
     generate_variant_bodies,
@@ -629,18 +630,26 @@ class LoopRunner:
                 max_gaps=self._gapfill_max_gaps,
             )
 
-    def _heal_prompts_after_regression(
-        self, state: LoopState, default: str, head: str, scalar: float
+    def _run_arena_and_resolve(
+        self,
+        candidate_branch: str | None,
+        baseline: float,
+        on_win: Callable[[ArenaState], LoopCycleResult],
+        on_lose: Callable[[ArenaState], LoopCycleResult],
     ) -> LoopCycleResult:
-        """Race prompt variants after a default-branch regression (content stays)."""
+        """Generate prompt variants, race them, and dispatch on the winner outcome.
+
+        Shared by the post-observation-regression heal and the post-gate-fail
+        candidate heal: both build variants identically, race with the same
+        ``promote_on_win`` contract, and compute the winner the same way. They
+        differ only in ``candidate_branch`` (``None`` for a regression heal, the
+        wound branch for a gate-fail heal) and in what the win/lose branches do
+        afterward — expressed by the two callbacks, each of which owns its own
+        state write, branch cleanup, and result construction. The caller writes
+        the ``racing`` state before calling this helper (the pre-set state args
+        that genuinely diverge between the two sites).
+        """
         assert self._arena_score is not None
-        baseline = float(state.baseline_scalar or 0.0)
-        state = write_loop_state(
-            self._store,
-            self._root,
-            state.model_copy(update={"stage": LoopStage.racing}),
-            title="arena racing after observation regression",
-        )
         variants = self._arena_variants or generate_variant_bodies(
             load_base_query_body(self._store, self._topic),
             n=self._arena_n,
@@ -652,39 +661,61 @@ class LoopRunner:
             variants,
             baseline_scalar=baseline,
             score=self._arena_score,
-            candidate_branch=None,
+            candidate_branch=candidate_branch,
             promote_on_win=True,
         )
         won = arena.stage == ArenaStage.completed and arena.winner_id is not None
-        # The winner's promotion commit moved HEAD; absorb it into the cursor.
-        merged_head = self._vcs.head_sha()
-        write_loop_state(
+        return on_win(arena) if won else on_lose(arena)
+
+    def _heal_prompts_after_regression(
+        self, state: LoopState, default: str, head: str, scalar: float
+    ) -> LoopCycleResult:
+        """Race prompt variants after a default-branch regression (content stays)."""
+        baseline = float(state.baseline_scalar or 0.0)
+        state = write_loop_state(
             self._store,
             self._root,
-            state.model_copy(
-                update={
-                    "stage": LoopStage.passed if won else LoopStage.failed,
-                    "last_decision": LoopDecision.pass_ if won else LoopDecision.fail,
-                    "last_error": None if won else arena.message,
-                }
-            ).mark_processed(default, merged_head),
-            title=(
-                f"arena healed regression via {arena.winner_id}"
-                if won
-                else "arena no-winner after regression"
-            ),
+            state.model_copy(update={"stage": LoopStage.racing}),
+            title="arena racing after observation regression",
         )
-        return LoopCycleResult(
-            acted=True,
-            branch=default,
-            sha=head,
-            decision=LoopDecision.pass_ if won else LoopDecision.fail,
-            scalar=float(arena.winner_scalar or scalar) if won else scalar,
-            message=(
-                f"regression healed: arena winner {arena.winner_id}"
-                if won
-                else f"regression persists: {arena.message}"
-            ),
+
+        def _resolve(arena: ArenaState, *, won: bool) -> LoopCycleResult:
+            # The winner's promotion commit moved HEAD; absorb it into the cursor.
+            merged_head = self._vcs.head_sha()
+            write_loop_state(
+                self._store,
+                self._root,
+                state.model_copy(
+                    update={
+                        "stage": LoopStage.passed if won else LoopStage.failed,
+                        "last_decision": LoopDecision.pass_ if won else LoopDecision.fail,
+                        "last_error": None if won else arena.message,
+                    }
+                ).mark_processed(default, merged_head),
+                title=(
+                    f"arena healed regression via {arena.winner_id}"
+                    if won
+                    else "arena no-winner after regression"
+                ),
+            )
+            return LoopCycleResult(
+                acted=True,
+                branch=default,
+                sha=head,
+                decision=LoopDecision.pass_ if won else LoopDecision.fail,
+                scalar=float(arena.winner_scalar or scalar) if won else scalar,
+                message=(
+                    f"regression healed: arena winner {arena.winner_id}"
+                    if won
+                    else f"regression persists: {arena.message}"
+                ),
+            )
+
+        return self._run_arena_and_resolve(
+            candidate_branch=None,
+            baseline=baseline,
+            on_win=lambda arena: _resolve(arena, won=True),
+            on_lose=lambda arena: _resolve(arena, won=False),
         )
 
     def set_baseline_policy(self, policy: str) -> LoopState:
@@ -927,7 +958,6 @@ class LoopRunner:
         self, state: LoopState, branch: str, sha: str, outcome: EvalOutcome
     ) -> LoopCycleResult:
         """On gate fail: race prompt variants; promote winner or revert candidate."""
-        assert self._arena_score is not None
         baseline = float(state.baseline_scalar or 0.0)
         state = write_loop_state(
             self._store,
@@ -942,27 +972,15 @@ class LoopRunner:
             ),
             title=f"arena racing after {branch}",
         )
-        variants = self._arena_variants or generate_variant_bodies(
-            load_base_query_body(self._store, self._topic),
-            n=self._arena_n,
-        )
-        arena = race_variants(
-            self._store,
-            self._root,
-            self._topic,
-            variants,
-            baseline_scalar=baseline,
-            score=self._arena_score,
-            candidate_branch=branch,
-            promote_on_win=True,
-        )
-        default = self._vcs.default_branch()
-        if self._vcs.current_branch() == branch:
-            self._vcs.checkout_branch(default)
-        self._safe_delete_branch(branch)
 
-        won = arena.stage == ArenaStage.completed and arena.winner_id is not None
-        if won:
+        def _drop_candidate() -> None:
+            default = self._vcs.default_branch()
+            if self._vcs.current_branch() == branch:
+                self._vcs.checkout_branch(default)
+            self._safe_delete_branch(branch)
+
+        def _on_win(arena: ArenaState) -> LoopCycleResult:
+            _drop_candidate()
             write_loop_state(
                 self._store,
                 self._root,
@@ -987,27 +1005,36 @@ class LoopRunner:
                 message=f"arena winner {arena.winner_id}; deleted wound {branch}",
             )
 
-        write_loop_state(
-            self._store,
-            self._root,
-            state.model_copy(
-                update={
-                    "stage": LoopStage.failed,
-                    "last_decision": LoopDecision.fail,
-                    "candidate_branch": None,
-                    "candidate_sha": None,
-                    "last_error": arena.message,
-                }
-            ).mark_processed(branch, sha),
-            title=f"arena no-winner; reverted {branch}",
-        )
-        return LoopCycleResult(
-            acted=True,
-            branch=branch,
-            sha=sha,
-            decision=LoopDecision.fail,
-            scalar=float(outcome.scalar),
-            message=f"arena no winner; deleted {branch}",
+        def _on_lose(arena: ArenaState) -> LoopCycleResult:
+            _drop_candidate()
+            write_loop_state(
+                self._store,
+                self._root,
+                state.model_copy(
+                    update={
+                        "stage": LoopStage.failed,
+                        "last_decision": LoopDecision.fail,
+                        "candidate_branch": None,
+                        "candidate_sha": None,
+                        "last_error": arena.message,
+                    }
+                ).mark_processed(branch, sha),
+                title=f"arena no-winner; reverted {branch}",
+            )
+            return LoopCycleResult(
+                acted=True,
+                branch=branch,
+                sha=sha,
+                decision=LoopDecision.fail,
+                scalar=float(outcome.scalar),
+                message=f"arena no winner; deleted {branch}",
+            )
+
+        return self._run_arena_and_resolve(
+            candidate_branch=branch,
+            baseline=baseline,
+            on_win=_on_win,
+            on_lose=_on_lose,
         )
 
     def _safe_delete_branch(self, branch: str) -> None:
