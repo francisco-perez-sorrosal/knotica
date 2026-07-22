@@ -5,10 +5,13 @@
      .ai-state/DESIGN.md; the converged design lives in docs/PRE_PLAN.md.
      Created by systems-architect; updated by implementer; verified by doc-engineer at checkpoints. -->
 
-> **Status: MVP + Phase-2 `evals/` + Phase-3a `programs/`/compile/loop Built (2026-07-18).** The `store/`,
+> **Status: MVP + Phase-2 `evals/` + Phase-3a `programs/`/compile/loop + P-A consolidation + P-B tool-surface dispatcher (Built as of 2026-07-21).** The `store/`,
 > `search/`, `core/`, `mcp_server/`, `cli/`, `evals/`, and `programs/` packages plus the autonomous
 > `knotica loop` watcher, the cold-start dataset bootstrap, the plugin layer, and the dashboard MCP App
-> are on disk. Outer-loop `agent/` (SIA / Phase 3b) remains Planned. For design rationale, read
+> are on disk. **P-A loop-internals (branch namespaces, best_effort, arena-race, runner factory)** and
+> **P-B tool-surface two-tier dispatcher** (7 operator dispatchers + 18-core + 4-straggler conversational tools;
+> additive-alias migration window active) are Built. **P-C transparency/routing** (skill + slimmed instructions)
+> partially Built. Outer-loop `agent/` (SIA / Phase 3b) and **P-D service lifecycle** remain Planned. For design rationale, read
 > [`.ai-state/DESIGN.md`](../.ai-state/DESIGN.md); for the full design, [`docs/PRE_PLAN.md`](./PRE_PLAN.md).
 > End-user Desktop install: [`docs/CLAUDE_DESKTOP.md`](./CLAUDE_DESKTOP.md) (headless `query`/compile/eval
 > credentials: [Headless LLM credentials](./CLAUDE_DESKTOP.md#headless-llm-credentials-query--compile--eval)).
@@ -27,18 +30,18 @@ Knotica is an AI-maintained markdown wiki in an Obsidian vault. The **Claude cli
 the server exposes deterministic tools and holds no session state. Every vault mutation flows through a
 single `VaultTransaction` (flock + atomic write + log append + secret-scrub + one git commit).
 
-> **PLANNED — Consolidation direction (not yet Built).** A consolidation pass
-> (`.ai-work/loop-consolidation/SYSTEMS_PLAN.md`, draft ADRs `dec-draft-1785275a` /
-> `c5032c8e` / `3fc197ba` / `64a38a63`) reshapes surfaces and internals **without changing
-> gap-fill semantics**: the ~49-tool flat MCP surface collapses toward ~29 (thin
-> conversational core + 7 operator dispatchers); conversational routing lets the client
-> enter wiki operations from natural language (client-side detection + a `wiki_status(view=
-> scope)` scope-check + a SessionStart topic seed); the loop's internals consolidate
-> (single branch-namespace, shared best-effort/arena-race/runner-factory primitives); and
-> the `knotica loop --watch` watcher becomes an **automatically supervised service** (no
-> manual start — supersedes the MVP no-daemon stance). The dashboard remains a full
-> dual-mode peer (MCP App + standalone HTTP). This block is a forward pointer; the sections
-> below describe the current Built state.
+> **P-A/P-B Built — Loop-internals consolidation + tool-surface two-tier (2026-07-21).** 
+> Phase-A extracted four shared primitives from the loop's seams (`branch_namespaces.py`, `best_effort.py`, 
+> `_run_arena_and_resolve`, `build_loop_runner` factory) — behavior-preserving refactor, characterization-test-gated.
+> Phase-B collapses the 49-tool flat MCP surface into a two-tier architecture: **7 operator dispatchers** 
+> (loop, branches, compile, datasets, arena, golden, vault_health) route domain-specific actions; **18 core 
+> conversational tools** (read/write/query/status/ingest) form the base; 4 stragglers and `open_dashboard` 
+> complete the surface. Total: **56 tools during additive-alias migration** (26 deprecated aliases map to 
+> dispatchers for one release cycle), **projected 30 post-alias-removal** (18 core + 4 stragglers + `open_dashboard` + 7 dispatchers).
+> New `INVALID_ARGUMENT` error code for argument validation (distinct from cursor errors); 
+> `wiki_status(view="scope")` provides the cheapest scope-check for client-side routing.
+> **P-C partially Built** — skill + slimmed `server.py` `_INSTRUCTIONS` (no enumerated protocol steps, stable invariants only).
+> Planned: **P-D** (loop service lifecycle + attention model).
 
 ## 2. System Context
 
@@ -80,6 +83,57 @@ Navigation:
 - Autonomous loop → `src/knotica/core/loop.py` (spine), `loop_state.py`, `loop_heartbeat.py`,
   `loop_progress.py`; CLI entry `src/knotica/cli/loop.py`.
 - Plugin layer → repo root (`.claude-plugin/`, `.mcp.json`, `commands/`, `hooks/`, `skills/wiki-maintenance/`).
+
+## 3b. MCP Tool Surface — Two-Tier Dispatcher Architecture (P-B, Built)
+
+**Surface Reduction:** P-B consolidates the 49-tool flat surface into a two-tier dispatcher architecture:
+
+| Tier | Surface | Tool Count |
+|---|---|---|
+| **Conversational core** | 18 direct tools: read/write/query/status/ingest/suggestions/guide; high semantic density | 18 |
+| **Operator dispatchers** (P-B) | 7 domain-specific dispatchers routing actions; single entry point per domain | 7 |
+| **Stragglers** | 4 tools not yet dispatched + `open_dashboard` | 5 |
+| **Aliases** (migration window) | 26 deprecated tool names map to dispatchers for one release cycle | 26 |
+| | **Total during migration** | 56 |
+| | **Projected post-alias-removal** | 30 |
+
+**The Seven Dispatcher Tools (P-B):**
+
+| Dispatcher | Actions | Wraps |
+|---|---|---|
+| `loop(action=...)` | `run_once` \| `set_baseline` \| `baseline_policy` \| `rebaseline` | loop observation/gating/baseline management |
+| `branches(action=...)` | `scoreboard` \| `promote_loop` \| `promote` \| `delete` | branch-based candidate/result management |
+| `compile(action=...)` | `run` \| `status` \| `promote` | DSPy compile workflow |
+| `datasets(action=...)` | `inventory` \| `records` \| `bootstrap` \| `bootstrap_train` \| `freeze` | trainset bootstrap/freeze/audit |
+| `arena(action=...)` | `status` \| `history` | prompt-variant racing |
+| `golden(action=...)` | `load` \| `save` | golden-set review |
+| `vault_health(action=...)` | `doctor` \| `repair` \| `okf_check` \| `okf_repair` \| `lint` \| `metadata_tree` | vault integrity/indexing |
+
+Each dispatcher validates its `action` enum and returns `INVALID_ARGUMENT` (new in P-B; see § Error Grammar below) for unrecognized values. Mutating actions accept optional `mode=dry-run|apply` (dry-run performs validation only; apply persists changes). All dispatchers are called with identical syntax: `dispatcher_name(action="action_name", ...)` — the action becomes the primary routing axis.
+
+**Core 18 Conversational Tools:**
+
+`read_page`, `search`, `list_links`, `backlinks` (read); `write_page`, `write_wikilink`, `create_topic`, `curate_example` (write); `store_source`, `read_source`, `mark_ingested`, `list_source_cache` (source management); `query` (headless compile runner); `wiki_status` (new `view="scope"` parameter in P-B for cheap routing checks); `gap_report` (client-as-brain gap reporting); `suggestions_read`, `suggestions_review` (approval queue); `source_ingest_open`, `source_ingest_submit` (P4 ingest); `read_protocol` (protocol pointer).
+
+**Migration Window (additive aliases):**
+
+For one release cycle, the 26 replaced thin tools (e.g., `loop_run_once`, `compile_status`, `golden_review_load`) remain registered with a deprecation note in their description. Clients may continue calling them; under the hood they map to the corresponding dispatcher action via `dispatch_telemetry.DEPRECATED_ALIASES`. This allows gradual migration without breaking existing client code or automations. Alias-based calls are logged (see Telemetry below) for observability.
+
+**New `wiki_status(view="scope")`:**
+
+A new parameter-value pair enables cheap routing-scope checks without eval or compile snapshots. Returns `{schema_version, vault_name, topics[], totals}` — deterministic, stateless, vault-path-read only. Used by the client-side routing layer (P-C) to decide whether a detected wiki-relevant conversation should route to a dispatcher or stay in natural chat.
+
+**Error Grammar — `INVALID_ARGUMENT`:**
+
+A new error code (distinct from `INVALID_CURSOR`) signals argument validation failures — bad `mode`/`status`/`limit`/`action`/`reference_pages`/etc. — with argument-specific fix text. All dispatchers and mutating tools validate their inputs before execution and return this error envelope (not a raw exception) for unrecognized action values, missing required args, or out-of-range enums. Non-argument errors (e.g., vault corruption, network failure) use existing error codes.
+
+**Dispatch Telemetry:**
+
+Every dispatcher invocation logs a structured line `{tool, action, topic}` for observability: `dispatch_telemetry.DEPRECATED_ALIASES` is the single source of truth for the 26 alias mappings. Logs support measurement of per-domain selection ambiguity (whether one dispatcher should revert to flat tools post-migration). Telemetry is deterministic and tied to invocation, not evaluation.
+
+**Dependency Boundary (P-B):**
+
+The seven dispatcher modules (`tools_dispatch_*.py`) import only their wrapped thin-tool modules (e.g., `tools_dispatch_loop` imports `tools_vault`) and `core.errors`. No dispatcher imports another dispatcher; `dispatch_telemetry` is an import-cycle-free leaf. The 26 aliases remain in their original thin-tool modules with a one-line deprecation note appended to their `description` field.
 
 **Built (Phase P2, gap-fill discovery):** `src/knotica/discovery/` provides a pluggable
 source-discovery layer — a `SearchProvider` protocol with an `httpx`-REST adapter (`YouComProvider` with bearer auth; Exa was cut by user directive but the protocol stays pluggable for future adapters), a separate

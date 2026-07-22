@@ -53,7 +53,7 @@ Rendered diagram pending: `docs/diagrams/architecture/rendered/components.svg`.
 | `src/knotica/search/` | `SearchBackend` protocol + `RipgrepBackend` — read-only full-text search | store paths | Built |
 | `src/knotica/core/` | Vault semantics: `config`, `schema` (root+overlay), `page`/`links`, `lint`, `vcs` (subprocess git), `lock` (fcntl.flock), `scrub`, `records`, `template` (read-only packaged-template locator, shared by `cli.init` + `operations.migrate`), **`transaction.VaultTransaction`**, `operations.*` (four ops config-agnostic: `(store, vault_root, *semantic_args)` — no `core.config` import) | store, search | Built |
 | `src/knotica/cli/` | `knotica` entry point: `init`, `mcp`, `doctor`, `status`, `migrate`, `prompt`, `guillotine`, `okf`, `eval`, `compile`, `datasets`, `loop` — thin, self-registering registry; mutations delegate to `core.operations`; never writes the vault directly. `eval` (Phase 2) resolves config and delegates to `evals.harness.run_eval` / `evals.golden.bootstrap`. `datasets` wraps `bootstrap-train` (→ `evals.train_bootstrap.bootstrap_trainset`) and `freeze`. `loop` (Phase 3a) wraps `core.loop.LoopRunner` for `--watch`/`--once`/`--set-baseline`, plus the heartbeat thread — none of these mutate the vault itself | core | Built |
-| `src/knotica/mcp_server/` | `FastMCP` server: tools, resources (schemas + index), prompts (static name / lazy body) — thin; stateless. *Named `mcp_server` (not `mcp`) to avoid shadowing the `mcp` SDK; per-concern modules `server`/`envelope`/`tools_read`/`tools_write`/`resources`/`prompts`/`tools_datasets`/`tools_golden`/`app_ui` (dec-009)* | core | Built |
+| `src/knotica/mcp_server/` | `FastMCP` server: tools (18 core conversational + 7 operator dispatchers + 4 stragglers + `open_dashboard` during P-B migration), resources (schemas + index), prompts (static name / lazy body) — thin; stateless. *Named `mcp_server` (not `mcp`) to avoid shadowing the `mcp` SDK; per-concern modules `server`/`envelope`/`tools_read`/`tools_write`/`resources`/`prompts`/`tools_datasets`/`tools_golden`/`app_ui` (dec-009)* **P-B tool-surface (Built):** 7 operator dispatchers (`tools_dispatch_*.py` modules) collapse 26 thin tools into a two-tier architecture (action-routing per domain); `INVALID_ARGUMENT` error code for argument validation; `wiki_status` new `view="scope"` parameter for cheap routing checks; `dispatch_telemetry` logs per invocation for post-migration ambiguity measurement; 26 deprecated aliases in original modules with one-release-cycle migration window | core | Built |
 | `src/knotica/programs/` | Phase 3a DSPy query compile: MIPROv2 with a bootstrap fallback (records `optimizer`/`fallback_reason` on the artifact when it falls back; offline compile refuses to fabricate a score without LLM credentials) → JSON compiled artifact + `CompiledRunner`, selected by `query_engine` behind the single MCP `query` tool | core | Built |
 | `src/knotica/agent/` | Headless outer-loop runners (SIA schema/structure evolution) — Phase 3b | core | Planned |
 | `src/knotica/evals/` | **Frozen-corpus evaluator (Phase 2):** hand-rolled `score(gold, pred, trace=None)` metric seam **run by `dspy.Evaluate`** over the golden devset (user override 2026-07-15; runner only — no optimizers/`dspy.LM`), via a `BaselineProgram(dspy.Module)` wrapping `BaselineRunner` (direct Messages API driving the clone's `query.md`). LLM-as-judge (pinned Opus, N-median, cached), deterministic citation integrity, hinged budget-relative cost-penalty scalar, golden-set bootstrap/freeze. Writes `metrics.jsonl` via `core.transaction` **on a clone** (never the live vault). `anthropic` + `dspy` isolated in the `evals` dep group (off the MCP launch path); LLM auth via env-only `ANTHROPIC_API_KEY`. *As-built modules: `llm` (LLMClient DI seam), `runner` (baseline query runner), `citations`+`scalar` (deterministic scoring), `cache`+`judge` (cached N-median LLM-as-judge; `ResponseCache` holds one compute lock per cache key so concurrent workers racing the same judge call block rather than double-compute), `scorer` (the `score` seam), `program` (BaselineProgram), `golden` (devset load/verify + bootstrap/freeze; public `entity_pages` seam), `config` (packaged defaults + `harness_version` fingerprint; `NUM_THREADS=4` default / `MAX_NUM_THREADS=8` cap for `dspy.Evaluate`'s per-question parallelism — `num_threads` deliberately excluded from the fingerprint, parallelism changes wall-time not the measurement), `harness` (`run_eval`, with `on_example`/`on_substage` progress callbacks feeding `core.loop_progress`; lock-guarded usage accounting under concurrent workers), `train_bootstrap` (Phase 3a: `bootstrap_trainset` — LLM-synthesized cold-start `qa.jsonl` records grounded in a topic's own entity pages, `source: seed_train`, one `VaultTransaction` commit, refuses golden collisions); `cli/eval.py` is the `knotica eval` entry, `cli/datasets.py` the `bootstrap-train`/`freeze` entry.* | core, `core.vcs.clone_to`, `evals` dep group (`anthropic`, `dspy`) | Built |
@@ -67,6 +67,49 @@ Rendered diagram pending: `docs/diagrams/architecture/rendered/components.svg`.
 **Dependency rule (fitness-checkable):** arrows point inward toward `store/`. `mcp_server/` and `cli/` may import
 `core/` but must **not** import git bindings/subprocess-git or call `store.write_*` directly — the *only*
 writer of the vault is `core.transaction`. An import-boundary test enforces this.
+
+<!-- aac:authored owner=doc-engineer -->
+
+## 3c. P-B Tool-Surface Dispatcher Architecture (Built)
+
+**P-B consolidates the 49-tool flat MCP surface into a two-tier dispatcher-based architecture without changing operational semantics.** All 26 replaced tools remain callable via additive aliases for one release cycle; the dispatcher modules are import-cycle-free and tied to `dispatch_telemetry` for observability.
+
+**Dispatcher Modules (7 new):**
+
+1. `tools_dispatch_loop.py` — routes `action ∈ {run_once, set_baseline, baseline_policy, rebaseline}` to `tools_vault.py` loop-payload helpers
+2. `tools_dispatch_branches.py` — routes `action ∈ {scoreboard, promote_loop, promote, delete}` to `tools_scoreboard.py`
+3. `tools_dispatch_compile.py` — routes `action ∈ {run, status, promote}` to `tools_compile.py`
+4. `tools_dispatch_datasets.py` — routes `action ∈ {inventory, records, bootstrap, bootstrap_train, freeze}` to `tools_datasets.py`
+5. `tools_dispatch_arena.py` — routes `action ∈ {status, history}` to `tools_arena.py`
+6. `tools_dispatch_golden.py` — routes `action ∈ {load, save}` to `tools_golden.py`
+7. `tools_dispatch_vault_health.py` — routes `action ∈ {doctor, repair, okf_check, okf_repair, lint, metadata_tree}` to `tools_vault.py` health-payload helpers
+
+Each dispatcher validates its `action` enum and returns `INVALID_ARGUMENT` for unrecognized values. Mutating actions accept optional `mode=dry-run|apply`. Every dispatcher is registered into `build_server()` alongside (not instead of) the thin tools, enabling the one-release-cycle alias migration.
+
+**Migration Telemetry:**
+
+`dispatch_telemetry.DEPRECATED_ALIASES` is the single source of truth for the 26 alias mappings. Each dispatcher invocation logs `{tool, action, topic}` to `dispatch_telemetry` for post-migration measurement of per-domain selection ambiguity (enabling a future decision to revert one dispatcher back to flat tools without touching the others).
+
+**New Error Code — `INVALID_ARGUMENT`:**
+
+Distinct from `INVALID_CURSOR` (cursor format errors), `INVALID_ARGUMENT` signals argument-validation failures: unrecognized `action` enum values, missing required arguments, out-of-range scalars, etc. All dispatchers and mutating tools validate inputs before execution and return this envelope (not a raw exception) on failure.
+
+**New `wiki_status(view="scope")`:**
+
+A new parameter-value pair enables cheap routing-scope checks without eval or compile snapshots. Returns `{schema_version, vault_name, topics[], totals}` — deterministic, vault-path-read only. Used by P-C client-side routing to decide whether a detected wiki-relevant conversation should route to a dispatcher or stay in natural chat.
+
+**Migration Window:**
+
+For one release cycle, 26 deprecated tools remain registered with a deprecation note in their `description` field. The original thin-tool modules (`tools_scoreboard.py`, `tools_compile.py`, etc.) continue to export their tools; the dispatchers are additive. Clients calling via the old tool names are logged and work unchanged; new code should call via dispatchers.
+
+**P-B Rationale & Decisions (dec-draft-19d50c6b, dec-draft-ac2898b1):**
+
+- **Action routing:** consolidates domain-related actions into a single entry point per domain, reducing surface cognitive load and enabling structured input validation at the action enum level
+- **Additive aliases:** one-release-cycle migration window preserves backward compatibility; no forced client update
+- **Telemetry:** logs enable measurement of whether the consolidation succeeded (low mis-selection rate) or whether one domain should revert to flat tools
+- **Immutable semantics:** no operation behavior changes; every dispatcher action is 1:1 with a replaced tool
+
+<!-- aac:end -->
 
 ## 4. Interfaces
 
