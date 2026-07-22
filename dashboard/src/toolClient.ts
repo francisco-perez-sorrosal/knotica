@@ -184,19 +184,19 @@ abstract class BaseToolClient implements ToolClient {
   }
 
   arenaStatus(topic: string, vault = ""): Promise<ArenaStatus> {
-    return this.call("arena_status", { topic, vault });
+    return this.call("arena", { action: "status", topic, vault });
   }
 
   arenaHistory(topic: string, vault = "", limit = 20): Promise<ArenaHistory> {
-    return this.call("arena_history", { topic, vault, limit });
+    return this.call("arena", { action: "history", topic, vault, limit });
   }
 
   compileStatus(topic: string, vault = ""): Promise<CompileStatus> {
-    return this.call("compile_status", { topic, vault });
+    return this.call("compile", { action: "status", topic, vault });
   }
 
   compileRun(topic: string, vault = "", useMipro = true): Promise<CompileRunResult> {
-    return this.call("compile_run", { topic, vault, use_mipro: useMipro });
+    return this.call("compile", { action: "run", topic, vault, use_mipro: useMipro });
   }
 
   compilePromote(
@@ -205,11 +205,11 @@ abstract class BaseToolClient implements ToolClient {
     mode: "dry-run" | "apply",
     vault = "",
   ): Promise<CompilePromoteResult> {
-    return this.call("compile_promote", { topic, branch, mode, vault });
+    return this.call("compile", { action: "promote", topic, branch, mode, vault });
   }
 
   goldenReviewLoad(topic: string, vault = ""): Promise<GoldenReview> {
-    return this.call("golden_review_load", { topic, vault });
+    return this.call("golden", { action: "load", topic, vault });
   }
 
   goldenReviewSave(
@@ -217,7 +217,8 @@ abstract class BaseToolClient implements ToolClient {
     accepted: GoldenCandidate[],
     vault = "",
   ): Promise<GoldenSaveResult> {
-    return this.call("golden_review_save", {
+    return this.call("golden", {
+      action: "save",
       topic,
       vault,
       accepted_json: JSON.stringify(accepted),
@@ -225,7 +226,7 @@ abstract class BaseToolClient implements ToolClient {
   }
 
   datasetsInventory(topic: string, vault = ""): Promise<DatasetsInventory> {
-    return this.call("datasets_inventory", { topic, vault });
+    return this.call("datasets", { action: "inventory", topic, vault });
   }
 
   datasetsRecords(
@@ -234,11 +235,11 @@ abstract class BaseToolClient implements ToolClient {
     vault = "",
     limit = 200,
   ): Promise<DatasetRecords> {
-    return this.call("datasets_records", { topic, role, vault, limit });
+    return this.call("datasets", { action: "records", topic, role, vault, limit });
   }
 
   datasetsBootstrap(topic: string, vault = ""): Promise<DatasetsBootstrapResult> {
-    return this.call("datasets_bootstrap", { topic, vault });
+    return this.call("datasets", { action: "bootstrap", topic, vault });
   }
 
   datasetsBootstrapTrain(
@@ -246,11 +247,11 @@ abstract class BaseToolClient implements ToolClient {
     target = 30,
     vault = "",
   ): Promise<DatasetsBootstrapTrainResult> {
-    return this.call("datasets_bootstrap_train", { topic, target, vault });
+    return this.call("datasets", { action: "bootstrap_train", topic, target, vault });
   }
 
   datasetsFreeze(topic: string, vault = ""): Promise<DatasetsFreezeResult> {
-    return this.call("datasets_freeze", { topic, vault });
+    return this.call("datasets", { action: "freeze", topic, vault });
   }
 
   ingestActivityRead(topic: string, vault = "", runId = ""): Promise<IngestActivity> {
@@ -263,7 +264,7 @@ abstract class BaseToolClient implements ToolClient {
   }
 
   doctorRun(vault = "", quick = false, fix = false): Promise<DoctorReport> {
-    return this.call("doctor_run", { vault, quick, fix });
+    return this.call("vault_health", { action: "doctor", vault, quick, fix });
   }
 
   doctorRepair(
@@ -273,7 +274,8 @@ abstract class BaseToolClient implements ToolClient {
     allTracked = false,
     deleteUntracked = false,
   ): Promise<DoctorRepairResult> {
-    return this.call("doctor_repair", {
+    return this.call("vault_health", {
+      action: "repair",
       mode,
       vault,
       paths_json: JSON.stringify(paths),
@@ -283,27 +285,27 @@ abstract class BaseToolClient implements ToolClient {
   }
 
   vaultLint(topic = "", vault = ""): Promise<VaultLintResult> {
-    return this.call("vault_lint", { topic, vault });
+    return this.call("vault_health", { action: "lint", topic, vault });
   }
 
   vaultMetadataTree(vault = "", topic = ""): Promise<VaultMetadataTree> {
-    return this.call("vault_metadata_tree", { vault, topic });
+    return this.call("vault_health", { action: "metadata_tree", vault, topic });
   }
 
   okfCheck(vault = "", strict = false): Promise<OkfCheckResult> {
-    return this.call("okf_check", { vault, strict });
+    return this.call("vault_health", { action: "okf_check", vault, strict });
   }
 
   okfRepair(mode: "dry-run" | "apply", vault = "", force = false): Promise<OkfRepairResult> {
-    return this.call("okf_repair", { mode, vault, force });
+    return this.call("vault_health", { action: "okf_repair", mode, vault, force });
   }
 
   loopRunOnce(topic: string, vault = ""): Promise<LoopOnceResult> {
-    return this.call("loop_run_once", { topic, vault });
+    return this.call("loop", { action: "run_once", topic, vault });
   }
 
   loopSetBaseline(topic: string, scalar: number, vault = ""): Promise<LoopSetBaselineResult> {
-    return this.call("loop_set_baseline", { topic, scalar, vault });
+    return this.call("loop", { action: "set_baseline", topic, scalar, vault });
   }
 
   loopBaselinePolicy(
@@ -311,7 +313,7 @@ abstract class BaseToolClient implements ToolClient {
     policy: "latest" | "best",
     vault = "",
   ): Promise<LoopBaselinePolicyResult> {
-    return this.call("loop_baseline_policy", { topic, policy, vault });
+    return this.call("loop", { action: "baseline_policy", topic, policy, vault });
   }
 
   loopRebaseline(
@@ -319,7 +321,7 @@ abstract class BaseToolClient implements ToolClient {
     mode: "best" | "latest" = "best",
     vault = "",
   ): Promise<LoopRebaselineResult> {
-    return this.call("loop_rebaseline", { topic, mode, vault });
+    return this.call("loop", { action: "rebaseline", topic, mode, vault });
   }
 
   baselineProbe(topic: string, vault = ""): Promise<BaselineProbeResult> {
@@ -327,7 +329,7 @@ abstract class BaseToolClient implements ToolClient {
   }
 
   branchScoreboard(topic: string, vault = ""): Promise<BranchScoreboard> {
-    return this.call("branch_scoreboard", { topic, vault });
+    return this.call("branches", { action: "scoreboard", topic, vault });
   }
 
   branchPromote(
@@ -337,7 +339,7 @@ abstract class BaseToolClient implements ToolClient {
     mode: "dry-run" | "apply",
     vault = "",
   ): Promise<CompilePromoteResult> {
-    return this.call("branch_promote", { kind, topic, branch, mode, vault });
+    return this.call("branches", { action: "promote", kind, topic, branch, mode, vault });
   }
 
   branchDelete(
@@ -346,7 +348,7 @@ abstract class BaseToolClient implements ToolClient {
     mode: "dry-run" | "apply",
     vault = "",
   ): Promise<BranchDeleteResult> {
-    return this.call("branch_delete", { topic, branch, mode, vault });
+    return this.call("branches", { action: "delete", topic, branch, mode, vault });
   }
 
   promptDiff(
