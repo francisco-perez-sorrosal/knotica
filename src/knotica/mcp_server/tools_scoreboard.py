@@ -14,6 +14,7 @@ from knotica.core.compile_promote import compile_promote
 from knotica.core.errors import ErrorCode, KnoticaError
 from knotica.core.loop_promote import loop_promote
 from knotica.mcp_server import envelope
+from knotica.mcp_server.dispatch_telemetry import deprecation_suffix, record_deprecated_alias
 from knotica.mcp_server.vault_ctx import with_resolved_vault
 from knotica.store import VaultStore
 
@@ -50,8 +51,12 @@ ToolResult = CallToolResult
 def register_scoreboard_tools(mcp: FastMCP) -> None:
     """Register branch scoreboard and promote tools."""
 
-    @mcp.tool(name="branch_scoreboard", description=_SCOREBOARD_DESCRIPTION)
+    @mcp.tool(
+        name="branch_scoreboard",
+        description=_SCOREBOARD_DESCRIPTION + deprecation_suffix("branch_scoreboard"),
+    )
     def branch_scoreboard(topic: str, vault: str = "") -> ToolResult:
+        record_deprecated_alias("branch_scoreboard")
         return with_resolved_vault(
             vault,
             lambda store, resolved: envelope.read_ok(
@@ -59,13 +64,17 @@ def register_scoreboard_tools(mcp: FastMCP) -> None:
             ),
         )
 
-    @mcp.tool(name="loop_promote", description=_LOOP_PROMOTE_DESCRIPTION)
+    @mcp.tool(
+        name="loop_promote",
+        description=_LOOP_PROMOTE_DESCRIPTION + deprecation_suffix("loop_promote"),
+    )
     def loop_promote_tool(
         topic: str,
         branch: str,
         mode: str = "dry-run",
         vault: str = "",
     ) -> ToolResult:
+        record_deprecated_alias("loop_promote")
         return with_resolved_vault(
             vault,
             lambda store, resolved: _promote_payload(
@@ -78,7 +87,10 @@ def register_scoreboard_tools(mcp: FastMCP) -> None:
             ),
         )
 
-    @mcp.tool(name="branch_promote", description=_BRANCH_PROMOTE_DESCRIPTION)
+    @mcp.tool(
+        name="branch_promote",
+        description=_BRANCH_PROMOTE_DESCRIPTION + deprecation_suffix("branch_promote"),
+    )
     def branch_promote_tool(
         kind: str,
         topic: str,
@@ -86,6 +98,7 @@ def register_scoreboard_tools(mcp: FastMCP) -> None:
         mode: str = "dry-run",
         vault: str = "",
     ) -> ToolResult:
+        record_deprecated_alias("branch_promote")
         cleaned_kind = kind.strip().lower()
         if cleaned_kind not in {"compile", "loop"}:
             raise KnoticaError(
@@ -106,13 +119,17 @@ def register_scoreboard_tools(mcp: FastMCP) -> None:
             ),
         )
 
-    @mcp.tool(name="branch_delete", description=_BRANCH_DELETE_DESCRIPTION)
+    @mcp.tool(
+        name="branch_delete",
+        description=_BRANCH_DELETE_DESCRIPTION + deprecation_suffix("branch_delete"),
+    )
     def branch_delete_tool(
         topic: str,
         branch: str,
         mode: str = "dry-run",
         vault: str = "",
     ) -> ToolResult:
+        record_deprecated_alias("branch_delete")
         return with_resolved_vault(
             vault,
             lambda store, resolved: _delete_payload(

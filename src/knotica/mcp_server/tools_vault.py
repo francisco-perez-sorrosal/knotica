@@ -23,6 +23,7 @@ from knotica.core.loop import LoopRunner, build_loop_runner, harness_evaluate
 from knotica.core.operations.doctor_repair import doctor_repair
 from knotica.core.page import TopicNotFoundError
 from knotica.mcp_server import envelope
+from knotica.mcp_server.dispatch_telemetry import deprecation_suffix, record_deprecated_alias
 from knotica.mcp_server.vault_ctx import with_resolved_vault
 from knotica.okf.check import check_vault
 from knotica.okf.repair import RepairOptions, repair_vault
@@ -114,14 +115,21 @@ _METADATA_TREE_DESCRIPTION = (
 def register_vault_tools(mcp: FastMCP) -> None:
     """Register vault health / remediation tools on ``mcp``."""
 
-    @mcp.tool(name="doctor_run", description=_DOCTOR_DESCRIPTION)
+    @mcp.tool(
+        name="doctor_run",
+        description=_DOCTOR_DESCRIPTION + deprecation_suffix("doctor_run"),
+    )
     def doctor_run(quick: bool = False, fix: bool = False, vault: str = "") -> ToolResult:
+        record_deprecated_alias("doctor_run")
         return with_resolved_vault(
             vault,
             lambda store, resolved: _doctor_payload(store, resolved, quick=quick, include_fix=fix),
         )
 
-    @mcp.tool(name="doctor_repair", description=_DOCTOR_REPAIR_DESCRIPTION)
+    @mcp.tool(
+        name="doctor_repair",
+        description=_DOCTOR_REPAIR_DESCRIPTION + deprecation_suffix("doctor_repair"),
+    )
     def doctor_repair_tool(
         mode: str = "dry-run",
         paths_json: str = "[]",
@@ -129,6 +137,7 @@ def register_vault_tools(mcp: FastMCP) -> None:
         delete_untracked: bool = False,
         vault: str = "",
     ) -> ToolResult:
+        record_deprecated_alias("doctor_repair")
         return with_resolved_vault(
             vault,
             lambda store, resolved: _doctor_repair_payload(
@@ -141,52 +150,80 @@ def register_vault_tools(mcp: FastMCP) -> None:
             ),
         )
 
-    @mcp.tool(name="okf_check", description=_OKF_CHECK_DESCRIPTION)
+    @mcp.tool(
+        name="okf_check",
+        description=_OKF_CHECK_DESCRIPTION + deprecation_suffix("okf_check"),
+    )
     def okf_check(strict: bool = False, vault: str = "") -> ToolResult:
+        record_deprecated_alias("okf_check")
         return with_resolved_vault(
             vault,
             lambda store, _resolved: _okf_check_payload(store, strict=strict),
         )
 
-    @mcp.tool(name="okf_repair", description=_OKF_REPAIR_DESCRIPTION)
+    @mcp.tool(
+        name="okf_repair",
+        description=_OKF_REPAIR_DESCRIPTION + deprecation_suffix("okf_repair"),
+    )
     def okf_repair(mode: str = "dry-run", force: bool = False, vault: str = "") -> ToolResult:
+        record_deprecated_alias("okf_repair")
         return with_resolved_vault(
             vault,
             lambda store, _resolved: _okf_repair_payload(store, mode=mode, force=force),
         )
 
-    @mcp.tool(name="loop_run_once", description=_LOOP_ONCE_DESCRIPTION)
+    @mcp.tool(
+        name="loop_run_once",
+        description=_LOOP_ONCE_DESCRIPTION + deprecation_suffix("loop_run_once"),
+    )
     def loop_run_once(topic: str, vault: str = "") -> ToolResult:
+        record_deprecated_alias("loop_run_once")
         return with_resolved_vault(
             vault,
             lambda store, resolved: _loop_once_payload(store, resolved.path, topic),
         )
 
-    @mcp.tool(name="loop_set_baseline", description=_LOOP_SET_BASELINE_DESCRIPTION)
+    @mcp.tool(
+        name="loop_set_baseline",
+        description=_LOOP_SET_BASELINE_DESCRIPTION + deprecation_suffix("loop_set_baseline"),
+    )
     def loop_set_baseline(topic: str, scalar: float, vault: str = "") -> ToolResult:
+        record_deprecated_alias("loop_set_baseline")
         return with_resolved_vault(
             vault,
             lambda store, resolved: _loop_set_baseline_payload(store, resolved.path, topic, scalar),
         )
 
-    @mcp.tool(name="loop_baseline_policy", description=_LOOP_POLICY_DESCRIPTION)
+    @mcp.tool(
+        name="loop_baseline_policy",
+        description=_LOOP_POLICY_DESCRIPTION + deprecation_suffix("loop_baseline_policy"),
+    )
     def loop_baseline_policy(topic: str, policy: str, vault: str = "") -> ToolResult:
+        record_deprecated_alias("loop_baseline_policy")
         return with_resolved_vault(
             vault,
             lambda store, resolved: _loop_policy_payload(store, resolved.path, topic, policy),
         )
 
-    @mcp.tool(name="loop_rebaseline", description=_LOOP_REBASELINE_DESCRIPTION)
+    @mcp.tool(
+        name="loop_rebaseline",
+        description=_LOOP_REBASELINE_DESCRIPTION + deprecation_suffix("loop_rebaseline"),
+    )
     def loop_rebaseline(topic: str, mode: str = "best", vault: str = "") -> ToolResult:
+        record_deprecated_alias("loop_rebaseline")
         return with_resolved_vault(
             vault,
             lambda store, resolved: _loop_rebaseline_payload(store, resolved.path, topic, mode),
         )
 
-    @mcp.tool(name="vault_lint", description=_LINT_DESCRIPTION)
+    @mcp.tool(
+        name="vault_lint",
+        description=_LINT_DESCRIPTION + deprecation_suffix("vault_lint"),
+    )
     def vault_lint(topic: str = "", vault: str = "") -> ToolResult:
         from knotica.core.lint import lint_vault
 
+        record_deprecated_alias("vault_lint")
         return with_resolved_vault(
             vault,
             lambda store, _resolved: envelope.read_ok(
@@ -197,8 +234,12 @@ def register_vault_tools(mcp: FastMCP) -> None:
             ),
         )
 
-    @mcp.tool(name="vault_metadata_tree", description=_METADATA_TREE_DESCRIPTION)
+    @mcp.tool(
+        name="vault_metadata_tree",
+        description=_METADATA_TREE_DESCRIPTION + deprecation_suffix("vault_metadata_tree"),
+    )
     def vault_metadata_tree(topic: str = "", vault: str = "") -> ToolResult:
+        record_deprecated_alias("vault_metadata_tree")
         return with_resolved_vault(
             vault,
             lambda store, resolved: envelope.read_ok(

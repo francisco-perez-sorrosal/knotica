@@ -25,6 +25,7 @@ from knotica.core.datasets_inventory import (
 )
 from knotica.core.errors import ErrorCode, KnoticaError
 from knotica.mcp_server import envelope
+from knotica.mcp_server.dispatch_telemetry import record_dispatch, record_rejected_action
 from knotica.mcp_server.tools_datasets import (
     _EXCEPTIONS,
     _bootstrap_payload,
@@ -38,6 +39,7 @@ __all__ = ["register_dispatch_datasets_tools"]
 
 ToolResult = CallToolResult
 
+_DISPATCHER = "datasets"
 _ACTIONS = ("inventory", "records", "bootstrap", "bootstrap_train", "freeze")
 
 _DATASETS_DISPATCH_DESCRIPTION = (
@@ -92,6 +94,7 @@ def _dispatch_payload(
     target: int,
 ) -> dict[str, Any]:
     cleaned_action = _validate_action(action)
+    record_dispatch(_DISPATCHER, cleaned_action, topic)
     if cleaned_action == "inventory":
         return gather_datasets_inventory(store, topic)
     if cleaned_action == "records":
@@ -117,6 +120,7 @@ def _require_role(role: str) -> str:
 def _validate_action(action: str) -> str:
     cleaned = action.strip().lower()
     if cleaned not in _ACTIONS:
+        record_rejected_action(_DISPATCHER, action, _ACTIONS)
         raise KnoticaError(
             ErrorCode.INVALID_ARGUMENT,
             f"datasets action must be one of {'|'.join(_ACTIONS)}, got {action!r}",

@@ -14,6 +14,7 @@ from knotica.core.arena import (
 )
 from knotica.core.page import TopicNotFoundError
 from knotica.mcp_server import envelope
+from knotica.mcp_server.dispatch_telemetry import deprecation_suffix, record_deprecated_alias
 from knotica.mcp_server.vault_ctx import with_resolved_vault
 from knotica.store import VaultStore
 
@@ -35,15 +36,23 @@ _HISTORY_DESCRIPTION = (
 def register_arena_tools(mcp: FastMCP) -> None:
     """Register arena_status and arena_history on ``mcp``."""
 
-    @mcp.tool(name="arena_status", description=_STATUS_DESCRIPTION)
+    @mcp.tool(
+        name="arena_status",
+        description=_STATUS_DESCRIPTION + deprecation_suffix("arena_status"),
+    )
     def arena_status(topic: str, vault: str = "") -> ToolResult:
+        record_deprecated_alias("arena_status")
         return with_resolved_vault(
             vault,
             lambda store, _resolved: _status_payload(store, topic),
         )
 
-    @mcp.tool(name="arena_history", description=_HISTORY_DESCRIPTION)
+    @mcp.tool(
+        name="arena_history",
+        description=_HISTORY_DESCRIPTION + deprecation_suffix("arena_history"),
+    )
     def arena_history(topic: str, limit: int = 20, vault: str = "") -> ToolResult:
+        record_deprecated_alias("arena_history")
         return with_resolved_vault(
             vault,
             lambda store, _resolved: _history_payload(store, topic, limit=limit),

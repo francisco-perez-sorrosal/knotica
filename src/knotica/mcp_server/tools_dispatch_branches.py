@@ -21,6 +21,7 @@ from knotica.core.compile_promote import compile_promote
 from knotica.core.errors import ErrorCode, KnoticaError
 from knotica.core.loop_promote import loop_promote
 from knotica.mcp_server import envelope
+from knotica.mcp_server.dispatch_telemetry import record_dispatch, record_rejected_action
 from knotica.mcp_server.tools_scoreboard import _delete_payload, _promote_payload
 from knotica.mcp_server.vault_ctx import with_resolved_vault
 from knotica.store import VaultStore
@@ -29,6 +30,7 @@ __all__ = ["register_dispatch_branches_tools"]
 
 ToolResult = CallToolResult
 
+_DISPATCHER = "branches"
 _ACTIONS = ("scoreboard", "promote_loop", "promote", "delete")
 _PROMOTE_KINDS = ("compile", "loop")
 
@@ -83,6 +85,7 @@ def _dispatch_payload(
     mode: str,
 ) -> dict[str, Any]:
     cleaned_action = _validate_action(action)
+    record_dispatch(_DISPATCHER, cleaned_action, topic)
     if cleaned_action == "scoreboard":
         return envelope.read_ok(gather_branch_scoreboard(store, vault_path, topic))
     if cleaned_action == "promote_loop":
@@ -98,6 +101,7 @@ def _dispatch_payload(
 def _validate_action(action: str) -> str:
     cleaned = action.strip().lower()
     if cleaned not in _ACTIONS:
+        record_rejected_action(_DISPATCHER, action, _ACTIONS)
         raise KnoticaError(
             ErrorCode.INVALID_ARGUMENT,
             f"branches action must be one of {'|'.join(_ACTIONS)}, got {action!r}",

@@ -13,6 +13,7 @@ from knotica.core.compile_run import compile_status_payload, run_compile
 from knotica.core.config import ResolvedVault
 from knotica.core.errors import ErrorCode, KnoticaError
 from knotica.mcp_server import envelope
+from knotica.mcp_server.dispatch_telemetry import deprecation_suffix, record_deprecated_alias
 from knotica.mcp_server.vault_ctx import with_resolved_vault
 from knotica.store import VaultStore
 
@@ -43,27 +44,39 @@ _PROMOTE_DESCRIPTION = (
 def register_compile_tools(mcp: FastMCP) -> None:
     """Register compile_run, compile_status, and compile_promote on ``mcp``."""
 
-    @mcp.tool(name="compile_run", description=_RUN_DESCRIPTION)
+    @mcp.tool(
+        name="compile_run",
+        description=_RUN_DESCRIPTION + deprecation_suffix("compile_run"),
+    )
     def compile_run(topic: str, vault: str = "", use_mipro: bool = True) -> ToolResult:
+        record_deprecated_alias("compile_run")
         return with_resolved_vault(
             vault,
             lambda store, resolved: _run_payload(store, resolved, topic, use_mipro=use_mipro),
         )
 
-    @mcp.tool(name="compile_status", description=_STATUS_DESCRIPTION)
+    @mcp.tool(
+        name="compile_status",
+        description=_STATUS_DESCRIPTION + deprecation_suffix("compile_status"),
+    )
     def compile_status(topic: str, vault: str = "") -> ToolResult:
+        record_deprecated_alias("compile_status")
         return with_resolved_vault(
             vault,
             lambda store, _resolved: envelope.read_ok(compile_status_payload(store, topic)),
         )
 
-    @mcp.tool(name="compile_promote", description=_PROMOTE_DESCRIPTION)
+    @mcp.tool(
+        name="compile_promote",
+        description=_PROMOTE_DESCRIPTION + deprecation_suffix("compile_promote"),
+    )
     def compile_promote_tool(
         topic: str,
         branch: str,
         mode: str = "dry-run",
         vault: str = "",
     ) -> ToolResult:
+        record_deprecated_alias("compile_promote")
         return with_resolved_vault(
             vault,
             lambda store, resolved: _promote_payload(store, resolved.path, topic, branch, mode),

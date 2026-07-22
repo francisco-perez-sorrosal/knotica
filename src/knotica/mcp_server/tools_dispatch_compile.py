@@ -19,6 +19,7 @@ from knotica.core.compile_run import compile_status_payload
 from knotica.core.config import ResolvedVault
 from knotica.core.errors import ErrorCode, KnoticaError
 from knotica.mcp_server import envelope
+from knotica.mcp_server.dispatch_telemetry import record_dispatch, record_rejected_action
 from knotica.mcp_server.tools_compile import _promote_payload, _run_payload
 from knotica.mcp_server.vault_ctx import with_resolved_vault
 from knotica.store import VaultStore
@@ -27,6 +28,7 @@ __all__ = ["register_dispatch_compile_tools"]
 
 ToolResult = CallToolResult
 
+_DISPATCHER = "compile"
 _ACTIONS = ("run", "status", "promote")
 
 _COMPILE_DISPATCH_DESCRIPTION = (
@@ -78,6 +80,7 @@ def _dispatch_payload(
     use_mipro: bool,
 ) -> dict[str, Any]:
     cleaned_action = _validate_action(action)
+    record_dispatch(_DISPATCHER, cleaned_action, topic)
     if cleaned_action == "run":
         return _run_payload(store, resolved, topic, use_mipro=use_mipro)
     if cleaned_action == "status":
@@ -88,6 +91,7 @@ def _dispatch_payload(
 def _validate_action(action: str) -> str:
     cleaned = action.strip().lower()
     if cleaned not in _ACTIONS:
+        record_rejected_action(_DISPATCHER, action, _ACTIONS)
         raise KnoticaError(
             ErrorCode.INVALID_ARGUMENT,
             f"compile action must be one of {'|'.join(_ACTIONS)}, got {action!r}",

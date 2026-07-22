@@ -17,6 +17,7 @@ from mcp.server.fastmcp import FastMCP
 from mcp.types import CallToolResult
 
 from knotica.core.errors import ErrorCode, KnoticaError
+from knotica.mcp_server.dispatch_telemetry import record_dispatch, record_rejected_action
 from knotica.mcp_server.tools_vault import (
     _loop_once_payload,
     _loop_policy_payload,
@@ -30,6 +31,7 @@ __all__ = ["register_dispatch_loop_tools"]
 
 ToolResult = CallToolResult
 
+_DISPATCHER = "loop"
 _ACTIONS = ("run_once", "set_baseline", "baseline_policy", "rebaseline")
 
 _LOOP_DISPATCH_DESCRIPTION = (
@@ -81,6 +83,7 @@ def _dispatch_payload(
     mode: str,
 ) -> dict[str, Any]:
     cleaned_action = _validate_action(action)
+    record_dispatch(_DISPATCHER, cleaned_action, topic)
     if cleaned_action == "run_once":
         return _loop_once_payload(store, vault_path, topic)
     if cleaned_action == "set_baseline":
@@ -93,6 +96,7 @@ def _dispatch_payload(
 def _validate_action(action: str) -> str:
     cleaned = action.strip().lower()
     if cleaned not in _ACTIONS:
+        record_rejected_action(_DISPATCHER, action, _ACTIONS)
         raise KnoticaError(
             ErrorCode.INVALID_ARGUMENT,
             f"loop action must be one of {'|'.join(_ACTIONS)}, got {action!r}",

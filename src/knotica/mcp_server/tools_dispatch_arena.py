@@ -14,6 +14,7 @@ from mcp.server.fastmcp import FastMCP
 from mcp.types import CallToolResult
 
 from knotica.core.errors import ErrorCode, KnoticaError
+from knotica.mcp_server.dispatch_telemetry import record_dispatch, record_rejected_action
 from knotica.mcp_server.tools_arena import _history_payload, _status_payload
 from knotica.mcp_server.vault_ctx import with_resolved_vault
 from knotica.store import VaultStore
@@ -22,6 +23,7 @@ __all__ = ["register_dispatch_arena_tools"]
 
 ToolResult = CallToolResult
 
+_DISPATCHER = "arena"
 _ACTIONS = ("status", "history")
 
 _ARENA_DISPATCH_DESCRIPTION = (
@@ -47,6 +49,7 @@ def register_dispatch_arena_tools(mcp: FastMCP) -> None:
 
 def _dispatch_payload(store: VaultStore, action: str, topic: str, *, limit: int) -> dict[str, Any]:
     cleaned_action = _validate_action(action)
+    record_dispatch(_DISPATCHER, cleaned_action, topic)
     if cleaned_action == "status":
         return _status_payload(store, topic)
     return _history_payload(store, topic, limit=limit)
@@ -55,6 +58,7 @@ def _dispatch_payload(store: VaultStore, action: str, topic: str, *, limit: int)
 def _validate_action(action: str) -> str:
     cleaned = action.strip().lower()
     if cleaned not in _ACTIONS:
+        record_rejected_action(_DISPATCHER, action, _ACTIONS)
         raise KnoticaError(
             ErrorCode.INVALID_ARGUMENT,
             f"arena action must be one of {'|'.join(_ACTIONS)}, got {action!r}",

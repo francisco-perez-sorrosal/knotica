@@ -18,6 +18,7 @@ from knotica.core.config import ResolvedVault, resolve
 from knotica.core.errors import ErrorCode, KnoticaError
 from knotica.core.golden_review import load_golden_review, save_golden_review
 from knotica.mcp_server import envelope
+from knotica.mcp_server.dispatch_telemetry import record_dispatch, record_rejected_action
 from knotica.mcp_server.tools_golden import _EXCEPTIONS, _parse_accepted
 from knotica.mcp_server.vault_ctx import vault_arg
 from knotica.store import LocalFSStore
@@ -26,6 +27,7 @@ __all__ = ["register_dispatch_golden_tools"]
 
 ToolResult = CallToolResult
 
+_DISPATCHER = "golden"
 _ACTIONS = ("load", "save")
 
 _GOLDEN_DISPATCH_DESCRIPTION = (
@@ -67,6 +69,7 @@ def _dispatch_payload(
     store: LocalFSStore, resolved: ResolvedVault, action: str, topic: str, accepted_json: str
 ) -> dict[str, Any]:
     cleaned_action = _validate_action(action)
+    record_dispatch(_DISPATCHER, cleaned_action, topic)
     if cleaned_action == "load":
         return load_golden_review(store, resolved.path, topic, vault_name=resolved.name)
     accepted = _parse_accepted(_require_accepted_json(accepted_json))
@@ -86,6 +89,7 @@ def _require_accepted_json(accepted_json: str) -> str:
 def _validate_action(action: str) -> str:
     cleaned = action.strip().lower()
     if cleaned not in _ACTIONS:
+        record_rejected_action(_DISPATCHER, action, _ACTIONS)
         raise KnoticaError(
             ErrorCode.INVALID_ARGUMENT,
             f"golden action must be one of {'|'.join(_ACTIONS)}, got {action!r}",

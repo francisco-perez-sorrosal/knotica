@@ -17,6 +17,7 @@ from knotica.core.errors import ErrorCode, KnoticaError
 from knotica.core.golden_review import load_golden_review, save_golden_review
 from knotica.core.page import PageNotFoundError, TopicNotFoundError
 from knotica.mcp_server import envelope
+from knotica.mcp_server.dispatch_telemetry import deprecation_suffix, record_deprecated_alias
 from knotica.mcp_server.vault_ctx import vault_arg
 from knotica.store import LocalFSStore
 
@@ -44,8 +45,12 @@ _EXCEPTIONS = (KnoticaError, TopicNotFoundError, PageNotFoundError)
 def register_golden_tools(mcp: FastMCP) -> None:
     """Register golden-review tools on ``mcp``."""
 
-    @mcp.tool(name="golden_review_load", description=_LOAD_DESCRIPTION)
+    @mcp.tool(
+        name="golden_review_load",
+        description=_LOAD_DESCRIPTION + deprecation_suffix("golden_review_load"),
+    )
     def golden_review_load(topic: str, vault: str = "") -> ToolResult:
+        record_deprecated_alias("golden_review_load")
         try:
             resolved = resolve(vault=vault_arg(vault))
         except KnoticaError as error:
@@ -57,8 +62,12 @@ def register_golden_tools(mcp: FastMCP) -> None:
             return envelope.map_read_exception(exc)
         return envelope.success_result(payload)
 
-    @mcp.tool(name="golden_review_save", description=_SAVE_DESCRIPTION)
+    @mcp.tool(
+        name="golden_review_save",
+        description=_SAVE_DESCRIPTION + deprecation_suffix("golden_review_save"),
+    )
     def golden_review_save(topic: str, accepted_json: str, vault: str = "") -> ToolResult:
+        record_deprecated_alias("golden_review_save")
         try:
             resolved = resolve(vault=vault_arg(vault))
         except KnoticaError as error:

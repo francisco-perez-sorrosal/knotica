@@ -23,6 +23,7 @@ from knotica.core.page import PageNotFoundError, TopicNotFoundError
 from knotica.evals.config import WORKER_SNAPSHOT
 from knotica.evals.golden import GoldenCandidateError, GoldenSetContaminationError
 from knotica.mcp_server import envelope
+from knotica.mcp_server.dispatch_telemetry import deprecation_suffix, record_deprecated_alias
 from knotica.mcp_server.vault_ctx import vault_arg, with_resolved_vault
 from knotica.store import LocalFSStore
 
@@ -75,22 +76,34 @@ _EXCEPTIONS = (
 def register_datasets_tools(mcp: FastMCP) -> None:
     """Register dataset inventory / bootstrap / freeze tools on ``mcp``."""
 
-    @mcp.tool(name="datasets_inventory", description=_INVENTORY_DESCRIPTION)
+    @mcp.tool(
+        name="datasets_inventory",
+        description=_INVENTORY_DESCRIPTION + deprecation_suffix("datasets_inventory"),
+    )
     def datasets_inventory(topic: str, vault: str = "") -> ToolResult:
+        record_deprecated_alias("datasets_inventory")
         return with_resolved_vault(
             vault,
             lambda store, _resolved: gather_datasets_inventory(store, topic),
         )
 
-    @mcp.tool(name="datasets_records", description=_RECORDS_DESCRIPTION)
+    @mcp.tool(
+        name="datasets_records",
+        description=_RECORDS_DESCRIPTION + deprecation_suffix("datasets_records"),
+    )
     def datasets_records(topic: str, role: str, limit: int = 200, vault: str = "") -> ToolResult:
+        record_deprecated_alias("datasets_records")
         return with_resolved_vault(
             vault,
             lambda store, _resolved: load_dataset_records(store, topic, role, limit=limit),
         )
 
-    @mcp.tool(name="datasets_bootstrap", description=_BOOTSTRAP_DESCRIPTION)
+    @mcp.tool(
+        name="datasets_bootstrap",
+        description=_BOOTSTRAP_DESCRIPTION + deprecation_suffix("datasets_bootstrap"),
+    )
     def datasets_bootstrap(topic: str, vault: str = "") -> ToolResult:
+        record_deprecated_alias("datasets_bootstrap")
         try:
             resolved = resolve(vault=vault_arg(vault))
         except KnoticaError as error:
@@ -102,8 +115,12 @@ def register_datasets_tools(mcp: FastMCP) -> None:
             return _map_exception(exc)
         return envelope.success_result(payload)
 
-    @mcp.tool(name="datasets_bootstrap_train", description=_BOOTSTRAP_TRAIN_DESCRIPTION)
+    @mcp.tool(
+        name="datasets_bootstrap_train",
+        description=_BOOTSTRAP_TRAIN_DESCRIPTION + deprecation_suffix("datasets_bootstrap_train"),
+    )
     def datasets_bootstrap_train(topic: str, target: int = 30, vault: str = "") -> ToolResult:
+        record_deprecated_alias("datasets_bootstrap_train")
         try:
             resolved = resolve(vault=vault_arg(vault))
         except KnoticaError as error:
@@ -115,8 +132,12 @@ def register_datasets_tools(mcp: FastMCP) -> None:
             return _map_exception(exc)
         return envelope.success_result(payload)
 
-    @mcp.tool(name="datasets_freeze", description=_FREEZE_DESCRIPTION)
+    @mcp.tool(
+        name="datasets_freeze",
+        description=_FREEZE_DESCRIPTION + deprecation_suffix("datasets_freeze"),
+    )
     def datasets_freeze(topic: str, vault: str = "") -> ToolResult:
+        record_deprecated_alias("datasets_freeze")
         try:
             resolved = resolve(vault=vault_arg(vault))
         except KnoticaError as error:
