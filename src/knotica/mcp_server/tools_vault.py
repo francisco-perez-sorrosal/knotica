@@ -19,7 +19,7 @@ from knotica.core.config import ResolvedVault, diagnose
 from knotica.core.doctor import build_doctor_payload, run_doctor_checks
 from knotica.core.vault_metadata_tree import gather_vault_metadata_tree
 from knotica.core.errors import ErrorCode, KnoticaError
-from knotica.core.loop import LoopRunner, harness_evaluate
+from knotica.core.loop import LoopRunner, build_loop_runner, harness_evaluate
 from knotica.core.operations.doctor_repair import doctor_repair
 from knotica.core.page import TopicNotFoundError
 from knotica.mcp_server import envelope
@@ -333,13 +333,16 @@ def _loop_once_payload(store: VaultStore, vault_path: Path, topic: str) -> dict[
     cleaned = topic.strip().strip("/")
     if not cleaned or "/" in cleaned:
         raise TopicNotFoundError(topic or "(empty)")
-    runner = LoopRunner(
+    runner = build_loop_runner(
         vault_path,
         cleaned,
         evaluate=harness_evaluate,
         store=store,
         arena_enabled=True,
         arena_score=heuristic_arena_score,
+        # Pass this module's own ``LoopRunner`` binding so a test that substitutes it
+        # still intercepts construction routed through the shared factory.
+        runner_cls=LoopRunner,
     )
     # Mirror one `knotica loop` watch tick: observe the default branch first
     # (new content → eval, first observation auto-freezes the baseline), then
@@ -373,7 +376,9 @@ def _loop_set_baseline_payload(
     cleaned = topic.strip().strip("/")
     if not cleaned or "/" in cleaned:
         raise TopicNotFoundError(topic or "(empty)")
-    runner = LoopRunner(vault_path, cleaned, evaluate=harness_evaluate, store=store)
+    runner = build_loop_runner(
+        vault_path, cleaned, evaluate=harness_evaluate, store=store, runner_cls=LoopRunner
+    )
     state = runner.set_baseline(float(scalar))
     baseline = state.baseline_scalar
     assert baseline is not None
@@ -394,7 +399,9 @@ def _loop_policy_payload(
     cleaned = topic.strip().strip("/")
     if not cleaned or "/" in cleaned:
         raise TopicNotFoundError(topic or "(empty)")
-    runner = LoopRunner(vault_path, cleaned, evaluate=harness_evaluate, store=store)
+    runner = build_loop_runner(
+        vault_path, cleaned, evaluate=harness_evaluate, store=store, runner_cls=LoopRunner
+    )
     try:
         state = runner.set_baseline_policy(policy)
     except ValueError as error:
@@ -417,7 +424,9 @@ def _loop_rebaseline_payload(
     cleaned = topic.strip().strip("/")
     if not cleaned or "/" in cleaned:
         raise TopicNotFoundError(topic or "(empty)")
-    runner = LoopRunner(vault_path, cleaned, evaluate=harness_evaluate, store=store)
+    runner = build_loop_runner(
+        vault_path, cleaned, evaluate=harness_evaluate, store=store, runner_cls=LoopRunner
+    )
     try:
         state = runner.rebaseline(mode)
     except ValueError as error:
