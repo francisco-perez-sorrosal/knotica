@@ -10,8 +10,11 @@ during a merge``) in ~60-65% of barrier-synced runs.
 The contract under test:
 
 1. **No corruption under contention.** Two barrier-synced full passes on the
-   same vault both complete with no git error, no leftover ``MERGE_HEAD``, no
-   stale ``index.lock`` — across many consecutive runs.
+   same vault leave no git corruption -- no leftover ``MERGE_HEAD``, no stale
+   ``index.lock`` -- across many consecutive runs. The race loser may surface
+   the bounded-acquire ``LOCK_BUSY`` (the designed retryable outcome when the
+   winner's span outlasts the acquire bound on a loaded machine); it must then
+   succeed on a serial retry. Any other error is a failure.
 2. **Span-entry self-heal.** A crash mid-span auto-releases the flock (OS) but
    can leave a dangling ``MERGE_HEAD`` / stale ``index.lock``; the next span
    acquisition clears them and proceeds.
@@ -111,6 +114,32 @@ def _fake_evaluate(
     return _evaluate
 
 
+def _retry_if_lock_busy(
+    out: dict[str, object],
+    side: str,
+    rerun: Callable[[], object],
+) -> dict[str, object]:
+    """Accept a bounded-acquire LOCK_BUSY as a retryable outcome, nothing else.
+
+    A clean pass returns unchanged. A LOCK_BUSY pass is re-run serially (the
+    lock is free by now) and must succeed -- proving the error was the bounded
+    acquire doing its job, never a corrupted or wedged vault.
+    """
+    error = out.get("error")
+    if error is None:
+        return out
+    assert isinstance(error, KnoticaError) and error.code is ErrorCode.LOCK_BUSY, (
+        f"{side} raised a non-retryable error under contention: {error!r}"
+    )
+    retry = _run_capturing(rerun)
+    retry()
+    retried: dict[str, object] = retry.captured  # type: ignore[attr-defined]
+    assert retried.get("error") is None, (
+        f"{side} failed its serial retry after LOCK_BUSY: {retried.get('error')!r}"
+    )
+    return retried
+
+
 def _open_candidate(vault: Path, body: str) -> None:
     """Publish a ``loop/c/wound`` prompt candidate for the gate pass to process."""
     vcs = VaultVcs(vault)
@@ -174,8 +203,31 @@ def test_concurrent_watcher_and_gate_passes_never_corrupt_git(
 
     watcher_out = watcher_pass.captured  # type: ignore[attr-defined]
     gate_out = gate_pass.captured  # type: ignore[attr-defined]
-    assert watcher_out.get("error") is None, f"watcher raised: {watcher_out.get('error')!r}"
-    assert gate_out.get("error") is None, f"gate raised: {gate_out.get('error')!r}"
+    # Under contention the loser of the span race may exhaust the bounded
+    # acquire and surface the typed retryable LOCK_BUSY -- the designed
+    # outcome, not corruption (on a loaded machine the winner's span can
+    # hold past the acquire bound). Any OTHER error is a real failure. A
+    # LOCK_BUSY side must succeed on a serial retry (liveness), run with a
+    # single-party barrier so the retry never waits on the two-party sync.
+    watcher_out = _retry_if_lock_busy(
+        watcher_out,
+        "watcher",
+        lambda: build_loop_runner(
+            template_vault,
+            TOPIC,
+            evaluate=_fake_evaluate(PASS_SCALAR, "watcher-marker.txt", threading.Barrier(1)),
+        ).observe_default(),
+    )
+    gate_out = _retry_if_lock_busy(
+        gate_out,
+        "gate",
+        lambda: build_loop_runner(
+            template_vault,
+            TOPIC,
+            evaluate=_fake_evaluate(PASS_SCALAR, "gate-marker.txt", threading.Barrier(1)),
+            branch_prefix="loop/c/",
+        ).poll_once(),
+    )
     # Non-vacuity: each pass must actually take its merge span, not early-return.
     watcher_result = watcher_out.get("result")
     gate_result = gate_out.get("result")
