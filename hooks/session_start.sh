@@ -92,4 +92,14 @@ case "$doctor_out" in
 	;;
 esac
 
+# (f) Topic-awareness seed + "what needs my attention" nudge -- ONE combined
+# CLI read serves both (the plain-text `--nudge` rendering already folds in
+# the same wiki_status-shaped state: topics, pending suggestions,
+# refused-awaiting-rework, compile-ready). Prints nothing when there is
+# nothing to say (no topics, nothing pending).
+nudge_out="$(uvx --from "$ROOT" knotica status --nudge 2>/dev/null)"
+if [ -n "$nudge_out" ]; then
+	echo "$nudge_out"
+fi
+
 exit 0

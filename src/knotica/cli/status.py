@@ -57,6 +57,11 @@ def configure(subparsers: argparse._SubParsersAction) -> argparse.ArgumentParser
     parser.add_argument("--json", action="store_true", help="emit machine-readable JSON")
     parser.add_argument("--topic", metavar="NAME", help="scope counts to one topic")
     parser.add_argument("--wide", action="store_true", help="show full output, ignoring $COLUMNS")
+    parser.add_argument(
+        "--nudge",
+        action="store_true",
+        help="emit a plain-text SessionStart nudge (topics + non-zero attention items)",
+    )
     return parser
 
 
@@ -77,7 +82,9 @@ def run(args: argparse.Namespace) -> int:
         console.error(str(error))
         return EXIT_ERROR
 
-    if args.json:
+    if args.nudge:
+        _render_nudge(console, payload)
+    elif args.json:
         console.data(_cli_json(payload))
     else:
         _render_table(console, payload, args.wide)
@@ -120,6 +127,34 @@ def _cli_json(payload: dict) -> str:
         "unpushed": payload["unpushed"],
     }
     return json.dumps(cli_payload, ensure_ascii=False, indent=2)
+
+
+def _render_nudge(console: Console, payload: dict) -> None:
+    """Print the SessionStart nudge: topic list, then attention items if any.
+
+    Reuses the already-assembled ``topics[].suggestions``/``compile_ready``
+    fields from ``payload`` (the default ``summary`` view) -- no new
+    aggregation, just a plain-text rendering for the hook to echo verbatim.
+    Silent (prints nothing) when there are no topics and nothing needs
+    attention, mirroring the other renderers' honest-empty-state discipline.
+    """
+    topics = payload["topics"]
+    names = [t["topic"] for t in topics]
+    if names:
+        console.data(f"This vault covers topics: {', '.join(names)}")
+
+    pending = sum(t["suggestions"]["pending"] for t in topics)
+    refused = sum(t["suggestions"]["refused_awaiting_rework"] for t in topics)
+    compile_ready = sum(1 for t in topics if t["compile_ready"])
+    items = []
+    if pending:
+        items.append(f"{pending} pending suggestion(s)")
+    if refused:
+        items.append(f"{refused} refused-awaiting-rework")
+    if compile_ready:
+        items.append(f"{compile_ready} topic(s) compile-ready")
+    if items:
+        console.data("Needs attention: " + ", ".join(items))
 
 
 def _render_table(console: Console, payload: dict, wide: bool) -> None:
