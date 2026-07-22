@@ -285,9 +285,17 @@ def _verdict_envelope(
         payload["ingested_at"] = record.ingested_at
         payload["committed"] = True
     elif verdict == GATE_VERDICT_REFUSED:
+        diff_summary = outcome.get("reason")
+        regressed_questions = outcome.get("regressed_questions") or []
         payload["refused_ref"] = outcome.get("ref")
-        payload["diff_summary"] = outcome.get("reason")
-        payload["regressed_questions"] = outcome.get("regressed_questions") or []
+        payload["diff_summary"] = diff_summary
+        payload["regressed_questions"] = regressed_questions
+        # Decision-envelope (additive): the same data, nested under the
+        # uniform ``diff`` shape shared with the other gates' previews.
+        payload["diff"] = {
+            "diff_summary": diff_summary,
+            "regressed_questions": regressed_questions,
+        }
     return payload
 
 

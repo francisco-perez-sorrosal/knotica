@@ -86,6 +86,22 @@ def test_golden_review_load_missing_staging(vault_config: Path) -> None:
     assert body["error"]["code"] == "PAGE_NOT_FOUND"
 
 
+def test_golden_review_load_carries_the_decision_envelope_diff(
+    vault_config: Path, template_vault: Path
+) -> None:
+    """Additive decision-envelope enrichment -- the load preview shows what's
+    newly available vs. what has no committed frozen set to compare against
+    yet (first bootstrap, so everything reads as added)."""
+    del vault_config
+    _seed_staging(template_vault, n=2)
+
+    loaded = assert_success(call_tool("golden_review_load", {"topic": TOPIC}))
+
+    assert loaded["diff"]["displaced"] == []
+    assert len(loaded["diff"]["added"]) == 2
+    assert isinstance(loaded["diff"]["diff_summary"], str) and loaded["diff"]["diff_summary"]
+
+
 def test_golden_review_load_and_save(vault_config: Path, template_vault: Path) -> None:
     del vault_config
     _seed_staging(template_vault, n=2)

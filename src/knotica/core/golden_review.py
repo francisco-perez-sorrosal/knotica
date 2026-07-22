@@ -90,6 +90,10 @@ def load_golden_review(
         "resumed": source == reviewed,
         "loaded_from": str(vault_path / source),
         "reviewed_path": str(vault_path / reviewed),
+        # Decision-envelope (additive): what's newly available in the fresh
+        # staging pool vs. what would be displaced from the last frozen
+        # reviewed set -- shown before golden(action=save)/freeze commits.
+        "diff": _candidate_diff(store, staging, reviewed),
     }
 
 
@@ -162,6 +166,34 @@ def _read_jsonl(text: str) -> list[dict[str, Any]]:
             )
         rows.append(row)
     return rows
+
+
+def _candidate_diff(store: VaultStore, staging: str, reviewed: str) -> dict[str, Any]:
+    """Decision-envelope ``diff``: staging-pool questions not yet frozen, and
+    frozen questions that dropped out of the fresh staging pool.
+
+    Read-only and independent of which file :func:`load_golden_review` picked
+    as its working ``candidates`` -- an absent file on either side degrades to
+    an empty set rather than erroring.
+    """
+    staging_questions = _candidate_questions(store, staging)
+    reviewed_questions = _candidate_questions(store, reviewed)
+    added = sorted(staging_questions - reviewed_questions)
+    displaced = sorted(reviewed_questions - staging_questions)
+    return {
+        "added": added,
+        "displaced": displaced,
+        "diff_summary": f"{len(added)} added, {len(displaced)} displaced since last freeze",
+    }
+
+
+def _candidate_questions(store: VaultStore, path: str) -> set[str]:
+    """The distinct ``question`` values in one candidate JSONL file (empty if absent)."""
+    if not store.exists(path):
+        return set()
+    return {
+        str(row["question"]) for row in _read_jsonl(store.read_text(path)) if row.get("question")
+    }
 
 
 def _qa_questions(store: VaultStore, topic: str) -> set[str]:

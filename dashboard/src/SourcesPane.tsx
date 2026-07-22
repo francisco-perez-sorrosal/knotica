@@ -9,6 +9,7 @@ import type {
   SuggestionReputability,
   SuggestionsReadResult,
   SuggestionsStatusFilter,
+  WikiStatus,
 } from "./types";
 
 const FILTERS: Array<{ value: SuggestionsStatusFilter; label: string }> = [
@@ -36,11 +37,13 @@ export function SourcesPane({
   client,
   topic,
   vault,
+  status,
   onStatusRefresh,
 }: {
   client: ToolClient | null;
   topic: string;
   vault: string;
+  status?: WikiStatus | null;
   onStatusRefresh?: () => void | Promise<void>;
 }) {
   const [filter, setFilter] = useState<SuggestionsStatusFilter>("pending");
@@ -96,12 +99,11 @@ export function SourcesPane({
 
   const suggestions = result?.suggestions ?? [];
   const counts = result?.status_counts;
-  // Best-effort: only the currently loaded page is fetched (no wiki_status call
-  // in this pane), so this undercounts refused suggestions outside the current
-  // filter/page. The tooltip below discloses that.
-  const refusedCount = suggestions.filter(
-    (suggestion) => suggestion.gate_outcome?.verdict === "refused",
-  ).length;
+  // Single-sourced from wiki_status (topic-wide), not a page-local recount —
+  // avoids undercounting refused suggestions outside the current filter/page.
+  const refusedCount =
+    status?.topics.find((entry) => entry.topic === topic)?.suggestions?.refused_awaiting_rework ??
+    0;
 
   return (
     <section class="panel sources-panel" aria-label="Gap-fill suggestions">
@@ -140,7 +142,7 @@ export function SourcesPane({
           <span class="health-chip">approved {counts.approved}</span>
           <span
             class="health-chip warn"
-            title="Approved suggestions whose most recent gate pass was refused (loaded page only)"
+            title="Approved suggestions whose most recent gate pass was refused (topic-wide)"
           >
             <span aria-hidden="true">⚠</span> refused {refusedCount}
           </span>

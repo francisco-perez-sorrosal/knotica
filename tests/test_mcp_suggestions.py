@@ -418,6 +418,33 @@ def test_dry_run_approve_previews_without_writing(vault_config: Path, template_v
     assert after_sha == before_sha, "a dry-run preview must never create a commit"
 
 
+def test_dry_run_preview_carries_the_decision_envelope_context_and_provenance(
+    vault_config: Path, template_vault: Path
+) -> None:
+    """Additive decision-envelope enrichment (SYSTEMS_PLAN §Interfaces) -- the
+    dry-run preview must still carry every pre-existing field plus the new
+    context/provenance so the card is self-contained without a second call."""
+    del vault_config
+    _seed_suggestions(template_vault, [_suggestion_record(suggestion_id="dry-envelope")])
+
+    body = assert_success(
+        call_tool(
+            "suggestions_review",
+            {
+                "topic": TOPIC,
+                "suggestion_id": "dry-envelope",
+                "action": "approve",
+                "mode": "dry-run",
+            },
+        )
+    )
+
+    assert body["from_status"] == "pending" and body["to_status"] == "approved"
+    assert body["decision_id"] == "dry-envelope"
+    assert body["context"]["gap_question"] and body["context"]["why_wiki_fell_short"]
+    assert set(body["provenance"]) >= {"source_url", "reputability", "origin", "citation_hint"}
+
+
 def test_apply_approve_flips_status_in_exactly_one_commit(
     vault_config: Path, template_vault: Path
 ) -> None:

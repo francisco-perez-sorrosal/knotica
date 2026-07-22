@@ -491,6 +491,7 @@ export function App() {
           client={client}
           topic={topic}
           vault={resolvedVaultName}
+          status={status.value}
           onStatusRefresh={() => refreshStatus(false)}
         />
       ) : null}

@@ -276,6 +276,7 @@ def _dry_run(
     """Preview the transition without writing (reuses the pure lifecycle validator)."""
     record = _require_record(store, topic, suggestion_id)
     plan = plan_decision(record, decision=action, reason=reason or None)
+    preview = _preview_text(action)
     return {
         "mode": "dry-run",
         "topic": topic,
@@ -286,7 +287,15 @@ def _dry_run(
         "would_commit": True,
         "reason_required": action == "reject",
         "candidate_title": _candidate_title(record),
-        "preview": _preview_text(action),
+        "preview": preview,
+        # Decision-envelope (additive): uniform shape so every gate's dry-run
+        # renders the same conversational decision card -- refines this
+        # existing preview, no new mutation semantics.
+        "decision_id": suggestion_id,
+        "summary": f"{action} suggested source for: {record.question}",
+        "context": _decision_context(record, topic),
+        "options": [{"action": action, "preview": preview, "reversible": action == "defer"}],
+        "provenance": _decision_provenance(record),
     }
 
 
@@ -438,6 +447,27 @@ def _record_dict(record: SuggestionRecord) -> dict[str, Any]:
 def _candidate_title(record: SuggestionRecord) -> str:
     title = record.candidate.get("title")
     return title if isinstance(title, str) else ""
+
+
+def _decision_context(record: SuggestionRecord, topic: str) -> dict[str, Any]:
+    """Decision-envelope ``context``: the gap question joined to why the wiki fell short."""
+    return {
+        "gap_question": record.question,
+        "why_wiki_fell_short": record.fault_class,
+        "topic": topic,
+    }
+
+
+def _decision_provenance(record: SuggestionRecord) -> dict[str, Any]:
+    """Decision-envelope ``provenance``: source url, reputability, and gap origin."""
+    reputability = record.candidate.get("reputability")
+    score = reputability.get("score") if isinstance(reputability, dict) else None
+    return {
+        "source_url": record.candidate.get("url"),
+        "reputability": score,
+        "origin": record.gap_origin,
+        "citation_hint": record.candidate.get("doi"),
+    }
 
 
 def _validate_topic(topic: str) -> str:
