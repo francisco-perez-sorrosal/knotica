@@ -1,0 +1,14 @@
+[Unit]
+Description=Knotica self-improvement loop (observe, gate, heal)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+ExecStart=${exec_start}
+WorkingDirectory=${working_directory}
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=default.target
