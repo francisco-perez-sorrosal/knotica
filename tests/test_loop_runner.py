@@ -567,7 +567,7 @@ def _arena_spy(monkeypatch: pytest.MonkeyPatch) -> list[tuple[str, float]]:
         calls.append((topic, baseline_scalar))
         return ArenaState(topic=topic, stage=ArenaStage.reverted, winner_id=None, message="spy")
 
-    monkeypatch.setattr("knotica.core.loop.race_variants", _fake_race_variants)
+    monkeypatch.setattr("knotica.core.arena_resolve.race_variants", _fake_race_variants)
     return calls
 
 

@@ -22,17 +22,9 @@ from pathlib import Path
 from typing import Protocol
 
 from knotica.core import branch_namespaces
-from knotica.core.arena import (
-    ArenaStage,
-    ArenaState,
-    ScoreFn,
-    VariantSpec,
-    generate_variant_bodies,
-    load_base_query_body,
-    race_variants,
-)
+from knotica.core.arena import ArenaState, ScoreFn, VariantSpec
+from knotica.core.arena_resolve import run_arena_and_resolve
 from knotica.core.best_effort import best_effort
-from knotica.core.gapfill_config import GapfillHookConfig
 from knotica.core.loop_state import (
     LoopDecision,
     LoopStage,
@@ -762,43 +754,6 @@ class LoopRunner:
                 max_gaps=self._gapfill_max_gaps,
             )
 
-    def _run_arena_and_resolve(
-        self,
-        candidate_branch: str | None,
-        baseline: float,
-        on_win: Callable[[ArenaState], LoopCycleResult],
-        on_lose: Callable[[ArenaState], LoopCycleResult],
-    ) -> LoopCycleResult:
-        """Generate prompt variants, race them, and dispatch on the winner outcome.
-
-        Shared by the post-observation-regression heal and the post-gate-fail
-        candidate heal: both build variants identically, race with the same
-        ``promote_on_win`` contract, and compute the winner the same way. They
-        differ only in ``candidate_branch`` (``None`` for a regression heal, the
-        wound branch for a gate-fail heal) and in what the win/lose branches do
-        afterward — expressed by the two callbacks, each of which owns its own
-        state write, branch cleanup, and result construction. The caller writes
-        the ``racing`` state before calling this helper (the pre-set state args
-        that genuinely diverge between the two sites).
-        """
-        assert self._arena_score is not None
-        variants = self._arena_variants or generate_variant_bodies(
-            load_base_query_body(self._store, self._topic),
-            n=self._arena_n,
-        )
-        arena = race_variants(
-            self._store,
-            self._root,
-            self._topic,
-            variants,
-            baseline_scalar=baseline,
-            score=self._arena_score,
-            candidate_branch=candidate_branch,
-            promote_on_win=True,
-        )
-        won = arena.stage == ArenaStage.completed and arena.winner_id is not None
-        return on_win(arena) if won else on_lose(arena)
-
     def _heal_prompts_after_regression(
         self, state: LoopState, default: str, head: str, scalar: float
     ) -> LoopCycleResult:
@@ -843,7 +798,13 @@ class LoopRunner:
                 ),
             )
 
-        return self._run_arena_and_resolve(
+        return run_arena_and_resolve(
+            store=self._store,
+            root=self._root,
+            topic=self._topic,
+            arena_score=self._arena_score,
+            arena_variants=self._arena_variants,
+            arena_n=self._arena_n,
             candidate_branch=None,
             baseline=baseline,
             on_win=lambda arena: _resolve(arena, won=True),
@@ -902,197 +863,21 @@ class LoopRunner:
 
     def poll_once(self) -> LoopCycleResult:
         """Process at most one unhandled ``loop/*`` tip; no-op when idle."""
-        state = read_loop_state(self._store, self._topic) or empty_loop_state(self._topic)
-        if state.baseline_scalar is None:
-            return LoopCycleResult(
-                acted=False,
-                branch=None,
-                sha=None,
-                decision=LoopDecision.none,
-                scalar=None,
-                message="no baseline frozen; call set_baseline first",
-            )
+        from knotica.core import candidate_gate
 
-        pending = self._next_candidate(state)
-        if pending is None:
-            return LoopCycleResult(
-                acted=False,
-                branch=None,
-                sha=None,
-                decision=LoopDecision.none,
-                scalar=None,
-                message="no pending loop branches",
-            )
-
-        branch, sha = pending
-        return self._process_candidate(state, branch, sha)
-
-    def _next_candidate(self, state: LoopState) -> tuple[str, str] | None:
-        """First ``prefix*`` tip whose SHA is not in ``state.cursors``."""
-        default = self._vcs.default_branch()
-        for branch, sha in self._vcs.list_branch_tips(self._prefix):
-            if branch == default:
-                continue
-            if state.cursors.get(branch) == sha:
-                continue
-            return branch, sha
-        return None
-
-    def _process_candidate(self, state: LoopState, branch: str, sha: str) -> LoopCycleResult:
-        """Evaluate → gate → merge or revert one candidate tip."""
-        self._ensure_union_log_merge()
-        state = write_loop_state(
-            self._store,
-            self._root,
-            state.model_copy(
-                update={
-                    "stage": LoopStage.evaluating,
-                    "candidate_branch": branch,
-                    "candidate_sha": sha,
-                    "last_error": None,
-                }
-            ),
-            title=f"evaluating {branch}",
-        )
-
-        try:
-            outcome = self._evaluate(self._topic, self._root, sha)
-        except Exception as exc:  # noqa: BLE001 — surface into loop-state, keep runner alive
-            write_loop_state(
-                self._store,
-                self._root,
-                state.model_copy(
-                    update={
-                        "stage": LoopStage.failed,
-                        "last_error": str(exc),
-                        "last_decision": LoopDecision.fail,
-                    }
-                ).mark_processed(branch, sha),
-                title=f"eval error on {branch}",
-            )
-            return LoopCycleResult(
-                acted=True,
-                branch=branch,
-                sha=sha,
-                decision=LoopDecision.fail,
-                scalar=None,
-                message=f"eval failed: {exc}",
-            )
-
-        # A source candidate (an ingested gap-fill source, named
-        # ``loop/c/<topic>/source-<id8>``) is gated separately and is NEVER raced
-        # through the arena: content dilution is not prompt-fixable, and racing
-        # could surface a prompt that masks it. The orchestration lives in
-        # ``source_gate`` to keep it out of this file.
-        from knotica.core import source_gate
-
-        if source_gate.classify_candidate(branch) == "source":
-            return source_gate.gate_source_candidate(self, state, branch, sha, outcome)
-
-        passed = float(outcome.scalar) >= float(state.baseline_scalar or 0.0)
-        if passed:
-            return self._keep(state, branch, sha, outcome)
-        if self._arena_enabled and self._arena_score is not None:
-            return self._race_then_resolve(state, branch, sha, outcome)
-        return self._discard(state, branch, sha, outcome)
+        return candidate_gate.poll_once(self)
 
     def _keep(
         self, state: LoopState, branch: str, sha: str, outcome: EvalOutcome
     ) -> LoopCycleResult:
-        """Fetch eval tip → FF-merge onto default branch → mark passed."""
-        # One atomic span: the fetch/checkout/merge/delete sequence and the
-        # pass-recording state write must not interleave with a concurrent pass's
-        # own git steps on this working tree (reentrant when the source gate calls
-        # this inside its own span).
-        with self._mutation_span():
-            state = write_loop_state(
-                self._store,
-                self._root,
-                state.model_copy(update={"stage": LoopStage.merging}),
-                title=f"merging {branch}",
-            )
-            default = self._vcs.default_branch()
-            result_branch = f"{RESULT_BRANCH_PREFIX}{sha[:12]}"
-            # Pull the clone tip (includes the eval metrics commit) onto the source.
-            self._vcs.fetch_ref_from(outcome.clone_root, "HEAD", result_branch)
-            self._vcs.checkout_branch(default)
-            self._vcs.merge_branch(result_branch, ff_only=False)
-            # Candidate is consumed; drop it so the watch does not re-fire.
-            self._safe_delete_branch(branch)
-            if self._push_remote:
-                self._vcs.push(self._push_remote, default)
-                self._vcs.push(self._push_remote, result_branch)
-            self._prune_result_branches()
+        """Fetch eval tip → FF-merge onto default branch → mark passed.
 
-            state = write_loop_state(
-                self._store,
-                self._root,
-                state.model_copy(
-                    update={
-                        "stage": LoopStage.passed,
-                        "last_scalar": float(outcome.scalar),
-                        "last_generation": int(outcome.generation),
-                        "last_harness_version": outcome.harness_version,
-                        "last_decision": LoopDecision.pass_,
-                        "candidate_branch": None,
-                        "candidate_sha": None,
-                        "last_error": None,
-                    }
-                ).mark_processed(branch, sha),
-                title=f"kept {branch} scalar={outcome.scalar:.4f}",
-            )
-        return LoopCycleResult(
-            acted=True,
-            branch=branch,
-            sha=sha,
-            decision=LoopDecision.pass_,
-            scalar=float(outcome.scalar),
-            message=f"passed gate; merged {result_branch} into {default}",
-        )
+        Thin delegator kept on the class: :mod:`knotica.core.source_gate`
+        calls ``runner._keep(...)`` directly on a passing source candidate.
+        """
+        from knotica.core import candidate_gate
 
-    def _discard(
-        self, state: LoopState, branch: str, sha: str, outcome: EvalOutcome
-    ) -> LoopCycleResult:
-        """Delete the candidate branch; leave default branch untouched."""
-        # One atomic span: the checkout/delete and the fail-recording state write
-        # must not interleave with a concurrent pass's git steps on this tree.
-        with self._mutation_span():
-            state = write_loop_state(
-                self._store,
-                self._root,
-                state.model_copy(update={"stage": LoopStage.reverting}),
-                title=f"reverting {branch}",
-            )
-            default = self._vcs.default_branch()
-            if self._vcs.current_branch() == branch:
-                self._vcs.checkout_branch(default)
-            self._safe_delete_branch(branch)
-
-            write_loop_state(
-                self._store,
-                self._root,
-                state.model_copy(
-                    update={
-                        "stage": LoopStage.failed,
-                        "last_scalar": float(outcome.scalar),
-                        "last_generation": int(outcome.generation),
-                        "last_harness_version": outcome.harness_version,
-                        "last_decision": LoopDecision.fail,
-                        "candidate_branch": None,
-                        "candidate_sha": None,
-                        "last_error": None,
-                    }
-                ).mark_processed(branch, sha),
-                title=f"reverted {branch} scalar={outcome.scalar:.4f}",
-            )
-        return LoopCycleResult(
-            acted=True,
-            branch=branch,
-            sha=sha,
-            decision=LoopDecision.fail,
-            scalar=float(outcome.scalar),
-            message=f"failed gate; deleted {branch}",
-        )
+        return candidate_gate.keep(self, state, branch, sha, outcome)
 
     def _race_then_resolve(
         self, state: LoopState, branch: str, sha: str, outcome: EvalOutcome
@@ -1177,7 +962,13 @@ class LoopRunner:
                 message=f"arena no winner; deleted {branch}",
             )
 
-        return self._run_arena_and_resolve(
+        return run_arena_and_resolve(
+            store=self._store,
+            root=self._root,
+            topic=self._topic,
+            arena_score=self._arena_score,
+            arena_variants=self._arena_variants,
+            arena_n=self._arena_n,
             candidate_branch=branch,
             baseline=baseline,
             on_win=_on_win,
@@ -1218,68 +1009,6 @@ class LoopRunner:
             merged.sort(reverse=True)
             for _, branch in merged[keep:]:
                 self._safe_delete_branch(branch)
-
-
-def build_loop_runner(
-    vault: str | Path,
-    topic: str,
-    *,
-    evaluate: EvaluateFn | None = None,
-    store: VaultStore | None = None,
-    branch_prefix: str = DEFAULT_BRANCH_PREFIX,
-    push_remote: str | None = None,
-    arena_enabled: bool = True,
-    arena_score: ScoreFn | None = None,
-    arena_variants: list[VariantSpec] | None = None,
-    arena_n: int = 4,
-    gapfill_config: GapfillHookConfig | None = None,
-    observe_quiet_seconds: float = 0.0,
-    ingest_hold_stale_seconds: float = 600.0,
-    clock: Callable[[], float] = time.monotonic,
-    eval_min_interval_hours: float = 0.0,
-    eval_window: tuple[_time_of_day, _time_of_day] | None = None,
-    now_fn: Callable[[], datetime] = _local_now,
-    runner_cls: type[LoopRunner] = LoopRunner,
-) -> LoopRunner:
-    """Construct a :class:`LoopRunner`, the single factory both construction sites share.
-
-    The background watcher (``cli/loop.py``) and the synchronous MCP gate
-    (``mcp_server/tools_source_ingest.py``) once built runners independently, with
-    no shared seam. This factory unifies **construction** while leaving each site's
-    **effective config values** intact: every knob a caller omits falls through to
-    the same default the raw ``LoopRunner`` would have used, so the watcher's 20s
-    quiet window and the gate's immediate-observe default remain divergent by design
-    (value convergence is a separate, deferred decision).
-
-    ``gapfill_config`` folds the two loop-side gap-fill knobs
-    (``discover_on_regression`` / ``max_gaps``) into one object: pass a resolved
-    :class:`GapfillHookConfig` (the watcher does) or ``None`` for the off-by-default
-    settings (the gate does). ``evaluate`` defaults to :func:`harness_evaluate` when
-    omitted. ``runner_cls`` is a construction seam: a caller passes the (possibly
-    test-substituted) class bound in its own module so an existing monkeypatch on
-    that binding continues to intercept construction through the factory.
-    """
-    gapfill = gapfill_config if gapfill_config is not None else GapfillHookConfig()
-    return runner_cls(
-        vault,
-        topic,
-        evaluate=evaluate if evaluate is not None else harness_evaluate,
-        store=store,
-        branch_prefix=branch_prefix,
-        push_remote=push_remote,
-        arena_enabled=arena_enabled,
-        arena_score=arena_score,
-        arena_variants=arena_variants,
-        arena_n=arena_n,
-        discover_on_regression=gapfill.discover_on_regression,
-        max_gaps=gapfill.max_gaps,
-        observe_quiet_seconds=observe_quiet_seconds,
-        ingest_hold_stale_seconds=ingest_hold_stale_seconds,
-        clock=clock,
-        eval_min_interval_hours=eval_min_interval_hours,
-        eval_window=eval_window,
-        now_fn=now_fn,
-    )
 
 
 def wrap_harness_result(result: object) -> EvalOutcome:
@@ -1345,3 +1074,14 @@ def harness_evaluate(
     finally:
         clear_progress(source_root, topic)
     return wrap_harness_result(result)
+
+
+# Bottom-of-file re-export (not top-level): loop_factory.py top-imports
+# LoopRunner / harness_evaluate / _local_now / EvaluateFn from *this* module,
+# so importing loop_factory before this module finishes defining those names
+# would deadlock the cycle. Placing the import here — after every name
+# loop_factory depends on already exists in this module's namespace — makes
+# the cycle resolve safely, but only holds because loop.py is the sole entry
+# point every external importer of build_loop_runner uses (see SYSTEMS_PLAN.md
+# and IMPLEMENTATION_PLAN.md Step 3 for the accepted risk).
+from knotica.core.loop_factory import build_loop_runner  # noqa: E402
