@@ -5,7 +5,7 @@
      .ai-state/DESIGN.md; the converged design lives in docs/PRE_PLAN.md.
      Created by systems-architect; updated by implementer; verified by doc-engineer at checkpoints. -->
 
-> **Status: MVP + Phase-2 `evals/` + Phase-3a `programs/`/compile/loop + P-A consolidation + P-B tool-surface dispatcher (Built as of 2026-07-21).** The `store/`,
+> **Status: MVP + Phase-2 `evals/` + Phase-3a `programs/`/compile/loop + consolidation P-A/P-B/P-C/P-D (Built as of 2026-07-21).** The `store/`,
 > `search/`, `core/`, `mcp_server/`, `cli/`, `evals/`, and `programs/` packages plus the autonomous
 > `knotica loop` watcher, the cold-start dataset bootstrap, the plugin layer, and the dashboard MCP App
 > are on disk. **P-A loop-internals (branch namespaces, best_effort, arena-race, runner factory)** and

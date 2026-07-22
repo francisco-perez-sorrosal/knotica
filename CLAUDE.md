@@ -17,7 +17,7 @@ AI-maintained, compounding knowledge wiki (Karpathy's llm-wiki pattern) living i
 
 - Python 3.12+, **uv-managed** (`uv sync`, `uv run`); src layout under `src/knotica/`.
 - Dual-role repo: Python package + Claude plugin marketplace (`.claude-plugin/`, `commands/`, `hooks/`, `skills/`, `.mcp.json`).
-- MCP server built on FastMCP; CLI entry point `knotica` (subcommands: `init`, `mcp`, `doctor`, `status`, `migrate`, `eval`, `datasets`, `compile`, `loop`).
+- MCP server built on FastMCP; CLI entry point `knotica` (subcommands: `init`, `mcp`, `doctor`, `status`, `migrate`, `eval`, `datasets`, `compile`, `loop`, `gapfill`, `service`).
 - `knotica loop --topic <t>` is the autonomous self-improvement watcher: observes default-branch content changes (eval on a clone, 4 parallel scoring threads by default; debounced — holds during active ingests and until HEAD is stable), gates `loop/c/*` candidates, heals regressions via the arena, and heartbeats to `.knotica/locks/`. Gate baseline policy is per-topic (`latest` tracks reality, `best` ratchets a high-water mark; instrument changes auto-refreeze); drive it via the `loop_baseline_policy`/`loop_rebaseline` tools, the dashboard toggle, or CLI flags. Merged `loop/r/*` audit pointers auto-prune beyond the newest 5.
 - Tests with pytest in `tests/`; run via `uv run pytest`.
 - Build/tooling output to `/dev/null` or `tmp/` — never commit artifacts.
@@ -25,11 +25,23 @@ AI-maintained, compounding knowledge wiki (Karpathy's llm-wiki pattern) living i
 ## Current status
 
 Phases 0–4 are implemented locally (vault template, core/MCP/plugin, eval harness, DSPy compile,
-dashboard MCP App, autonomous loop layer, gap-fill classifier, discovery, suggestion queue, and source-candidate gate). 
+dashboard MCP App, autonomous loop layer, gap-fill classifier, discovery, suggestion queue, and source-candidate gate).
+**Consolidation (2026-07-21):** loop internals refactored for growth (`core/branch_namespaces`,
+`core/best_effort`, unified arena-race core, `build_loop_runner` factory; vault mutation lock
+widened to the full git-mutation span with crash self-heal and retryable `LOCK_BUSY`); tool
+surface consolidated 49→~30 via seven action-parameterized dispatchers (`loop`, `branches`,
+`compile`, `datasets`, `arena`, `golden`, `vault_health`) with backward-compatible deprecated
+aliases for one release cycle and mis-selection telemetry; conversational-routing layer added
+(symptom-based `wiki-maintenance` skill, slimmed server instructions pointing at `read_protocol`,
+read/offer guards on every mutating tool, cheap `wiki_status(view="scope")` check, SessionStart
+topic-seed + needs-attention nudge); `discover_on_regression` defaults on when a discovery key is
+present (offline installs unchanged); loop service lifecycle via `knotica service
+install|uninstall|status` (launchd-verified, systemd untested; one supervised process, topics
+resolved from config each cycle); decision-envelope fields unified across the three human gates. 
 The **gap-fill pipeline** (P1–P4) diagnoses regressions into four fault classes, discovers ranked 
 sources for genuine knowledge gaps, surfaces a human-approval queue, and gates ingests onto isolated worktree candidate branches: `knotica gapfill discover` 
 on-demand + optional loop-side batch, MCP tool `gap_report` for conversational gaps, `suggestions_read`/`suggestions_review`, 
-dashboard **Suggestions** pane, and P4 source-ingest tools (`source_ingest_open`/`source_ingest_submit`). Gaps have three origins: `measured` (loop regressions), `reported` (client-as-brain via `gap_report`), 
+dashboard **SourcesPane**, and P4 source-ingest tools (`source_ingest_open`/`source_ingest_submit`). Gaps have three origins: `measured` (loop regressions), `reported` (client-as-brain via `gap_report`), 
 and `retracted` (guillotine disputes). The loop watches the default branch, auto-freezes the first 
 observation as the gate baseline, gates `loop/c/*` candidates (distinguishing source from prompt candidates by branch name), and heals prompt regressions via 
 the arena — source-candidate pass auto-marks suggestions ingested and triggers a page-subset dataset upgrade; refuse quarantines to `loop/x/*` with bounded per-question diff, never arena. State surfaced through `wiki_status` (runner liveness, per-question eval progress, 
