@@ -1,6 +1,6 @@
 ---
 name: wiki-maintenance
-description: This skill should be used when working the knotica llm-wiki — ingesting a source or paper into the wiki, querying the wiki for a grounded answer, linting the vault for violations or staleness, curating an interaction as a training example, or reasoning about topics, schemas, supersession, or the self-improvement flywheel. It teaches the judgment behind those operations; the step-by-step protocol lives in the vault's operation prompts.
+description: This skill should be used whenever a conversation shows the symptoms of being wiki-relevant — even when the user never names knotica or "the wiki": a factual question about something the vault might cover; a user sharing a source, URL, or paper worth capturing; an expressed sense that "the wiki was wrong" or "we're missing X"; or any talk of the self-improvement loop, pending suggestions, or wiki status. It teaches how to detect wiki-relevant conversation, decide whether it is in scope with a cheap scope-check, and route to the right operation (ingest / query / lint / curate) — offering, never silently mutating. The step-by-step protocol for each operation lives in the vault's operation prompts (load via read_protocol).
 version: 0.1.0
 ---
 
@@ -28,6 +28,32 @@ These prompts resolve from the vault per invocation (root defaults, earned topic
 and are the same artifacts DSPy and SIA later optimize — so the protocol is deliberately kept
 in one place. This skill never restates their steps; it tells you *when* to reach for each and
 *why* the conventions exist.
+
+## Detecting wiki-relevant conversation
+
+The wiki should recede behind ordinary conversation: you route into it on the *symptoms*
+of wiki-relevant talk, not on the user naming knotica. Watch for four:
+
+- **A factual question** about something the vault might cover ("what do we know about X?",
+  or any question you would otherwise answer from your own memory).
+- **A shared source** — the user drops a URL, paper, or document worth capturing.
+- **A reported gap or error** — "the wiki was wrong about Y", "we're missing Z".
+- **Loop / suggestion / status talk** — anything about candidates, the self-improvement
+  loop, pending suggestions, or wiki health.
+
+On any of these, do a cheap **scope-check before routing**: call `wiki_status(view="scope")`
+— a committed, deterministic, read-only lookup that returns the topics this vault covers
+(and totals). You are the classifier; the server stays dumb. Then:
+
+- **In scope** → route. For a question, prefer `query` (read-only, grounded) over answering
+  from memory; if the wiki cannot answer, *offer* `gap_report`. For a shared source, *offer*
+  to ingest. Route to *read or offer* only — **never a silent mutation**. Every commit stays
+  user-gated.
+- **Out of scope** → answer normally. Do not route; the vault does not cover this.
+
+This is detection and routing — *when/whether* to enter an operation. The *how* — the step
+sequence for each operation — lives in the vault's operation prompts; load one with
+`read_protocol` and never reconstruct its steps here.
 
 ## When to reach for which operation
 
