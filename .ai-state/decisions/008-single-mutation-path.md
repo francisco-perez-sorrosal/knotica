@@ -14,6 +14,8 @@ affected_files: [src/knotica/core/, src/knotica/store/, src/knotica/search/, src
 affected_reqs: [REQ-MUT-01, REQ-MUT-02, REQ-MUT-03, REQ-MUT-04, REQ-MUT-05, REQ-TOOL-02]
 dissent: A mutation-service object injected into adapters (rather than a core context manager the adapters call by function) would give richer lifecycle hooks for the Phase-3 loops, at the cost of a wider, more mockable seam.
 re_affirms: dec-007
+re_affirmed_by:
+  - dec-046
 ---
 
 ## Context

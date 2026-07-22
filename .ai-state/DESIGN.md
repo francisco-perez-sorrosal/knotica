@@ -102,7 +102,7 @@ A new parameter-value pair enables cheap routing-scope checks without eval or co
 
 For one release cycle, 26 deprecated tools remain registered with a deprecation note in their `description` field. The original thin-tool modules (`tools_scoreboard.py`, `tools_compile.py`, etc.) continue to export their tools; the dispatchers are additive. Clients calling via the old tool names are logged and work unchanged; new code should call via dispatchers.
 
-**P-B Rationale & Decisions (dec-draft-19d50c6b, dec-draft-ac2898b1):**
+**P-B Rationale & Decisions (dec-040, dec-041):**
 
 - **Action routing:** consolidates domain-related actions into a single entry point per domain, reducing surface cognitive load and enabling structured input validation at the action enum level
 - **Additive aliases:** one-release-cycle migration window preserves backward compatibility; no forced client update
@@ -387,15 +387,15 @@ service-manager live verification (code-complete, launchd is the verified platfo
 `loop.py` cohesion split (td-008 — the consolidation grew it to 1221 lines; extract the
 arena-race core + runner factory next). Finalized ADRs (dec-NNN ids assigned at merge):
 
-- **dec-draft-1785275a** — Tiered MCP tool-surface topology: thin conversational core
+- **dec-045** — Tiered MCP tool-surface topology: thin conversational core
   (~18 tools, dec-003 principle re-affirmed) + operator long-tail collapsed into 7
   action-parameterized dispatchers (`loop`/`branches`/`compile`/`datasets`/`arena`/`golden`/
   `vault_health`); one server (Option A) now, lazy catalog meta-tool (B) deferred as the
   future-preferred evolution gated on client capability, second server (C) rejected;
   additive-alias non-breaking migration (49 → ~29 model-facing tools). Companion:
-  interface-designer `dec-draft-ac2898b1` (dispatcher shapes) + `dec-draft-19d50c6b`
+  interface-designer `dec-041` (dispatcher shapes) + `dec-040`
   (`INVALID_ARGUMENT` error code, adopted).
-- **dec-draft-c5032c8e** — **[Built, 2026-07-21]** Conversational routing & transparency: four-layer architecture
+- **dec-042** — **[Built, 2026-07-21]** Conversational routing & transparency: four-layer architecture
   (skill symptom-detection + `_INSTRUCTIONS` stable-invariants-only + tool-description guards on mutating tools + vault prompts as sole evolvable substrate);
   per-client routing-reliability tiers (Tier-1 Claude Code skill+hooks / Tier-2 Desktop instructions-only);
   `server.py` `_INSTRUCTIONS` slimmed to detection heuristics + stable invariant guards + a
@@ -403,15 +403,15 @@ arena-race core + runner factory next). Finalized ADRs (dec-NNN ids assigned at 
   the root, no boot-time vault read); new cheapest `wiki_status(view=scope)`; SessionStart
   topic-awareness seed + attention-nudge (`knotica status --nudge`, Tier-1 proactive detection);
   read/offer over-routing guard on every mutating tool. Companion: interface-designer
-  `dec-draft-d6edd5ef` (routing-artifact separation).
-- **dec-draft-3fc197ba** — Loop-internals consolidation (behavior-preserving,
+  `dec-039` (routing-artifact separation).
+- **dec-043** — Loop-internals consolidation (behavior-preserving,
   characterization-tests-first): `core/branch_namespaces.py` single-source-of-truth for the
   five branch prefixes; one shared best-effort primitive; one `_run_arena_and_resolve`
   helper; one `build_loop_runner` factory (preserves current per-site config values); and a
   credential-conditional `discover_on_regression` default (realizes dec-029's named
   reversal). `loop.py` returns under ceiling incidentally (td-008). Deferred: candidate-gate
   Protocol, records-schema base (td-009), `harness`/`golden` splits (td-002).
-- **dec-draft-64a38a63** — Loop becomes a **lifecycle-managed service** (supersedes the
+- **dec-044** — Loop becomes a **lifecycle-managed service** (supersedes the
   PRE_PLAN "No periodic daemon in MVP" stance per user guidance): the `knotica loop --watch`
   watcher is automatically installed/spawned/supervised (leading candidate: an OS service
   manager registered by the install flow) under a one-click-install / zero-user-burden bar.

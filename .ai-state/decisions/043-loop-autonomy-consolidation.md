@@ -1,7 +1,7 @@
 ---
-id: dec-draft-3fc197ba
+id: dec-043
 title: Loop-internals consolidation — branch-namespace SoT, shared best-effort + arena-race + runner-factory primitives, and a credential-conditional discovery default
-status: proposed
+status: accepted
 category: architectural
 date: 2026-07-21
 summary: Bundle the behavior-preserving loop-internals seams (single branch-namespace module, one best-effort primitive, one arena-race-and-resolve helper, one LoopRunner factory) as an in-scope refactoring phase, and make discover_on_regression default conditional on a valid discovery key — realizing dec-029's named reversal trigger; defer the candidate-gate Protocol, records-schema base, and hotspot file splits.

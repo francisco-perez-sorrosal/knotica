@@ -1,7 +1,7 @@
 ---
-id: dec-draft-d6edd5ef
+id: dec-039
 title: Conversational-routing artifact separation — four layers, one job each, no protocol duplication
-status: proposed
+status: accepted
 category: architectural
 date: 2026-07-21
 summary: Fix the client-side redirection layer (skill + MCP instructions + tool descriptions) as three routing artifacts that answer WHEN/WHETHER to enter an operation, kept strictly disjoint from the vault operation prompts that own HOW — preserving DSPy/SIA evolvability.

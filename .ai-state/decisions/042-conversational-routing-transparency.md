@@ -1,7 +1,7 @@
 ---
-id: dec-draft-c5032c8e
+id: dec-042
 title: Conversational routing & transparency — per-client reliability tiers, invariants-only server instructions, proactive topic-awareness seed
-status: proposed
+status: accepted
 category: architectural
 date: 2026-07-21
 summary: Architect ruling on Challenge 2 — accept per-client routing-reliability tiers as an inherent bounded constraint; slim server _INSTRUCTIONS to detection heuristics + stable invariant guards + a read_protocol pointer (no enumerated evolvable steps), killing the drifted duplicate at the root; add a SessionStart topic-awareness seed as the proactive half of detection; keep the read/offer over-routing guard load-bearing.
@@ -33,14 +33,14 @@ and does not surface MCP prompts — so on Desktop, detection rests entirely on 
 `instructions` + tool descriptions. The interface-designer proposed enriching
 `instructions` with detection heuristics + a cheap `wiki_status(view=scope)` scope-check,
 and documenting per-client reliability tiers as an accepted constraint
-(`dec-draft-d6edd5ef`). Research additionally found `server.py` `_INSTRUCTIONS` has
+(`dec-039`). Research additionally found `server.py` `_INSTRUCTIONS` has
 **empirically drifted** from the vault `ingest.md` (the P4 71-line suggestion-ingest
 addition never propagated), and that detection is *circular* — the client must already
 suspect knotica is relevant to think to call the tool that would confirm it.
 
 ## Decision
 
-**Adopt the interface-designer's routing separation (`dec-draft-d6edd5ef`)**, with these
+**Adopt the interface-designer's routing separation (`dec-039`)**, with these
 architect rulings:
 
 1. **Accept per-client routing-reliability tiers as an inherent, bounded constraint.**
@@ -60,7 +60,7 @@ architect rulings:
    the drift-prone content leaves entirely rather than being kept in sync — and it
    preserves the no-vault-read-at-boot property (pointer-only, **not**
    generate-from-vault). It also enforces the routing/protocol boundary
-   (`dec-draft-d6edd5ef`): routing artifacts speak *when/whether*, prompts own *how*.
+   (`dec-039`): routing artifacts speak *when/whether*, prompts own *how*.
 3. **Add a SessionStart topic-awareness seed (Tier-1, in scope).** Extend
    `hooks/session_start.sh` to seed "this vault covers topics [X, Y, Z]" into session
    context (mirroring the existing config nudge). This is the **proactive** half of

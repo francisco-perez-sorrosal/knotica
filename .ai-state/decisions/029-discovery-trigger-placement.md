@@ -16,6 +16,8 @@ affected_files:
   - src/knotica/core/loop.py
 affected_reqs: [REQ-01, REQ-02, REQ-08]
 dissent: Loop-side automatic default-on is the purest "wiki that researches itself" — a regression IS the trigger, DiscoveryService is deterministic-REST/no-LLM so it violates no invariant, and the same try/except isolation the classifier uses already contains a discovery failure; the opt-in flag hides the flagship capability behind a config toggle.
+re_affirmed_by:
+  - dec-043
 ---
 
 ## Context

@@ -13,6 +13,9 @@ pipeline_tier: standard
 affected_files:
   - src/knotica/mcp/
 dissent: Splitting write_page's side effects into separate tools would be more composable and testable; bundling them trades agent flexibility for atomicity the client rarely needs to control.
+re_affirmed_by:
+  - dec-041
+  - dec-045
 ---
 
 ## Context

@@ -1,7 +1,7 @@
 ---
-id: dec-draft-ac2898b1
+id: dec-041
 title: Tiered MCP tool decomposition — thin conversational core, consolidated operator dispatchers
-status: proposed
+status: accepted
 category: architectural
 date: 2026-07-21
 summary: Split the 48-tool flat surface into a thin conversational core (verb-noun tools) and an operator long-tail collapsed into action-parameterized domain dispatchers; refines dec-003.

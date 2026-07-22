@@ -1,7 +1,7 @@
 ---
-id: dec-draft-1785275a
+id: dec-045
 title: Tiered MCP tool-surface topology — one server, action dispatchers now, meta-tool later, second server rejected
-status: proposed
+status: accepted
 category: architectural
 date: 2026-07-21
 summary: Architect ruling on Challenge 1 — adopt the interface-designer's two-tier surface (thin core + 7 operator dispatchers) on a single server (Option A) now; reserve the lazy catalog meta-tool (Option B) as the preferred future evolution gated on client dynamic-tool-loading; reject a second MCP server (Option C); record as a re-affirmation-with-narrowed-universality of dec-003, with an additive-alias non-breaking migration.
@@ -38,7 +38,7 @@ and query-program tools), re-evaluate for progressive disclosure."* That trigger
 fired — decisively.
 
 The interface-designer raised this as **Architecture Challenge 1** and proposed a
-two-tier surface (`dec-draft-ac2898b1`): a thin conversational core (~18 tools) plus the
+two-tier surface (`dec-041`): a thin conversational core (~18 tools) plus the
 operator long-tail collapsed into 7 action-parameterized domain dispatchers
 (`loop`, `branches`, `compile`, `datasets`, `arena`, `golden`, `vault_health`),
 ~49 → ~29 top-level tools, dispatchers being pure routing over the existing thin
@@ -78,7 +78,7 @@ rulings on the deferred questions:
    the dashboard `dashboard/src/toolClient.ts` call sites and the CLI-parallel naming —
    tracked as explicit migration items, not incidental.
 
-`dec-draft-ac2898b1` (interface-designer) remains the companion decision owning the
+`dec-041` (interface-designer) remains the companion decision owning the
 dispatcher *shapes / naming / decomposition*; this ADR owns the *server-topology* axis
 and the migration-safety + ADR-form rulings.
 
@@ -112,7 +112,7 @@ the tool surface.
 
 **Negative:** dispatchers concentrate operations behind one schema — the per-action arg
 matrix must be documented crisply or the model mis-fills args (mitigated by `mode=dry-run`
-previews and per-action `INVALID_ARGUMENT`, `dec-draft-19d50c6b`); a mild god-endpoint
+previews and per-action `INVALID_ARGUMENT`, `dec-040`); a mild god-endpoint
 shape for operators, in tension with dec-003's letter (accepted — dec-003's *intent*,
 selection clarity where it matters, is served by the thin core). Migration touches the
 dashboard client and CLI naming.

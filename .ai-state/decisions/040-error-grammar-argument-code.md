@@ -1,7 +1,7 @@
 ---
-id: dec-draft-19d50c6b
+id: dec-040
 title: Add INVALID_ARGUMENT error code — separate argument validation from cursor staleness
-status: proposed
+status: accepted
 category: architectural
 date: 2026-07-21
 summary: Introduce a dedicated INVALID_ARGUMENT error code so bad mode/status/limit/action/reference_pages arguments stop masquerading as INVALID_CURSOR (whose canonical fix text is actively wrong for them).

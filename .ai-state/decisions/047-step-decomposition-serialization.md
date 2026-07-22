@@ -1,7 +1,7 @@
 ---
-id: dec-draft-ad86c4e4
+id: dec-047
 title: Step-decomposition serialization — dispatcher create-then-wire split, server.py edit ordering, SessionStart hook consolidation
-status: proposed
+status: accepted
 category: implementation
 date: 2026-07-21
 summary: Three step-ordering/module-structure decisions made while decomposing SYSTEMS_PLAN.md into IMPLEMENTATION_PLAN.md — split dispatcher-module creation from server.py registration wiring, serialize the two SYSTEMS_PLAN-claimed-disjoint groups' server.py edits, and merge the two hooks/session_start.sh enrichments (P-C topic-seed, P-D attention-nudge) into one step.

@@ -1,7 +1,7 @@
 ---
-id: dec-draft-4f342a52
+id: dec-046
 title: Vault-mutation lock scope — widen the flock to bracket the full real-vault git-mutation span per loop pass, reentrantly
-status: proposed
+status: accepted
 category: architectural
 date: 2026-07-21
 summary: Realize the "mutating ops are flock-guarded" invariant at the correct granularity — the existing vault_lock brackets only the final state commit, leaving the loop's checkout/merge/delete spans unguarded; widen it to the full contiguous real-vault git-mutation span per loop pass, made reentrant so nested VaultTransactions reuse the held lock, released git-clean, with span-entry self-heal for crash recovery and a bounded acquire-timeout → retryable LOCK_BUSY.
@@ -35,7 +35,7 @@ transaction. Two passes contending on the same vault interleave those spans and 
 real corruption: `MERGE_HEAD exists`, `cannot do a partial commit during a merge`,
 `cannot lock ref`.
 
-Pre-existing (not a P-A regression), but **the daemon (dec-draft-64a38a63) makes it
+Pre-existing (not a P-A regression), but **the daemon (dec-044) makes it
 live**: a supervised background watcher pass and a synchronous MCP-gate pass
 (`tools_source_ingest.py::_run_gate`) are separate processes contending on one vault. An
 interim mitigation (`72bdc73`) broadened `VaultVcs._run`'s retry predicate to the

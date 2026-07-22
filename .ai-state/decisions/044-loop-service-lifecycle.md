@@ -1,7 +1,7 @@
 ---
-id: dec-draft-64a38a63
+id: dec-044
 title: Loop becomes a lifecycle-managed service — supersede "no periodic daemon in MVP" under a one-click-install / zero-user-burden bar
-status: proposed
+status: accepted
 category: architectural
 date: 2026-07-21
 summary: Per mid-flight user guidance, relax the locked "No periodic daemon in MVP" PRE_PLAN stance — the observe→gate→heal watcher becomes an automatically installed/spawned/supervised service (leading candidate an OS service manager) so the user starts no auxiliary process by hand; loop semantics, client-as-brain, and the stateless MCP server are all unchanged — only the loop's lifecycle management changes.
