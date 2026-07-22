@@ -1,7 +1,7 @@
 ---
-id: dec-draft-294465b3
+id: dec-051
 title: loop.py cohesion extraction — three concern-named sibling modules (partial td-008)
-status: proposed
+status: accepted
 category: architectural
 date: 2026-07-22
 summary: Extract build_loop_runner, the arena race-and-resolve core, and the candidate-gate cluster from loop.py into three concern-named sibling modules; partial resolution of td-008.
