@@ -11,7 +11,7 @@ agent_type: systems-architect
 branch: worktree-loop-consolidation
 pipeline_tier: full
 re_affirms: dec-003
-superseded_by: dec-draft-30f2f8ba
+superseded_by: dec-050
 affected_files:
   - src/knotica/mcp_server/server.py
   - src/knotica/mcp_server/tools_vault.py
@@ -141,7 +141,7 @@ a scope-narrowing this architect ADR owns, not a reversal of dec-003's principle
 
 ## Superseded (Partial) Addendum — 2026-07-22
 
-`dec-draft-30f2f8ba` supersedes only Decision ruling 5 above ("Migration is
+`dec-050` supersedes only Decision ruling 5 above ("Migration is
 additive-alias and non-breaking"): the 26 deprecated aliases it introduced were
 removed outright once their migration-window premise (external clients requiring
 gradual migration) was confirmed never to apply to this single-consumer,

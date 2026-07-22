@@ -1,7 +1,7 @@
 ---
-id: dec-draft-30f2f8ba
+id: dec-050
 title: Remove the 26 deprecated flat-tool aliases — the migration-window premise never held
-status: proposed
+status: accepted
 category: architectural
 date: 2026-07-22
 summary: Partial supersession of dec-045 — the two-tier dispatcher topology (Option A, one server, 7 dispatchers) stands unchanged; only the "additive-alias, non-breaking migration for one release cycle" clause is superseded, because knotica has zero external MCP consumers and the gradual-migration premise never applied.

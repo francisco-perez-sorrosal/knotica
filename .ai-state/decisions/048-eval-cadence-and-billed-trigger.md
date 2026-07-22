@@ -1,7 +1,7 @@
 ---
-id: dec-draft-9e0a147d
+id: dec-048
 title: Configurable eval cadence, td-011 re-arm, and a spend-gated dashboard eval trigger
-status: proposed
+status: accepted
 category: architectural
 date: 2026-07-22
 summary: Global [loop] cadence/throttle (min-interval, quiet-window, thread-count) hooked into observe_default only; failed evals re-arm instead of consuming the cursor; a billed "run eval now" trigger gated by a two-phase decision envelope.
@@ -110,7 +110,7 @@ install and behavior unchanged; candidate-gate eagerness preserved without speci
 **Negative**: `loop.py` grows further past its 800-line ceiling (td-008, tracked separately —
 not bundled here); the billed trigger's agent-non-pressability is layered mitigation, not a
 hard structural guarantee; the Sonnet-5-judge determinism change (companion ADR
-`dec-draft-01a7689b`) interacts with cadence only via the shared eval path.
+`dec-049`) interacts with cadence only via the shared eval path.
 
 ## Disconfirmation
 

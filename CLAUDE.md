@@ -32,7 +32,7 @@ widened to the full git-mutation span with crash self-heal and retryable `LOCK_B
 surface consolidated 49→30 via seven action-parameterized dispatchers (`loop`, `branches`,
 `compile`, `datasets`, `arena`, `golden`, `vault_health`) plus mis-selection telemetry; the
 26 deprecated flat-tool aliases the consolidation initially kept for a migration window were
-removed outright (`dec-draft-30f2f8ba` partially supersedes `dec-045` — no external MCP
+removed outright (`dec-050` partially supersedes `dec-045` — no external MCP
 consumers exist to migrate); conversational-routing layer added
 (symptom-based `wiki-maintenance` skill, slimmed server instructions pointing at `read_protocol`,
 read/offer guards on every mutating tool, cheap `wiki_status(view="scope")` check, SessionStart

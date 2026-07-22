@@ -1,7 +1,7 @@
 ---
-id: dec-draft-01a7689b
+id: dec-049
 title: Per-task [models] config with fingerprint-folding worker/judge and non-folding query
-status: proposed
+status: accepted
 category: architectural
 date: 2026-07-22
 summary: Introduce a [models] table (worker=Haiku 4.5, judge=Sonnet 5, query=Sonnet 5); worker/judge fold into harness_version (baseline refreeze on change), query does not; MIPRO proposal LM is inert and gets no key.

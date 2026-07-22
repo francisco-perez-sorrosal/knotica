@@ -375,7 +375,7 @@ Phase P4 — gap-fill source-candidate gate (this pipeline, `gapfill-source-gate
 
 Feature — eval cadence + per-task models (this pipeline, `eval-cadence-model-config`; **Planned**, draft ids finalize at merge):
 
-- **dec-draft-9e0a147d** — Configurable eval cadence + td-011 re-arm + spend-gated dashboard eval
+- **dec-048** — Configurable eval cadence + td-011 re-arm + spend-gated dashboard eval
   trigger. Global `[loop]` table (`eval_min_interval_hours` default 0 = byte-identical,
   `eval_window` quiet-hours, `eval_num_threads` default 4), resolved by a new
   `loop_cadence_config.py` (mirrors `gapfill_config.py`). Cadence hooks a single `_cadence_hold`
@@ -389,7 +389,7 @@ Feature — eval cadence + per-task models (this pipeline, `eval-cadence-model-c
   annotation + detection→`wiki_status` steering. Global-not-per-topic (no per-topic precedent).
   DI-close vs CLI/HTTP-only trigger (reversal: move off shared MCP surface if telemetry shows
   unbidden agent billing).
-- **dec-draft-01a7689b** — Per-task `[models]` config. Keys `worker`=Haiku 4.5
+- **dec-049** — Per-task `[models]` config. Keys `worker`=Haiku 4.5
   `claude-haiku-4-5-20251001` (high-volume grounded QA), `judge`=Sonnet 5 `claude-sonnet-5`
   (load-bearing judgment), `query`=Sonnet 5 (user-facing). worker/judge fold into
   `harness_version` (config value populates `HarnessConfig` before CLI override via

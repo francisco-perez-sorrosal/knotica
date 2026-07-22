@@ -39,7 +39,7 @@ single `VaultTransaction` (flock + atomic write + log append + secret-scrub + on
 > complete the surface. Total: **30 tools** (18 core + 4 stragglers + `open_dashboard` + 7 dispatchers). The
 > 26 deprecated aliases the consolidation initially kept for a migration window were removed outright once
 > the migration premise (external clients) never held for a single-consumer, self-operated project (see
-> `dec-draft-30f2f8ba`, superseding the relevant clause of `dec-045`).
+> `dec-050`, superseding the relevant clause of `dec-045`).
 > New `INVALID_ARGUMENT` error code for argument validation (distinct from cursor errors); 
 > `wiki_status(view="scope")` provides the cheapest scope-check for client-side routing.
 > **P-C Built** — four-layer conversational-routing architecture (skill symptom-detection + `_INSTRUCTIONS` stable-invariants-only + tool-description guards on mutating tools + vault prompts as sole evolvable substrate); SessionStart topic-awareness seed + attention-nudge (`knotica status --nudge`); per-client reliability tiers (Tier-1 Claude Code skill+hooks; Tier-2 Desktop instructions-only).
@@ -129,7 +129,7 @@ Every dispatcher invocation logs a structured line `{tool, action, topic}` for o
 
 **Dependency Boundary (P-B):**
 
-The seven dispatcher modules (`tools_dispatch_*.py`) import only their wrapped payload-helper modules (e.g., `tools_dispatch_loop` imports payload functions from `tools_vault`) and `core.errors`. No dispatcher imports another dispatcher; `dispatch_telemetry` is an import-cycle-free leaf. The former thin-tool modules (`tools_vault.py`, `tools_scoreboard.py`, `tools_compile.py`, `tools_datasets.py`, `tools_arena.py`, `tools_golden.py`) now hold only payload-helper functions and no `@mcp.tool` registrations — the 26 flat-tool aliases they used to register (kept for one release cycle per `dec-045`'s fifth ruling) were removed once the migration-window premise (external clients) never held for a single-consumer, self-operated project (`dec-draft-30f2f8ba` partially supersedes `dec-045`; the topology rulings stand unchanged).
+The seven dispatcher modules (`tools_dispatch_*.py`) import only their wrapped payload-helper modules (e.g., `tools_dispatch_loop` imports payload functions from `tools_vault`) and `core.errors`. No dispatcher imports another dispatcher; `dispatch_telemetry` is an import-cycle-free leaf. The former thin-tool modules (`tools_vault.py`, `tools_scoreboard.py`, `tools_compile.py`, `tools_datasets.py`, `tools_arena.py`, `tools_golden.py`) now hold only payload-helper functions and no `@mcp.tool` registrations — the 26 flat-tool aliases they used to register (kept for one release cycle per `dec-045`'s fifth ruling) were removed once the migration-window premise (external clients) never held for a single-consumer, self-operated project (`dec-050` partially supersedes `dec-045`; the topology rulings stand unchanged).
 
 **Built (Phase P2, gap-fill discovery):** `src/knotica/discovery/` provides a pluggable
 source-discovery layer — a `SearchProvider` protocol with an `httpx`-REST adapter (`YouComProvider` with bearer auth; Exa was cut by user directive but the protocol stays pluggable for future adapters), a separate
