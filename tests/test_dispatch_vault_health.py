@@ -45,8 +45,8 @@ def test_vault_health_dispatcher_registers_a_single_tool_documenting_the_six_act
     tools = {tool.name: tool for tool in list_tools(server)}
     assert "vault_health" in tools
     rendered = f"{tools['vault_health'].description or ''} {tools['vault_health'].inputSchema}"
-    for action in VALID_ACTIONS:
-        assert action in rendered
+    missing = sorted(a for a in VALID_ACTIONS if a not in rendered)
+    assert not missing, f"actions absent from tool docs/schema: {missing}"
 
 
 def test_unknown_action_is_rejected_naming_every_valid_action(vault_config: Path) -> None:
@@ -54,8 +54,8 @@ def test_unknown_action_is_rejected_naming_every_valid_action(vault_config: Path
     assert result.isError
     text = rendered_error_text(result)
     assert "INVALID_ARGUMENT" in text
-    for action in VALID_ACTIONS:
-        assert action in text
+    missing = sorted(a for a in VALID_ACTIONS if a not in text)
+    assert not missing, f"error text does not name actions: {missing}"
 
 
 def test_doctor_action_matches_doctor_run_tool(vault_config: Path) -> None:

@@ -3,9 +3,9 @@
 
 Pure routing: every action calls the same payload builder the replaced thin
 tool called, with the same arguments and the same semantics. No new
-behavior, no dry-run preview invented where the wrapped tool has none — see
-``dec-draft-ac2898b1``/``dec-draft-1785275a`` for why creation and wiring into
-``server.py`` are split (this module is not yet registered).
+behavior, no dry-run preview invented where the wrapped tool has none.
+Registered on ``server.py`` alongside the deprecated thin-tool aliases;
+the governing two-tier tool-surface ADRs live in ``.ai-state/decisions/``.
 """
 
 from __future__ import annotations

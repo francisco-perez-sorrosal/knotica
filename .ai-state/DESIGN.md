@@ -378,7 +378,14 @@ Phase P4 — gap-fill source-candidate gate (this pipeline, `gapfill-source-gate
 
 **Status: BUILT (P-A/P-B/P-C complete; P-D remaining planned).** The rows in §3 above describe the codebase as
 Built on `main` (dec-001..038). The consolidation pass (`loop-consolidation` pipeline) reshaped surfaces and internals
-**without changing any dec-001..038 semantics**. Finalized ADRs (dec-NNN ids assigned at merge):
+**without changing any dec-001..038 semantics**. **Deliberately deferred by the consolidation's
+scope boundary** (future work, not regressions): leveling plain ingest up to the source-ingest
+gate handshake (idempotent resume + mechanical completion backstop — a semantic change to the
+ingest trust model, needs its own design pass); removal of the 26 deprecated operator-tool
+aliases (separately gated after one release cycle, informed by dispatch telemetry); systemd
+service-manager live verification (code-complete, launchd is the verified platform);
+`loop.py` cohesion split (td-008 — the consolidation grew it to 1221 lines; extract the
+arena-race core + runner factory next). Finalized ADRs (dec-NNN ids assigned at merge):
 
 - **dec-draft-1785275a** — Tiered MCP tool-surface topology: thin conversational core
   (~18 tools, dec-003 principle re-affirmed) + operator long-tail collapsed into 7

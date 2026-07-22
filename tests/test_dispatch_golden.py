@@ -61,8 +61,8 @@ def test_golden_dispatcher_registers_a_single_tool_documenting_the_two_actions()
     tools = {tool.name: tool for tool in list_tools(server)}
     assert "golden" in tools
     rendered = f"{tools['golden'].description or ''} {tools['golden'].inputSchema}"
-    for action in VALID_ACTIONS:
-        assert action in rendered
+    missing = sorted(a for a in VALID_ACTIONS if a not in rendered)
+    assert not missing, f"actions absent from tool docs/schema: {missing}"
 
 
 def test_unknown_action_is_rejected_naming_every_valid_action(
@@ -73,8 +73,8 @@ def test_unknown_action_is_rejected_naming_every_valid_action(
     assert result.isError
     text = rendered_error_text(result)
     assert "INVALID_ARGUMENT" in text
-    for action in VALID_ACTIONS:
-        assert action in text
+    missing = sorted(a for a in VALID_ACTIONS if a not in text)
+    assert not missing, f"error text does not name actions: {missing}"
 
 
 def test_save_missing_accepted_json_is_rejected_naming_it(

@@ -4,8 +4,8 @@
 
 Pure routing: every action calls the same payload builder / core function the
 replaced thin tool called, with the same arguments and the same
-dry-run/apply semantics. Not yet registered on ``server.py`` — see
-``dec-draft-ac2898b1``/``dec-draft-1785275a``.
+dry-run/apply semantics. Registered on ``server.py`` alongside the deprecated thin-tool aliases;
+the governing two-tier tool-surface ADRs live in ``.ai-state/decisions/``.
 """
 
 from __future__ import annotations

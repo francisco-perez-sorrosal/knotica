@@ -54,8 +54,8 @@ def test_datasets_dispatcher_registers_a_single_tool_documenting_the_five_action
     tools = {tool.name: tool for tool in list_tools(server)}
     assert "datasets" in tools
     rendered = f"{tools['datasets'].description or ''} {tools['datasets'].inputSchema}"
-    for action in VALID_ACTIONS:
-        assert action in rendered
+    missing = sorted(a for a in VALID_ACTIONS if a not in rendered)
+    assert not missing, f"actions absent from tool docs/schema: {missing}"
 
 
 def test_unknown_action_is_rejected_naming_every_valid_action(
@@ -66,8 +66,8 @@ def test_unknown_action_is_rejected_naming_every_valid_action(
     assert result.isError
     text = rendered_error_text(result)
     assert "INVALID_ARGUMENT" in text
-    for action in VALID_ACTIONS:
-        assert action in text
+    missing = sorted(a for a in VALID_ACTIONS if a not in text)
+    assert not missing, f"error text does not name actions: {missing}"
 
 
 def test_records_missing_role_is_rejected_naming_it(

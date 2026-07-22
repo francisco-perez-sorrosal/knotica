@@ -53,7 +53,13 @@ def configure(subparsers: argparse._SubParsersAction) -> argparse.ArgumentParser
         ),
     )
     service_sub = parser.add_subparsers(dest="service_command", metavar="<subcommand>")
+    _configure_install(service_sub)
+    _configure_uninstall(service_sub)
+    _configure_status(service_sub)
+    return parser
 
+
+def _configure_install(service_sub: argparse._SubParsersAction) -> None:
     install = service_sub.add_parser(
         "install",
         parents=[common_parent()],
@@ -68,6 +74,8 @@ def configure(subparsers: argparse._SubParsersAction) -> argparse.ArgumentParser
         "--dry-run", action="store_true", help="show the plan; write and register nothing"
     )
 
+
+def _configure_uninstall(service_sub: argparse._SubParsersAction) -> None:
     uninstall = service_sub.add_parser(
         "uninstall",
         parents=[common_parent()],
@@ -81,6 +89,8 @@ def configure(subparsers: argparse._SubParsersAction) -> argparse.ArgumentParser
         "--dry-run", action="store_true", help="show the plan; deregister and remove nothing"
     )
 
+
+def _configure_status(service_sub: argparse._SubParsersAction) -> None:
     status = service_sub.add_parser(
         "status",
         parents=[common_parent()],
@@ -93,8 +103,6 @@ def configure(subparsers: argparse._SubParsersAction) -> argparse.ArgumentParser
     )
     status.add_argument("--vault", metavar="NAME", help="configured vault name to report on")
     status.add_argument("--json", action="store_true", help="emit machine-readable JSON")
-
-    return parser
 
 
 def run(args: argparse.Namespace) -> int:
