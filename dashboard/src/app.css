@@ -1769,6 +1769,19 @@ code { font-family: var(--mono); font-size: .9em; }
 }
 .heal-policy-btn:disabled { cursor: not-allowed; opacity: .6; }
 
+.heal-cadence-toggle {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: .35rem .55rem;
+}
+.heal-cadence-field input { width: 4.5rem; }
+.heal-run-eval-confirm {
+  flex-direction: column;
+  align-items: stretch;
+  border-color: var(--warn);
+}
+
 .heal-custom-baseline {
   margin-top: .35rem;
   font-size: .76rem;

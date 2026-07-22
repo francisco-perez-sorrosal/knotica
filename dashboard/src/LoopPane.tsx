@@ -13,7 +13,15 @@ import {
   resolveTopicCurrentScore,
 } from "./topicHelpers";
 import type { ToolClient } from "./toolClient";
-import type { CompileStatus, LoopProgress, MetricsRecord, MetricsWindow, WikiStatus } from "./types";
+import type {
+  CompileStatus,
+  LoopCadenceConfig,
+  LoopProgress,
+  LoopRunEvalResult,
+  MetricsRecord,
+  MetricsWindow,
+  WikiStatus,
+} from "./types";
 
 /** Story-facing stage path (full enum still lives on wiki_status). */
 const STORY_STAGES = [
@@ -96,6 +104,14 @@ export function LoopPane({
   const [baselineInput, setBaselineInput] = useState("");
   const [busy, setBusy] = useState<string | null>(null);
   const [actionNote, setActionNote] = useState<string | null>(null);
+  const [cadence, setCadence] = useState<LoopCadenceConfig | null>(null);
+  const [cadenceInputs, setCadenceInputs] = useState({
+    intervalHours: "",
+    window: "",
+    numThreads: "",
+  });
+  const [runEvalThreads, setRunEvalThreads] = useState("");
+  const [runEvalPreview, setRunEvalPreview] = useState<LoopRunEvalResult | null>(null);
   const autoProbeAttempted = useRef(false);
   const measureDisabled = !client || busy !== null || !topicReady;
   const vShape = detectVShape(
@@ -110,6 +126,29 @@ export function LoopPane({
   useEffect(() => {
     autoProbeAttempted.current = false;
   }, [topicName, vault]);
+
+  useEffect(() => {
+    if (!client || !topicReady) return;
+    let cancelled = false;
+    void (async () => {
+      try {
+        const result = await client.loopCadence(topicName, {}, vault ?? "");
+        if (cancelled) return;
+        setCadence(result);
+        setCadenceInputs({
+          intervalHours: String(result.eval_min_interval_hours),
+          window: result.eval_window,
+          numThreads: String(result.eval_num_threads),
+        });
+        setRunEvalThreads(String(result.eval_num_threads));
+      } catch {
+        // Cadence config is best-effort display; leave inputs blank on failure.
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [client, topicName, vault, topicReady]);
 
   useEffect(() => {
     if (!client || !status || autoProbeAttempted.current || busy) return;
@@ -249,6 +288,82 @@ export function LoopPane({
     await runHealAction("rebaseline", () => client.loopRebaseline(topicName, "best", vault));
   }
 
+  async function writeCadenceField(
+    field: "intervalHours" | "window" | "numThreads",
+    raw: string,
+  ) {
+    if (!client || busy || !cadence) return;
+    const overrides: Parameters<ToolClient["loopCadence"]>[1] = {};
+    if (field === "intervalHours") {
+      const hours = Number(raw);
+      if (!Number.isFinite(hours) || hours < 0 || String(hours) === String(cadence.eval_min_interval_hours)) {
+        return;
+      }
+      overrides.evalMinIntervalHours = hours;
+    } else if (field === "window") {
+      if (!raw.trim() || raw === cadence.eval_window) return;
+      overrides.evalWindow = raw.trim();
+    } else {
+      const threads = Number(raw);
+      if (!Number.isInteger(threads) || threads < 1 || threads === cadence.eval_num_threads) {
+        return;
+      }
+      overrides.evalNumThreads = threads;
+    }
+    await runHealAction("cadence", async () => {
+      const result = await client.loopCadence(topicName, overrides, vault ?? "");
+      setCadence(result);
+      setCadenceInputs({
+        intervalHours: String(result.eval_min_interval_hours),
+        window: result.eval_window,
+        numThreads: String(result.eval_num_threads),
+      });
+      return { message: "Cadence updated" };
+    });
+  }
+
+  /** Phase 1: preview only — never bills. Phase 2 (confirm) is a separate explicit click. */
+  async function previewRunEval() {
+    if (!client || busy) return;
+    const threads = Number(runEvalThreads);
+    const numThreads = Number.isInteger(threads) && threads > 0 ? threads : undefined;
+    setBusy("run-eval-preview");
+    setActionNote(null);
+    try {
+      const preview = await client.loopRunEval(topicName, "", numThreads, vault ?? "");
+      setRunEvalPreview(preview);
+    } catch (cause) {
+      setActionNote(cause instanceof Error ? cause.message : String(cause));
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  async function confirmRunEval() {
+    if (!client || busy || !runEvalPreview?.confirm_nonce) return;
+    setBusy("run-eval-confirm");
+    setActionNote(null);
+    try {
+      const result = await client.loopRunEval(
+        topicName,
+        runEvalPreview.confirm_nonce,
+        runEvalPreview.num_threads,
+        vault ?? "",
+      );
+      setRunEvalPreview(null);
+      setActionNote(result.message ?? "Eval run finished");
+      onStatusRefresh?.();
+    } catch (cause) {
+      setActionNote(cause instanceof Error ? cause.message : String(cause));
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  function cancelRunEvalPreview() {
+    setRunEvalPreview(null);
+  }
+
   function defendPolicyControls() {
     return (
       <div class="heal-policy-controls">
@@ -293,6 +408,129 @@ export function LoopPane({
               : `Re-freeze at best${metricsHighWater != null ? ` (${metricsHighWater.toFixed(4)})` : ""}`}
           </button>
         ) : null}
+      </div>
+    );
+  }
+
+  function cadenceControls() {
+    return (
+      <div class="heal-policy-controls">
+        <div class="heal-cadence-toggle" role="group" aria-label="Eval cadence">
+          <span class="heal-policy-toggle-label">cadence:</span>
+          <label class="heal-inline-field heal-cadence-field">
+            <span>min interval (h)</span>
+            <input
+              type="number"
+              step="1"
+              min="0"
+              value={cadenceInputs.intervalHours}
+              disabled={!client || busy !== null || !cadence}
+              onInput={(event) =>
+                setCadenceInputs((prev) => ({
+                  ...prev,
+                  intervalHours: (event.currentTarget as HTMLInputElement).value,
+                }))
+              }
+              onBlur={(event) =>
+                void writeCadenceField("intervalHours", (event.currentTarget as HTMLInputElement).value)
+              }
+            />
+          </label>
+          <label class="heal-inline-field heal-cadence-field">
+            <span>window</span>
+            <input
+              type="text"
+              value={cadenceInputs.window}
+              disabled={!client || busy !== null || !cadence}
+              onInput={(event) =>
+                setCadenceInputs((prev) => ({
+                  ...prev,
+                  window: (event.currentTarget as HTMLInputElement).value,
+                }))
+              }
+              onBlur={(event) =>
+                void writeCadenceField("window", (event.currentTarget as HTMLInputElement).value)
+              }
+            />
+          </label>
+          <label class="heal-inline-field heal-cadence-field">
+            <span>threads</span>
+            <input
+              type="number"
+              step="1"
+              min="1"
+              value={cadenceInputs.numThreads}
+              disabled={!client || busy !== null || !cadence}
+              onInput={(event) =>
+                setCadenceInputs((prev) => ({
+                  ...prev,
+                  numThreads: (event.currentTarget as HTMLInputElement).value,
+                }))
+              }
+              onBlur={(event) =>
+                void writeCadenceField("numThreads", (event.currentTarget as HTMLInputElement).value)
+              }
+            />
+          </label>
+        </div>
+        {busy === "cadence" ? <small class="muted">saving…</small> : null}
+      </div>
+    );
+  }
+
+  function runEvalControls() {
+    if (runEvalPreview) {
+      return (
+        <div class="heal-policy-controls heal-run-eval-confirm">
+          <p class="heal-step-body">
+            Preview: worker <strong>{runEvalPreview.worker}</strong>, judge{" "}
+            <strong>{runEvalPreview.judge}</strong>, threads{" "}
+            <strong>{runEvalPreview.num_threads}</strong>.
+            {runEvalPreview.estimated_cost ? ` ${runEvalPreview.estimated_cost}.` : ""} This has NOT
+            billed yet — confirm to run and bill.
+          </p>
+          <button
+            type="button"
+            class="heal-freeze-primary"
+            disabled={!client || busy !== null}
+            onClick={() => void confirmRunEval()}
+          >
+            {busy === "run-eval-confirm" ? "Running…" : "Confirm — run and bill"}
+          </button>
+          <button
+            type="button"
+            class="ghost"
+            disabled={busy !== null}
+            onClick={cancelRunEvalPreview}
+          >
+            Cancel
+          </button>
+        </div>
+      );
+    }
+    return (
+      <div class="heal-policy-controls">
+        <label class="heal-inline-field heal-cadence-field">
+          <span>threads</span>
+          <input
+            type="number"
+            step="1"
+            min="1"
+            value={runEvalThreads}
+            disabled={!client || busy !== null}
+            onInput={(event) =>
+              setRunEvalThreads((event.currentTarget as HTMLInputElement).value)
+            }
+          />
+        </label>
+        <button
+          type="button"
+          class="heal-freeze-secondary"
+          disabled={!client || busy !== null || !topicReady}
+          onClick={() => void previewRunEval()}
+        >
+          {busy === "run-eval-preview" ? "Estimating…" : "Run eval now"}
+        </button>
       </div>
     );
   }
@@ -473,6 +711,8 @@ export function LoopPane({
             gate to a real eval or compile scalar — not cold start 0.0.
           </p>
           {defendPolicyControls()}
+          {cadenceControls()}
+          {runEvalControls()}
         </div>
       );
     }
@@ -514,6 +754,8 @@ export function LoopPane({
           real eval or compile scalar — not cold start 0.0.
         </p>
         {defendPolicyControls()}
+        {cadenceControls()}
+        {runEvalControls()}
       </div>
     );
   }

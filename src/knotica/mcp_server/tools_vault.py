@@ -1,269 +1,42 @@
-"""Vault health + remediation tools for the dashboard Vault pane.
+"""Vault health + remediation payload helpers for the two action dispatchers.
 
 Thin adapters over existing CLI/core paths — same semantics as
 ``knotica doctor``, ``knotica okf check|repair``, and ``loop_runner --once``.
 No new repair algorithms; the UI only triggers and watches what already exists.
+
+These functions have no MCP tool registrations of their own — they are
+imported directly by ``tools_dispatch_vault_health.py`` and
+``tools_dispatch_loop.py``, the sole entry points into this logic.
 """
 
 from __future__ import annotations
 
 import json
-from pathlib import Path
+import os
+import secrets
+from datetime import UTC, datetime
+from functools import partial
+from pathlib import Path, PurePath
 from typing import Any
 
-from mcp.server.fastmcp import FastMCP
 from mcp.types import CallToolResult
 
+from knotica.cli.init import _atomic_write, _dump_config_toml, _read_config
 from knotica.core.arena import heuristic_arena_score
-from knotica.core.config import ResolvedVault, diagnose
+from knotica.core.config import ResolvedVault, config_file_path, diagnose
 from knotica.core.doctor import build_doctor_payload, run_doctor_checks
-from knotica.core.vault_metadata_tree import gather_vault_metadata_tree
 from knotica.core.errors import ErrorCode, KnoticaError
 from knotica.core.loop import LoopRunner, build_loop_runner, harness_evaluate
+from knotica.core.loop_cadence_config import LOOP_CONFIG_SECTION, resolve_loop_cadence_config
+from knotica.core.models_config import resolve_models_config
 from knotica.core.operations.doctor_repair import doctor_repair
 from knotica.core.page import TopicNotFoundError
 from knotica.mcp_server import envelope
-from knotica.mcp_server.dispatch_telemetry import deprecation_suffix, record_deprecated_alias
-from knotica.mcp_server.vault_ctx import with_resolved_vault
 from knotica.okf.check import check_vault
 from knotica.okf.repair import RepairOptions, repair_vault
 from knotica.store import VaultStore
 
-__all__ = ["register_vault_tools"]
-
 ToolResult = CallToolResult
-
-_DOCTOR_DESCRIPTION = (
-    "Run the same deterministic health checks as `knotica doctor` (mechanical, "
-    "no LLM). Returns the doctor --json checklist (PASS/WARN/FAIL rows + "
-    "remediation text). Pass quick=true for the SessionStart subset. Pass "
-    "fix=true for the same scoped repair guidance as `knotica doctor --fix` "
-    "(read-only command list). To actually restore paths use doctor_repair. "
-    "Pass vault to select a configured vault name. Read-only."
-)
-
-_DOCTOR_REPAIR_DESCRIPTION = (
-    "Path-scoped dirty-tree repair — same as `knotica doctor repair`. "
-    "mode=dry-run lists dirty paths; mode=apply restores selected paths to HEAD "
-    "under the vault lock (never `git restore .`). For apply, pass paths as a "
-    "JSON array string, or all_tracked=true. delete_untracked=true allows "
-    "removing selected untracked paths. Pass vault to select a configured vault. "
-    "mode=apply never fires from detection alone -- only after the user has "
-    "explicitly confirmed the repair; an unconfirmed detection routes to "
-    "mode=dry-run or an offer instead."
-)
-
-_OKF_CHECK_DESCRIPTION = (
-    "Run the same native OKF compatibility check as `knotica okf check`. "
-    "Reports concept/reserved-file findings and unresolved internal links. "
-    "Pass vault to select a configured vault. Read-only."
-)
-
-_OKF_REPAIR_DESCRIPTION = (
-    "Run the same OKF repair as `knotica okf repair`. mode=dry-run previews "
-    "files that would change (default); mode=apply writes + one git commit "
-    "(requires force=true when the work tree is dirty, matching the CLI). "
-    "Pass vault to select a configured vault. mode=apply never fires from "
-    "detection alone -- only after the user has explicitly confirmed the "
-    "repair; an unconfirmed detection routes to mode=dry-run or an offer "
-    "instead."
-)
-
-_LOOP_ONCE_DESCRIPTION = (
-    "Run one self-improvement loop tick for a topic — same as `knotica loop "
-    "--topic … --once`: first observe the default branch (new content is "
-    "evaluated on a clone; the first observation auto-freezes the gate "
-    "baseline), then gate at most one pending `loop/c/*` candidate. Updates "
-    "`<topic>/.knotica/loop-state.json` so wiki_status shows stage progress "
-    "(evaluating → arena race or merge/revert → passed/failed). On regression, "
-    "runs the prompt-variant arena heal. Runs a real eval (may take minutes). "
-    "Pass vault to select a configured vault. Never call this from detection "
-    "alone -- only the dashboard/CLI operator invokes it, or the user has "
-    "explicitly confirmed running the loop; an unconfirmed detection routes to "
-    "wiki_status instead."
-)
-
-_LOOP_POLICY_DESCRIPTION = (
-    "Set the topic's gate policy: 'latest' (baseline tracks reality — auto-freeze "
-    "and instrument re-freeze only) or 'best' (high-water mark — better "
-    "observations ratchet the baseline up; anything below it is a regression the "
-    "arena fights). Persists in loop-state (one git commit). Current policy is "
-    "readable via wiki_status.loop.baseline_policy. Never call this from "
-    "detection alone -- only the dashboard/CLI operator invokes it, or the user "
-    "has explicitly confirmed the policy change; an unconfirmed detection "
-    "routes to wiki_status instead."
-)
-
-_LOOP_REBASELINE_DESCRIPTION = (
-    "Re-freeze the gate baseline from metrics history — no eval. mode='best' "
-    "freezes the high-water mark, mode='latest' the most recent scalar, both "
-    "restricted to records from the current instrument (cross-instrument scalars "
-    "are never comparable). One git commit. Use after deciding the loop should "
-    "defend a previous quality level. Never call this from detection alone -- "
-    "only the dashboard/CLI operator invokes it, or the user has explicitly "
-    "confirmed the rebaseline; an unconfirmed detection routes to wiki_status "
-    "instead."
-)
-
-_LOOP_SET_BASELINE_DESCRIPTION = (
-    "Freeze the gate baseline scalar for a topic — same as "
-    "`python scripts/loop_runner.py --topic … --set-baseline SCALAR`. "
-    "Does not run eval. Pass vault to select a configured vault. Never call "
-    "this from detection alone -- only the dashboard/CLI operator invokes it, "
-    "or the user has explicitly confirmed the baseline change; an unconfirmed "
-    "detection routes to wiki_status instead."
-)
-
-_LINT_DESCRIPTION = (
-    "Run mechanical lint (same as `lint_check`) for a topic or the whole vault. "
-    "Returns violation objects with path, check, message, and fix. Pass vault "
-    "to select a configured vault. Read-only."
-)
-
-_METADATA_TREE_DESCRIPTION = (
-    "List the vault's Knotica metadata substrate as a nested tree: root `.knotica/` "
-    "(prompts, locks, ingest-activity when present), optional root SCHEMA.md/log.md, "
-    "and per-topic `{topic}/.knotica/` state (loop-state, compile-state, metrics, "
-    "datasets, compiled, prompts, …). Only existing paths are returned — not the "
-    "full wiki page tree. Pass topic to scope to one topic branch plus root metadata. "
-    "Pass vault to select a configured vault. Read-only."
-)
-
-
-def register_vault_tools(mcp: FastMCP) -> None:
-    """Register vault health / remediation tools on ``mcp``."""
-
-    @mcp.tool(
-        name="doctor_run",
-        description=_DOCTOR_DESCRIPTION + deprecation_suffix("doctor_run"),
-    )
-    def doctor_run(quick: bool = False, fix: bool = False, vault: str = "") -> ToolResult:
-        record_deprecated_alias("doctor_run")
-        return with_resolved_vault(
-            vault,
-            lambda store, resolved: _doctor_payload(store, resolved, quick=quick, include_fix=fix),
-        )
-
-    @mcp.tool(
-        name="doctor_repair",
-        description=_DOCTOR_REPAIR_DESCRIPTION + deprecation_suffix("doctor_repair"),
-    )
-    def doctor_repair_tool(
-        mode: str = "dry-run",
-        paths_json: str = "[]",
-        all_tracked: bool = False,
-        delete_untracked: bool = False,
-        vault: str = "",
-    ) -> ToolResult:
-        record_deprecated_alias("doctor_repair")
-        return with_resolved_vault(
-            vault,
-            lambda store, resolved: _doctor_repair_payload(
-                store,
-                resolved.path,
-                mode=mode,
-                paths_json=paths_json,
-                all_tracked=all_tracked,
-                delete_untracked=delete_untracked,
-            ),
-        )
-
-    @mcp.tool(
-        name="okf_check",
-        description=_OKF_CHECK_DESCRIPTION + deprecation_suffix("okf_check"),
-    )
-    def okf_check(strict: bool = False, vault: str = "") -> ToolResult:
-        record_deprecated_alias("okf_check")
-        return with_resolved_vault(
-            vault,
-            lambda store, _resolved: _okf_check_payload(store, strict=strict),
-        )
-
-    @mcp.tool(
-        name="okf_repair",
-        description=_OKF_REPAIR_DESCRIPTION + deprecation_suffix("okf_repair"),
-    )
-    def okf_repair(mode: str = "dry-run", force: bool = False, vault: str = "") -> ToolResult:
-        record_deprecated_alias("okf_repair")
-        return with_resolved_vault(
-            vault,
-            lambda store, _resolved: _okf_repair_payload(store, mode=mode, force=force),
-        )
-
-    @mcp.tool(
-        name="loop_run_once",
-        description=_LOOP_ONCE_DESCRIPTION + deprecation_suffix("loop_run_once"),
-    )
-    def loop_run_once(topic: str, vault: str = "") -> ToolResult:
-        record_deprecated_alias("loop_run_once")
-        return with_resolved_vault(
-            vault,
-            lambda store, resolved: _loop_once_payload(store, resolved.path, topic),
-        )
-
-    @mcp.tool(
-        name="loop_set_baseline",
-        description=_LOOP_SET_BASELINE_DESCRIPTION + deprecation_suffix("loop_set_baseline"),
-    )
-    def loop_set_baseline(topic: str, scalar: float, vault: str = "") -> ToolResult:
-        record_deprecated_alias("loop_set_baseline")
-        return with_resolved_vault(
-            vault,
-            lambda store, resolved: _loop_set_baseline_payload(store, resolved.path, topic, scalar),
-        )
-
-    @mcp.tool(
-        name="loop_baseline_policy",
-        description=_LOOP_POLICY_DESCRIPTION + deprecation_suffix("loop_baseline_policy"),
-    )
-    def loop_baseline_policy(topic: str, policy: str, vault: str = "") -> ToolResult:
-        record_deprecated_alias("loop_baseline_policy")
-        return with_resolved_vault(
-            vault,
-            lambda store, resolved: _loop_policy_payload(store, resolved.path, topic, policy),
-        )
-
-    @mcp.tool(
-        name="loop_rebaseline",
-        description=_LOOP_REBASELINE_DESCRIPTION + deprecation_suffix("loop_rebaseline"),
-    )
-    def loop_rebaseline(topic: str, mode: str = "best", vault: str = "") -> ToolResult:
-        record_deprecated_alias("loop_rebaseline")
-        return with_resolved_vault(
-            vault,
-            lambda store, resolved: _loop_rebaseline_payload(store, resolved.path, topic, mode),
-        )
-
-    @mcp.tool(
-        name="vault_lint",
-        description=_LINT_DESCRIPTION + deprecation_suffix("vault_lint"),
-    )
-    def vault_lint(topic: str = "", vault: str = "") -> ToolResult:
-        from knotica.core.lint import lint_vault
-
-        record_deprecated_alias("vault_lint")
-        return with_resolved_vault(
-            vault,
-            lambda store, _resolved: envelope.read_ok(
-                {
-                    "topic": topic.strip().strip("/"),
-                    "violations": [violation.render() for violation in lint_vault(store, topic)],
-                }
-            ),
-        )
-
-    @mcp.tool(
-        name="vault_metadata_tree",
-        description=_METADATA_TREE_DESCRIPTION + deprecation_suffix("vault_metadata_tree"),
-    )
-    def vault_metadata_tree(topic: str = "", vault: str = "") -> ToolResult:
-        record_deprecated_alias("vault_metadata_tree")
-        return with_resolved_vault(
-            vault,
-            lambda store, resolved: envelope.read_ok(
-                gather_vault_metadata_tree(store, resolved.path, topic=topic)
-            ),
-        )
 
 
 def _doctor_payload(
@@ -388,13 +161,47 @@ def _okf_repair_payload(store: VaultStore, *, mode: str, force: bool) -> dict[st
     )
 
 
-def _loop_once_payload(store: VaultStore, vault_path: Path, topic: str) -> dict[str, Any]:
+def _loop_once_payload(
+    store: VaultStore, vault_path: Path, topic: str, *, confirm: str = ""
+) -> dict[str, Any]:
+    """Two-phase decision envelope for a billed, human-triggered loop tick.
+
+    Reuses the same nonce mint/consume/TTL mechanism as ``run_eval`` (see
+    ``_loop_run_eval_payload``), keyed under a ``run-once``-specific nonce
+    file so the two actions never collide. Phase 1 (no ``confirm``, or a
+    stale/mismatched/expired nonce): mints a fresh preview envelope and
+    returns -- never calls ``observe_default`` or ``poll_once``, never bills.
+    Phase 2 (a ``confirm`` matching the unexpired, unconsumed nonce): consumes
+    the nonce (single-use) and runs the actual tick (both calls, exactly as
+    the unconfirmed legacy behavior did).
+    """
     cleaned = topic.strip().strip("/")
     if not cleaned or "/" in cleaned:
         raise TopicNotFoundError(topic or "(empty)")
+    if confirm.strip():
+        consumed = _consume_run_once_nonce(vault_path, cleaned, confirm.strip())
+        if consumed is not None:
+            return _execute_run_once(store, vault_path, cleaned)
+    nonce = _mint_run_once_nonce(vault_path, cleaned)
+    return envelope.read_ok(
+        {
+            "action": "run_once",
+            "topic": cleaned,
+            "estimated_cost": (
+                "1 default-branch observation eval (if new content exists) plus "
+                "at most one pending candidate-gate eval"
+            ),
+            "confirm_nonce": nonce,
+            "ttl": _RUN_EVAL_NONCE_TTL_SECONDS,
+        }
+    )
+
+
+def _execute_run_once(store: VaultStore, vault_path: Path, topic: str) -> dict[str, Any]:
+    """Run one actual loop tick -- the billing boundary for ``run_once``."""
     runner = build_loop_runner(
         vault_path,
-        cleaned,
+        topic,
         evaluate=harness_evaluate,
         store=store,
         arena_enabled=True,
@@ -412,7 +219,9 @@ def _loop_once_payload(store: VaultStore, vault_path: Path, topic: str) -> dict[
     result = candidate if candidate.acted or not observed.acted else observed
     return envelope.read_ok(
         {
-            "topic": cleaned,
+            "action": "run_once",
+            "topic": topic,
+            "billed": True,
             "acted": result.acted,
             "branch": result.branch,
             "sha": result.sha,
@@ -505,3 +314,252 @@ def _loop_rebaseline_payload(
             "message": f"baseline re-frozen ({mode}) at {baseline:.4f}",
         }
     )
+
+
+#: Single-use nonce lifetime for the ``run_eval`` two-phase decision envelope.
+_RUN_EVAL_NONCE_TTL_SECONDS = 300.0
+
+#: Runtime (gitignored) directory the nonce file lives in -- same home as the
+#: loop heartbeat and vault mutation lock. Never vault content, never a
+#: ``VaultStore`` write, never a git commit.
+_LOOP_LOCKS_DIR = PurePath(".knotica/locks")
+
+
+def _loop_cadence_payload(
+    topic: str,
+    *,
+    eval_min_interval_hours: float | None,
+    eval_window: str | None,
+    eval_num_threads: int | None,
+) -> dict[str, Any]:
+    """Read (no params) or additively write (any param) the ``[loop]`` cadence config."""
+    cleaned = topic.strip().strip("/")
+    if not cleaned or "/" in cleaned:
+        raise TopicNotFoundError(topic or "(empty)")
+    if (
+        eval_min_interval_hours is not None
+        or eval_window is not None
+        or eval_num_threads is not None
+    ):
+        _write_loop_cadence_config(
+            eval_min_interval_hours=eval_min_interval_hours,
+            eval_window=eval_window,
+            eval_num_threads=eval_num_threads,
+        )
+    resolved = resolve_loop_cadence_config()
+    return envelope.read_ok(
+        {
+            "topic": cleaned,
+            "eval_min_interval_hours": resolved.eval_min_interval_hours,
+            "eval_window": resolved.eval_window,
+            "eval_num_threads": resolved.eval_num_threads,
+        }
+    )
+
+
+def _write_loop_cadence_config(
+    *,
+    eval_min_interval_hours: float | None,
+    eval_window: str | None,
+    eval_num_threads: int | None,
+) -> None:
+    """Additively merge cadence keys into ``config.toml``'s ``[loop]`` table.
+
+    Reuses ``cli.init``'s read/dump/atomic-write primitives verbatim (no
+    bespoke TOML-dump logic here) -- every sibling top-level key and every
+    other table (``[models]``, ``[gapfill]``, ``[vaults.*]``, ...) round-trips
+    untouched because only the ``loop`` dict key is mutated before the
+    re-serialize.
+    """
+    path = config_file_path()
+    path.parent.mkdir(parents=True, exist_ok=True)
+    data = _read_config(path)
+    section = dict(data.get(LOOP_CONFIG_SECTION, {}))
+    if eval_min_interval_hours is not None:
+        section["eval_min_interval_hours"] = eval_min_interval_hours
+    if eval_window is not None:
+        section["eval_window"] = eval_window
+    if eval_num_threads is not None:
+        section["eval_num_threads"] = eval_num_threads
+    data[LOOP_CONFIG_SECTION] = section
+    _atomic_write(path, _dump_config_toml(data))
+
+
+def _loop_run_eval_payload(
+    store: VaultStore,
+    vault_path: Path,
+    topic: str,
+    *,
+    confirm: str,
+    num_threads: int | None,
+) -> dict[str, Any]:
+    """Two-phase decision envelope for a billed, human-triggered eval.
+
+    Phase 1 (no ``confirm``, or a stale/mismatched/expired nonce): mints a
+    fresh preview envelope and returns -- never calls ``observe_default``,
+    never bills. Phase 2 (a ``confirm`` matching the unexpired, unconsumed
+    nonce): consumes the nonce (single-use) and runs the eval with
+    ``force=True``, bypassing cadence only -- ``_observation_hold`` still
+    applies.
+    """
+    cleaned = topic.strip().strip("/")
+    if not cleaned or "/" in cleaned:
+        raise TopicNotFoundError(topic or "(empty)")
+    if confirm.strip():
+        consumed = _consume_run_eval_nonce(vault_path, cleaned, confirm.strip())
+        if consumed is not None:
+            return _execute_run_eval(
+                store,
+                vault_path,
+                cleaned,
+                worker=str(consumed["worker"]),
+                judge=str(consumed["judge"]),
+                num_threads=int(consumed["num_threads"]),
+            )
+    models = resolve_models_config()
+    cadence = resolve_loop_cadence_config()
+    requested_threads = num_threads if num_threads is not None else cadence.eval_num_threads
+    nonce = _mint_run_eval_nonce(
+        vault_path,
+        cleaned,
+        worker=models.worker,
+        judge=models.judge,
+        num_threads=requested_threads,
+    )
+    return envelope.read_ok(
+        {
+            "action": "run_eval",
+            "topic": cleaned,
+            "worker": models.worker,
+            "judge": models.judge,
+            "num_threads": requested_threads,
+            "estimated_cost": (
+                f"~1 worker+judge call pair per golden question at "
+                f"num_threads={requested_threads} (total calls scale with the "
+                f"topic's golden-set size)"
+            ),
+            "confirm_nonce": nonce,
+            "ttl": _RUN_EVAL_NONCE_TTL_SECONDS,
+        }
+    )
+
+
+def _execute_run_eval(
+    store: VaultStore,
+    vault_path: Path,
+    topic: str,
+    *,
+    worker: str,
+    judge: str,
+    num_threads: int,
+) -> dict[str, Any]:
+    evaluate = partial(
+        harness_evaluate,
+        num_threads=num_threads,
+        worker_snapshot=worker,
+        judge_snapshot=judge,
+    )
+    runner = build_loop_runner(
+        vault_path, topic, evaluate=evaluate, store=store, runner_cls=LoopRunner
+    )
+    result = runner.observe_default(force=True)
+    return envelope.read_ok(
+        {
+            "action": "run_eval",
+            "topic": topic,
+            "billed": True,
+            "acted": result.acted,
+            "decision": result.decision.value if result.decision else "none",
+            "scalar": result.scalar,
+            "message": result.message,
+            "worker": worker,
+            "judge": judge,
+            "num_threads": num_threads,
+        }
+    )
+
+
+def _nonce_path(vault_path: Path, kind: str, topic: str) -> Path:
+    """Nonce file location for a given billed action ``kind`` (e.g. ``run-eval``,
+    ``run-once``) and topic -- one file per (kind, topic) pair so concurrent
+    billed actions never collide."""
+    safe_topic = topic.replace("/", "-") or "vault"
+    return vault_path / _LOOP_LOCKS_DIR / f"{kind}-nonce-{safe_topic}.json"
+
+
+def _mint_nonce(vault_path: Path, kind: str, topic: str, extra: dict[str, Any]) -> str:
+    """Mint + persist a single-use nonce for a billed action.
+
+    Shared mechanism behind both ``run_eval`` and ``run_once``'s two-phase
+    decision envelopes -- see ``_loop_run_eval_payload``/``_loop_once_payload``.
+    """
+    nonce = secrets.token_urlsafe(16)
+    path = _nonce_path(vault_path, kind, topic)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    payload = {
+        "nonce": nonce,
+        "topic": topic,
+        "minted_at": datetime.now(UTC).isoformat(),
+        **extra,
+    }
+    tmp = path.with_suffix(".tmp")
+    tmp.write_text(json.dumps(payload), encoding="utf-8")
+    os.replace(tmp, path)
+    return nonce
+
+
+def _consume_nonce(vault_path: Path, kind: str, topic: str, confirm: str) -> dict[str, Any] | None:
+    """Verify + consume a single-use nonce; returns the minted payload or ``None``.
+
+    The nonce file is deleted unconditionally on read (single-use, no probing
+    a live nonce by sending a wrong ``confirm`` value) -- a mismatch or
+    expiry falls through to phase 1, minting a fresh nonce.
+    """
+    path = _nonce_path(vault_path, kind, topic)
+    try:
+        raw = path.read_text(encoding="utf-8")
+        payload = json.loads(raw)
+    except (OSError, json.JSONDecodeError):
+        return None
+    path.unlink(missing_ok=True)
+    if payload.get("nonce") != confirm:
+        return None
+    try:
+        minted_at = datetime.fromisoformat(str(payload["minted_at"]))
+    except (KeyError, ValueError):
+        return None
+    age = (datetime.now(UTC) - minted_at).total_seconds()
+    if age > _RUN_EVAL_NONCE_TTL_SECONDS:
+        return None
+    return payload
+
+
+def _run_eval_nonce_path(vault_path: Path, topic: str) -> Path:
+    return _nonce_path(vault_path, "run-eval", topic)
+
+
+def _mint_run_eval_nonce(
+    vault_path: Path, topic: str, *, worker: str, judge: str, num_threads: int
+) -> str:
+    return _mint_nonce(
+        vault_path,
+        "run-eval",
+        topic,
+        {"worker": worker, "judge": judge, "num_threads": num_threads},
+    )
+
+
+def _consume_run_eval_nonce(vault_path: Path, topic: str, confirm: str) -> dict[str, Any] | None:
+    return _consume_nonce(vault_path, "run-eval", topic, confirm)
+
+
+def _run_once_nonce_path(vault_path: Path, topic: str) -> Path:
+    return _nonce_path(vault_path, "run-once", topic)
+
+
+def _mint_run_once_nonce(vault_path: Path, topic: str) -> str:
+    return _mint_nonce(vault_path, "run-once", topic, {})
+
+
+def _consume_run_once_nonce(vault_path: Path, topic: str, confirm: str) -> dict[str, Any] | None:
+    return _consume_nonce(vault_path, "run-once", topic, confirm)

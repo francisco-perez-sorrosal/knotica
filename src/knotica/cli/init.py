@@ -497,26 +497,41 @@ def _read_config(path: Path) -> dict:
 
 
 def _dump_config_toml(data: dict) -> str:
-    """Serialize the config table (top-level scalars + ``[vaults.<name>]``)."""
+    """Serialize the config table additively.
+
+    Handles three shapes: top-level scalars, the special ``[vaults.<name>]``
+    nested-table family, and any other dict-valued top-level key rendered as a
+    flat ``[<key>]`` table (e.g. ``[loop]``, ``[models]``, ``[gapfill]``).
+    Every writer that reads via :func:`_read_config` and writes back through
+    this function preserves sibling sections it never touched -- callers only
+    mutate the one dict key they own.
+    """
     lines: list[str] = []
     for key, value in data.items():
-        if key == "vaults":
+        if key == "vaults" or isinstance(value, dict):
             continue
-        if isinstance(value, (str, int, bool)):
+        if isinstance(value, (str, int, float, bool)):
             lines.append(f"{key} = {_toml_scalar(value)}")
     for name, entry in data.get("vaults", {}).items():
         lines.append("")
         lines.append(f"[vaults.{name}]")
         for key, value in entry.items():
             lines.append(f"{key} = {_toml_scalar(value)}")
+    for key, value in data.items():
+        if key == "vaults" or not isinstance(value, dict):
+            continue
+        lines.append("")
+        lines.append(f"[{key}]")
+        for sub_key, sub_value in value.items():
+            lines.append(f"{sub_key} = {_toml_scalar(sub_value)}")
     return "\n".join(lines) + "\n"
 
 
-def _toml_scalar(value: str | int | bool) -> str:
-    """Render a scalar as a TOML value (bool before int -- ``bool`` is an int)."""
+def _toml_scalar(value: str | int | float | bool) -> str:
+    """Render a scalar as a TOML value (bool before int/float -- ``bool`` is an int)."""
     if isinstance(value, bool):
         return "true" if value else "false"
-    if isinstance(value, int):
+    if isinstance(value, (int, float)):
         return str(value)
     return json.dumps(value)  # basic string with correct escaping
 

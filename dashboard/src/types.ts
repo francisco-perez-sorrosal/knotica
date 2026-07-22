@@ -598,6 +598,30 @@ export interface LoopRebaselineResult {
   message: string;
 }
 
+export interface LoopCadenceConfig {
+  topic: string;
+  eval_min_interval_hours: number;
+  eval_window: string;
+  eval_num_threads: number;
+}
+
+/** Discriminated by ``confirm_nonce`` presence: preview (phase 1) vs executed (phase 2). */
+export interface LoopRunEvalResult {
+  action: "run_eval";
+  topic: string;
+  worker: string;
+  judge: string;
+  num_threads: number;
+  estimated_cost?: string;
+  confirm_nonce?: string;
+  ttl?: number;
+  billed?: boolean;
+  acted?: boolean;
+  decision?: string;
+  scalar?: number | null;
+  message?: string;
+}
+
 export interface BaselineProbeResult {
   topic: string;
   scalar: number;

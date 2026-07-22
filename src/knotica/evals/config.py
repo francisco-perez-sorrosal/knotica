@@ -28,23 +28,28 @@ cycle. The golden-set floor lives in :mod:`knotica.evals.golden`
 harness default, so it is deliberately not surfaced or duplicated here.
 
 **Model-snapshot pins (constraint prose, verified against the live catalog).** The
-judge and worker snapshots are pinned to the *exact* catalog model ids. For the
-4.6 generation the alias-form strings ``claude-opus-4-6`` / ``claude-sonnet-4-6``
-ARE the complete, exact ids -- there is no dated snapshot variant, and appending a
-date suffix (e.g. ``-20251114``) resolves to a 404. That is precisely why these
-pins are not date-suffixed: a dated form does not exist for this generation, so the
-alias-form id is the exact pin, not a floating alias.
+judge is pinned to ``claude-sonnet-5`` and the worker to
+``claude-haiku-4-5-20251001`` -- exact catalog model ids. Historical context: the
+harness previously pinned the 4.6 generation, whose alias-form strings
+``claude-opus-4-6`` / ``claude-sonnet-4-6`` WERE the complete, exact ids for that
+generation (no dated snapshot variant existed; a date suffix resolved to a 404).
+That no-dated-form fact no longer applies to the current pins -- it is preserved
+here only as context for readers of old commits/ADRs.
 
-Two determinism-relevant API facts about the 4.6 generation, encoded by the runner
-and judge and recorded here so an upgrade does not silently break them:
+Two determinism-relevant API facts, encoded by the runner and judge and recorded
+here so a future rotation does not silently break them:
 
-* ``temperature=0`` is accepted on the 4.6 generation. It is REMOVED on Opus 4.7+
-  / Sonnet 5 (those 400 on a ``temperature`` argument) -- rotating either snapshot
-  to a newer generation therefore requires dropping ``temperature=0`` from the
-  runner/judge calls, and bumps :func:`harness_version` here.
-* A request that OMITS the ``thinking`` parameter runs WITHOUT thinking on the 4.6
-  generation -- the deterministic default the runner and judge want, and which they
-  already produce by never sending ``thinking``.
+* ``temperature`` is REJECTED by Sonnet 5 and later Opus generations (``claude-opus-4-7*``,
+  ``claude-opus-4-8*``, and later) -- see
+  :func:`knotica.evals.llm._snapshot_accepts_temperature`. It was accepted on the
+  4.6 generation and is still accepted by Haiku 4.5, the current
+  :data:`WORKER_SNAPSHOT`. Per the accepted trade-off (see the project's ADRs):
+  the judge (Sonnet 5) loses ``temperature=0`` determinism, absorbed by
+  ``N_JUDGE_SAMPLES=3`` median -- rotating either snapshot to a
+  temperature-incompatible generation bumps :func:`harness_version` here.
+* A request that OMITS the ``thinking`` parameter runs WITHOUT thinking on all
+  currently pinned generations -- the deterministic default the runner and judge
+  want, and which they already produce by never sending ``thinking``.
 
 **The fingerprint.** :func:`harness_version` hashes ``{scalar_formula_version,
 judge_snapshot, worker_snapshot, judge_prompt_hash, runner_config_hash}``, where
@@ -93,15 +98,16 @@ __all__ = [
 # constraint prose for why the 4.6 generation carries no dated form).
 # --------------------------------------------------------------------------- #
 
-#: The pinned judge model: an Opus-class snapshot (maximally stable reference
-#: grader). ``claude-opus-4-6`` is the exact catalog id -- not a floating alias and
-#: not date-suffixed, because the 4.6 generation has no dated snapshot variant.
-JUDGE_SNAPSHOT = "claude-opus-4-6"
+#: The pinned judge model: a Sonnet 5 snapshot (maximally stable reference
+#: grader). ``claude-sonnet-5`` is the exact catalog id. Sonnet 5 REJECTS the
+#: ``temperature`` argument (see the module docstring's constraint prose) --
+#: :func:`knotica.evals.llm._snapshot_accepts_temperature` omits it for this pin.
+JUDGE_SNAPSHOT = "claude-sonnet-5"
 
-#: The pinned worker/baseline model: a Sonnet-class snapshot (the answerer whose
-#: output is scored). ``claude-sonnet-4-6`` is the exact catalog id, same
-#: no-dated-form reasoning as :data:`JUDGE_SNAPSHOT`.
-WORKER_SNAPSHOT = "claude-sonnet-4-6"
+#: The pinned worker/baseline model: a Haiku-class snapshot (the answerer whose
+#: output is scored). ``claude-haiku-4-5-20251001`` is the exact dated catalog id.
+#: Haiku 4.5 accepts ``temperature`` -- only the judge's Sonnet 5 pin loses it.
+WORKER_SNAPSHOT = "claude-haiku-4-5-20251001"
 
 # --------------------------------------------------------------------------- #
 # Judge sampling.

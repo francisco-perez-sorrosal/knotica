@@ -16,6 +16,8 @@ import time
 from collections.abc import Callable
 from contextlib import AbstractContextManager
 from dataclasses import dataclass
+from datetime import datetime
+from datetime import time as _time_of_day
 from pathlib import Path
 from typing import Protocol
 
@@ -67,6 +69,19 @@ RESULT_BRANCH_PREFIX = branch_namespaces.RESULT_BRANCH_PREFIX
 #: attribute into any vault before its first merge.
 _GITATTRIBUTES_PATH = ".gitattributes"
 _LOG_UNION_RULE = "log.md merge=union"
+
+#: Always-on floor between retries of a *failing* observation eval, independent
+#: of ``eval_min_interval_hours``/``eval_window`` (which gate the eager,
+#: config-off-by-default path). Without this, a persistently-failing eval at
+#: the default config retries every loop tick (5-30s) indefinitely — a real
+#: spend/log-noise risk. Applies only to retries of already-``pending_retry``
+#: state; a brand-new content change is never held by this floor.
+_FAILURE_RETRY_FLOOR_SECONDS = 60
+
+
+def _local_now() -> datetime:
+    """Default ``now_fn``: naive local-clock timestamp (matches ``eval_window`` inputs)."""
+    return datetime.now()
 
 
 class EvalOutcome(Protocol):
@@ -135,6 +150,9 @@ class LoopRunner:
         observe_quiet_seconds: float = 0.0,
         ingest_hold_stale_seconds: float = 600.0,
         clock: Callable[[], float] = time.monotonic,
+        eval_min_interval_hours: float = 0.0,
+        eval_window: tuple[_time_of_day, _time_of_day] | None = None,
+        now_fn: Callable[[], datetime] = _local_now,
     ) -> None:
         self._root = Path(vault_root).resolve()
         self._topic = topic.strip().strip("/")
@@ -160,6 +178,13 @@ class LoopRunner:
         self._clock = clock
         self._pending_head: str | None = None
         self._pending_since: float = 0.0
+        # Cadence throttle (observe_default only — never the candidate-gate
+        # path). All-defaults (0.0 / None) is the byte-identical fast path:
+        # ``_cadence_hold`` returns ``None`` unconditionally before touching
+        # either knob.
+        self._eval_min_interval_hours = eval_min_interval_hours
+        self._eval_window = eval_window
+        self._now_fn = now_fn
 
     def set_baseline(
         self,
@@ -182,7 +207,9 @@ class LoopRunner:
             self._store, self._root, state, title=f"freeze baseline {scalar:.4f}"
         )
 
-    def observe_default(self, *, auto_baseline: bool = True) -> LoopCycleResult:
+    def observe_default(
+        self, *, auto_baseline: bool = True, force: bool = False
+    ) -> LoopCycleResult:
         """Eval the default branch when its HEAD moved since the last observation.
 
         This is the autonomous "observe" leg: content lands on the default branch
@@ -232,6 +259,29 @@ class LoopRunner:
                 message=hold,
             )
 
+        failure_hold = self._failure_retry_hold(state, head, self._now_fn())
+        if failure_hold is not None:
+            return LoopCycleResult(
+                acted=False,
+                branch=default,
+                sha=head,
+                decision=LoopDecision.none,
+                scalar=None,
+                message=failure_hold,
+            )
+
+        if not force:
+            cadence_hold = self._cadence_hold(state, self._now_fn())
+            if cadence_hold is not None:
+                return LoopCycleResult(
+                    acted=False,
+                    branch=default,
+                    sha=head,
+                    decision=LoopDecision.none,
+                    scalar=None,
+                    message=cadence_hold,
+                )
+
         self._ensure_union_log_merge()
         state = write_loop_state(
             self._store,
@@ -242,6 +292,7 @@ class LoopRunner:
                     "candidate_branch": default,
                     "candidate_sha": head,
                     "last_error": None,
+                    "last_eval_started_at": self._now_fn(),
                 }
             ),
             title=f"observing {default}@{head[:12]}",
@@ -253,6 +304,13 @@ class LoopRunner:
         try:
             outcome = self._evaluate(self._topic, self._root, eval_ref)
         except Exception as exc:  # noqa: BLE001 — surface into loop-state, keep runner alive
+            # Do NOT mark_processed here: the cursor must stay unadvanced so the
+            # next tick still sees content-changed against this same head and
+            # re-attempts the eval. last_eval_started_at (set above, before this
+            # try block) throttles that retry via _cadence_hold — it does not
+            # fire on every tick with no delay. candidate_sha is deliberately
+            # KEPT as the failed head (not nulled) so a later tick can tell a
+            # same-content retry apart from a genuinely new content change.
             write_loop_state(
                 self._store,
                 self._root,
@@ -260,10 +318,11 @@ class LoopRunner:
                     update={
                         "stage": LoopStage.failed,
                         "last_error": str(exc),
-                        "candidate_branch": None,
-                        "candidate_sha": None,
+                        "candidate_branch": default,
+                        "candidate_sha": head,
+                        "pending_retry": True,
                     }
-                ).mark_processed(default, head),
+                ),
                 title=f"observation eval error on {default}",
             )
             return LoopCycleResult(
@@ -298,6 +357,7 @@ class LoopRunner:
                 "candidate_branch": None,
                 "candidate_sha": None,
                 "last_error": None,
+                "pending_retry": False,
             }
             # A baseline is only comparable under the instrument that produced it.
             # When the harness fingerprint rotates (judge prompt edit, model
@@ -424,6 +484,66 @@ class LoopRunner:
             return f"observation settling ({self._observe_quiet_seconds:g}s quiet window)"
         self._pending_head = None
         return None
+
+    def _failure_retry_hold(self, state: LoopState, head: str, now: datetime) -> str | None:
+        """Reason to defer a retry of a *failing* observation eval, or ``None``.
+
+        Always-on and independent of ``eval_min_interval_hours``/``eval_window``
+        — the only things it consults are ``state.pending_retry`` (set when the
+        previous observation eval raised), ``state.candidate_sha`` (the head
+        that failed, kept rather than nulled on the failure path), and elapsed
+        time since that eval started. A brand-new content change never has
+        ``pending_retry`` set, and different CONTENT than what failed is never
+        held here — only a same-content retry is. Content equality (not exact
+        sha equality) is the right comparison: the loop's own bookkeeping
+        commits (loop-state / metrics / log) move ``head`` between ticks even
+        when nothing a human wrote has changed.
+        """
+        if not state.pending_retry or state.last_eval_started_at is None:
+            return None
+        if state.candidate_sha is None:
+            return None
+        if self._content_changed_since(state.candidate_sha, head):
+            return None
+        elapsed_seconds = (now - state.last_eval_started_at).total_seconds()
+        if elapsed_seconds < _FAILURE_RETRY_FLOOR_SECONDS:
+            return (
+                f"failure retry held: {elapsed_seconds:.0f}s since last eval attempt "
+                f"< {_FAILURE_RETRY_FLOOR_SECONDS}s floor"
+            )
+        return None
+
+    def _cadence_hold(self, state: LoopState, now: datetime) -> str | None:
+        """Reason to defer this observation eval on cadence grounds, or ``None``.
+
+        Called only from :meth:`observe_default` — never from :meth:`poll_once`
+        or :meth:`_process_candidate`, whose candidate-gate evals stay eager
+        always. All-defaults (``eval_min_interval_hours == 0`` and
+        ``eval_window is None``) is the byte-identical fast path: this method
+        returns ``None`` before touching either knob, so scheduling is
+        unchanged from pre-cadence behavior.
+        """
+        if self._eval_min_interval_hours == 0 and self._eval_window is None:
+            return None
+        if self._eval_min_interval_hours > 0 and state.last_eval_started_at is not None:
+            elapsed_hours = (now - state.last_eval_started_at).total_seconds() / 3600.0
+            if elapsed_hours < self._eval_min_interval_hours:
+                return (
+                    f"cadence held: {elapsed_hours:.2f}h since last eval start "
+                    f"< {self._eval_min_interval_hours:g}h interval"
+                )
+        if self._eval_window is not None and not self._within_window(now.time()):
+            return (
+                f"cadence held: outside eval window {self._eval_window[0]}-{self._eval_window[1]}"
+            )
+        return None
+
+    def _within_window(self, now_time: _time_of_day) -> bool:
+        """``True`` if ``now_time`` falls inside ``self._eval_window`` (supports midnight wrap)."""
+        start, end = self._eval_window  # type: ignore[misc]  # guarded by caller
+        if start <= end:
+            return start <= now_time <= end
+        return now_time >= start or now_time <= end
 
     def _ensure_union_log_merge(self) -> None:
         """Self-heal the ``log.md merge=union`` attribute into the vault (idempotent)."""
@@ -1116,6 +1236,9 @@ def build_loop_runner(
     observe_quiet_seconds: float = 0.0,
     ingest_hold_stale_seconds: float = 600.0,
     clock: Callable[[], float] = time.monotonic,
+    eval_min_interval_hours: float = 0.0,
+    eval_window: tuple[_time_of_day, _time_of_day] | None = None,
+    now_fn: Callable[[], datetime] = _local_now,
     runner_cls: type[LoopRunner] = LoopRunner,
 ) -> LoopRunner:
     """Construct a :class:`LoopRunner`, the single factory both construction sites share.
@@ -1153,6 +1276,9 @@ def build_loop_runner(
         observe_quiet_seconds=observe_quiet_seconds,
         ingest_hold_stale_seconds=ingest_hold_stale_seconds,
         clock=clock,
+        eval_min_interval_hours=eval_min_interval_hours,
+        eval_window=eval_window,
+        now_fn=now_fn,
     )
 
 

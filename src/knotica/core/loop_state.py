@@ -88,6 +88,10 @@ class LoopState(BaseModel):
     #: branch name → last tip SHA the runner finished processing
     cursors: dict[str, str] = Field(default_factory=dict)
     updated_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
+    #: Wall-clock time the most recent observation eval attempt started (cadence gating).
+    last_eval_started_at: datetime | None = None
+    #: Set when an observation eval failed and the cursor was left unadvanced for retry.
+    pending_retry: bool = False
 
     @field_validator("topic")
     @classmethod

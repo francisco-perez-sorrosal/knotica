@@ -79,6 +79,26 @@ __all__ = [
     "TokenUsage",
 ]
 
+#: Snapshot-id prefixes that REJECT the ``temperature`` argument (a 400 error on
+#: the Messages API). Everything not matched here -- including Haiku 4.5 and the
+#: 4.6 generation -- accepts ``temperature`` and returns ``True``. New
+#: temperature-incompatible generations extend this tuple, not the predicate logic.
+_TEMPERATURE_DENYLIST_PREFIXES: tuple[str, ...] = (
+    "claude-sonnet-5",
+    "claude-opus-4-7",
+    "claude-opus-4-8",
+)
+
+
+def _snapshot_accepts_temperature(snapshot: str) -> bool:
+    """Whether ``snapshot`` accepts a ``temperature`` argument on the Messages API.
+
+    ``False`` for Sonnet 5 and Opus 4.7+/4.8+ (they 400 on ``temperature``);
+    ``True`` for everything else, including Haiku 4.5 and the 4.6 generation.
+    """
+    return not snapshot.startswith(_TEMPERATURE_DENYLIST_PREFIXES)
+
+
 _LOGGER = logging.getLogger(__name__)
 
 #: The **preferred** credential env var: a Claude subscription OAuth bearer token
@@ -329,9 +349,10 @@ class AnthropicClient:
             "messages": [
                 {"role": message.role, "content": message.content} for message in messages
             ],
-            "temperature": temperature,
             "max_tokens": max_tokens,
         }
+        if _snapshot_accepts_temperature(snapshot):
+            create_kwargs["temperature"] = temperature
         if json_schema is not None:
             create_kwargs[_OUTPUT_CONFIG_KWARG] = _structured_output_config(json_schema)
         try:
@@ -465,13 +486,16 @@ class FakeCall:
 
     ``json_schema`` records the structured-output schema the caller passed (``None``
     when the call was unconstrained), so a test can assert the schema pass-through
-    that reaches the real client's ``output_config``.
+    that reaches the real client's ``output_config``. ``temperature`` mirrors
+    :class:`AnthropicClient`'s ``create_kwargs`` omission: ``None`` when
+    :func:`_snapshot_accepts_temperature` rejects ``snapshot``, so a test can
+    assert the same conditionalization the real client applies.
     """
 
     snapshot: str
     system: str
     messages: tuple[Message, ...]
-    temperature: float
+    temperature: float | None
     max_tokens: int
     json_schema: dict[str, object] | None = None
 
@@ -511,7 +535,7 @@ class FakeLLMClient:
                 snapshot=snapshot,
                 system=system,
                 messages=tuple(messages),
-                temperature=temperature,
+                temperature=temperature if _snapshot_accepts_temperature(snapshot) else None,
                 max_tokens=max_tokens,
                 json_schema=json_schema,
             )

@@ -1,7 +1,7 @@
 ---
 id: dec-045
 title: Tiered MCP tool-surface topology — one server, action dispatchers now, meta-tool later, second server rejected
-status: accepted
+status: superseded
 category: architectural
 date: 2026-07-21
 summary: Architect ruling on Challenge 1 — adopt the interface-designer's two-tier surface (thin core + 7 operator dispatchers) on a single server (Option A) now; reserve the lazy catalog meta-tool (Option B) as the preferred future evolution gated on client dynamic-tool-loading; reject a second MCP server (Option C); record as a re-affirmation-with-narrowed-universality of dec-003, with an additive-alias non-breaking migration.
@@ -11,6 +11,7 @@ agent_type: systems-architect
 branch: worktree-loop-consolidation
 pipeline_tier: full
 re_affirms: dec-003
+superseded_by: dec-draft-30f2f8ba
 affected_files:
   - src/knotica/mcp_server/server.py
   - src/knotica/mcp_server/tools_vault.py
@@ -137,3 +138,13 @@ disclosure is added (dispatchers are consolidation, not disclosure). The univers
 application of thin-everywhere produced the 49-tool flat surface that works *against*
 routing reliability, so the operator long-tail is consolidated into action dispatchers —
 a scope-narrowing this architect ADR owns, not a reversal of dec-003's principle.
+
+## Superseded (Partial) Addendum — 2026-07-22
+
+`dec-draft-30f2f8ba` supersedes only Decision ruling 5 above ("Migration is
+additive-alias and non-breaking"): the 26 deprecated aliases it introduced were
+removed outright once their migration-window premise (external clients requiring
+gradual migration) was confirmed never to apply to this single-consumer,
+self-operated project. Rulings 1-4 — server topology (Option A), Option B deferral,
+Option C rejection, and the ADR-form ruling (re-affirmation-with-narrowed-
+universality of dec-003) — are unaffected and remain the governing decision.

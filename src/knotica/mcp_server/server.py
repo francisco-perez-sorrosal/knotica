@@ -24,9 +24,6 @@ from mcp.server.fastmcp import FastMCP
 from knotica.mcp_server.app_ui import register_dashboard_app
 from knotica.mcp_server.prompts import register_prompts
 from knotica.mcp_server.resources import register_resources
-from knotica.mcp_server.tools_arena import register_arena_tools
-from knotica.mcp_server.tools_compile import register_compile_tools
-from knotica.mcp_server.tools_datasets import register_datasets_tools
 from knotica.mcp_server.tools_dispatch_arena import register_dispatch_arena_tools
 from knotica.mcp_server.tools_dispatch_branches import register_dispatch_branches_tools
 from knotica.mcp_server.tools_dispatch_compile import register_dispatch_compile_tools
@@ -34,17 +31,14 @@ from knotica.mcp_server.tools_dispatch_datasets import register_dispatch_dataset
 from knotica.mcp_server.tools_dispatch_golden import register_dispatch_golden_tools
 from knotica.mcp_server.tools_dispatch_loop import register_dispatch_loop_tools
 from knotica.mcp_server.tools_dispatch_vault_health import register_dispatch_vault_health_tools
-from knotica.mcp_server.tools_golden import register_golden_tools
 from knotica.mcp_server.tools_guide import register_guide_tools
 from knotica.mcp_server.tools_ingest import register_ingest_tools
 from knotica.mcp_server.tools_prompt_diff import register_prompt_diff_tools
 from knotica.mcp_server.tools_query import register_query_tools
 from knotica.mcp_server.tools_read import register_read_tools
-from knotica.mcp_server.tools_scoreboard import register_scoreboard_tools
 from knotica.mcp_server.tools_source_ingest import register_source_ingest_tools
 from knotica.mcp_server.tools_status import register_status_tools
 from knotica.mcp_server.tools_suggestions import register_suggestions_tools
-from knotica.mcp_server.tools_vault import register_vault_tools
 from knotica.mcp_server.tools_write import register_write_tools
 
 #: Server display name (the client sees this in ``initialize``).
@@ -94,20 +88,11 @@ def _build_server(*, stateless_http: bool = False) -> FastMCP:
     register_write_tools(mcp)
     register_query_tools(mcp)
     register_prompt_diff_tools(mcp)
-    register_arena_tools(mcp)
-    register_compile_tools(mcp)
     register_status_tools(mcp)
-    register_scoreboard_tools(mcp)
     register_suggestions_tools(mcp)
     register_source_ingest_tools(mcp)
-    register_vault_tools(mcp)
-    register_golden_tools(mcp)
-    register_datasets_tools(mcp)
     register_ingest_tools(mcp)
-    # Operator long-tail two-tier surface: 7 action dispatchers registered
-    # alongside the thin aliases they supersede (additive, non-breaking for one
-    # release cycle). See dispatch_telemetry for the alias map + mis-selection
-    # instrumentation.
+    # Operator long-tail two-tier surface: 7 action-parameterized dispatchers.
     register_dispatch_loop_tools(mcp)
     register_dispatch_branches_tools(mcp)
     register_dispatch_compile_tools(mcp)

@@ -15,6 +15,7 @@ from typing import Any
 from knotica.core.compiled import is_compiled_healthy, load_compiled
 from knotica.core.errors import ErrorCode, KnoticaError
 from knotica.core.page import TopicNotFoundError
+from knotica.core.models_config import resolve_models_config
 from knotica.evals.cache import ResponseCache
 from knotica.evals.compiled_runner import CompiledRunner
 from knotica.evals.config import WORKER_SNAPSHOT
@@ -70,11 +71,16 @@ def answer_question(
     question: str,
     *,
     llm_client: LLMClient | None = None,
-    worker_snapshot: str = WORKER_SNAPSHOT,
+    worker_snapshot: str | None = None,
     cache: ResponseCache | None = None,
     runner: BaselineRunner | None = None,
 ) -> QueryResult:
     """Answer ``question`` for ``topic`` via the unified query facade.
+
+    ``worker_snapshot`` defaults to ``[models].query`` (``resolve_models_config()``)
+    when omitted -- an explicit caller-supplied value always wins. This resolution
+    is independent of the eval harness: it never touches ``HarnessConfig`` or
+    ``harness_version``.
 
     Raises:
         TopicNotFoundError: When ``topic`` is missing or malformed.
@@ -90,11 +96,12 @@ def answer_question(
     if not store.exists(cleaned_topic):
         raise TopicNotFoundError(cleaned_topic)
 
+    resolved_worker_snapshot = worker_snapshot or resolve_models_config().query
     active = runner or select_runner(
         store,
         cleaned_topic,
         llm_client=llm_client,
-        worker_snapshot=worker_snapshot,
+        worker_snapshot=resolved_worker_snapshot,
         cache=cache,
     )
     try:

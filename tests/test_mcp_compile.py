@@ -18,6 +18,13 @@ from knotica.store import LocalFSStore
 TOPIC = "agentic-systems"
 
 
+#: `compile_promote` was removed -- the flat alias was fully retired, not
+#: deprecated; route it through the `compile` dispatcher.
+_DISPATCHER_ACTIONS = {
+    "compile_promote": ("compile", "promote"),
+}
+
+
 def _build_server() -> Any:
     from knotica.mcp_server import server as server_mod
 
@@ -27,9 +34,11 @@ def _build_server() -> Any:
 async def _call(server: Any, tool: str, args: dict[str, Any]) -> Any:
     from mcp.shared.memory import create_connected_server_and_client_session
 
+    dispatcher, action = _DISPATCHER_ACTIONS.get(tool, (tool, None))
+    call_args = args if action is None else {"action": action, **args}
     async with create_connected_server_and_client_session(server) as session:
         await session.initialize()
-        return await session.call_tool(tool, args)
+        return await session.call_tool(dispatcher, call_args)
 
 
 def call_tool(tool: str, args: dict[str, Any]) -> Any:
@@ -52,7 +61,7 @@ def test_compile_promote_is_registered() -> None:
 
     mcp = build_server()
     names = {tool.name for tool in mcp._tool_manager.list_tools()}  # noqa: SLF001
-    assert "compile_promote" in names
+    assert "compile" in names
 
 
 def test_compile_promote_mcp_dry_run(vault_config: Path, template_vault: Path) -> None:

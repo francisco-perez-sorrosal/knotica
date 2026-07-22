@@ -60,8 +60,9 @@ from knotica.cli.common import (
 )
 from knotica.core.config import ConfigDiagnosis, ConfigState, ResolvedVault, diagnose
 from knotica.core.errors import ErrorCode, KnoticaError
+from knotica.core.models_config import resolve_models_config
 from knotica.core.records import MetricsRecord, RecordParseError
-from knotica.evals.config import DEFAULT_CONFIG, HarnessConfig
+from knotica.evals.config import HarnessConfig
 from knotica.evals.golden import (
     GoldenCandidateError,
     GoldenSetError,
@@ -185,7 +186,7 @@ def _add_override_flags(parser: argparse.ArgumentParser) -> None:
         "--num-threads",
         type=int,
         metavar="N",
-        help="dspy.Evaluate thread count (must be 1 in v1)",
+        help="dspy.Evaluate thread count",
     )
 
 
@@ -213,7 +214,7 @@ def _report_unconfigured(console: Console, diagnosis: ConfigDiagnosis) -> int:
 def _run_eval(console: Console, vault: ResolvedVault, args: argparse.Namespace) -> int:
     """Build the config, run the harness, and render the record (or a clean error)."""
     try:
-        run_config = _resolve_config(DEFAULT_CONFIG, args)
+        run_config = _resolve_config(resolve_models_config().to_harness_base(), args)
     except ValueError as bad_override:
         console.error(str(bad_override))
         return EXIT_MISUSE
@@ -263,7 +264,7 @@ def _run_bootstrap(console: Console, vault: ResolvedVault, args: argparse.Namesp
     the key value is never echoed.
     """
     try:
-        run_config = _resolve_config(DEFAULT_CONFIG, args)
+        run_config = _resolve_config(resolve_models_config().to_harness_base(), args)
     except ValueError as bad_override:
         console.error(str(bad_override))
         return EXIT_MISUSE

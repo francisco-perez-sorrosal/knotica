@@ -373,6 +373,33 @@ Phase P4 — gap-fill source-candidate gate (this pipeline, `gapfill-source-gate
   interface-designer's `dec-035` (adopts its `gate_outcome` shape + `loop/x/*` namespace) and
   `dec-034` (the `candidate` handle + `source_ingest_open`/`submit` surface).
 
+Feature — eval cadence + per-task models (this pipeline, `eval-cadence-model-config`; **Planned**, draft ids finalize at merge):
+
+- **dec-draft-9e0a147d** — Configurable eval cadence + td-011 re-arm + spend-gated dashboard eval
+  trigger. Global `[loop]` table (`eval_min_interval_hours` default 0 = byte-identical,
+  `eval_window` quiet-hours, `eval_num_threads` default 4), resolved by a new
+  `loop_cadence_config.py` (mirrors `gapfill_config.py`). Cadence hooks a single `_cadence_hold`
+  guard into `observe_default()` only — candidate-gate path (`poll_once`) stays eager by
+  construction. A wall-clock `now_fn` injectable backs interval + window (monotonic clock can't
+  express time-of-day). **td-011 fixed**: the failure handler stops consuming the cursor (drops
+  `mark_processed`), sets additive `pending_retry` + `last_eval_started_at` LoopState fields
+  (`schema_version=1`, additive-safe), so a failed eval re-arms. Cadence is Desktop-controllable
+  via `loop action=cadence` (deterministic config write); the billed `loop action=run_eval`
+  trigger is gated by a two-phase decision-envelope nonce (no single-call billing) + `billed`
+  annotation + detection→`wiki_status` steering. Global-not-per-topic (no per-topic precedent).
+  DI-close vs CLI/HTTP-only trigger (reversal: move off shared MCP surface if telemetry shows
+  unbidden agent billing).
+- **dec-draft-01a7689b** — Per-task `[models]` config. Keys `worker`=Haiku 4.5
+  `claude-haiku-4-5-20251001` (high-volume grounded QA), `judge`=Sonnet 5 `claude-sonnet-5`
+  (load-bearing judgment), `query`=Sonnet 5 (user-facing). worker/judge fold into
+  `harness_version` (config value populates `HarnessConfig` before CLI override via
+  `config_from_toml.with_overrides(**cli)`, so a model swap refreezes the baseline); `query` is
+  excluded (never writes the frozen instrument). MIPRO proposal LM is inert → no key (tech debt).
+  Per-snapshot `temperature` conditionalization in `evals/llm.py` (Sonnet 5 rejects the arg;
+  Haiku 4.5 / 4.6-gen keep sending `temperature=0`); Sonnet 5 judge loses temperature-0
+  determinism (absorbed by the 3-sample median; snapshot change refreezes). Re-affirms dec-015 /
+  dec-014.
+
 <!-- aac:authored owner=systems-architect last-reviewed=2026-07-21 -->
 ### Consolidation realized — loop-consolidation pipeline (2026-07-21)
 

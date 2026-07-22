@@ -59,6 +59,8 @@ Desktop gotcha: the config must use the **absolute path to `uvx`** (minimal PATH
 4. **Curate** good answers (`curate_example` / `/knotica:curate`) until compile-ready.
 5. Optional: open the dashboard — Desktop: ask Claude to call `open_dashboard`; or `knotica mcp --http` and browse `http://127.0.0.1:8765/`.
 
+**Optional configuration:** [Eval cadence and model selection](docs/CLAUDE_DESKTOP.md#configuration-models-and-eval-cadence) are available via `~/.config/knotica/config.toml` `[loop]` and `[models]` tables. All keys are optional with defaults; no new required setup.
+
 ### Quick Desktop smoke test (demo topic)
 
 The template ships `agentic-systems` with Agent Workflow Memory pages. In Claude Desktop Chat:

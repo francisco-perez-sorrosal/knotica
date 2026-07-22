@@ -1,28 +1,24 @@
-"""Equivalence suite for the `arena` dispatcher vs. its two thin tools.
+"""Validation-path suite for the `arena` dispatcher.
 
 The dispatcher lives in `mcp_server/tools_dispatch_arena.py`
 (`register_dispatch_arena_tools`) and wraps `arena_status`/`arena_history`
-from `mcp_server/tools_arena.py`. Every test imports it lazily so collection
-stays green even before the paired implementer step lands (the concurrent
-BDD/TDD RED handshake).
+from `mcp_server/tools_arena.py`.
 
-Both wrapped tools are read-only -- no dry-run/apply split applies to this
-domain (unlike `branches`/`compile`).
+Equivalence-vs-deprecated-alias coverage was removed once the deprecated flat
+tools were deleted from the server -- there is no longer a second surface to
+compare against. Only the dispatcher's own validation behavior is covered
+here.
 """
 
 from __future__ import annotations
 
 from pathlib import Path
 
-from knotica.core.arena import VariantSpec, race_variants
-from knotica.store import LocalFSStore
 from support.dispatch import (
     TOPIC,
     build_dispatch_server,
-    build_full_server,
     call_tool,
     list_tools,
-    payload_of,
     rendered_error_text,
 )
 
@@ -54,47 +50,3 @@ def test_unknown_action_is_rejected_naming_every_valid_action(
     assert "INVALID_ARGUMENT" in text
     missing = sorted(a for a in VALID_ACTIONS if a not in text)
     assert not missing, f"error text does not name actions: {missing}"
-
-
-def test_status_action_matches_arena_status_tool_on_an_idle_topic(
-    vault_config: Path, template_vault: Path
-) -> None:
-    """`updated_at` is a fresh `datetime.now(UTC)` stamp on every idle read (no
-    arena state exists yet to carry a stored one) -- excluded from the
-    equality check since the two calls happen microseconds apart, same as
-    `commit_sha`/`branch` are excluded in the mutating-action proofs below.
-    """
-    del template_vault
-    old = payload_of(call_tool(build_full_server(), "arena_status", {"topic": TOPIC}))
-    new = payload_of(call_tool(_dispatch_server(), "arena", {"action": "status", "topic": TOPIC}))
-    assert "error" not in old and "error" not in new
-    old_rest = {k: v for k, v in old.items() if k != "updated_at"}
-    new_rest = {k: v for k, v in new.items() if k != "updated_at"}
-    assert new_rest == old_rest
-    assert new["stage"] == "idle"
-
-
-def test_history_action_matches_arena_history_tool_after_a_race(
-    vault_config: Path, template_vault: Path
-) -> None:
-    del vault_config
-    store = LocalFSStore(template_vault)
-    race_variants(
-        store,
-        template_vault,
-        TOPIC,
-        [
-            VariantSpec(id="v1", label="a", body="# a\n"),
-            VariantSpec(id="v2", label="b", body="# b\n"),
-        ],
-        baseline_scalar=0.5,
-        score=lambda _t, _r, body: 0.9 if "# b" in body else 0.1,
-    )
-
-    old = payload_of(call_tool(build_full_server(), "arena_history", {"topic": TOPIC, "limit": 5}))
-    new = payload_of(
-        call_tool(_dispatch_server(), "arena", {"action": "history", "topic": TOPIC, "limit": 5})
-    )
-    assert "error" not in old and "error" not in new
-    assert new == old
-    assert new["races"]

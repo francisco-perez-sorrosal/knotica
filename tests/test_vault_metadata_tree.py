@@ -12,6 +12,13 @@ from knotica.core.vault_metadata_tree import gather_vault_metadata_tree
 from knotica.store import LocalFSStore
 
 
+#: `vault_metadata_tree` was removed -- the flat alias was fully retired,
+#: not deprecated; route it through the `vault_health` dispatcher.
+_DISPATCHER_ACTIONS = {
+    "vault_metadata_tree": ("vault_health", "metadata_tree"),
+}
+
+
 def _build_server() -> Any:
     from knotica.mcp_server import server as server_mod
 
@@ -21,9 +28,11 @@ def _build_server() -> Any:
 async def _call(server: Any, tool: str, args: dict[str, Any]) -> Any:
     from mcp.shared.memory import create_connected_server_and_client_session
 
+    dispatcher, action = _DISPATCHER_ACTIONS.get(tool, (tool, None))
+    call_args = args if action is None else {"action": action, **args}
     async with create_connected_server_and_client_session(server) as session:
         await session.initialize()
-        return await session.call_tool(tool, args)
+        return await session.call_tool(dispatcher, call_args)
 
 
 def call_tool(tool: str, args: dict[str, Any]) -> Any:
@@ -126,7 +135,7 @@ def test_vault_metadata_tree_tool_registered() -> None:
             return sorted(t.name for t in listed.tools)
 
     names = anyio.run(_list)
-    assert "vault_metadata_tree" in names
+    assert "vault_health" in names
 
 
 def test_vault_metadata_tree_mcp_payload(vault_config: Path, template_vault: Path) -> None:

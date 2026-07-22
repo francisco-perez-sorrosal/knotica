@@ -13,6 +13,14 @@ from support.vault import run_git
 TOPIC = "agentic-systems"
 
 
+#: `golden_review_load`/`golden_review_save` were removed -- the flat aliases
+#: were fully retired, not deprecated; route each through `golden`.
+_DISPATCHER_ACTIONS = {
+    "golden_review_load": ("golden", "load"),
+    "golden_review_save": ("golden", "save"),
+}
+
+
 def _build_server() -> Any:
     from knotica.mcp_server import server as server_mod
 
@@ -22,9 +30,11 @@ def _build_server() -> Any:
 async def _call(server: Any, tool: str, args: dict[str, Any]) -> Any:
     from mcp.shared.memory import create_connected_server_and_client_session
 
+    dispatcher, action = _DISPATCHER_ACTIONS.get(tool, (tool, None))
+    call_args = args if action is None else {"action": action, **args}
     async with create_connected_server_and_client_session(server) as session:
         await session.initialize()
-        return await session.call_tool(tool, args)
+        return await session.call_tool(dispatcher, call_args)
 
 
 def call_tool(tool: str, args: dict[str, Any]) -> Any:
@@ -76,8 +86,7 @@ def test_golden_tools_registered() -> None:
             return sorted(t.name for t in listed.tools)
 
     names = anyio.run(_list)
-    assert "golden_review_load" in names
-    assert "golden_review_save" in names
+    assert "golden" in names
 
 
 def test_golden_review_load_missing_staging(vault_config: Path) -> None:

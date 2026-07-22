@@ -22,8 +22,10 @@ import type {
   GoldenSaveResult,
   IngestActivity,
   LoopBaselinePolicyResult,
+  LoopCadenceConfig,
   LoopOnceResult,
   LoopRebaselineResult,
+  LoopRunEvalResult,
   LoopSetBaselineResult,
   BaselineProbeResult,
   MetricsWindow,
@@ -108,6 +110,21 @@ export interface ToolClient {
     vault?: string,
   ): Promise<LoopRebaselineResult>;
   baselineProbe(topic: string, vault?: string): Promise<BaselineProbeResult>;
+  loopCadence(
+    topic: string,
+    overrides?: {
+      evalMinIntervalHours?: number;
+      evalWindow?: string;
+      evalNumThreads?: number;
+    },
+    vault?: string,
+  ): Promise<LoopCadenceConfig>;
+  loopRunEval(
+    topic: string,
+    confirm?: string,
+    numThreads?: number,
+    vault?: string,
+  ): Promise<LoopRunEvalResult>;
   branchScoreboard(topic: string, vault?: string): Promise<BranchScoreboard>;
   branchPromote(
     kind: "compile" | "loop",
@@ -326,6 +343,40 @@ abstract class BaseToolClient implements ToolClient {
 
   baselineProbe(topic: string, vault = ""): Promise<BaselineProbeResult> {
     return this.call("baseline_probe", { topic, vault });
+  }
+
+  loopCadence(
+    topic: string,
+    overrides: {
+      evalMinIntervalHours?: number;
+      evalWindow?: string;
+      evalNumThreads?: number;
+    } = {},
+    vault = "",
+  ): Promise<LoopCadenceConfig> {
+    return this.call("loop", {
+      action: "cadence",
+      topic,
+      eval_min_interval_hours: overrides.evalMinIntervalHours,
+      eval_window: overrides.evalWindow,
+      eval_num_threads: overrides.evalNumThreads,
+      vault,
+    });
+  }
+
+  loopRunEval(
+    topic: string,
+    confirm = "",
+    numThreads?: number,
+    vault = "",
+  ): Promise<LoopRunEvalResult> {
+    return this.call("loop", {
+      action: "run_eval",
+      topic,
+      confirm,
+      num_threads: numThreads,
+      vault,
+    });
   }
 
   branchScoreboard(topic: string, vault = ""): Promise<BranchScoreboard> {

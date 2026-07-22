@@ -742,6 +742,25 @@ def test_bootstrap_threads_the_worker_snapshot_to_the_generator(
     )
 
 
+def test_bootstrap_threads_a_configured_worker_override_to_the_generator(
+    vault_config: Path, bootstrap_stub: _BootstrapStub, invoke
+):
+    """Per D6, bootstrap shares the ``worker`` config key with eval (it *is* the
+    worker/grounded-QA task) -- a ``[models].worker`` override in ``config.toml``
+    must reach bootstrap's synthesis call, not just eval's harness base."""
+    overridden_snapshot = "claude-haiku-4-5-CONFIGURED"
+    with vault_config.open("a", encoding="utf-8") as config_file:
+        config_file.write(f'\n[models]\nworker = "{overridden_snapshot}"\n')
+
+    result = invoke("eval", "--bootstrap", "--topic", SEED_TOPIC)
+
+    assert result.code == EXIT_SUCCESS, result.err
+    assert bootstrap_stub.calls == [(SEED_TOPIC, overridden_snapshot)], (
+        "a configured [models].worker override must reach bootstrap's snapshot, "
+        "not the packaged WORKER_SNAPSHOT default"
+    )
+
+
 def test_bootstrap_absent_api_key_reports_the_eval_not_configured_message(
     vault_config: Path, run_eval_stub: _RunEvalStub, invoke, monkeypatch: pytest.MonkeyPatch
 ):

@@ -9,6 +9,21 @@ from typing import Any
 import anyio
 
 
+#: The flat aliases this suite exercised were removed -- fully retired, not
+#: deprecated; route each old tool name through the `vault_health` dispatcher
+#: action it used to alias.
+_DISPATCHER_ACTIONS = {
+    "doctor_run": ("vault_health", "doctor"),
+    "doctor_repair": ("vault_health", "repair"),
+    "okf_check": ("vault_health", "okf_check"),
+    "okf_repair": ("vault_health", "okf_repair"),
+    "vault_lint": ("vault_health", "lint"),
+    "vault_metadata_tree": ("vault_health", "metadata_tree"),
+    "loop_run_once": ("loop", "run_once"),
+    "loop_set_baseline": ("loop", "set_baseline"),
+}
+
+
 def _build_server() -> Any:
     from knotica.mcp_server import server as server_mod
 
@@ -18,9 +33,11 @@ def _build_server() -> Any:
 async def _call(server: Any, tool: str, args: dict[str, Any]) -> Any:
     from mcp.shared.memory import create_connected_server_and_client_session
 
+    dispatcher, action = _DISPATCHER_ACTIONS.get(tool, (tool, None))
+    call_args = args if action is None else {"action": action, **args}
     async with create_connected_server_and_client_session(server) as session:
         await session.initialize()
-        return await session.call_tool(tool, args)
+        return await session.call_tool(dispatcher, call_args)
 
 
 def call_tool(tool: str, args: dict[str, Any]) -> Any:
@@ -48,14 +65,8 @@ def test_vault_tools_registered() -> None:
             return sorted(t.name for t in listed.tools)
 
     names = anyio.run(_list)
-    assert "doctor_run" in names
-    assert "doctor_repair" in names
-    assert "okf_check" in names
-    assert "okf_repair" in names
-    assert "loop_run_once" in names
-    assert "loop_set_baseline" in names
-    assert "vault_lint" in names
-    assert "vault_metadata_tree" in names
+    assert "vault_health" in names
+    assert "loop" in names
 
 
 def test_doctor_run_matches_cli_json_shape(vault_config: Path) -> None:
@@ -172,11 +183,19 @@ def test_vault_lint_topic_scope(vault_config: Path) -> None:
 def test_loop_run_once_observes_first_and_captures_eval_failure(vault_config: Path) -> None:
     """One tick = observe default branch, then gate candidates.
 
-    In this credential-less test env the observation's real eval fails fast;
-    the failure must land in the payload/loop-state, never raise out of the tool.
+    ``loop_run_once`` is a billed two-phase trigger: the bare first call mints
+    a preview envelope and never runs the tick; confirming with the minted
+    nonce runs it for real. In this credential-less test env the observation's
+    real eval fails fast; the failure must land in the payload/loop-state,
+    never raise out of the tool.
     """
     del vault_config
-    payload = payload_of(call_tool("loop_run_once", {"topic": "agentic-systems"}))
+    preview = payload_of(call_tool("loop_run_once", {"topic": "agentic-systems"}))
+    assert "error" not in preview
+    assert preview["action"] == "run_once"
+    nonce = preview["confirm_nonce"]
+
+    payload = payload_of(call_tool("loop_run_once", {"topic": "agentic-systems", "confirm": nonce}))
     assert "error" not in payload
     assert payload["topic"] == "agentic-systems"
     observed = payload["observed"]

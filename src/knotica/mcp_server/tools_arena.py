@@ -1,11 +1,13 @@
-"""Arena status / history tools for the dashboard Arena pane."""
+"""Arena status / history payload helpers for the ``arena`` action dispatcher.
+
+These functions have no MCP tool registrations of their own — they are
+imported directly by ``tools_dispatch_arena.py``, the sole entry point into
+this logic.
+"""
 
 from __future__ import annotations
 
 from typing import Any
-
-from mcp.server.fastmcp import FastMCP
-from mcp.types import CallToolResult
 
 from knotica.core.arena import (
     ArenaState,
@@ -14,49 +16,7 @@ from knotica.core.arena import (
 )
 from knotica.core.page import TopicNotFoundError
 from knotica.mcp_server import envelope
-from knotica.mcp_server.dispatch_telemetry import deprecation_suffix, record_deprecated_alias
-from knotica.mcp_server.vault_ctx import with_resolved_vault
 from knotica.store import VaultStore
-
-__all__ = ["register_arena_tools"]
-
-ToolResult = CallToolResult
-
-_STATUS_DESCRIPTION = (
-    "Read the current/last Arena race for a topic (variants, scores, stage, winner). "
-    "Pass vault to select a configured vault. Read-only."
-)
-
-_HISTORY_DESCRIPTION = (
-    "Read recent Arena race history for a topic (JSONL summaries). "
-    "Pass limit (default 20) and optional vault. Read-only."
-)
-
-
-def register_arena_tools(mcp: FastMCP) -> None:
-    """Register arena_status and arena_history on ``mcp``."""
-
-    @mcp.tool(
-        name="arena_status",
-        description=_STATUS_DESCRIPTION + deprecation_suffix("arena_status"),
-    )
-    def arena_status(topic: str, vault: str = "") -> ToolResult:
-        record_deprecated_alias("arena_status")
-        return with_resolved_vault(
-            vault,
-            lambda store, _resolved: _status_payload(store, topic),
-        )
-
-    @mcp.tool(
-        name="arena_history",
-        description=_HISTORY_DESCRIPTION + deprecation_suffix("arena_history"),
-    )
-    def arena_history(topic: str, limit: int = 20, vault: str = "") -> ToolResult:
-        record_deprecated_alias("arena_history")
-        return with_resolved_vault(
-            vault,
-            lambda store, _resolved: _history_payload(store, topic, limit=limit),
-        )
 
 
 def _status_payload(store: VaultStore, topic: str) -> dict[str, Any]:

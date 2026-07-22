@@ -439,7 +439,7 @@ def test_submit_dry_run_reports_readiness_without_mutating_the_vault(
     suggestion_id = _approved_suggestion(template_vault, qa_id="golden-dry", gap_id="gap-dry")
     call_tool("source_ingest_open", {"topic": TOPIC, "suggestion_id": suggestion_id})
     _commit_source_and_page(template_vault, suggestion_id)
-    call_tool("loop_set_baseline", {"topic": TOPIC, "scalar": 0.80})
+    call_tool("loop", {"action": "set_baseline", "topic": TOPIC, "scalar": 0.80})
     wip_branch = source_ingest.wip_branch_name(TOPIC, suggestion_id)
     default_head_before = run_git(template_vault, "rev-parse", "HEAD").strip()
     wip_tip_before = run_git(template_vault, "rev-parse", wip_branch).strip()
@@ -479,7 +479,7 @@ def test_submit_apply_with_no_committed_content_fails_with_actionable_guidance(
     del vault_config
     suggestion_id = _approved_suggestion(template_vault, qa_id="golden-empty", gap_id="gap-empty")
     call_tool("source_ingest_open", {"topic": TOPIC, "suggestion_id": suggestion_id})
-    call_tool("loop_set_baseline", {"topic": TOPIC, "scalar": 0.80})
+    call_tool("loop", {"action": "set_baseline", "topic": TOPIC, "scalar": 0.80})
 
     err = error_of(
         call_tool(
@@ -499,7 +499,7 @@ def test_submit_apply_on_a_candidate_that_closes_the_gap_returns_a_merged_verdic
     suggestion_id = _approved_suggestion(template_vault, qa_id="golden-merge", gap_id="gap-merge")
     call_tool("source_ingest_open", {"topic": TOPIC, "suggestion_id": suggestion_id})
     _commit_source_and_page(template_vault, suggestion_id)
-    call_tool("loop_set_baseline", {"topic": TOPIC, "scalar": 0.80})
+    call_tool("loop", {"action": "set_baseline", "topic": TOPIC, "scalar": 0.80})
     evaluate, calls = _fake_evaluate(0.95)
     _patch_harness_evaluate(monkeypatch, evaluate)
 
@@ -542,7 +542,7 @@ def test_submit_apply_on_a_candidate_that_regresses_returns_a_refused_verdict_wi
     suggestion_id = _approved_suggestion(template_vault, qa_id="golden-refuse", gap_id="gap-refuse")
     call_tool("source_ingest_open", {"topic": TOPIC, "suggestion_id": suggestion_id})
     _commit_source_and_page(template_vault, suggestion_id)
-    call_tool("loop_set_baseline", {"topic": TOPIC, "scalar": 0.80})
+    call_tool("loop", {"action": "set_baseline", "topic": TOPIC, "scalar": 0.80})
     evaluate, calls = _fake_evaluate_with_manifest(0.40, generation=1, n_regressed=12)
     _patch_harness_evaluate(monkeypatch, evaluate)
 
@@ -589,7 +589,7 @@ def test_resubmitting_an_already_gated_candidate_returns_the_prior_verdict_witho
     suggestion_id = _approved_suggestion(template_vault, qa_id="golden-idem", gap_id="gap-idem")
     call_tool("source_ingest_open", {"topic": TOPIC, "suggestion_id": suggestion_id})
     _commit_source_and_page(template_vault, suggestion_id)
-    call_tool("loop_set_baseline", {"topic": TOPIC, "scalar": 0.80})
+    call_tool("loop", {"action": "set_baseline", "topic": TOPIC, "scalar": 0.80})
     evaluate, calls = _fake_evaluate(0.95)
     _patch_harness_evaluate(monkeypatch, evaluate)
     first = assert_success(

@@ -323,14 +323,14 @@ def test_loop_promote_resolves_loop_candidate(template_vault: Path) -> None:
 
 
 def test_mcp_branch_scoreboard_registered() -> None:
+    """`branch_scoreboard`/`loop_promote`/`branch_promote`/`branch_delete` were
+    fully retired, not deprecated; the `branches` dispatcher is the sole
+    registration to check for now."""
     from knotica.mcp_server.server import build_server
 
     mcp = build_server()
     names = {tool.name for tool in mcp._tool_manager.list_tools()}  # noqa: SLF001
-    assert "branch_scoreboard" in names
-    assert "loop_promote" in names
-    assert "branch_promote" in names
-    assert "branch_delete" in names
+    assert "branches" in names
 
 
 def test_branch_delete_dry_run_and_apply(template_vault: Path) -> None:

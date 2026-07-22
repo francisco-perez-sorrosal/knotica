@@ -34,6 +34,13 @@ TOPIC = "agentic-systems"
 # ---------------------------------------------------------------------------
 
 
+#: `golden_review_load` was removed -- the flat alias was fully retired,
+#: not deprecated; route it through `golden(action=load)`.
+_DISPATCHER_ACTIONS = {
+    "golden_review_load": ("golden", "load"),
+}
+
+
 def _build_server() -> Any:
     from knotica.mcp_server import server as server_mod
 
@@ -43,9 +50,11 @@ def _build_server() -> Any:
 async def _call(server: Any, tool: str, args: dict[str, Any]) -> Any:
     from mcp.shared.memory import create_connected_server_and_client_session
 
+    dispatcher, action = _DISPATCHER_ACTIONS.get(tool, (tool, None))
+    call_args = args if action is None else {"action": action, **args}
     async with create_connected_server_and_client_session(server) as session:
         await session.initialize()
-        return await session.call_tool(tool, args)
+        return await session.call_tool(dispatcher, call_args)
 
 
 def call_tool(tool: str, args: dict[str, Any]) -> Any:
@@ -193,8 +202,8 @@ def test_suggestions_review_dry_run_does_not_mutate_the_vault(
     vault_config: Path, template_vault: Path
 ) -> None:
     """The additive envelope fields are read-only enrichment -- a dry-run with
-    the new fields present must still write nothing (unchanged mutation
-    contract, per Step 50's Done-when)."""
+    the new fields present must still write nothing (mutation contract is
+    unchanged by the added fields)."""
     del vault_config
     from support.vault import run_git
 

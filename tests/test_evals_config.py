@@ -71,13 +71,14 @@ from knotica.evals.config import (
 )
 from knotica.evals.golden import EVAL_MIN_GOLDEN
 
-#: The exact undated catalog ids for this model generation -- the alias *is* the
-#: complete id; a date-suffixed variant would 404. Hand-pinned, not re-derived.
-EXPECTED_JUDGE_SNAPSHOT = "claude-opus-4-6"
-EXPECTED_WORKER_SNAPSHOT = "claude-sonnet-4-6"
+#: The exact pinned catalog ids for the current generation. The judge (Sonnet 5)
+#: is an undated alias; the worker (Haiku 4.5) carries an exact dated snapshot --
+#: see the module docstring's constraint prose for why the two differ.
+EXPECTED_JUDGE_SNAPSHOT = "claude-sonnet-5"
+EXPECTED_WORKER_SNAPSHOT = "claude-haiku-4-5-20251001"
 
-#: A dated-snapshot tail (``-20260501`` and the like). The snapshots must NOT match
-#: it -- this is the forward guard against a future "helpful" suffixing regression.
+#: A dated-snapshot tail (``-20260501`` and the like). Used to guard the judge
+#: pin (which must stay undated) against a future "helpful" suffixing regression.
 _DATED_SUFFIX_RE = re.compile(r"-20\d{6}$")
 
 #: Structurally-plausible sha256-shaped judge-prompt-hash stand-ins used as the one
@@ -106,32 +107,31 @@ def _scrub_anthropic_key(monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 # ---------------------------------------------------------------------------
-# Snapshot pins -- exact undated catalog ids, no date suffix
+# Snapshot pins -- exact catalog ids
 # ---------------------------------------------------------------------------
 
 
-def test_the_judge_snapshot_is_the_pinned_opus_catalog_id() -> None:
+def test_the_judge_snapshot_is_the_pinned_sonnet_5_catalog_id() -> None:
     assert JUDGE_SNAPSHOT == EXPECTED_JUDGE_SNAPSHOT, (
-        "the judge snapshot must be the exact undated catalog id; a floating alias "
-        "or a dated variant would resolve to a different (or missing) model"
+        "the judge snapshot must be the exact Sonnet 5 catalog id; a floating alias "
+        "or a different dated variant would resolve to a different (or missing) model"
     )
 
 
-def test_the_worker_snapshot_is_the_pinned_sonnet_catalog_id() -> None:
+def test_the_worker_snapshot_is_the_pinned_haiku_4_5_catalog_id() -> None:
     assert WORKER_SNAPSHOT == EXPECTED_WORKER_SNAPSHOT, (
-        "the worker snapshot must be the exact undated catalog id"
+        "the worker snapshot must be the exact dated Haiku 4.5 catalog id"
     )
 
 
-def test_neither_snapshot_carries_a_dated_suffix() -> None:
-    # For this model generation the undated alias is the complete id; a
-    # ``-YYYYMMDD`` tail would 404. This guards against a future edit that
-    # "helpfully" appends a date to pin a snapshot that does not exist.
+def test_the_judge_snapshot_carries_no_dated_suffix() -> None:
+    # The judge's undated alias is the complete id for this generation; a
+    # ``-YYYYMMDD`` tail would 404. Guards against a future edit that
+    # "helpfully" appends a date to pin a snapshot that does not exist. The
+    # worker pin is deliberately excluded here -- Haiku 4.5 carries an exact
+    # dated snapshot by design (see the module docstring's constraint prose).
     assert _DATED_SUFFIX_RE.search(JUDGE_SNAPSHOT) is None, (
         f"the judge snapshot must not carry a dated suffix; got {JUDGE_SNAPSHOT!r}"
-    )
-    assert _DATED_SUFFIX_RE.search(WORKER_SNAPSHOT) is None, (
-        f"the worker snapshot must not carry a dated suffix; got {WORKER_SNAPSHOT!r}"
     )
 
 

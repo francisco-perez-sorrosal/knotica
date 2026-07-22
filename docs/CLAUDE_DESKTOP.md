@@ -17,7 +17,7 @@ The MCP tool **`query`**, plus **compile**, **eval**, and **loop/Arena**, run **
 
 | Surface | How it appears |
 |---------|----------------|
-| MCP tools | `query`, `curate_example`, `store_source`, `write_page`, `open_dashboard`, `compile_run`, … |
+| MCP tools | `query`, `curate_example`, `store_source`, `write_page`, `open_dashboard`, `compile action=run`, … |
 | MCP prompts | Operation guides (`query`, `ingest`, …) — load via the client’s prompt UI when available |
 | Dashboard (MCP App) | Call `open_dashboard` — inline UI in Chat when the host supports MCP Apps |
 | Vault | Separate git repo (default `~/dev/data/knotica`), opened in Obsidian for reading |
@@ -129,7 +129,7 @@ LLM (unified MCP `query`, DSPy compile, eval harness, loop/Arena), it reads cred
 | Curate, lint, status, doctor, vault reads | **No** | Deterministic tools |
 | Exploratory Q&A (`read_protocol` + `search` / `read_page`) | **No** | Client LLM synthesizes the answer |
 | MCP tool **`query`** | **Yes** | Phase 3a unified server-side query engine |
-| **`compile_run`** / dashboard Compile | **Yes** | DSPy MIPROv2 / bootstrap on a clone |
+| **`compile action=run`** / dashboard Compile | **Yes** | DSPy MIPROv2 / bootstrap on a clone |
 | **`knotica eval`** (CLI) | **Yes** | Baseline runner + LLM-as-judge |
 | Loop / **Arena** | **Yes** | Headless prompt racing |
 
@@ -174,7 +174,7 @@ Credentials are read from the environment only — never `config.toml` or the va
 ### Restart and verify
 
 1. **Fully quit** Claude Desktop (not just close the window) and reopen it — MCP config is read at launch.
-2. In Chat, retry the AWM prove question via `query` (Step 2 below) or call `compile_status` after a compile.
+2. In Chat, retry the AWM prove question via `query` (Step 2 below) or call `compile action=status` after a compile.
 3. If it still fails, check `~/Library/Logs/Claude/mcp*.log` for auth errors.
 4. Terminal sanity check (uses your shell env, not Desktop’s):
    ```bash
@@ -294,7 +294,7 @@ knotica status --topic agentic-systems
 When the Vault pane shows **Ready** (or status reports `compile_ready: true`):
 
 - Dashboard: click **Compile** on Vault, or
-- Chat: ask Claude to call `compile_run` for `agentic-systems`, then poll `compile_status`.
+- Chat: ask Claude to call `compile action=run` for `agentic-systems`, then poll `compile action=status`.
 
 Compile always runs on a **clone** and returns a branch named like
 `compile/agentic-systems/<shortsha>` — it never merges to main for you.
@@ -304,9 +304,8 @@ deterministic promote tool:
 
 - Dashboard: **Vault** or **Loop** pane → **Branch scoreboard** → select row → **Promote**
   (dry-run confirm, then apply).
-- Chat: `branch_scoreboard` to compare, then `branch_promote` with `kind=compile`,
+- Chat: `branches action=scoreboard` to compare, then `branches action=promote` with `kind=compile`,
   `topic=agentic-systems`, `branch` from the scoreboard, `mode=dry-run` first, then `mode=apply`.
-- Legacy single-tool: `compile_promote` with the same branch/mode args.
 - CLI:
 
 ```bash
@@ -367,13 +366,99 @@ from history, from chat:
 
 | Goal | What to tell Claude |
 |------|---------------------|
-| Switch policy | “Call knotica `loop_baseline_policy` with topic `agentic-systems` and policy `best`.” |
-| Re-freeze from history | “Call knotica `loop_rebaseline` with topic `agentic-systems` and mode `best`.” |
+| Switch policy | “Call knotica `loop action=baseline_policy` with topic `agentic-systems` and policy `best`.” |
+| Re-freeze from history | “Call knotica `loop action=rebaseline` with topic `agentic-systems` and mode `best`.” |
 
 From the terminal watcher: `knotica loop --topic agentic-systems --baseline-policy best` or
 `--rebaseline best` (each sets/freezes and exits, no eval). On the dashboard, the Loop pane's **defend**
 toggle switches policy inline, and a **Re-freeze at best** action appears once metrics history shows a
 scalar above the current baseline.
+
+---
+
+## Configuration: Models and Eval Cadence
+
+Knotica's eval loop and query engine are configurable via optional `[models]` and `[loop]` tables in
+`~/.config/knotica/config.toml`. All keys are optional with sensible defaults — no new required setup.
+
+### Models by task
+
+Model selection is pinned per task. Every model change refreezes the eval baseline (no silent score drift).
+
+| Task | Model | Pricing | Rationale |
+|------|-------|---------|-----------|
+| Eval **worker** (observe-default) | Haiku 4.5 `claude-haiku-4-5-20251001` | $1 / $5 per 1M tokens | High-volume, grounded QA; D6 bootstrap shares this key |
+| Eval **judge** (assess golden answers) | Sonnet 5 `claude-sonnet-5` | $3 / $15 (intro: $2 / $10 through 2026-08-31) | Load-bearing judgment; loss of `temperature=0` mitigated by 3-sample median (D7) |
+| **Query** (answer questions) | defaults to worker unless `[models].query` set | (inherited) | User-facing model choice, never rotates `harness_version` (D5) |
+
+**Configuration example:**
+
+```toml
+[models]
+worker = "claude-haiku-4-5-20251001"
+judge  = "claude-sonnet-5"
+query  = "claude-sonnet-5"
+```
+
+Omit any key to use the default. CLI `--worker-snapshot` and `--judge-snapshot` override config-sourced values (precedence: CLI > config > defaults).
+
+### Eval cadence and throttling
+
+By default (`eval_min_interval_hours = 0`), the loop evaluates every content boundary on the same tick as today. Set `eval_min_interval_hours` and/or `eval_window` to throttle:
+
+| Key | Type | Default | Purpose |
+|-----|------|---------|---------|
+| `eval_min_interval_hours` | float | 0 | Minimum hours between eval starts for the same content; 0 = eager (current behavior) |
+| `eval_window` | string | (none) | Quiet hours: `"HH:MM-HH:MM"` format, supports midnight wrap (e.g., `"22:00-02:00"`) |
+| `eval_num_threads` | int | 4 | Parallel eval threads (1–8); use 1 under subscription rate limits |
+
+**Daily-batch example:**
+
+```toml
+[loop]
+eval_min_interval_hours = 24
+eval_window = "02:00-06:00"
+eval_num_threads = 1
+```
+
+This config defers evaluations to once per day, in a quiet window (2–6 AM local time), using a single thread to reduce billing pressure. Failed evals re-arm and retry at the next eligible tick (resolves td-011 — no more cursor loss on failure).
+
+Candidate-branch (`loop/c/*`) gate evals always run eagerly, unaffected by cadence.
+
+### Billed “run eval now” trigger
+
+The dashboard and MCP `loop` dispatcher expose a `run_eval` action for on-demand forced evaluation when you're curious or need urgent results. This is a billed operation: it always runs an eval and needs your explicit confirmation.
+
+**From the dashboard:**
+1. Loop pane → **”Run eval now”** button
+2. Preview click → shows model, cost estimate, and thread count
+3. Confirm click → executes the eval (second click is required; a single click never bills)
+
+**From Chat (MCP):**
+```
+Call knotica `loop` with action `run_eval` for topic `agentic-systems`.
+```
+This returns a preview envelope showing estimated cost. Confirm it explicitly in a follow-up call with the returned nonce to bill and run.
+
+Thread count can be overridden per-run (e.g., `num_threads=1` under rate pressure). The two-phase nonce gates all billing—single-reflexive calls never charge.
+
+**`run_once`** (the routine "one loop tick now" action, called as `loop action=run_once`) is gated the same way — it also runs a real, billed eval when there's pending content, so it goes through the identical preview → confirm flow as `run_eval`, using its own independent nonce (a `run_eval`-minted nonce cannot confirm a `run_once` call, or vice versa).
+
+**MCP cadence read/write:**
+```
+Call knotica `loop` with action `cadence` for topic `agentic-systems`.
+```
+Omit other parameters to read current values; include `eval_min_interval_hours`, `eval_window`, or `eval_num_threads` to write them directly to config.
+
+---
+
+## Operational notes
+
+**Claude Desktop write_page payloads:** Desktop can drop large mutations (e.g., ingesting a 50-page PDF into `write_page` calls) due to MCP payload size limits. When ingest fails midway, use **Claude Code** instead (plugin channel, same MCP surface): Code's transport handles larger payloads.
+
+**OAuth-mode eval rate limits:** When using `CLAUDE_CODE_OAUTH_TOKEN`, all evals (including manual `run_eval` triggers) share your Claude subscription's per-minute request rate window with your regular Chat usage. This was the motivating incident for the eval cadence feature: batch evals overnight in a quiet window, and use thread count = 1 during business hours. Monitor `wiki_status` to see if the loop is deferred waiting for the quiet window.
+
+---
 
 Observations debounce during ingests: while an ingest run is active, the watcher holds off observing
 (staleness-bounded, so a crashed ingest cannot block it forever) and, in watch mode, waits for HEAD to
@@ -394,12 +479,12 @@ the same; the UI shows **role · filename**:
 | Reviewed | `golden.staging.reviewed.jsonl` | Human-kept candidates → Freeze |
 
 Pipeline: **Bootstrap → Save reviewed → Freeze** (Freeze needs Reviewed ≥ 20 and zero
-trainset question overlap). MCP: `datasets_inventory`, `datasets_records`,
-`datasets_bootstrap`, `datasets_freeze`, plus `golden_review_load` / `golden_review_save`.
+trainset question overlap). MCP: `datasets action=inventory|records|bootstrap|freeze`,
+plus `golden action=load|save`.
 CLI: `knotica datasets freeze --topic <name>` (and existing `knotica eval --bootstrap`).
 
 A fresh topic's **trainset** (`qa.jsonl`) starts empty, so compile is unreachable until curation
-fills it. `knotica datasets bootstrap-train --topic <name> [--target N]` (MCP: `datasets_bootstrap_train`)
+fills it. `knotica datasets bootstrap-train --topic <name> [--target N]` (MCP: `datasets action=bootstrap_train`)
 cold-starts it: the LLM synthesizes query-style QA pairs grounded in the topic's own entity pages,
 written with `source: seed_train`. Curated examples (`curate_example`) always displace seeded ones in
 compile demo selection, so real usage progressively takes over.
@@ -414,13 +499,13 @@ Claude Desktop may not surface MCP prompts as slash commands. Prefer explicit to
 |------|---------------------|
 | One-shot answer | “Call knotica `query` with topic … and question …” |
 | Ingest a paper | “Load the ingest protocol (`read_protocol` / ingest guide), then `store_source` → write pages …” |
-| Health | “Run knotica `doctor_run` (quick) and summarize failures.” |
+| Health | “Run knotica `vault_health action=doctor` (quick) and summarize failures.” |
 | Progress | “Call `wiki_status` for topic `agentic-systems`.” |
-| Compare branches | “Call `branch_scoreboard` for topic `agentic-systems`.” |
-| Promote compile / loop | “Call `branch_promote` with kind, branch, mode=dry-run then apply.” |
+| Compare branches | “Call `branches action=scoreboard` for topic `agentic-systems`.” |
+| Promote compile / loop | “Call `branches action=promote` with kind, branch, mode=dry-run then apply.” |
 | Dashboard | “Call `open_dashboard` for topic `agentic-systems`.” |
-| Dataset inventory | “Call `datasets_inventory` for topic `agentic-systems`.” |
-| Freeze held-out golden | “Call `datasets_freeze` after Reviewed ≥ 20 (or `knotica datasets freeze`).” |
+| Dataset inventory | “Call `datasets action=inventory` for topic `agentic-systems`.” |
+| Freeze held-out golden | “Call `datasets action=freeze` after Reviewed ≥ 20 (or `knotica datasets freeze`).” |
 
 For long multi-step ops (ingest), ask Claude to call `read_protocol` first so it follows the
 vault’s `.knotica/prompts/*.md` rather than improvising a single tool call.

@@ -36,8 +36,10 @@ single `VaultTransaction` (flock + atomic write + log append + secret-scrub + on
 > Phase-B collapses the 49-tool flat MCP surface into a two-tier architecture: **7 operator dispatchers** 
 > (loop, branches, compile, datasets, arena, golden, vault_health) route domain-specific actions; **18 core 
 > conversational tools** (read/write/query/status/ingest) form the base; 4 stragglers and `open_dashboard` 
-> complete the surface. Total: **56 tools during additive-alias migration** (26 deprecated aliases map to 
-> dispatchers for one release cycle), **projected 30 post-alias-removal** (18 core + 4 stragglers + `open_dashboard` + 7 dispatchers).
+> complete the surface. Total: **30 tools** (18 core + 4 stragglers + `open_dashboard` + 7 dispatchers). The
+> 26 deprecated aliases the consolidation initially kept for a migration window were removed outright once
+> the migration premise (external clients) never held for a single-consumer, self-operated project (see
+> `dec-draft-30f2f8ba`, superseding the relevant clause of `dec-045`).
 > New `INVALID_ARGUMENT` error code for argument validation (distinct from cursor errors); 
 > `wiki_status(view="scope")` provides the cheapest scope-check for client-side routing.
 > **P-C Built** — four-layer conversational-routing architecture (skill symptom-detection + `_INSTRUCTIONS` stable-invariants-only + tool-description guards on mutating tools + vault prompts as sole evolvable substrate); SessionStart topic-awareness seed + attention-nudge (`knotica status --nudge`); per-client reliability tiers (Tier-1 Claude Code skill+hooks; Tier-2 Desktop instructions-only).
@@ -93,15 +95,13 @@ Navigation:
 | **Conversational core** | 18 direct tools: read/write/query/status/ingest/suggestions/guide; high semantic density | 18 |
 | **Operator dispatchers** (P-B) | 7 domain-specific dispatchers routing actions; single entry point per domain | 7 |
 | **Stragglers** | 4 tools not yet dispatched + `open_dashboard` | 5 |
-| **Aliases** (migration window) | 26 deprecated tool names map to dispatchers for one release cycle | 26 |
-| | **Total during migration** | 56 |
-| | **Projected post-alias-removal** | 30 |
+| | **Total** | 30 |
 
 **The Seven Dispatcher Tools (P-B):**
 
 | Dispatcher | Actions | Wraps |
 |---|---|---|
-| `loop(action=...)` | `run_once` \| `set_baseline` \| `baseline_policy` \| `rebaseline` | loop observation/gating/baseline management |
+| `loop(action=...)` | `run_once` \| `run_eval` \| `set_baseline` \| `baseline_policy` \| `rebaseline` \| `cadence` | loop observation/gating/baseline/cadence management; `run_once` and `run_eval` are both two-phase (nonce-gated) — a single call never bills |
 | `branches(action=...)` | `scoreboard` \| `promote_loop` \| `promote` \| `delete` | branch-based candidate/result management |
 | `compile(action=...)` | `run` \| `status` \| `promote` | DSPy compile workflow |
 | `datasets(action=...)` | `inventory` \| `records` \| `bootstrap` \| `bootstrap_train` \| `freeze` | trainset bootstrap/freeze/audit |
@@ -115,10 +115,6 @@ Each dispatcher validates its `action` enum and returns `INVALID_ARGUMENT` (new 
 
 `read_page`, `search`, `list_links`, `backlinks` (read); `write_page`, `write_wikilink`, `create_topic`, `curate_example` (write); `store_source`, `read_source`, `mark_ingested`, `list_source_cache` (source management); `query` (headless compile runner); `wiki_status` (new `view="scope"` parameter in P-B for cheap routing checks); `gap_report` (client-as-brain gap reporting); `suggestions_read`, `suggestions_review` (approval queue); `source_ingest_open`, `source_ingest_submit` (P4 ingest); `read_protocol` (protocol pointer).
 
-**Migration Window (additive aliases):**
-
-For one release cycle, the 26 replaced thin tools (e.g., `loop_run_once`, `compile_status`, `golden_review_load`) remain registered with a deprecation note in their description. Clients may continue calling them; under the hood they map to the corresponding dispatcher action via `dispatch_telemetry.DEPRECATED_ALIASES`. This allows gradual migration without breaking existing client code or automations. Alias-based calls are logged (see Telemetry below) for observability.
-
 **New `wiki_status(view="scope")`:**
 
 A new parameter-value pair enables cheap routing-scope checks without eval or compile snapshots. Returns `{schema_version, vault_name, topics[], totals}` — deterministic, stateless, vault-path-read only. Used by the client-side routing layer (P-C) to decide whether a detected wiki-relevant conversation should route to a dispatcher or stay in natural chat.
@@ -129,11 +125,11 @@ A new error code (distinct from `INVALID_CURSOR`) signals argument validation fa
 
 **Dispatch Telemetry:**
 
-Every dispatcher invocation logs a structured line `{tool, action, topic}` for observability: `dispatch_telemetry.DEPRECATED_ALIASES` is the single source of truth for the 26 alias mappings. Logs support measurement of per-domain selection ambiguity (whether one dispatcher should revert to flat tools post-migration). Telemetry is deterministic and tied to invocation, not evaluation.
+Every dispatcher invocation logs a structured line `{tool, action, topic}` for observability, plus a rejected-action line for unrecognized `action` values. Logs support measurement of per-domain selection ambiguity (whether one dispatcher should revert to flat tools). Telemetry is deterministic and tied to invocation, not evaluation.
 
 **Dependency Boundary (P-B):**
 
-The seven dispatcher modules (`tools_dispatch_*.py`) import only their wrapped thin-tool modules (e.g., `tools_dispatch_loop` imports `tools_vault`) and `core.errors`. No dispatcher imports another dispatcher; `dispatch_telemetry` is an import-cycle-free leaf. The 26 aliases remain in their original thin-tool modules with a one-line deprecation note appended to their `description` field.
+The seven dispatcher modules (`tools_dispatch_*.py`) import only their wrapped payload-helper modules (e.g., `tools_dispatch_loop` imports payload functions from `tools_vault`) and `core.errors`. No dispatcher imports another dispatcher; `dispatch_telemetry` is an import-cycle-free leaf. The former thin-tool modules (`tools_vault.py`, `tools_scoreboard.py`, `tools_compile.py`, `tools_datasets.py`, `tools_arena.py`, `tools_golden.py`) now hold only payload-helper functions and no `@mcp.tool` registrations — the 26 flat-tool aliases they used to register (kept for one release cycle per `dec-045`'s fifth ruling) were removed once the migration-window premise (external clients) never held for a single-consumer, self-operated project (`dec-draft-30f2f8ba` partially supersedes `dec-045`; the topology rulings stand unchanged).
 
 **Built (Phase P2, gap-fill discovery):** `src/knotica/discovery/` provides a pluggable
 source-discovery layer — a `SearchProvider` protocol with an `httpx`-REST adapter (`YouComProvider` with bearer auth; Exa was cut by user directive but the protocol stays pluggable for future adapters), a separate
@@ -216,10 +212,10 @@ frozen baseline when it beats it, evaluated in `observe_default` (`core/loop.py`
 `policy == "latest"` never ratchets on a win; only auto-freeze and instrument re-freeze move the
 baseline. `policy == "best"` additionally ratchets upward on every win, so the bar only rises. Switch
 policy with `LoopRunner.set_baseline_policy("latest"|"best")` (CLI `--baseline-policy`, MCP
-`loop_baseline_policy`); readable via `wiki_status.loop.baseline_policy`.
+`loop(action=baseline_policy)`); readable via `wiki_status.loop.baseline_policy`.
 
 **Rebaseline from history** — `LoopRunner.rebaseline(mode)` (CLI `--rebaseline {best,latest}`, MCP
-`loop_rebaseline`) freezes a new baseline directly from `metrics.jsonl` with no eval: it restricts to
+`loop(action=rebaseline)`) freezes a new baseline directly from `metrics.jsonl` with no eval: it restricts to
 records whose `harness_version` matches the newest record (the current instrument), then picks either the
 high-water scalar (`best`) or the most recent one (`latest`).
 
@@ -245,8 +241,15 @@ eval runs:
   HEAD to be stable for that many seconds before observing, so a burst of commits coalesces into one eval
   instead of one per commit.
 
-`--once` / `loop_run_once` skip the quiet window (an explicit one-shot invocation observes immediately)
-but still respect the ingest hold.
+`--once` (CLI) skips the quiet window (an explicit one-shot invocation observes immediately) but still
+respects the ingest hold. `loop(action=run_once)` (MCP) skips the quiet window too,
+but — since the eval-cadence-and-billed-trigger work — require the same two-phase nonce confirm as
+`run_eval` before observing: a bare call only returns a preview, never bills.
+
+#### Eval cadence and model configuration (Built)
+
+A global `[loop]` config table adds a throttle distinct from the settling debounce above:
+`eval_min_interval_hours` (default 0 = current per-content-boundary behavior), `eval_window` quiet-hours, and `eval_num_threads`. A new `_cadence_hold` guard sits after `_observation_hold` in `observe_default()` only (candidate-gate evals stay eager); a failed eval re-arms instead of consuming the cursor (resolves td-011). A global `[models]` config table sets per-task model ids (worker, judge, query); worker/judge fold into `harness_version` for baseline refreezes on model change; query changes only the MCP query tool, never the frozen eval instrument. Cadence and a two-phase (nonce-gated) "run eval now" trigger are reachable from Claude Desktop via `loop` dispatcher actions `cadence` and `run_eval`. Full reference: [`docs/CLAUDE_DESKTOP.md` § Configuration](./CLAUDE_DESKTOP.md#configuration-models-and-eval-cadence).
 
 #### Branch topology
 

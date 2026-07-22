@@ -19,9 +19,11 @@ from mcp.types import CallToolResult
 from knotica.core.errors import ErrorCode, KnoticaError
 from knotica.mcp_server.dispatch_telemetry import record_dispatch, record_rejected_action
 from knotica.mcp_server.tools_vault import (
+    _loop_cadence_payload,
     _loop_once_payload,
     _loop_policy_payload,
     _loop_rebaseline_payload,
+    _loop_run_eval_payload,
     _loop_set_baseline_payload,
 )
 from knotica.mcp_server.vault_ctx import with_resolved_vault
@@ -32,20 +34,34 @@ __all__ = ["register_dispatch_loop_tools"]
 ToolResult = CallToolResult
 
 _DISPATCHER = "loop"
-_ACTIONS = ("run_once", "set_baseline", "baseline_policy", "rebaseline")
+_ACTIONS = (
+    "run_once",
+    "set_baseline",
+    "baseline_policy",
+    "rebaseline",
+    "cadence",
+    "run_eval",
+)
 
 _LOOP_DISPATCH_DESCRIPTION = (
     "Operator loop control (rarely conversational; the dashboard/CLI reach this "
-    "directly). action=run_once drives one gate cycle (same as loop_run_once); "
-    "action=set_baseline freezes the gate baseline at `scalar` (same as "
+    "directly). action=run_once drives one gate cycle (same as loop_run_once) "
+    "and is a BILLED two-phase trigger, same `confirm`/`confirm_nonce` protocol "
+    "as run_eval below; action=set_baseline freezes the gate baseline at `scalar` (same as "
     "loop_set_baseline); action=baseline_policy switches the gate policy to "
     "`policy` ('latest'|'best', same as loop_baseline_policy); "
     "action=rebaseline re-freezes from metrics history using `mode` "
-    "('best'|'latest', default 'best', same as loop_rebaseline). Pass vault to "
-    "select a configured vault. Every action here mutates: never called from "
-    "detection alone -- only the dashboard/CLI operator invokes it, or the "
-    "user has explicitly confirmed the change; an unconfirmed detection routes "
-    "to wiki_status instead."
+    "('best'|'latest', default 'best', same as loop_rebaseline); "
+    "action=cadence reads (no params) or additively writes (any of "
+    "`eval_min_interval_hours`, `eval_window`, `eval_num_threads`) the `[loop]` "
+    "eval cadence config; action=run_eval is a BILLED two-phase trigger -- call "
+    "once with no `confirm` to get a preview envelope (worker/judge/thread "
+    "count/estimated cost + a short-lived `confirm_nonce`), then call again "
+    "passing that nonce as `confirm` to actually bill and run. A single call "
+    "never bills. Pass vault to select a configured vault. Every action here "
+    "mutates: never called from detection alone -- only the dashboard/CLI "
+    "operator invokes it, or the user has explicitly confirmed the change; an "
+    "unconfirmed detection routes to wiki_status instead."
 )
 
 
@@ -59,6 +75,11 @@ def register_dispatch_loop_tools(mcp: FastMCP) -> None:
         scalar: float | None = None,
         policy: str = "",
         mode: str = "best",
+        eval_min_interval_hours: float | None = None,
+        eval_window: str | None = None,
+        eval_num_threads: int | None = None,
+        confirm: str = "",
+        num_threads: int | None = None,
         vault: str = "",
     ) -> ToolResult:
         return with_resolved_vault(
@@ -71,6 +92,11 @@ def register_dispatch_loop_tools(mcp: FastMCP) -> None:
                 scalar=scalar,
                 policy=policy,
                 mode=mode,
+                eval_min_interval_hours=eval_min_interval_hours,
+                eval_window=eval_window,
+                eval_num_threads=eval_num_threads,
+                confirm=confirm,
+                num_threads=num_threads,
             ),
         )
 
@@ -84,16 +110,32 @@ def _dispatch_payload(
     scalar: float | None,
     policy: str,
     mode: str,
+    eval_min_interval_hours: float | None,
+    eval_window: str | None,
+    eval_num_threads: int | None,
+    confirm: str,
+    num_threads: int | None,
 ) -> dict[str, Any]:
     cleaned_action = _validate_action(action)
     record_dispatch(_DISPATCHER, cleaned_action, topic)
     if cleaned_action == "run_once":
-        return _loop_once_payload(store, vault_path, topic)
+        return _loop_once_payload(store, vault_path, topic, confirm=confirm)
     if cleaned_action == "set_baseline":
         return _loop_set_baseline_payload(store, vault_path, topic, _require_scalar(scalar))
     if cleaned_action == "baseline_policy":
         return _loop_policy_payload(store, vault_path, topic, _require_policy(policy))
-    return _loop_rebaseline_payload(store, vault_path, topic, mode)
+    if cleaned_action == "rebaseline":
+        return _loop_rebaseline_payload(store, vault_path, topic, mode)
+    if cleaned_action == "cadence":
+        return _loop_cadence_payload(
+            topic,
+            eval_min_interval_hours=eval_min_interval_hours,
+            eval_window=eval_window,
+            eval_num_threads=eval_num_threads,
+        )
+    return _loop_run_eval_payload(
+        store, vault_path, topic, confirm=confirm, num_threads=num_threads
+    )
 
 
 def _validate_action(action: str) -> str:
