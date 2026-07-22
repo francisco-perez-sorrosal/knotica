@@ -158,6 +158,15 @@ class _Platform(ABC):
     def render_unit(self, spec: ServiceSpec, *, home: Path) -> str:
         """Render the unit file content for ``spec``."""
 
+    def log_dir(self, home: Path) -> Path | None:
+        """Directory the unit's log paths live in, or ``None`` (journal-only).
+
+        ``install()`` creates it before registering: launchd does not create
+        parent directories for ``StandardOutPath``/``StandardErrorPath`` and
+        silently discards output when they are missing.
+        """
+        return None
+
     @abstractmethod
     def register_command(self, unit_path: Path) -> tuple[str, ...]:
         """Command that loads/enables the unit after it is written."""
@@ -176,8 +185,11 @@ class _Launchd(_Platform):
     def unit_path(self, home: Path) -> Path:
         return home / "Library" / "LaunchAgents" / f"{SERVICE_LABEL}.plist"
 
+    def log_dir(self, home: Path) -> Path:
+        return home / "Library" / "Logs" / "knotica"
+
     def render_unit(self, spec: ServiceSpec, *, home: Path) -> str:
-        log_dir = home / "Library" / "Logs" / "knotica"
+        log_dir = self.log_dir(home)
         program_arguments = "\n".join(
             f"      <string>{_xml_escape(arg)}</string>" for arg in spec.exec_argv
         )
@@ -293,6 +305,9 @@ def install(
     # reach the real service manager.
     run = runner if runner is not None else subprocess.run
     unit_path.parent.mkdir(parents=True, exist_ok=True)
+    log_dir = plat.log_dir(target)
+    if log_dir is not None:
+        log_dir.mkdir(parents=True, exist_ok=True)
     unit_path.write_text(content, encoding="utf-8")
     run(register, check=True, capture_output=True, text=True)
     return _install_plan(plat, unit_path, content, register, performed=True)

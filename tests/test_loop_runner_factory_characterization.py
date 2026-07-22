@@ -40,6 +40,22 @@ TOPIC = "agentic-systems"
 # ---------------------------------------------------------------------------
 
 
+@pytest.fixture(autouse=True)
+def _hermetic_discovery_env(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Isolate from the dev machine's real keys and ``.env`` fallback files.
+
+    The effective-config snapshots characterize an *unconfigured* host; a real
+    discovery key exported in the environment or present in ``./.env`` /
+    ``~/.config/knotica/.env`` would legitimately flip the key-conditional
+    ``discover_on_regression`` default and turn the snapshot into a function of
+    the developer's machine.
+    """
+    monkeypatch.delenv("KNOTICA_YOUCOM_API_KEY", raising=False)
+    monkeypatch.delenv("KNOTICA_EXA_API_KEY", raising=False)
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("HOME", str(tmp_path))
+
+
 def _parsed_loop_args(vault: Path, *extra: str) -> argparse.Namespace:
     """Parse ``knotica loop`` args through the real CLI parser (real defaults)."""
     from knotica.cli import loop as cli_loop

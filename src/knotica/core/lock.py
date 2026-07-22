@@ -76,6 +76,16 @@ class LockBusyError(Exception):
         self.timeout = timeout
 
 
+def span_is_active(vault_root: str | PurePath) -> bool:
+    """True when this thread currently holds a mutation span for ``vault_root``.
+
+    Lets acquire-time self-heal decide safely: a fresh (non-nested) acquisition
+    may clear crash remnants, but a transaction nested inside a live span must
+    never "heal" -- the span's own merge may be legitimately in flight.
+    """
+    return _span_depths().get(_canonical_key(vault_root), 0) > 0
+
+
 @contextmanager
 def vault_lock(
     vault_root: str | PurePath,

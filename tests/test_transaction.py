@@ -702,3 +702,86 @@ def test_a_multi_step_worktree_ingest_leaves_the_canonical_vault_byte_identical(
     assert _canonical_tree_snapshot(template_vault) == snapshot_before, (
         "the canonical working tree's bytes must be identical before and after"
     )
+
+
+# ---------------------------------------------------------------------------
+# Acquire-time self-heal: a crash-left merge remnant must never block a plain
+# transaction (the daemon can die mid-merge; the flock auto-releases but
+# MERGE_HEAD survives, and a scoped commit would fail on it)
+# ---------------------------------------------------------------------------
+
+
+def _induce_dangling_merge(vault: Path) -> None:
+    """Leave a real conflicted in-progress merge on ``vault`` -- a crash remnant."""
+    import subprocess
+
+    vcs = VaultVcs(vault)
+    default = vcs.default_branch()
+    conflict = vault / "agentic-systems" / "heal-conflict.md"
+    conflict.parent.mkdir(parents=True, exist_ok=True)
+
+    conflict.write_text("base\n", encoding="utf-8")
+    run_git(vault, "add", "-A")
+    run_git(vault, "commit", "-m", "test: heal conflict base")
+
+    vcs.create_branch("crash/heal-side", default)
+    vcs.checkout_branch("crash/heal-side")
+    conflict.write_text("side\n", encoding="utf-8")
+    run_git(vault, "add", "-A")
+    run_git(vault, "commit", "-m", "test: heal side change")
+
+    vcs.checkout_branch(default)
+    conflict.write_text("default\n", encoding="utf-8")
+    run_git(vault, "add", "-A")
+    run_git(vault, "commit", "-m", "test: heal default change")
+
+    subprocess.run(
+        ["git", "-C", str(vault), "merge", "crash/heal-side"],
+        capture_output=True,
+        text=True,
+    )
+    assert (vault / ".git" / "MERGE_HEAD").exists(), "fixture failed to leave MERGE_HEAD"
+
+
+def test_a_crash_left_dangling_merge_is_healed_on_acquire_and_the_write_lands(
+    template_vault: Path,
+) -> None:
+    _induce_dangling_merge(template_vault)
+
+    with VaultTransaction(
+        _store(template_vault), template_vault, "write_page", "agentic-systems", "heal test"
+    ) as txn:
+        txn.write(PAGE_B, PAGE_B_CONTENT)
+
+    assert not (template_vault / ".git" / "MERGE_HEAD").exists(), (
+        "acquire-time self-heal must clear the crash remnant"
+    )
+    assert (template_vault / PAGE_B).read_text(encoding="utf-8") == PAGE_B_CONTENT
+
+
+def test_no_heal_happens_inside_an_active_mutation_span(
+    template_vault: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from knotica.core.transaction import vault_mutation_span
+
+    heal_calls: list[str] = []
+    original = VaultVcs.heal_git_mutation_state
+
+    def _recording_heal(self: VaultVcs) -> None:
+        heal_calls.append(str(self.root))
+        original(self)
+
+    monkeypatch.setattr(VaultVcs, "heal_git_mutation_state", _recording_heal)
+
+    with vault_mutation_span(template_vault):
+        span_entry_heals = len(heal_calls)
+        with VaultTransaction(
+            _store(template_vault), template_vault, "write_page", "agentic-systems", "span test"
+        ) as txn:
+            txn.write(PAGE_B, PAGE_B_CONTENT)
+
+    assert span_entry_heals == 1, "span entry heals exactly once"
+    assert len(heal_calls) == 1, (
+        "a transaction nested inside a live span must NOT heal -- the span's "
+        "own merge may be legitimately in flight"
+    )

@@ -66,6 +66,7 @@ from knotica.core.errors import ErrorCode, KnoticaError, KnoticaWarning, secret_
 from knotica.core.lock import (
     DEFAULT_ACQUIRE_TIMEOUT_SECONDS,
     LockBusyError,
+    span_is_active,
     vault_lock,
     vault_span_lock,
 )
@@ -221,6 +222,13 @@ class VaultTransaction:
             lock.__enter__()
         except LockBusyError as error:
             raise KnoticaError(ErrorCode.LOCK_BUSY, str(error)) from error
+        # A mutator that died mid-merge leaves MERGE_HEAD/index.lock behind
+        # (the flock auto-releases on death), and every later scoped commit
+        # then fails with "cannot do a partial commit during a merge". Heal
+        # AFTER acquiring -- never while nested inside a live span, whose own
+        # merge may be legitimately in flight.
+        if not span_is_active(self._lock_root):
+            self._vcs.heal_git_mutation_state()
         self._lock = lock
         self._active = True
         return self

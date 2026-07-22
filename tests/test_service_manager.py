@@ -264,6 +264,25 @@ def test_resolve_watched_topics_excludes_reserved_top_level_names(vault_config: 
 # ---------------------------------------------------------------------------
 
 
+def test_install_creates_the_log_directory_launchd_will_write_to(
+    tmp_path: Path,
+) -> None:
+    from knotica.service.manager import ServiceSpec, detect_platform, install
+
+    home = tmp_path / "home"
+    spec = ServiceSpec(
+        vault_name="main",
+        vault_path=tmp_path / "vault",
+        exec_argv=("python", "-m", "knotica.service"),
+    )
+    install(spec, home=home, platform=detect_platform("darwin"), runner=_FakeRunner())
+
+    assert (home / "Library" / "Logs" / "knotica").is_dir(), (
+        "launchd silently discards stdout/stderr when the log directory is "
+        "missing -- install must create it"
+    )
+
+
 def test_supervise_ticks_every_configured_topic_per_cycle(vault_config: Path) -> None:
     from knotica.service.manager import supervise
 

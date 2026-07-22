@@ -17,7 +17,9 @@ directory is the vault, so a vault-adjacent ``.env`` is deliberately not a
 secret source here.
 """
 
+import logging
 import os
+import sys
 from pathlib import Path
 
 from knotica.service.manager import supervise
@@ -55,8 +57,23 @@ def bootstrap_environment(
             env[name] = cleaned
 
 
+def _configure_logging() -> None:
+    """Route supervision logs to stdout so the OS unit's log file captures them.
+
+    launchd/systemd redirect the daemon's stdout/stderr to the unit's log
+    paths; without an explicit handler Python drops INFO entirely and the
+    daemon runs silent -- an incident then leaves no trail.
+    """
+    logging.basicConfig(
+        level=logging.INFO,
+        stream=sys.stdout,
+        format="%(asctime)s %(levelname)s %(name)s: %(message)s",
+    )
+
+
 def main() -> None:
-    """Bootstrap the environment, then supervise until SIGTERM/SIGINT."""
+    """Configure logging, bootstrap the environment, then supervise."""
+    _configure_logging()
     bootstrap_environment()
     try:
         supervise()
