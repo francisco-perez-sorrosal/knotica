@@ -39,7 +39,10 @@ _COMPILE_DISPATCH_DESCRIPTION = (
     "read-only). action=promote merges a reviewed compile/<topic>/… branch into "
     "the vault default branch (same as compile_promote); mode=dry-run previews, "
     "mode=apply performs the merge after review. Pass vault to select a "
-    "configured vault."
+    "configured vault. action=run and mode=apply never fire from detection "
+    "alone -- only after the user has explicitly confirmed the compile/merge; "
+    "an unconfirmed detection routes to action=status, mode=dry-run, or an "
+    "offer instead."
 )
 
 

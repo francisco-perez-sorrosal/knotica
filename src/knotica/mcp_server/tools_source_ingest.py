@@ -60,7 +60,10 @@ _OPEN_DESCRIPTION = (
     "a partial ingest -- never restart). Idempotent: opening twice returns the same "
     "handle and the current state. Does NOT ingest -- you then follow the ingest "
     "protocol writing to `candidate`. Read-adjacent: creates the candidate context "
-    "only; no wiki page changes on the default branch."
+    "only; no wiki page changes on the default branch. Never call this from "
+    "detection alone -- only after the user has explicitly confirmed the "
+    "suggestion is approved for ingest; an unconfirmed detection routes to "
+    "suggestions_read or an offer instead."
 )
 
 _SUBMIT_DESCRIPTION = (
@@ -72,7 +75,10 @@ _SUBMIT_DESCRIPTION = (
     "whether the topic has a gate baseline. mode=apply seals the ingest, runs the "
     "gate, and returns the verdict (merged, or refused with the top regressed "
     "questions). Idempotent: re-submitting an already-gated candidate returns the "
-    "prior verdict. Requires the vault lock."
+    "prior verdict. Requires the vault lock. mode=apply never fires from "
+    "detection alone -- only after the user has explicitly confirmed the "
+    "ingest; an unconfirmed detection routes to a dry-run preview or an offer "
+    "instead."
 )
 
 

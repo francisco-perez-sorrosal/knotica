@@ -39,7 +39,9 @@ _GOLDEN_DISPATCH_DESCRIPTION = (
     "golden.staging.reviewed.jsonl (same as golden_review_save); pass "
     "accepted_json as a JSON array of candidate objects (question, "
     "reference_answer, citations, pages_used; optional support). Pass vault "
-    "to select a configured vault."
+    "to select a configured vault. action=save never fires from detection "
+    "alone -- only after the user has explicitly confirmed the review; an "
+    "unconfirmed detection routes to action=load or an offer instead."
 )
 
 

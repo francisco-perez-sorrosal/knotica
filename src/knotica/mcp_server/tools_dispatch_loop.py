@@ -42,7 +42,10 @@ _LOOP_DISPATCH_DESCRIPTION = (
     "`policy` ('latest'|'best', same as loop_baseline_policy); "
     "action=rebaseline re-freezes from metrics history using `mode` "
     "('best'|'latest', default 'best', same as loop_rebaseline). Pass vault to "
-    "select a configured vault."
+    "select a configured vault. Every action here mutates: never called from "
+    "detection alone -- only the dashboard/CLI operator invokes it, or the "
+    "user has explicitly confirmed the change; an unconfirmed detection routes "
+    "to wiki_status instead."
 )
 
 

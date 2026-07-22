@@ -81,7 +81,9 @@ _REVIEW_DESCRIPTION = (
     "ingest. mode=dry-run previews the transition without writing; mode=apply "
     "performs exactly one commit. Only pending or deferred suggestions can be "
     "approved/rejected; only pending can be deferred; only approved can be "
-    "marked ingested."
+    "marked ingested. mode=apply never fires from detection alone -- only after "
+    "the user has explicitly confirmed the decision; an unconfirmed detection "
+    "routes to suggestions_read or an offer instead."
 )
 
 

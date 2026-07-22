@@ -44,7 +44,9 @@ _BRANCHES_DISPATCH_DESCRIPTION = (
     "loop/r branches (same as branch_promote). action=delete removes a local "
     "compile/<topic>/… branch (same as branch_delete). mode=dry-run previews, "
     "mode=apply commits, for every mutating action. Pass vault to select a "
-    "configured vault."
+    "configured vault. mode=apply never fires from detection alone -- only "
+    "after the user has explicitly confirmed the promotion/deletion; an "
+    "unconfirmed detection routes to mode=dry-run or an offer instead."
 )
 
 

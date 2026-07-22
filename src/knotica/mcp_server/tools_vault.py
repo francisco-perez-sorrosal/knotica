@@ -47,7 +47,10 @@ _DOCTOR_REPAIR_DESCRIPTION = (
     "mode=dry-run lists dirty paths; mode=apply restores selected paths to HEAD "
     "under the vault lock (never `git restore .`). For apply, pass paths as a "
     "JSON array string, or all_tracked=true. delete_untracked=true allows "
-    "removing selected untracked paths. Pass vault to select a configured vault."
+    "removing selected untracked paths. Pass vault to select a configured vault. "
+    "mode=apply never fires from detection alone -- only after the user has "
+    "explicitly confirmed the repair; an unconfirmed detection routes to "
+    "mode=dry-run or an offer instead."
 )
 
 _OKF_CHECK_DESCRIPTION = (
@@ -60,7 +63,10 @@ _OKF_REPAIR_DESCRIPTION = (
     "Run the same OKF repair as `knotica okf repair`. mode=dry-run previews "
     "files that would change (default); mode=apply writes + one git commit "
     "(requires force=true when the work tree is dirty, matching the CLI). "
-    "Pass vault to select a configured vault."
+    "Pass vault to select a configured vault. mode=apply never fires from "
+    "detection alone -- only after the user has explicitly confirmed the "
+    "repair; an unconfirmed detection routes to mode=dry-run or an offer "
+    "instead."
 )
 
 _LOOP_ONCE_DESCRIPTION = (
@@ -71,7 +77,10 @@ _LOOP_ONCE_DESCRIPTION = (
     "`<topic>/.knotica/loop-state.json` so wiki_status shows stage progress "
     "(evaluating → arena race or merge/revert → passed/failed). On regression, "
     "runs the prompt-variant arena heal. Runs a real eval (may take minutes). "
-    "Pass vault to select a configured vault."
+    "Pass vault to select a configured vault. Never call this from detection "
+    "alone -- only the dashboard/CLI operator invokes it, or the user has "
+    "explicitly confirmed running the loop; an unconfirmed detection routes to "
+    "wiki_status instead."
 )
 
 _LOOP_POLICY_DESCRIPTION = (
@@ -79,7 +88,10 @@ _LOOP_POLICY_DESCRIPTION = (
     "and instrument re-freeze only) or 'best' (high-water mark — better "
     "observations ratchet the baseline up; anything below it is a regression the "
     "arena fights). Persists in loop-state (one git commit). Current policy is "
-    "readable via wiki_status.loop.baseline_policy."
+    "readable via wiki_status.loop.baseline_policy. Never call this from "
+    "detection alone -- only the dashboard/CLI operator invokes it, or the user "
+    "has explicitly confirmed the policy change; an unconfirmed detection "
+    "routes to wiki_status instead."
 )
 
 _LOOP_REBASELINE_DESCRIPTION = (
@@ -87,13 +99,19 @@ _LOOP_REBASELINE_DESCRIPTION = (
     "freezes the high-water mark, mode='latest' the most recent scalar, both "
     "restricted to records from the current instrument (cross-instrument scalars "
     "are never comparable). One git commit. Use after deciding the loop should "
-    "defend a previous quality level."
+    "defend a previous quality level. Never call this from detection alone -- "
+    "only the dashboard/CLI operator invokes it, or the user has explicitly "
+    "confirmed the rebaseline; an unconfirmed detection routes to wiki_status "
+    "instead."
 )
 
 _LOOP_SET_BASELINE_DESCRIPTION = (
     "Freeze the gate baseline scalar for a topic — same as "
     "`python scripts/loop_runner.py --topic … --set-baseline SCALAR`. "
-    "Does not run eval. Pass vault to select a configured vault."
+    "Does not run eval. Pass vault to select a configured vault. Never call "
+    "this from detection alone -- only the dashboard/CLI operator invokes it, "
+    "or the user has explicitly confirmed the baseline change; an unconfirmed "
+    "detection routes to wiki_status instead."
 )
 
 _LINT_DESCRIPTION = (

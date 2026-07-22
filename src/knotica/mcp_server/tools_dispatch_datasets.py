@@ -53,7 +53,11 @@ _DATASETS_DISPATCH_DESCRIPTION = (
     "freeze). action=bootstrap_train cold-starts the trainset from `target` "
     "synthesized QA pairs (same as datasets_bootstrap_train, default 30). "
     "action=freeze commits Reviewed candidates into held-out golden.jsonl "
-    "(same as datasets_freeze). Pass vault to select a configured vault."
+    "(same as datasets_freeze). Pass vault to select a configured vault. "
+    "action=bootstrap, action=bootstrap_train, and action=freeze never fire "
+    "from detection alone -- only after the user has explicitly confirmed the "
+    "mutation; an unconfirmed detection routes to action=inventory or "
+    "action=records instead."
 )
 
 

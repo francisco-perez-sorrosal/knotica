@@ -51,7 +51,9 @@ _VAULT_HEALTH_DISPATCH_DESCRIPTION = (
     "topic or the whole vault (same as vault_lint, read-only). "
     "action=metadata_tree lists the vault's Knotica metadata substrate (same "
     "as vault_metadata_tree, read-only). Pass vault to select a configured "
-    "vault."
+    "vault. mode=apply never fires from detection alone -- only after the "
+    "user has explicitly confirmed the repair; an unconfirmed detection "
+    "routes to mode=dry-run, action=doctor, or an offer instead."
 )
 
 

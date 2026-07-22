@@ -40,7 +40,9 @@ _WRITE_PAGE_DESCRIPTION = (
     "fast with RESERVED_NAME. Also fails fast on invalid frontmatter. "
     "When candidate is set to a handle from source_ingest_open, this write lands on that "
     "suggestion's candidate context instead of the default branch; leave it empty for a normal "
-    "ingest. Idempotency and the one-commit-per-write contract are unchanged."
+    "ingest. Idempotency and the one-commit-per-write contract are unchanged. Never call this "
+    "from detection alone -- only after the user has explicitly confirmed the write; an "
+    "unconfirmed detection routes to query or an offer instead."
 )
 
 _STORE_SOURCE_DESCRIPTION = (
@@ -52,7 +54,9 @@ _STORE_SOURCE_DESCRIPTION = (
     "paper's citation key as the filename (e.g. 'wang2024awm'). "
     "When candidate is set to a handle from source_ingest_open, this write lands on that "
     "suggestion's candidate context instead of the default branch; leave it empty for a normal "
-    "ingest. Idempotency and the one-commit-per-write contract are unchanged."
+    "ingest. Idempotency and the one-commit-per-write contract are unchanged. Never call this "
+    "from detection alone -- only after the user has explicitly confirmed the write; an "
+    "unconfirmed detection routes to query or an offer instead."
 )
 
 _CREATE_TOPIC_DESCRIPTION = (
@@ -62,7 +66,9 @@ _CREATE_TOPIC_DESCRIPTION = (
     "artifact whose absence means 'not yet evaluated'), and an index.md entry — as one git commit. "
     "Idempotent: if the topic already exists, returns existed=true and makes no commit. Fails fast "
     "(RESERVED_NAME) if the name collides with a reserved top-level name (sources, index.md, "
-    "log.md, SCHEMA.md, START_HERE.md, .knotica, .git)."
+    "log.md, SCHEMA.md, START_HERE.md, .knotica, .git). Never call this from detection alone -- "
+    "only after the user has explicitly confirmed the mutation; an unconfirmed detection routes "
+    "to query or an offer instead."
 )
 
 _CURATE_EXAMPLE_DESCRIPTION = (
@@ -70,7 +76,8 @@ _CURATE_EXAMPLE_DESCRIPTION = (
     ".knotica/datasets/qa.jsonl (the DSPy flywheel), as one git commit. Idempotent by "
     "content-hash: re-submitting an identical example is a no-op. Returns example_count so you can "
     "report 'N examples, M to compile-ready'. Solicit this at the end of every ingest and query "
-    "operation."
+    "operation. Never call this from detection alone -- only after the user has explicitly "
+    "confirmed the mutation; an unconfirmed detection routes to query or an offer instead."
 )
 
 ToolResult = CallToolResult
