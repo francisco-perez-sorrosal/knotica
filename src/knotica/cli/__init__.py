@@ -43,6 +43,7 @@ COMMAND_NAMES: tuple[str, ...] = (
     "compile",
     "loop",
     "gapfill",
+    "service",
 )
 
 

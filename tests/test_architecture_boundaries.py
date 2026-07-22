@@ -14,9 +14,14 @@ What the boundary forbids inside every ``cli/``, ``mcp_server/``, and ``evals/``
 module:
 
 - importing ``subprocess`` or using ``os.system`` / ``os.popen`` (an adapter has
-  no business shelling out to git) -- with one exemption: ``cli/init.py`` may
+  no business shelling out to git) -- with two exemptions: ``cli/init.py`` may
   shell out to bootstrap a fresh vault (``git init`` + initial commit), which is
-  SETUP of a not-yet-a-vault directory, not mutation of a live vault;
+  SETUP of a not-yet-a-vault directory, not mutation of a live vault; and
+  ``cli/service.py`` imports ``subprocess`` only to catch/type-check the
+  ``subprocess.CalledProcessError`` that ``knotica.service.manager``'s
+  injectable-runner OS-service-manager calls (``launchctl``/``systemctl``) can
+  raise -- an entirely different external system than git, never the vault's
+  git history nor ``core.transaction``'s single-writer path;
 - importing ``knotica.core.lock`` (the vault flock is the transaction's to take);
 - calling the mutating store methods ``write_text_atomic`` / ``delete``;
 - calling the mutating ``VaultVcs`` methods ``commit_paths`` / ``rollback_paths``.
@@ -55,9 +60,12 @@ SOLE_WRITER = SRC_ROOT / "core" / "transaction.py"
 #: Adapter modules exempt from the shell-out clause ONLY. ``cli/init.py`` shells
 #: out to git for one-time repo bootstrap (``git init`` + the initial commit of a
 #: fresh vault) -- that is SETUP of a not-yet-a-vault directory, not mutation of a
-#: live vault, so it predates the single-writer transaction path. It remains fully
-#: subject to every other clause (no core.lock import, no store/VaultVcs mutation).
-SHELL_OUT_EXEMPT = frozenset({"cli/init.py"})
+#: live vault, so it predates the single-writer transaction path. ``cli/service.py``
+#: imports ``subprocess`` only to catch/type-check ``subprocess.CalledProcessError``
+#: from ``knotica.service.manager``'s OS-service-manager (launchd/systemd) calls --
+#: an unrelated external system, never git. Both remain fully subject to every
+#: other clause (no core.lock import, no store/VaultVcs mutation).
+SHELL_OUT_EXEMPT = frozenset({"cli/init.py", "cli/service.py"})
 
 #: Store methods that mutate the filesystem -- forbidden to the adapters.
 MUTATING_STORE_METHODS = frozenset({"write_text_atomic", "delete"})
