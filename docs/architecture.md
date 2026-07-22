@@ -30,7 +30,7 @@ Knotica is an AI-maintained markdown wiki in an Obsidian vault. The **Claude cli
 the server exposes deterministic tools and holds no session state. Every vault mutation flows through a
 single `VaultTransaction` (flock + atomic write + log append + secret-scrub + one git commit).
 
-> **P-A/P-B Built — Loop-internals consolidation + tool-surface two-tier (2026-07-21).** 
+> **P-A/P-B/P-C Built — Loop-internals consolidation + tool-surface two-tier + transparency/routing (2026-07-21).** 
 > Phase-A extracted four shared primitives from the loop's seams (`branch_namespaces.py`, `best_effort.py`, 
 > `_run_arena_and_resolve`, `build_loop_runner` factory) — behavior-preserving refactor, characterization-test-gated.
 > Phase-B collapses the 49-tool flat MCP surface into a two-tier architecture: **7 operator dispatchers** 
@@ -40,7 +40,7 @@ single `VaultTransaction` (flock + atomic write + log append + secret-scrub + on
 > dispatchers for one release cycle), **projected 30 post-alias-removal** (18 core + 4 stragglers + `open_dashboard` + 7 dispatchers).
 > New `INVALID_ARGUMENT` error code for argument validation (distinct from cursor errors); 
 > `wiki_status(view="scope")` provides the cheapest scope-check for client-side routing.
-> **P-C partially Built** — skill + slimmed `server.py` `_INSTRUCTIONS` (no enumerated protocol steps, stable invariants only).
+> **P-C Built** — four-layer conversational-routing architecture (skill symptom-detection + `_INSTRUCTIONS` stable-invariants-only + tool-description guards on mutating tools + vault prompts as sole evolvable substrate); SessionStart topic-awareness seed + attention-nudge (`knotica status --nudge`); per-client reliability tiers (Tier-1 Claude Code skill+hooks; Tier-2 Desktop instructions-only).
 > Planned: **P-D** (loop service lifecycle + attention model).
 
 ## 2. System Context

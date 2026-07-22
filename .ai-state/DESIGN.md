@@ -374,12 +374,11 @@ Phase P4 — gap-fill source-candidate gate (this pipeline, `gapfill-source-gate
   `dec-034` (the `candidate` handle + `source_ingest_open`/`submit` surface).
 
 <!-- aac:authored owner=systems-architect last-reviewed=2026-07-21 -->
-### Consolidation target — PLANNED direction (loop-consolidation pipeline)
+### Consolidation realized — loop-consolidation pipeline (2026-07-21)
 
-**Status: PLANNED, not current state.** The rows in §3 above describe the codebase as
-Built on `main` (dec-001..038). The consolidation pass (`.ai-work/loop-consolidation/SYSTEMS_PLAN.md`)
-reshapes surfaces and internals **without changing any dec-001..038 semantics**. Draft
-ADRs (finalize to `dec-NNN` at merge):
+**Status: BUILT (P-A/P-B/P-C complete; P-D remaining planned).** The rows in §3 above describe the codebase as
+Built on `main` (dec-001..038). The consolidation pass (`loop-consolidation` pipeline) reshaped surfaces and internals
+**without changing any dec-001..038 semantics**. Finalized ADRs (dec-NNN ids assigned at merge):
 
 - **dec-draft-1785275a** — Tiered MCP tool-surface topology: thin conversational core
   (~18 tools, dec-003 principle re-affirmed) + operator long-tail collapsed into 7
@@ -389,14 +388,15 @@ ADRs (finalize to `dec-NNN` at merge):
   additive-alias non-breaking migration (49 → ~29 model-facing tools). Companion:
   interface-designer `dec-draft-ac2898b1` (dispatcher shapes) + `dec-draft-19d50c6b`
   (`INVALID_ARGUMENT` error code, adopted).
-- **dec-draft-c5032c8e** — Conversational routing & transparency: per-client routing-
-  reliability tiers accepted (Tier-1 Claude Code / Tier-2 Desktop); `server.py`
-  `_INSTRUCTIONS` slimmed to detection heuristics + stable invariant guards + a
+- **dec-draft-c5032c8e** — **[Built, 2026-07-21]** Conversational routing & transparency: four-layer architecture
+  (skill symptom-detection + `_INSTRUCTIONS` stable-invariants-only + tool-description guards on mutating tools + vault prompts as sole evolvable substrate);
+  per-client routing-reliability tiers (Tier-1 Claude Code skill+hooks / Tier-2 Desktop instructions-only);
+  `server.py` `_INSTRUCTIONS` slimmed to detection heuristics + stable invariant guards + a
   `read_protocol` pointer (no enumerated evolvable steps — kills the drifted duplicate at
-  the root, no boot-time vault read); new cheapest `wiki_status(view=scope)`; a
-  SessionStart topic-awareness seed (Tier-1, proactive detection); read/offer over-routing
-  guard load-bearing. Companion: interface-designer `dec-draft-d6edd5ef` (routing-artifact
-  separation).
+  the root, no boot-time vault read); new cheapest `wiki_status(view=scope)`; SessionStart
+  topic-awareness seed + attention-nudge (`knotica status --nudge`, Tier-1 proactive detection);
+  read/offer over-routing guard on every mutating tool. Companion: interface-designer
+  `dec-draft-d6edd5ef` (routing-artifact separation).
 - **dec-draft-3fc197ba** — Loop-internals consolidation (behavior-preserving,
   characterization-tests-first): `core/branch_namespaces.py` single-source-of-truth for the
   five branch prefixes; one shared best-effort primitive; one `_run_arena_and_resolve`

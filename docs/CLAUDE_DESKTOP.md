@@ -350,7 +350,7 @@ Do **not** freeze the loop gate from this probe — run ``knotica eval`` or comp
 
 When the loop observes a regression, the fault classifier (P1) diagnoses whether it is a genuine knowledge gap, retrieval fault, or generation fault. Genuine gaps are persisted to a queue for human approval (P3). You can also file gaps conversationally: if the wiki answers poorly and you confirm a gap, call knotica `gap_report` (topic, question text) to file a reported gap flowing into the same discovery queue. Guillotine disputes (weakened claims on `--apply`) also file retracted gaps that feed the queue.
 
-In the dashboard **Suggestions** pane (or via `suggestions_read` / `suggestions_review` tools):
+In the dashboard **SourcesPane** (or via `suggestions_read` / `suggestions_review` tools):
 - View pending suggestions joining a diagnosed gap to a ranked source (P2 discovery)
 - Approve to queue an ingest instruction (no auto-ingest)
 - Reject with a reason, defer to later, or mark as ingested once you've handled it manually
