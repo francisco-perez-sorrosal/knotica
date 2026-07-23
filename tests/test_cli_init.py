@@ -340,6 +340,50 @@ def test_desktop_patch_merges_preserving_servers_and_writes_absolute_launch_with
 
 
 # ---------------------------------------------------------------------------
+# from-source resolution: works whether invoked via ``uv run`` (checkout) or a
+# ``uv tool install``'d binary (isolated venv, __file__ points outside the repo)
+# ---------------------------------------------------------------------------
+
+
+def test_mcp_from_source_falls_back_to_cwd_when_file_is_outside_the_checkout(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A ``uv tool install``'d ``knotica`` binary runs from an isolated venv --
+    ``__file__``'s parents never reach the repo root, only the current working
+    directory does when the user invokes it from inside a checkout. Without the
+    cwd fallback this silently degrades to the bare ``"knotica"`` package name,
+    which ``uvx``/``uv tool run`` cannot resolve (not published)."""
+    from knotica.cli import init as init_mod
+
+    fake_venv_file = tmp_path / "isolated_venv" / "site-packages" / "knotica" / "cli" / "init.py"
+    fake_venv_file.parent.mkdir(parents=True)
+    fake_venv_file.touch()
+    monkeypatch.setattr(init_mod, "__file__", str(fake_venv_file))
+    monkeypatch.delenv(init_mod._MCP_FROM_ENV_VAR, raising=False)
+    monkeypatch.chdir(REPO_ROOT)
+
+    assert init_mod._mcp_from_source() == str(REPO_ROOT)
+
+
+def test_mcp_from_source_falls_back_to_package_name_outside_any_checkout(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Neither ``__file__`` nor cwd inside a repo checkout (e.g. a real published
+    install, or a shell outside any clone) -- falls back to the bare package
+    name, the pre-existing (correct) behavior for that case."""
+    from knotica.cli import init as init_mod
+
+    fake_file = tmp_path / "site-packages" / "knotica" / "cli" / "init.py"
+    fake_file.parent.mkdir(parents=True)
+    fake_file.touch()
+    monkeypatch.setattr(init_mod, "__file__", str(fake_file))
+    monkeypatch.delenv(init_mod._MCP_FROM_ENV_VAR, raising=False)
+    monkeypatch.chdir(tmp_path)
+
+    assert init_mod._mcp_from_source() == "knotica"
+
+
+# ---------------------------------------------------------------------------
 # Containment: nothing escapes the temp sandbox
 # ---------------------------------------------------------------------------
 

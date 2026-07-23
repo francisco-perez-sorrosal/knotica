@@ -445,15 +445,30 @@ def _expand(raw: str) -> Path:
     return Path(os.path.expandvars(raw)).expanduser().resolve()
 
 
+def _repo_root_from(start: Path) -> str | None:
+    """Walk ``start``'s parents for a knotica repo root (pyproject.toml + template dir)."""
+    for parent in [start, *start.parents]:
+        if (parent / "pyproject.toml").is_file() and (parent / TEMPLATE_DIRNAME).is_dir():
+            return str(parent)
+    return None
+
+
 def _mcp_from_source() -> str:
-    """Resolve the MCP ``--from`` source: env > source checkout > package name."""
+    """Resolve the MCP ``--from`` source: env > source checkout > package name.
+
+    The source-checkout probe checks two signals, since either can miss the repo
+    root depending on how ``knotica`` was invoked: ``__file__``'s parents (works
+    when running via ``uv run`` from the checkout) and the current working
+    directory's parents (works when running via a ``uv tool install``'d binary
+    from inside the checkout — ``__file__`` then resolves into the isolated tool
+    venv, not the repo, per the README's own documented install sequence).
+    """
     override = os.environ.get(_MCP_FROM_ENV_VAR)
     if override:
         return override
-    for parent in Path(__file__).resolve().parents:
-        if (parent / "pyproject.toml").is_file() and (parent / TEMPLATE_DIRNAME).is_dir():
-            return str(parent)
-    return "knotica"
+    return (
+        _repo_root_from(Path(__file__).resolve().parent) or _repo_root_from(Path.cwd()) or "knotica"
+    )
 
 
 def _desktop_config_path() -> Path:
