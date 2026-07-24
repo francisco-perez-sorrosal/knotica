@@ -75,6 +75,7 @@ from knotica.core.links import iter_page_paths
 from knotica.core.records import (
     MetricsComponents,
     MetricsRecord,
+    QARecord,
     body_sha256,
 )
 from knotica.core.transaction import VaultTransaction
@@ -88,6 +89,7 @@ from knotica.evals.config import (
     HarnessConfig,
     harness_version,
 )
+from knotica.evals.error_capture import OnOutcome, classify_error
 from knotica.evals.llm import AnthropicClient, Completion, LLMClient, Message
 from knotica.evals.program import BaselineProgram
 from knotica.evals.runner import RUNNER_CACHE_NAMESPACE, MessagesApiRunner
@@ -352,6 +354,7 @@ def run_eval(
     work_root: str | Path | None = None,
     on_example: Callable[[int, int, str], None] | None = None,
     on_substage: Callable[[str, int, int], None] | None = None,
+    on_outcome: OnOutcome | None = None,
     **overrides: object,
 ) -> EvalRunResult:
     """Evaluate ``topic`` against its frozen golden set and append one metrics record.
@@ -385,6 +388,14 @@ def run_eval(
         work_root: The clone destination -- the harness clones the source *into*
             it (it must not already exist). ``None`` uses a fresh OS temp
             directory (the clone persists for review; the source is untouched).
+        on_outcome: Fired once per example, ``(id, status, error_class, detail)``.
+            The runner leg fires it on a caught ``program(question=...)``
+            exception (classified by
+            :func:`~knotica.evals.error_capture.classify_error`, id resolved via
+            the question -> id map -- see :func:`_question_id_map`); the scorer
+            leg (threaded to :func:`~knotica.evals.scorer.build_metric`) fires it
+            on success or a judge parse failure, keyed by the golden record's
+            stable id. ``None`` disables capture; no extra model call either way.
         **overrides: CLI-flag-style config overrides (e.g. ``max_total_tokens=1``)
             re-validated onto ``config``.
 
@@ -426,6 +437,7 @@ def run_eval(
     program = BaselineProgram(
         clone_store, topic, MessagesApiRunner(client, run_config.worker_snapshot, cache=run_cache)
     )
+    question_id_map = _question_id_map(records)
     metric = build_metric(
         client,
         run_config.judge_snapshot,
@@ -437,12 +449,25 @@ def run_eval(
         threshold=run_config.threshold,
         n_judge_samples=run_config.n_judge_samples,
         on_substage=on_substage,
+        on_outcome=(
+            None
+            if on_outcome is None
+            else _remap_scorer_outcome_by_question(on_outcome, records, question_id_map)
+        ),
     )
 
     scored_program = (
         program
-        if on_example is None and on_substage is None
-        else _with_example_progress(dspy, program, len(records), on_example, on_substage)
+        if on_example is None and on_substage is None and on_outcome is None
+        else _with_example_progress(
+            dspy,
+            program,
+            len(records),
+            on_example,
+            on_substage,
+            on_outcome,
+            question_id_map,
+        )
     )
     results = _run_evaluate(dspy, records, scored_program, metric, run_config)
     _reject_on_failures(topic, results)
@@ -532,12 +557,55 @@ def _default_cache(corpus_sha: str) -> ResponseCache:
 # --------------------------------------------------------------------------- #
 
 
+def _question_id_map(records: Sequence[QARecord]) -> dict[str, str]:
+    """Map each golden record's question to its stable id, one-time-built.
+
+    A question shared by two or more records makes the map ambiguous for the
+    runner seam (which only has the question in scope when ``program(question=
+    ...)`` raises -- no ``gold`` object is reachable there); such a question
+    falls back to mapping onto itself, so the outcome key is still the question
+    string rather than a guessed or raised id. Golden questions are expected to
+    be unique in practice (see :mod:`knotica.evals.golden`); the fallback exists
+    for the rare collision, not the common case.
+    """
+    counts: dict[str, int] = {}
+    for record in records:
+        counts[record.query] = counts.get(record.query, 0) + 1
+    return {
+        record.query: (record.id if counts[record.query] == 1 else record.query)
+        for record in records
+    }
+
+
+def _remap_scorer_outcome_by_question(
+    on_outcome: OnOutcome, records: Sequence[QARecord], question_id_map: dict[str, str]
+) -> OnOutcome:
+    """Wrap ``on_outcome`` so the scorer's ``gold.id`` key resolves through the
+    same question -> outcome-key fallback the runner seam uses.
+
+    The scorer only ever sees ``gold.id`` (unique per record, even when two
+    records share a question), but the runner seam can only key by question, so
+    a shared question falls back to the question string there. Without this
+    remap the two seams would report the *same* colliding example under two
+    different keys depending on which seam happened to fire -- this keeps both
+    consistent by resolving the id back through the same collision map.
+    """
+    id_key = {record.id: question_id_map.get(record.query, record.id) for record in records}
+
+    def _remapped(id: str, status: str, error_class: str, detail: str) -> None:
+        on_outcome(id_key.get(id, id), status, error_class, detail)
+
+    return _remapped
+
+
 def _with_example_progress(
     dspy: object,
     program: object,
     total: int,
     on_example: Callable[[int, int, str], None] | None,
     on_substage: Callable[[str, int, int], None] | None = None,
+    on_outcome: OnOutcome | None = None,
+    question_id_map: dict[str, str] | None = None,
 ) -> object:
     """Wrap ``program`` so each forward reports ``(i, total, question)`` first.
 
@@ -545,6 +613,15 @@ def _with_example_progress(
     the callbacks fire *before* the example runs so a watcher shows the
     question currently in flight, not the one just finished. ``on_substage``
     additionally marks the "answering" leg (the metric marks "judging").
+
+    A ``program(question=question)`` exception is the runner-error capture seam:
+    ``dspy.Evaluate`` (3.2) skips the metric entirely for an example whose
+    program call raised, so this is the *only* place such a failure is ever
+    observable. On a caught exception, ``on_outcome`` fires once -- classified by
+    :func:`~knotica.evals.error_capture.classify_error`, keyed by
+    ``question_id_map`` (falling back to the question itself) -- and the
+    exception is re-raised unchanged so ``dspy.Evaluate`` still records the
+    failure triple and :func:`_reject_on_failures` still aborts identically.
     """
 
     class _ProgressProgram(dspy.Module):  # type: ignore[attr-defined,misc]
@@ -566,7 +643,13 @@ def _with_example_progress(
                     on_substage("answering", 0, 0)
             except Exception:  # noqa: BLE001 — progress must never break the run
                 _LOGGER.debug("progress callback failed", exc_info=True)
-            return program(question=question)
+            try:
+                return program(question=question)
+            except Exception as exc:
+                if on_outcome is not None:
+                    outcome_id = (question_id_map or {}).get(question, question)
+                    on_outcome(outcome_id, "error", *classify_error(exc))
+                raise
 
     return _ProgressProgram()
 

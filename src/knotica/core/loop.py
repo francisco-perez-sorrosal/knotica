@@ -12,6 +12,7 @@ scalar and zero network; production wires :func:`knotica.evals.harness.run_eval`
 
 from __future__ import annotations
 
+import threading
 import time
 from collections.abc import Callable
 from contextlib import AbstractContextManager
@@ -1037,11 +1038,27 @@ def harness_evaluate(
     from knotica.core.loop_progress import clear_progress, write_progress
     from knotica.evals.harness import run_eval
 
-    # Question context persists across substage events (the metric fires
-    # "judging" without knowing which question index is in flight).
-    context = {"current": 0, "total": 0, "detail": ""}
+    # Question + substage context persists across events -- an outcome write
+    # (which is not itself a substage transition) replays whatever substage
+    # was last reported rather than inventing an unrecognized label.
+    context = {
+        "current": 0,
+        "total": 0,
+        "detail": "",
+        "substage": "",
+        "sub_current": 0,
+        "sub_total": 0,
+    }
 
-    def _write(substage: str, sub_current: int, sub_total: int) -> None:
+    # Single writer: one lock guards both the accumulated outcomes list and
+    # every progress write that reads it, so the read-append-write triple is
+    # one atomic unit across dspy's concurrent scoring threads — a lock that
+    # only wrapped the write itself would still let two threads interleave
+    # their list reads and silently drop an update.
+    lock = threading.Lock()
+    outcomes: list[dict[str, str]] = []
+
+    def _write_locked() -> None:
         write_progress(
             source_root,
             topic,
@@ -1049,17 +1066,35 @@ def harness_evaluate(
             current=int(context["current"]),
             total=int(context["total"]),
             detail=str(context["detail"]),
-            substage=substage,
-            sub_current=sub_current,
-            sub_total=sub_total,
+            substage=str(context["substage"]),
+            sub_current=int(context["sub_current"]),
+            sub_total=int(context["sub_total"]),
+            examples=list(outcomes),
         )
 
     def _on_example(current: int, total: int, question: str) -> None:
-        context.update(current=current, total=total, detail=question)
-        _write("answering", 0, 0)
+        with lock:
+            context.update(
+                current=current,
+                total=total,
+                detail=question,
+                substage="answering",
+                sub_current=0,
+                sub_total=0,
+            )
+            _write_locked()
 
     def _on_substage(substage: str, sub_current: int, sub_total: int) -> None:
-        _write(substage, sub_current, sub_total)
+        with lock:
+            context.update(substage=substage, sub_current=sub_current, sub_total=sub_total)
+            _write_locked()
+
+    def _on_outcome(id_: str, status: str, error_class: str, detail: str) -> None:
+        with lock:
+            outcomes.append(
+                {"id": id_, "status": status, "error_class": error_class, "detail": detail}
+            )
+            _write_locked()
 
     write_progress(source_root, topic, phase="preparing", detail="clone + golden set")
     try:
@@ -1069,6 +1104,7 @@ def harness_evaluate(
             ref=ref,
             on_example=_on_example,
             on_substage=_on_substage,
+            on_outcome=_on_outcome,
             **overrides,
         )
     finally:
@@ -1082,6 +1118,6 @@ def harness_evaluate(
 # would deadlock the cycle. Placing the import here — after every name
 # loop_factory depends on already exists in this module's namespace — makes
 # the cycle resolve safely, but only holds because loop.py is the sole entry
-# point every external importer of build_loop_runner uses (see SYSTEMS_PLAN.md
-# and IMPLEMENTATION_PLAN.md Step 3 for the accepted risk).
+# point every external importer of build_loop_runner uses (an accepted,
+# deliberate risk of this import-cycle resolution).
 from knotica.core.loop_factory import build_loop_runner  # noqa: E402

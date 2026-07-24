@@ -66,6 +66,7 @@ from typing import Protocol
 from knotica.evals import citations, judge
 from knotica.evals.cache import ResponseCache
 from knotica.evals.config import DEFAULT_THRESHOLD, W_CITE, W_QA
+from knotica.evals.error_capture import OnOutcome, classify_error
 from knotica.evals.llm import LLMClient
 from knotica.store import VaultStore
 
@@ -98,6 +99,7 @@ class GoldExample(Protocol):
     reference-aware citation guard.
     """
 
+    id: str
     question: str
     reference_answer: str
     citations: Sequence[str]
@@ -127,6 +129,7 @@ def build_metric(
     threshold: float = DEFAULT_THRESHOLD,
     n_judge_samples: int = judge.DEFAULT_N_JUDGE_SAMPLES,
     on_substage: Callable[[str, int, int], None] | None = None,
+    on_outcome: OnOutcome | None = None,
 ) -> Callable[..., float | bool]:
     """Bind the scorer's collaborators and return the DSPy-native ``score`` metric.
 
@@ -150,6 +153,10 @@ def build_metric(
         threshold: The bool-branch cutoff (default :data:`DEFAULT_THRESHOLD`).
         n_judge_samples: Judge samples to median over (default
             :data:`~knotica.evals.judge.DEFAULT_N_JUDGE_SAMPLES`).
+        on_outcome: Fired once per call, keyed by ``gold.id`` -- ``"ok"`` after
+            grading and citation validity both succeed, or ``"error"`` (classified
+            by :func:`~knotica.evals.error_capture.classify_error`) on a judge
+            failure, which still propagates. ``None`` disables capture.
 
     Returns:
         The bound ``score`` callable: ``float`` when ``trace is None``, else ``bool``.
@@ -171,24 +178,35 @@ def build_metric(
         reference carries citations and the candidate cites nothing, the leg is
         ``0.0`` rather than the vacuous ``1.0``. A judge-instrument failure
         (:class:`~knotica.evals.judge.JudgeParseError`) propagates rather than
-        collapsing into a low score.
+        collapsing into a low score -- ``on_outcome`` (if bound) reports it as
+        ``"error"`` first, keyed by ``gold.id``, so the failure is never silently
+        lost even though it is re-raised for the caller.
         """
         if on_substage is not None:
             on_substage("judging", 0, n_judge_samples)
-        qa_accuracy = judge.grade(
-            llm_client,
-            judge_snapshot,
-            gold.question,
-            prediction.answer,
-            gold.reference_answer,
-            n=n_judge_samples,
-            cache=cache,
-            on_sample=(
-                None if on_substage is None else lambda k, total: on_substage("judging", k, total)
-            ),
-        )
-        citation_validity = _citation_validity(store, topic, gold, prediction)
+        try:
+            qa_accuracy = judge.grade(
+                llm_client,
+                judge_snapshot,
+                gold.question,
+                prediction.answer,
+                gold.reference_answer,
+                n=n_judge_samples,
+                cache=cache,
+                on_sample=(
+                    None
+                    if on_substage is None
+                    else lambda k, total: on_substage("judging", k, total)
+                ),
+            )
+            citation_validity = _citation_validity(store, topic, gold, prediction)
+        except Exception as exc:
+            if on_outcome is not None:
+                on_outcome(gold.id, "error", *classify_error(exc))
+            raise
         quality = _clamp_unit(w_qa * qa_accuracy + w_cite * citation_validity)
+        if on_outcome is not None:
+            on_outcome(gold.id, "ok", "", "")
         if trace is None:
             return quality
         return quality >= threshold

@@ -159,6 +159,14 @@ export interface LoopRunnerLiveness {
   interval_seconds: number | null;
 }
 
+/** One golden question's outcome, accumulated live as an eval run proceeds. */
+export interface ExampleOutcome {
+  id: string;
+  status: string;
+  error_class: string;
+  detail: string;
+}
+
 /** Live in-flight eval progress; non-null only while an eval is running. */
 export interface LoopProgress {
   phase: string;
@@ -170,6 +178,8 @@ export interface LoopProgress {
   substage: string;
   sub_current: number;
   sub_total: number;
+  /** Per-question outcomes accumulated so far this run; absent on older payloads. */
+  examples?: ExampleOutcome[];
 }
 
 export interface WikiStatus {

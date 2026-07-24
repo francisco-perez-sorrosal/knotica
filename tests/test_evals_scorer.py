@@ -151,9 +151,31 @@ def _plant_sources(vault_root: Path, keys: list[str]) -> None:
         _plant_source(vault_root, key)
 
 
-def _gold(reference_citations: list[str]) -> SimpleNamespace:
-    """A duck-typed golden example: the three attrs the scorer reads from ``gold``."""
+def _capturing_on_outcome(
+    sink: list[tuple[str, str, str, str]],
+) -> Callable[[str, str, str, str], None]:
+    """A stub ``on_outcome`` collecting each call's 4 positional args as one tuple.
+
+    ``on_outcome`` is called as ``on_outcome(id, status, error_class, detail)`` --
+    four separate positional strings, not one tuple -- so a bare ``list.append``
+    is the wrong stub (it only accepts one argument). This wraps ``sink.append``
+    behind the real 4-arg signature.
+    """
+
+    def _capture(id: str, status: str, error_class: str, detail: str) -> None:
+        sink.append((id, status, error_class, detail))
+
+    return _capture
+
+
+def _gold(reference_citations: list[str], *, id: str = "gold-0001") -> SimpleNamespace:
+    """A duck-typed golden example: the attrs the scorer reads from ``gold``.
+
+    ``id`` defaults to a fixed placeholder -- only the ``on_outcome`` capture-seam
+    tests read it, so every pre-existing call site is unaffected.
+    """
     return SimpleNamespace(
+        id=id,
         question="What distinguishes an agentic workflow memory?",
         reference_answer="It persists reusable task strategies across episodes.",
         citations=list(reference_citations),
@@ -198,6 +220,7 @@ def _bind_metric(
     llm_client: FakeLLMClient,
     judge_snapshot: str,
     threshold: float | None = None,
+    on_outcome: Callable[[str, str, str, str], None] | None = None,
 ) -> Callable[..., float | bool]:
     """Bind the scorer's dependencies into the 2-arg DSPy metric (the single seam point).
 
@@ -206,6 +229,10 @@ def _bind_metric(
     ``score(gold, prediction, trace=None)`` callable. Routing every test through
     this one helper means the whole suite is insulated from the binding shape --
     reconcile here, and only here, if it ever changes.
+
+    ``on_outcome`` is omitted from the call entirely when ``None`` -- so every
+    pre-existing test exercises ``build_metric`` with its pre-capture-seam
+    signature unchanged; only the capture-seam tests pass it.
     """
     deps: dict[str, object] = {
         "store": store,
@@ -215,6 +242,8 @@ def _bind_metric(
     }
     if threshold is not None:
         deps["threshold"] = threshold
+    if on_outcome is not None:
+        deps["on_outcome"] = on_outcome
     return scorer.build_metric(**deps)
 
 
@@ -524,4 +553,94 @@ def test_the_same_inputs_produce_the_same_score(template_vault: Path) -> None:
 
     assert first == second == pytest.approx(0.86), (
         f"scoring identical inputs twice must be bit-for-bit stable; got {first!r} then {second!r}"
+    )
+
+
+# --------------------------------------------------------------------------- #
+# on_outcome -- the success/judge-error capture seam (RED until scorer.py wires it)
+#
+# ``build_metric`` does not yet accept ``on_outcome`` at all, so every test
+# below fails today with a ``TypeError: build_metric() got an unexpected
+# keyword argument 'on_outcome'`` raised directly out of ``_bind_metric`` --
+# before any assertion runs.
+# --------------------------------------------------------------------------- #
+
+
+def test_score_reports_an_ok_outcome_after_grading_and_citation_succeed(
+    template_vault: Path,
+) -> None:
+    outcomes: list[tuple[str, str, str, str]] = []
+    metric = _bind_metric(
+        store=_store(template_vault),
+        topic=TOPIC,
+        llm_client=_judge_fake(0.8),
+        judge_snapshot=JUDGE_SNAPSHOT,
+        on_outcome=_capturing_on_outcome(outcomes),
+    )
+    gold = _gold(["someref2020"], id="gold-ok-0001")
+
+    result = metric(gold, _prediction([STORED_SOURCE_KEY]))
+
+    assert outcomes == [("gold-ok-0001", "ok", "", "")], (
+        f"a successful score must report exactly one ok outcome keyed by gold.id, with an empty "
+        f"error_class and detail; got {outcomes!r}"
+    )
+    assert result == pytest.approx(0.86), "wiring on_outcome must not change the composed quality"
+
+
+def test_score_reports_a_parse_error_outcome_and_still_raises_on_a_judge_parse_failure(
+    template_vault: Path,
+) -> None:
+    outcomes: list[tuple[str, str, str, str]] = []
+    metric = _bind_metric(
+        store=_store(template_vault),
+        topic=TOPIC,
+        llm_client=_garbage_judge(),
+        judge_snapshot=JUDGE_SNAPSHOT,
+        on_outcome=_capturing_on_outcome(outcomes),
+    )
+    gold = _gold(["someref2020"], id="gold-parse-error-0001")
+
+    with pytest.raises(JudgeParseError):
+        metric(gold, _prediction([STORED_SOURCE_KEY]))
+
+    assert len(outcomes) == 1, (
+        f"a judge parse failure must report exactly one outcome -- never an ok fired first and "
+        f"an error fired after; got {outcomes!r}"
+    )
+    outcome_id, status, error_class, detail = outcomes[0]
+    assert (outcome_id, status, error_class) == ("gold-parse-error-0001", "error", "parse_error"), (
+        f"a JudgeParseError must be classified as parse_error and keyed by gold.id; "
+        f"got {outcomes[0]!r}"
+    )
+    assert detail, (
+        f"the outcome detail must carry the parse failure's message, not be empty; got {detail!r}"
+    )
+
+
+def test_wiring_on_outcome_makes_no_additional_judge_calls(template_vault: Path) -> None:
+    # The zero-extra-call guarantee at the scorer seam: capturing the
+    # outcome must never draw an extra judge sample.
+    baseline_fake = _judge_fake(0.8)
+    baseline_metric = _bind_metric(
+        store=_store(template_vault),
+        topic=TOPIC,
+        llm_client=baseline_fake,
+        judge_snapshot=JUDGE_SNAPSHOT,
+    )
+    baseline_metric(_gold(["someref2020"]), _prediction([STORED_SOURCE_KEY]))
+
+    capturing_fake = _judge_fake(0.8)
+    capturing_metric = _bind_metric(
+        store=_store(template_vault),
+        topic=TOPIC,
+        llm_client=capturing_fake,
+        judge_snapshot=JUDGE_SNAPSHOT,
+        on_outcome=lambda *_args: None,
+    )
+    capturing_metric(_gold(["someref2020"]), _prediction([STORED_SOURCE_KEY]))
+
+    assert capturing_fake.call_count == baseline_fake.call_count, (
+        "wiring on_outcome must not add an extra judge call; "
+        f"baseline={baseline_fake.call_count} capturing={capturing_fake.call_count}"
     )

@@ -15,6 +15,7 @@ import {
 import type { ToolClient } from "./toolClient";
 import type {
   CompileStatus,
+  ExampleOutcome,
   LoopCadenceConfig,
   LoopProgress,
   LoopRunEvalResult,
@@ -1225,7 +1226,32 @@ function evalProgressBody(progress: LoopProgress) {
       {progress.detail ? (
         <small class="muted stage-progress-detail">{truncateDetail(progress.detail)}</small>
       ) : null}
+      {progress.examples?.length ? evalExamplesList(progress.examples) : null}
     </div>
+  );
+}
+
+function evalExamplesList(examples: ExampleOutcome[]) {
+  return (
+    <ul class="stage-progress-examples">
+      {examples.map((example) => (
+        <li
+          class={`stage-progress-example ${
+            example.status === "error" ? "stage-progress-example-error" : ""
+          }`}
+          key={example.id}
+        >
+          <small class="stage-progress-example-id">{example.id}</small>
+          <small class={example.status === "error" ? "" : "muted"}>{example.status}</small>
+          {example.status === "error" ? (
+            <small class="stage-progress-example-detail">
+              {example.error_class}
+              {example.detail ? ` — ${truncateDetail(example.detail)}` : ""}
+            </small>
+          ) : null}
+        </li>
+      ))}
+    </ul>
   );
 }
 

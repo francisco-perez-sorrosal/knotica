@@ -445,6 +445,32 @@ output {
   text-transform: none;
   letter-spacing: normal;
 }
+.stage-progress-examples {
+  list-style: none;
+  margin: .35rem 0 0;
+  padding: 0;
+  display: grid;
+  gap: .15rem;
+  max-height: 8rem;
+  overflow: auto;
+}
+.stage-progress-example {
+  display: flex;
+  flex-wrap: wrap;
+  gap: .4rem;
+  align-items: baseline;
+}
+.stage-progress-example-id {
+  font: .6rem var(--mono);
+  color: var(--heading);
+}
+.stage-progress-example-error {
+  color: var(--bad);
+}
+.stage-progress-example-detail {
+  font-size: .6rem;
+  color: var(--bad);
+}
 
 aside[role="alert"] {
   max-width: 1040px;

@@ -65,7 +65,7 @@ Written concurrently with ``evals/harness.py`` (disjoint files).
 import hashlib
 import json
 import socket
-from collections.abc import Iterable, Sequence
+from collections.abc import Callable, Iterable, Sequence
 from pathlib import Path
 
 import pytest
@@ -75,8 +75,14 @@ from knotica.core.records import MetricsRecord, QARecord
 from knotica.evals import judge
 from knotica.evals.cache import ResponseCache
 from knotica.evals.config import DEFAULT_CONFIG, HarnessConfig, harness_version
+from knotica.evals.error_capture import classify_error
 from knotica.evals.golden import GoldenSetContaminationError, GoldenSetMissingError
-from knotica.evals.harness import LiveVaultTargetError, SpendCeilingExceededError, run_eval
+from knotica.evals.harness import (
+    EvalRunError,
+    LiveVaultTargetError,
+    SpendCeilingExceededError,
+    run_eval,
+)
 from knotica.evals.llm import Completion, TokenUsage
 from knotica.evals.runner import DEFAULT_MAX_PAGES
 from knotica.search import RipgrepBackend
@@ -178,6 +184,75 @@ class _RoutingLLMClient:
             return self._judge
         self.worker_calls += 1
         return self._worker
+
+
+class _RaisingWorkerLLMClient:
+    """Routes worker vs judge like :class:`_RoutingLLMClient`, but the worker leg raises once.
+
+    Simulates a runner-stage failure -- the failure this feature's capture seam
+    exists for: the worker synthesis call itself raises (e.g. a rate limit),
+    never reaching the runner's parse step, so the exception propagates straight
+    out of ``program(question=question)`` inside the harness's forward wrapper.
+    ``raise_on_worker_call`` is 1-indexed against worker calls only (judge calls
+    never count toward it), matching the sequential ``num_threads=1`` ordering
+    the harness's own progress test relies on.
+    """
+
+    def __init__(
+        self,
+        *,
+        worker: Completion,
+        judge: Completion,
+        raise_on_worker_call: int,
+        error: Exception,
+    ) -> None:
+        self._worker = worker
+        self._judge = judge
+        self._raise_on_worker_call = raise_on_worker_call
+        self._error = error
+        self.worker_calls = 0
+        self.judge_calls = 0
+
+    def complete(
+        self,
+        *,
+        snapshot: str,
+        system: str,
+        messages: list[object],
+        temperature: float = 0.0,
+        max_tokens: int,
+        json_schema: dict[str, object] | None = None,
+    ) -> Completion:
+        if _JUDGE_MARKER in system:
+            self.judge_calls += 1
+            return self._judge
+        self.worker_calls += 1
+        if self.worker_calls == self._raise_on_worker_call:
+            raise self._error
+        return self._worker
+
+
+class _FakeRateLimitError(Exception):
+    """A minimal SDK-shaped 429 -- carries ``status_code`` like Anthropic's ``RateLimitError``."""
+
+    status_code = 429
+
+
+def _capturing_on_outcome(
+    sink: list[tuple[str, str, str, str]],
+) -> Callable[[str, str, str, str], None]:
+    """A stub ``on_outcome`` collecting each call's 4 positional args as one tuple.
+
+    ``on_outcome`` is called as ``on_outcome(id, status, error_class, detail)`` --
+    four separate positional strings, not one tuple -- so a bare ``list.append``
+    is the wrong stub (it only accepts one argument). This wraps ``sink.append``
+    behind the real 4-arg signature.
+    """
+
+    def _capture(id: str, status: str, error_class: str, detail: str) -> None:
+        sink.append((id, status, error_class, detail))
+
+    return _capture
 
 
 def _usage(*, input_tokens: int = 120, output_tokens: int = 60) -> TokenUsage:
@@ -321,6 +396,7 @@ def _run_eval(
     work_root: Path,
     cache: ResponseCache | None = None,
     config: HarnessConfig | None = None,
+    on_outcome: Callable[[str, str, str, str], None] | None = None,
 ) -> MetricsRecord:
     """Invoke ``run_eval`` with an explicit source, the clone target, and (optional) knobs.
 
@@ -331,6 +407,11 @@ def _run_eval(
     harness's global on-disk default cache (content-addressed by ``corpus_sha``,
     which fast identical-golden tests can collide on) -- keeping every test hermetic
     and parallel-safe. The warm-cache case passes its own shared cache to override.
+
+    ``on_outcome`` is omitted from the call entirely when ``None`` (rather than
+    passed as an explicit ``None``) so the pre-capture-seam ``run_eval`` signature
+    (no ``on_outcome`` parameter at all) is exercised identically by every existing
+    caller of this helper -- the capture-seam tests are the only callers that pass it.
 
     ``run_eval`` returns an ``EvalRunResult`` (the record plus its clone root); this
     helper unwraps ``.record`` centrally so the behavioural cases keep asserting on
@@ -345,6 +426,8 @@ def _run_eval(
     }
     if config is not None:
         kwargs["config"] = config
+    if on_outcome is not None:
+        kwargs["on_outcome"] = on_outcome
     return run_eval(topic, **kwargs).record
 
 
@@ -1269,3 +1352,214 @@ def test_held_out_delta_populates_scalar_and_per_id_deltas_keyed_by_stable_id(
         "not on question text"
     )
     assert trace_delta["pages_removed"] == [], "no page left this question's trace"
+
+
+# --------------------------------------------------------------------------- #
+# on_outcome -- the runner-error capture seam (RED until harness.py wires it)
+#
+# ``run_eval`` does not yet accept ``on_outcome`` at all, so every test below
+# fails today with a ``TypeError: run_eval() got an unexpected keyword argument
+# 'on_outcome'`` -- surfaced through ``_run_eval``/``_run_eval_error``, which
+# forward it only when explicitly given. That TypeError is the RED signal this
+# whole section pins: it shows up as an ``isinstance(..., EvalRunError)``
+# mismatch (the TypeError is not an EvalRunError) in every test that expects
+# the run to still abort, and as an uncaught TypeError in the two that call
+# ``run_eval``/``_run_eval`` directly for a clean run.
+# --------------------------------------------------------------------------- #
+
+
+def test_a_runner_exception_reports_an_outcome_classified_by_error_capture(
+    template_vault: Path, tmp_path: Path
+) -> None:
+    # The failing example is deterministic under num_threads=1 (mirrors
+    # test_run_eval_reports_per_example_progress_in_order's "1..N in order"
+    # guarantee): the second worker call raises, so the second golden record's
+    # id is the one that must carry the reported *error* outcome. The other two
+    # examples still succeed and are separately scored by dspy.Evaluate (see
+    # _run_evaluate's max_errors=len(devset)+1 -- a per-example failure never
+    # aborts the pass early), so they legitimately report their own "ok"
+    # outcomes too (already pinned by
+    # test_run_eval_reports_an_ok_outcome_for_every_example_on_a_clean_run);
+    # this assertion narrows to the one outcome this test actually cares about.
+    golden = _golden_records()
+    _seed_source(template_vault, golden)
+    error = _FakeRateLimitError("rate limited, try again")
+    outcomes: list[tuple[str, str, str, str]] = []
+    failing_client = _RaisingWorkerLLMClient(
+        worker=_worker_completion(),
+        judge=_judge_completion(),
+        raise_on_worker_call=2,
+        error=error,
+    )
+
+    run_error = _run_eval_error(
+        TOPIC,
+        source_root=template_vault,
+        llm_client=failing_client,
+        work_root=tmp_path / "clone",
+        config=DEFAULT_CONFIG.with_overrides(num_threads=1),
+        on_outcome=_capturing_on_outcome(outcomes),
+    )
+
+    assert isinstance(run_error, EvalRunError), (
+        "a runner-raised exception must still abort through the existing instrument-failure "
+        f"refusal (_reject_on_failures), not a bare crash or a silent success; got "
+        f"{type(run_error).__name__}: {run_error!r}"
+    )
+    expected_class, expected_detail = classify_error(error)
+    error_outcomes = [outcome for outcome in outcomes if outcome[1] == "error"]
+    assert error_outcomes == [(golden[1].id, "error", expected_class, expected_detail)], (
+        "the failing example's golden id must report exactly one error outcome, classified by "
+        f"error_capture.classify_error; got {outcomes!r}"
+    )
+    assert not (template_vault / METRICS_PATH).exists(), "an aborted run commits no metrics"
+
+
+def test_a_runner_exception_that_is_not_rate_limited_classifies_as_other(
+    template_vault: Path, tmp_path: Path
+) -> None:
+    golden = _golden_records()
+    _seed_source(template_vault, golden)
+    error = RuntimeError("socket reset by peer")
+    outcomes: list[tuple[str, str, str, str]] = []
+    failing_client = _RaisingWorkerLLMClient(
+        worker=_worker_completion(),
+        judge=_judge_completion(),
+        raise_on_worker_call=1,
+        error=error,
+    )
+
+    run_error = _run_eval_error(
+        TOPIC,
+        source_root=template_vault,
+        llm_client=failing_client,
+        work_root=tmp_path / "clone",
+        config=DEFAULT_CONFIG.with_overrides(num_threads=1),
+        on_outcome=_capturing_on_outcome(outcomes),
+    )
+
+    assert isinstance(run_error, EvalRunError), (
+        f"an unclassifiable runner exception must still abort the run; got {type(run_error).__name__}"
+    )
+    expected_class, expected_detail = classify_error(error)
+    assert expected_class == "other", "precondition: a plain RuntimeError classifies as 'other'"
+    # The other two examples still succeed and separately report their own "ok"
+    # outcomes (see the sibling rate-limit test's comment) -- narrow to the one
+    # error outcome this test pins.
+    error_outcomes = [outcome for outcome in outcomes if outcome[1] == "error"]
+    assert error_outcomes == [(golden[0].id, "error", expected_class, expected_detail)], (
+        f"a non-rate-limit, non-parse runner exception must classify as 'other'; got {outcomes!r}"
+    )
+
+
+def test_run_eval_reports_an_ok_outcome_for_every_example_on_a_clean_run(
+    seeded_source: Path, tmp_path: Path
+) -> None:
+    outcomes: list[tuple[str, str, str, str]] = []
+
+    record = _run_eval(
+        TOPIC,
+        source_root=seeded_source,
+        llm_client=_routing_fake(),
+        work_root=tmp_path / "clone",
+        config=DEFAULT_CONFIG.with_overrides(num_threads=1),
+        on_outcome=_capturing_on_outcome(outcomes),
+    )
+
+    assert len(outcomes) == record.n_examples, (
+        f"every scored example must report exactly one outcome; got {len(outcomes)} outcomes for "
+        f"{record.n_examples} examples"
+    )
+    assert all(
+        status == "ok" and error_class == "" and detail == ""
+        for _id, status, error_class, detail in outcomes
+    ), f"a clean run reports every example as ok with no error class/detail; got {outcomes!r}"
+    assert {outcome_id for outcome_id, *_rest in outcomes} == {
+        record.id for record in _golden_records()
+    }, "each outcome's id must match a golden record's stable id"
+
+
+def test_a_shared_golden_question_falls_back_to_the_question_string_as_the_outcome_key(
+    template_vault: Path, tmp_path: Path
+) -> None:
+    # Two golden records sharing the exact same question text make the
+    # question->id map ambiguous for the runner seam; the fallback is the
+    # question string itself as the outcome key, never a raise or a guess.
+    shared_question = _GOLDEN_QUERIES[0]
+    golden = [
+        _qa_record(record_id="golden-dup-0000", query=shared_question),
+        _qa_record(record_id="golden-dup-0001", query=shared_question),
+    ]
+    _seed_source(template_vault, golden)
+    outcomes: list[tuple[str, str, str, str]] = []
+
+    _run_eval(
+        TOPIC,
+        source_root=template_vault,
+        llm_client=_routing_fake(),
+        work_root=tmp_path / "clone",
+        config=DEFAULT_CONFIG.with_overrides(num_threads=1),
+        on_outcome=_capturing_on_outcome(outcomes),
+    )
+
+    assert len(outcomes) == 2, (
+        f"both duplicate-question examples must still report; got {outcomes!r}"
+    )
+    assert all(outcome[0] == shared_question for outcome in outcomes), (
+        "a question shared by two golden records is ambiguous for the id map, so the outcome "
+        f"key must fall back to the question string itself, not an id; got {outcomes!r}"
+    )
+    assert all(status == "ok" for _id, status, _cls, _detail in outcomes), (
+        "the collision fallback must not itself turn a clean run into a failure"
+    )
+
+
+def test_wiring_on_outcome_makes_no_additional_llm_calls_on_a_failing_run(
+    template_vault: Path, tmp_path: Path
+) -> None:
+    # The zero-extra-call guarantee: the capture seam must never retry or
+    # re-run the failing example to learn its cause. Two otherwise-identical
+    # runs (one without on_outcome, one with) must make the exact same number
+    # of worker calls.
+    golden = _golden_records()
+    _seed_source(template_vault, golden)
+    config = DEFAULT_CONFIG.with_overrides(num_threads=1)
+
+    baseline_client = _RaisingWorkerLLMClient(
+        worker=_worker_completion(),
+        judge=_judge_completion(),
+        raise_on_worker_call=2,
+        error=RuntimeError("boom"),
+    )
+    baseline_error = _run_eval_error(
+        TOPIC,
+        source_root=template_vault,
+        llm_client=baseline_client,
+        work_root=tmp_path / "clone-baseline",
+        config=config,
+    )
+    assert isinstance(baseline_error, EvalRunError), "precondition: the un-instrumented run aborts"
+
+    capturing_client = _RaisingWorkerLLMClient(
+        worker=_worker_completion(),
+        judge=_judge_completion(),
+        raise_on_worker_call=2,
+        error=RuntimeError("boom"),
+    )
+    capturing_error = _run_eval_error(
+        TOPIC,
+        source_root=template_vault,
+        llm_client=capturing_client,
+        work_root=tmp_path / "clone-capturing",
+        config=config,
+        on_outcome=lambda *_args: None,
+    )
+
+    assert isinstance(capturing_error, EvalRunError), (
+        "wiring on_outcome must not change the abort type; got "
+        f"{type(capturing_error).__name__}: {capturing_error!r}"
+    )
+    assert capturing_client.worker_calls == baseline_client.worker_calls, (
+        "wiring on_outcome must not add a retry/re-run of the failing example; "
+        f"baseline={baseline_client.worker_calls} capturing={capturing_client.worker_calls}"
+    )
