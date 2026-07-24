@@ -7,6 +7,10 @@ Derived from the search tool contract, not from the implementation:
 - the cursor is an opaque, self-contained token: a full page walk covers the
   result set exactly once (no duplicates, no gaps), ``has_more`` flips exactly
   on the last page, and ``total_count`` is stable across pages;
+- scoring is BM25: more occurrences rank higher between same-length documents,
+  equal occurrences rank the shorter document higher, ubiquitous terms are
+  idf-discounted against rare ones, and repetition saturates instead of
+  summing -- a raw occurrence count would rank by file size;
 - ordering is deterministic -- score descending, ties broken by path
   ascending -- so two identical walks return identical pages;
 - anything malformed or stale (garbage base64, truncated JSON, wrong shape,
@@ -22,8 +26,10 @@ Derived from the search tool contract, not from the implementation:
   skip-marked when ``rg`` is not on PATH).
 
 The shipped vault template is the golden fixture for classification: the
-query "memory" hits six files with hand-counted, pairwise-distinct scores,
-spanning a stored source, topic pages, and vault-root pages.
+query "memory" hits eight files spanning a stored source, topic pages, and
+vault-root pages; the golden pins their BM25 rank order (paths, topics,
+kinds), while exact score values stay an implementation detail of the
+k1/b constants.
 """
 
 import base64
@@ -54,11 +60,13 @@ RG_AVAILABLE = shutil.which("rg") is not None
 SEARCH_TOKEN = "zyzzyva"
 
 #: Full-vault ranking of the planted corpus for SEARCH_TOKEN: score descending,
-#: ties broken by path ascending. The occurrence counts double as the planted
-#: ground truth the fixture writes. Deliberate features: the stored source
-#: outranks lexically-earlier paths (score dominates path), the six-file tie
-#: group pins the path-ascending tie-break, and ``othertopic/`` gives topic
-#: scoping something to exclude.
+#: ties broken by path ascending. The occurrence counts are the planted ground
+#: truth the fixture writes; every planted file has the same length, so under
+#: BM25 more occurrences mean a strictly higher score and the counts pin the
+#: rank order. Deliberate features: the stored source outranks
+#: lexically-earlier paths (score dominates path), the six-file tie group pins
+#: the path-ascending tie-break, and ``othertopic/`` gives topic scoping
+#: something to exclude.
 PLANTED_RANKING = (
     ("paging/apex.md", 9),
     ("sources/paging/zdoc.md", 7),
@@ -76,11 +84,11 @@ PLANTED_RANKING = (
     ("paging/floor-b.md", 1),
 )
 
+PLANTED_PATHS = tuple(path for path, _ in PLANTED_RANKING)
+
 #: What ``topic="paging"`` must return: the topic's pages plus its stored
 #: sources, and nothing from any other topic.
-PAGING_SCOPED_RANKING = tuple(
-    row for row in PLANTED_RANKING if not row[0].startswith("othertopic/")
-)
+PAGING_SCOPED_PATHS = tuple(path for path in PLANTED_PATHS if not path.startswith("othertopic/"))
 
 #: Files planted with the SAME token that must never be returned: dot-folders
 #: (including a fake ``.git``), a nested dot-folder, a dot-file, and a
@@ -93,27 +101,36 @@ PLANTED_EXCLUDED = (
     "paging/decoy.txt",
 )
 
-#: Hand-derived golden for the shipped template, query "memory" (occurrences
-#: counted case-insensitively, non-overlapping, independently of the engine).
-#: Covers all three path classes: stored source, topic page, vault-root page
-#: (root pages carry ``topic=""``). The template's ``.knotica/prompts/`` also
-#: contains "memory" -- its absence below is the dot-folder exclusion working.
+#: Golden rank order for the shipped template, query "memory". The hand-counted
+#: occurrence ground truth is wang2024awm.md 35, agent-memory.md 14,
+#: agent-workflow-memory.md 10, workflow-induction.md 6, log.md 5, index.md 4,
+#: SCHEMA.md 2, START_HERE.md 2 -- under BM25 the ~55KB stored source drops
+#: below every concept page despite its raw count (length normalization + tf
+#: saturation), which is the ranking fix this golden characterizes. Exact
+#: scores are deliberately unpinned (k1/b implementation detail); order,
+#: topics, and kinds are the contract. Covers all three path classes: stored
+#: source, topic page, vault-root page (root pages carry ``topic=""``). The
+#: template's ``.knotica/prompts/`` also contains "memory" -- its absence below
+#: is the dot-folder exclusion working.
 GOLDEN_MEMORY_RANKING = (
-    ("sources/agentic-systems/wang2024awm.md", "agentic-systems", "source", 35),
-    ("agentic-systems/agent-memory.md", "agentic-systems", "page", 14),
-    ("agentic-systems/agent-workflow-memory.md", "agentic-systems", "page", 10),
-    ("agentic-systems/workflow-induction.md", "agentic-systems", "page", 6),
-    ("log.md", "", "page", 5),
-    ("index.md", "", "page", 4),
-    ("SCHEMA.md", "", "page", 2),
-    ("START_HERE.md", "", "page", 2),
+    ("agentic-systems/agent-memory.md", "agentic-systems", "page"),
+    ("agentic-systems/agent-workflow-memory.md", "agentic-systems", "page"),
+    ("log.md", "", "page"),
+    ("agentic-systems/workflow-induction.md", "agentic-systems", "page"),
+    ("index.md", "", "page"),
+    ("sources/agentic-systems/wang2024awm.md", "agentic-systems", "source"),
+    ("START_HERE.md", "", "page"),
+    ("SCHEMA.md", "", "page"),
 )
 
+#: Topic scoping changes the corpus statistics (document count, average
+#: length), so scores differ from the all-topics run -- but the relative order
+#: of the surviving files holds.
 GOLDEN_MEMORY_TOPIC_RANKING = (
-    ("sources/agentic-systems/wang2024awm.md", "agentic-systems", "source", 35),
-    ("agentic-systems/agent-memory.md", "agentic-systems", "page", 14),
-    ("agentic-systems/agent-workflow-memory.md", "agentic-systems", "page", 10),
-    ("agentic-systems/workflow-induction.md", "agentic-systems", "page", 6),
+    ("agentic-systems/agent-memory.md", "agentic-systems", "page"),
+    ("agentic-systems/agent-workflow-memory.md", "agentic-systems", "page"),
+    ("agentic-systems/workflow-induction.md", "agentic-systems", "page"),
+    ("sources/agentic-systems/wang2024awm.md", "agentic-systems", "source"),
 )
 
 
@@ -129,9 +146,24 @@ def _plant_text(vault: Path, rel_path: str, text: str) -> None:
     file_path.write_text(text, encoding="utf-8")
 
 
+#: Every planted file carries this many lines, whatever its occurrence count,
+#: so BM25 length normalization cannot reorder the occurrence ground truth.
+_PLANT_TOTAL_LINES = 12
+
+
 def _plant(vault: Path, rel_path: str, occurrences: int) -> None:
-    """Write a file containing SEARCH_TOKEN exactly ``occurrences`` times (one per line)."""
-    lines = [f"filler line {i} with {SEARCH_TOKEN} inside" for i in range(occurrences)]
+    """Write a fixed-length file containing SEARCH_TOKEN exactly ``occurrences`` times.
+
+    The token and its same-width placeholder keep every planted file
+    byte-identical in length, so between planted files more occurrences mean a
+    strictly higher BM25 score and equal counts stay exact ties.
+    """
+    assert occurrences <= _PLANT_TOTAL_LINES, "planted corpus fixture overflow"
+    placeholder = "x" * len(SEARCH_TOKEN)
+    lines = [
+        f"filler line {i:02d} with {SEARCH_TOKEN if i < occurrences else placeholder} inside"
+        for i in range(_PLANT_TOTAL_LINES)
+    ]
     _plant_text(vault, rel_path, "\n".join(lines) + "\n")
 
 
@@ -158,6 +190,16 @@ def _walk(backend: SearchBackend, query: str, *, topic: str = "", limit: int) ->
 
 def _walked_paths(pages: list[SearchPage]) -> list[str]:
     return [result.path for page in pages for result in page.results]
+
+
+def _walked_results(pages: list[SearchPage]) -> list[SearchResult]:
+    return [result for page in pages for result in page.results]
+
+
+def _assert_scores_non_increasing(results: list[SearchResult]) -> None:
+    scores = [result.score for result in results]
+    assert scores == sorted(scores, reverse=True), f"ranking is not score-descending: {scores}"
+    assert all(score > 0 for score in scores), f"every match must score positive: {scores}"
 
 
 @pytest.fixture(params=["ripgrep", "python-fallback"])
@@ -227,7 +269,7 @@ def test_envelope_and_pointer_render_shapes_match_the_tool_contract(planted_vaul
     assert len(rendered["results"]) == 3
     pointer_keys = [set(result) for result in rendered["results"]]
     assert pointer_keys == [{"topic", "path", "snippet", "score", "kind"}] * 3
-    assert [type(result["score"]) for result in rendered["results"]] == [int] * 3
+    assert [type(result["score"]) for result in rendered["results"]] == [float] * 3
 
 
 def test_default_page_size_is_ten(planted_vault: Path):
@@ -250,9 +292,10 @@ def test_cursor_walk_covers_the_whole_corpus_without_duplicates_or_gaps(
 
     pages = _walk(backend, SEARCH_TOKEN, limit=3)
 
-    walked = [(result.path, result.score) for page in pages for result in page.results]
-    assert walked == list(PLANTED_RANKING)
-    assert len({path for path, _ in walked}) == len(PLANTED_RANKING)
+    walked = _walked_results(pages)
+    assert _walked_paths(pages) == list(PLANTED_PATHS)
+    assert len(set(_walked_paths(pages))) == len(PLANTED_PATHS)
+    _assert_scores_non_increasing(walked)
 
 
 def test_walk_envelope_flags_flip_exactly_at_the_end(
@@ -285,7 +328,10 @@ def test_ranking_is_score_descending_with_path_ascending_ties(
 ):
     page = make_backend(planted_vault).search(SEARCH_TOKEN, limit=50)
 
-    assert [(result.path, result.score) for result in page.results] == list(PLANTED_RANKING)
+    assert [result.path for result in page.results] == list(PLANTED_PATHS)
+    _assert_scores_non_increasing(list(page.results))
+    tie_scores = {r.score for r in page.results if "/tie-" in r.path}
+    assert len(tie_scores) == 1, "equal-count same-length files must tie exactly"
 
 
 # ---------------------------------------------------------------------------
@@ -293,19 +339,17 @@ def test_ranking_is_score_descending_with_path_ascending_ties(
 # ---------------------------------------------------------------------------
 
 
-def test_score_counts_every_occurrence_not_matching_lines(
+def test_more_occurrences_outscore_fewer_between_same_length_documents(
     make_backend: Callable[[Path], RipgrepBackend], tmp_path: Path
 ):
     vault = tmp_path / "vault"
-    _plant_text(
-        vault,
-        "topicx/page.md",
-        f"{SEARCH_TOKEN} and {SEARCH_TOKEN} twice on one line\nplus {SEARCH_TOKEN} once\nquiet\n",
-    )
+    _plant(vault, "topicx/three.md", 3)
+    _plant(vault, "topicx/one.md", 1)
 
     page = make_backend(vault).search(SEARCH_TOKEN)
 
-    assert [(result.path, result.score) for result in page.results] == [("topicx/page.md", 3)]
+    assert [result.path for result in page.results] == ["topicx/three.md", "topicx/one.md"]
+    assert page.results[0].score > page.results[1].score
 
 
 def test_matching_is_case_insensitive_in_both_directions(
@@ -318,24 +362,23 @@ def test_matching_is_case_insensitive_in_both_directions(
     lower = backend.search("zyzzyva")
     upper = backend.search("ZYZZYVA")
 
-    assert [(result.path, result.score) for result in lower.results] == [("topicx/case.md", 2)]
-    assert [(result.path, result.score) for result in upper.results] == [("topicx/case.md", 2)]
+    assert [result.path for result in lower.results] == ["topicx/case.md"]
+    assert lower.results[0].score > 0
+    assert lower.render() == upper.render()
 
 
-def test_multi_term_query_ors_terms_and_sums_their_occurrences(
+def test_multi_term_query_ors_terms_and_ranks_the_fuller_match_first(
     make_backend: Callable[[Path], RipgrepBackend], tmp_path: Path
 ):
     vault = tmp_path / "vault"
-    _plant_text(vault, "topicx/both.md", "alphaterm and betaterm\nbetaterm again\n")
-    _plant_text(vault, "topicx/one.md", "alphaterm only\n")
-    _plant_text(vault, "topicx/neither.md", "gammaterm\n")
+    _plant_text(vault, "topicx/both.md", "alphaterm and betaterm here\nbetaterm again today\n")
+    _plant_text(vault, "topicx/one.md", "alphaterm alone here\nnothing more on offer\n")
+    _plant_text(vault, "topicx/neither.md", "gammaterm village here\nnothing more on offer\n")
 
     page = make_backend(vault).search("alphaterm betaterm")
 
-    assert [(result.path, result.score) for result in page.results] == [
-        ("topicx/both.md", 3),
-        ("topicx/one.md", 1),
-    ]
+    assert [result.path for result in page.results] == ["topicx/both.md", "topicx/one.md"]
+    assert page.results[0].score > page.results[1].score
 
 
 def test_snippet_is_the_first_matching_line_stripped(
@@ -368,17 +411,74 @@ def test_snippet_stays_short_even_for_a_very_long_matching_line(
 
 
 # ---------------------------------------------------------------------------
+# BM25 ranking contract: length normalization, idf discounting, tf saturation
+# ---------------------------------------------------------------------------
+
+
+def test_equal_occurrences_rank_the_shorter_document_first(
+    make_backend: Callable[[Path], RipgrepBackend], tmp_path: Path
+):
+    vault = tmp_path / "vault"
+    _plant_text(vault, "topicx/small.md", f"a short page mentioning {SEARCH_TOKEN} once\n")
+    filler = "unrelated prose padding this stored source far beyond the page\n" * 400
+    _plant_text(vault, "topicx/zzz-large.md", f"{filler}one mention of {SEARCH_TOKEN} buried\n")
+
+    page = make_backend(vault).search(SEARCH_TOKEN)
+
+    assert [result.path for result in page.results] == [
+        "topicx/small.md",
+        "topicx/zzz-large.md",
+    ], "equal term counts must rank the shorter document first, not tie or rank by size"
+    assert page.results[0].score > page.results[1].score
+
+
+def test_ubiquitous_terms_are_idf_discounted_against_rare_ones(
+    make_backend: Callable[[Path], RipgrepBackend], tmp_path: Path
+):
+    # "everyterm" appears in all four files (many times in noisy.md); "rareterm"
+    # only in rare.md. Under raw counting noisy.md would win on sheer volume;
+    # idf must hand the query to the document carrying the discriminative term.
+    vault = tmp_path / "vault"
+    _plant_text(vault, "topicx/rare.md", "rareterm appears here beside everyterm padding\n")
+    _plant_text(vault, "topicx/noisy.md", "everyterm everyterm everyterm everyterm everyterm\n")
+    _plant_text(vault, "topicx/bg-a.md", "background page mentioning everyterm padding text\n")
+    _plant_text(vault, "topicx/bg-b.md", "background page mentioning everyterm padding text\n")
+
+    page = make_backend(vault).search("rareterm everyterm")
+
+    assert page.results[0].path == "topicx/rare.md"
+    assert page.results[0].score > page.results[1].score
+
+
+def test_repeated_occurrences_saturate_rather_than_sum(
+    make_backend: Callable[[Path], RipgrepBackend], tmp_path: Path
+):
+    vault = tmp_path / "vault"
+    _plant(vault, "topicx/ten.md", 10)
+    _plant(vault, "topicx/one.md", 1)
+
+    page = make_backend(vault).search(SEARCH_TOKEN)
+
+    by_path = {result.path: result.score for result in page.results}
+    assert by_path["topicx/ten.md"] > by_path["topicx/one.md"]
+    assert by_path["topicx/ten.md"] < 2 * by_path["topicx/one.md"], (
+        "ten times the occurrences must not approach ten times the score"
+    )
+
+
+# ---------------------------------------------------------------------------
 # Golden template corpus: classification (kind, topic), scoping, walk
 # ---------------------------------------------------------------------------
 
 
-def test_template_ranking_matches_the_hand_derived_golden(
+def test_template_ranking_matches_the_golden_rank_order(
     make_backend: Callable[[Path], RipgrepBackend], template_vault: Path
 ):
     page = make_backend(template_vault).search("memory", limit=50)
 
-    ranked = [(r.path, r.topic, r.kind, r.score) for r in page.results]
+    ranked = [(r.path, r.topic, r.kind) for r in page.results]
     assert ranked == list(GOLDEN_MEMORY_RANKING)
+    _assert_scores_non_increasing(list(page.results))
     assert page.total_count == len(GOLDEN_MEMORY_RANKING)
 
 
@@ -387,8 +487,9 @@ def test_named_topic_scopes_to_its_pages_and_its_stored_sources(
 ):
     page = make_backend(template_vault).search("memory", topic="agentic-systems", limit=50)
 
-    ranked = [(r.path, r.topic, r.kind, r.score) for r in page.results]
+    ranked = [(r.path, r.topic, r.kind) for r in page.results]
     assert ranked == list(GOLDEN_MEMORY_TOPIC_RANKING)
+    _assert_scores_non_increasing(list(page.results))
     assert page.total_count == 4, "root-level pages must drop out of a topic-scoped search"
 
 
@@ -400,7 +501,7 @@ def test_template_walk_pages_through_the_golden_order(
     pages = _walk(backend, "memory", limit=2)
 
     assert [len(page.results) for page in pages] == [2, 2, 2, 2]
-    assert _walked_paths(pages) == [path for path, _, _, _ in GOLDEN_MEMORY_RANKING]
+    assert _walked_paths(pages) == [path for path, _, _ in GOLDEN_MEMORY_RANKING]
     assert {page.total_count for page in pages} == {len(GOLDEN_MEMORY_RANKING)}
 
 
@@ -415,7 +516,7 @@ def test_empty_topic_searches_all_topics(
     page = make_backend(planted_vault).search(SEARCH_TOKEN, topic="", limit=50)
 
     assert "othertopic/other.md" in [result.path for result in page.results]
-    assert page.total_count == len(PLANTED_RANKING)
+    assert page.total_count == len(PLANTED_PATHS)
 
 
 def test_named_topic_excludes_every_other_topic(
@@ -423,8 +524,9 @@ def test_named_topic_excludes_every_other_topic(
 ):
     page = make_backend(planted_vault).search(SEARCH_TOKEN, topic="paging", limit=50)
 
-    assert [(result.path, result.score) for result in page.results] == list(PAGING_SCOPED_RANKING)
-    assert page.total_count == len(PAGING_SCOPED_RANKING)
+    assert [result.path for result in page.results] == list(PAGING_SCOPED_PATHS)
+    _assert_scores_non_increasing(list(page.results))
+    assert page.total_count == len(PAGING_SCOPED_PATHS)
 
 
 def test_source_hits_carry_kind_source_and_their_owning_topic(
@@ -489,7 +591,7 @@ def test_limit_above_the_maximum_is_clamped_to_fifty(dense_vault: Path):
 def test_zero_and_negative_limits_clamp_to_one_result(planted_vault: Path, limit: int):
     page = RipgrepBackend(planted_vault).search(SEARCH_TOKEN, limit=limit)
 
-    assert [(result.path, result.score) for result in page.results] == [("paging/apex.md", 9)]
+    assert [result.path for result in page.results] == ["paging/apex.md"]
     assert page.has_more is True
 
 

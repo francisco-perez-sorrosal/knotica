@@ -1,7 +1,7 @@
 """Search boundary -- ``SearchBackend`` protocol and the ripgrep backend.
 
 Read-only full-text search over the vault, returning **pointer** results
-(topic, path, snippet, score -- never full page bodies) inside the stable
+(topic, path, snippet, BM25 score -- never full page bodies) inside the stable
 pagination envelope ``{results, next_cursor, has_more, total_count}``. The
 cursor is an opaque, self-contained base64 token (see :mod:`.cursor`), so the
 stateless server holds no pagination memory between calls. Never writes the
@@ -75,14 +75,15 @@ class SearchResult:
         path: Vault-relative POSIX path of the matching file.
         snippet: The first matching line, stripped and truncated -- enough to
             decide whether to ``read_page`` it.
-        score: Relevance score -- total term-occurrence count in the file.
+        score: BM25 relevance score (rounded) -- rewards matches on rare terms
+            in short documents; a raw occurrence count would rank by file size.
         kind: ``"page"`` or ``"source"`` (see :data:`ResultKind`).
     """
 
     topic: str
     path: str
     snippet: str
-    score: int
+    score: float
     kind: ResultKind
 
     def render(self) -> dict[str, Any]:
