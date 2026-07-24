@@ -1,7 +1,7 @@
 ---
-id: dec-draft-5d63e882
+id: dec-053
 title: Capture per-example eval errors at the runner/metric seams, not by re-running
-status: proposed
+status: accepted
 category: architectural
 date: 2026-07-24
 summary: Classify the dspy-swallowed per-example exception in the forward wrapper (runner) and the scorer metric (ok/judge), re-raising to preserve failure-scoring — no second model call.

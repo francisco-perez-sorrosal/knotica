@@ -1,7 +1,7 @@
 ---
-id: dec-draft-fe068253
+id: dec-054
 title: Accumulate per-example outcomes via a single-writer lock; fix td-013 in the write primitive
-status: proposed
+status: accepted
 category: architectural
 date: 2026-07-24
 summary: One in-memory outcomes list under one lock in the loop evaluate closure (coherence) plus a unique-per-write temp file and non-raising write_progress (primitive safety) together subsume td-013.

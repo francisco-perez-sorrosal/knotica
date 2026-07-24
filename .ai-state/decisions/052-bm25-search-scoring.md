@@ -1,7 +1,7 @@
 ---
-id: dec-draft-295bb5bc
+id: dec-052
 title: Replace raw-count search scoring with in-backend BM25
-status: proposed
+status: accepted
 category: behavioral
 date: 2026-07-24
 summary: Search/eval-retrieval ranking moves from summed term-occurrence counts to live-computed Okapi BM25 (k1=1.2, b=0.75, non-negative idf, byte-length normalization); score becomes a float and engines reduce to candidate selection over one shared scoring pass.
