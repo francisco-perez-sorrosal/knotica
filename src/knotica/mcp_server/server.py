@@ -67,6 +67,11 @@ _INSTRUCTIONS = (
     # (b) Stable invariant guards -- must hold even if a protocol is never loaded.
     "Store every source's FULL text faithfully — never a summary, abstract, or excerpt; topic is "
     "always an explicit argument; the vault (git) is the only state. "
+    # (b2) Active-KB honesty -- resolved per call, switchable, never assumed.
+    "The active knowledge base (vault) is resolved fresh per call and can be switched at any "
+    "time — never assume which vault is active: call `vault action=status` to state the active "
+    "KB and surface any misconfiguration, and pass an explicit vault argument to a tool to "
+    "target a different configured vault. "
     # (c) Pointer, not protocol -- the step sequences live in the vault prompts.
     "Each operation (ingest, query, lint, curate) is a multi-step protocol — call "
     "`read_protocol(operation, topic)` to load its exact steps before acting."

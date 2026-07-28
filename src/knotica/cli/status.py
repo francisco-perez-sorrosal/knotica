@@ -28,7 +28,7 @@ from knotica.cli.common import (
     console_from_args,
     unconfigured,
 )
-from knotica.core.config import ConfigState, diagnose
+from knotica.core.config import ConfigState, ResolvedVault, diagnose
 from knotica.core.page import TopicNotFoundError
 from knotica.core.status import (
     COMPILE_READY_MIN_EXAMPLES,
@@ -83,7 +83,7 @@ def run(args: argparse.Namespace) -> int:
         return EXIT_ERROR
 
     if args.nudge:
-        _render_nudge(console, payload)
+        _render_nudge(console, payload, vault)
     elif args.json:
         console.data(_cli_json(payload))
     else:
@@ -129,15 +129,17 @@ def _cli_json(payload: dict) -> str:
     return json.dumps(cli_payload, ensure_ascii=False, indent=2)
 
 
-def _render_nudge(console: Console, payload: dict) -> None:
-    """Print the SessionStart nudge: topic list, then attention items if any.
+def _render_nudge(console: Console, payload: dict, vault: ResolvedVault) -> None:
+    """Print the SessionStart nudge: active KB, topic list, then attention items.
 
-    Reuses the already-assembled ``topics[].suggestions``/``compile_ready``
-    fields from ``payload`` (the default ``summary`` view) -- no new
-    aggregation, just a plain-text rendering for the hook to echo verbatim.
-    Silent (prints nothing) when there are no topics and nothing needs
-    attention, mirroring the other renderers' honest-empty-state discipline.
+    Leads with the active knowledge base (name + path) so every session states
+    which vault is live -- the honest, ground-truth answer to "which KB am I on?"
+    (the nudge only runs once a vault has resolved READY). Then reuses the
+    already-assembled ``topics[].suggestions``/``compile_ready`` fields from
+    ``payload`` (the default ``summary`` view) -- no new aggregation, just a
+    plain-text rendering for the hook to echo verbatim.
     """
+    console.data(f"Active KB: {vault.name} ({vault.path})")
     topics = payload["topics"]
     names = [t["topic"] for t in topics]
     if names:
