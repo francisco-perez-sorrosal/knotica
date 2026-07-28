@@ -18,16 +18,30 @@ dependencies = [
 [project.scripts]
 knotica = "knotica.cli:main"
 
+[project.optional-dependencies]
+# Headless server-side LLM: the unified `query` tool, DSPy compile, the eval
+# harness, and loop/Arena. Opt-in and absent from the base wheel install, so
+# `uvx --from … knotica mcp` stays lean and credential-free for the ingest /
+# client-as-brain paths. Enable per surface without a second server or a
+# re-fetch: `uvx --from <src>[evals]` (reuses the installed plugin via
+# ${CLAUDE_PLUGIN_ROOT}[evals]), `pip install knotica[evals]`,
+# `uv sync --extra evals`, or the Desktop `--with anthropic --with dspy` launch.
+evals = [
+    "anthropic>=0.116",
+    "dspy>=3.2",
+]
+
 [dependency-groups]
 dev = [
     "pytest",
     "ruff",
 ]
-# PEP 735 dependency-group (never in the built wheel's install metadata) — keeps
-# `anthropic` + `dspy` off the `uvx --from … knotica mcp` cold-start path, giving
-# strictly stronger isolation than an optional-extra. Repo-dev/CI/local-maintainer
-# only; end users do not run eval in the MVP. Mirrors the `dev`-group precedent.
-# Install with `uv sync --group evals`.
+# Compatibility alias of the `evals` *extra* above (the source of truth) so
+# existing `uv sync --group evals` dev/CI flows keep working unchanged. Same
+# package set; the extra is what `uvx --from <src>[evals]` and
+# `pip install knotica[evals]` resolve. Still opt-in and off the lean
+# `uvx … knotica mcp` cold-start path. Consolidate to extra-only later (a
+# bounded DRY cleanup once the `--group evals` call sites move to `--extra`).
 evals = [
     "anthropic>=0.116",
     "dspy>=3.2",
