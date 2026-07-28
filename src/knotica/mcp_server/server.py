@@ -30,6 +30,7 @@ from knotica.mcp_server.tools_dispatch_compile import register_dispatch_compile_
 from knotica.mcp_server.tools_dispatch_datasets import register_dispatch_datasets_tools
 from knotica.mcp_server.tools_dispatch_golden import register_dispatch_golden_tools
 from knotica.mcp_server.tools_dispatch_loop import register_dispatch_loop_tools
+from knotica.mcp_server.tools_dispatch_vault import register_dispatch_vault_tools
 from knotica.mcp_server.tools_dispatch_vault_health import register_dispatch_vault_health_tools
 from knotica.mcp_server.tools_guide import register_guide_tools
 from knotica.mcp_server.tools_ingest import register_ingest_tools
@@ -99,6 +100,7 @@ def _build_server(*, stateless_http: bool = False) -> FastMCP:
     register_dispatch_datasets_tools(mcp)
     register_dispatch_arena_tools(mcp)
     register_dispatch_golden_tools(mcp)
+    register_dispatch_vault_tools(mcp)
     register_dispatch_vault_health_tools(mcp)
     register_dashboard_app(mcp)
     register_guide_tools(mcp)

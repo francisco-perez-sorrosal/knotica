@@ -1,8 +1,8 @@
 """Server-level integration checkpoint for the operator two-tier tool surface.
 
-The tool-surface consolidation built seven action-dispatchers (`loop`,
-`branches`, `compile`, `datasets`, `arena`, `golden`, `vault_health`) and
-proved each in isolation (dispatcher-vs-thin-tool suites in
+The tool-surface consolidation built action-dispatchers (`loop`,
+`branches`, `compile`, `datasets`, `arena`, `golden`, `vault`, `vault_health`)
+and proved each in isolation (dispatcher-vs-thin-tool suites in
 `tests/test_dispatch_*.py`, each using a bare `FastMCP()` carrying only the
 dispatcher under test). The 26 deprecated flat-tool aliases that once
 coexisted with the dispatchers (kept for one release cycle, per
@@ -15,7 +15,7 @@ loop at the level a real client actually sees: the one, fully-wired
 Three checks, corresponding to this integration checkpoint's server-level
 proof obligations:
 
-1. tool-count/shape census -- 30 unique names, none carrying a deprecation
+1. tool-count/shape census -- 31 unique names, none carrying a deprecation
    suffix;
 2. every dispatcher is reachable end-to-end through the full server with one
    representative action each (`payload_of` requires a structured JSON
@@ -39,11 +39,20 @@ from support.dispatch import TOPIC, build_full_server, call_tool, list_tools, pa
 
 SRC_ROOT = Path(__file__).resolve().parent.parent / "src" / "knotica" / "mcp_server"
 
-DISPATCHER_NAMES = ("arena", "branches", "compile", "datasets", "golden", "loop", "vault_health")
+DISPATCHER_NAMES = (
+    "arena",
+    "branches",
+    "compile",
+    "datasets",
+    "golden",
+    "loop",
+    "vault",
+    "vault_health",
+)
 
 #: The 19 conversational-core tools + `open_dashboard` -- neither a
-#: dispatcher nor a standalone diagnostic. Derived by elimination: 30 tools
-#: total, minus the 7 dispatchers, minus 4 standalone diagnostics not
+#: dispatcher nor a standalone diagnostic. Derived by elimination: 31 tools
+#: total, minus the 8 dispatchers, minus 4 standalone diagnostics not
 #: wrapped by any dispatcher (`baseline_probe`, `ingest_activity_read`,
 #: `metrics_read`, `prompt_diff`), leaves these 19.
 CORE_AND_DASHBOARD = frozenset(
@@ -90,15 +99,16 @@ REPRESENTATIVE_CALLS: dict[str, tuple[dict[str, Any], str | None]] = {
     "datasets": ({"action": "inventory", "topic": TOPIC}, None),
     "golden": ({"action": "load", "topic": TOPIC}, "PAGE_NOT_FOUND"),
     "loop": ({"action": "baseline_policy", "topic": TOPIC, "policy": "latest"}, None),
+    "vault": ({"action": "status"}, None),
     "vault_health": ({"action": "doctor", "topic": TOPIC}, None),
 }
 
 
-def test_tool_surface_has_30_unique_names(vault_config: Path, template_vault: Path) -> None:
+def test_tool_surface_has_31_unique_names(vault_config: Path, template_vault: Path) -> None:
     del vault_config, template_vault
     names = [tool.name for tool in list_tools(build_full_server())]
-    assert len(names) == 30
-    assert len(set(names)) == 30
+    assert len(names) == 31
+    assert len(set(names)) == 31
 
 
 def test_no_tool_carries_a_deprecation_suffix(vault_config: Path, template_vault: Path) -> None:

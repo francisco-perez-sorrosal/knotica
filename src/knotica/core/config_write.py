@@ -24,7 +24,15 @@ import tomllib
 from pathlib import Path
 from typing import Any
 
-__all__ = ["atomic_write", "dump_config_toml", "read_config", "upsert_vault"]
+from knotica.core.errors import ErrorCode, KnoticaError
+
+__all__ = [
+    "atomic_write",
+    "dump_config_toml",
+    "read_config",
+    "set_default_vault",
+    "upsert_vault",
+]
 
 #: Config schema version this writer emits.
 SCHEMA_VERSION = 1
@@ -64,6 +72,34 @@ def upsert_vault(
         data["default_vault"] = name
     vaults = data.setdefault("vaults", {})
     vaults[name] = {"path": str(vault_path)}
+    config_path.parent.mkdir(parents=True, exist_ok=True)
+    atomic_write(config_path, dump_config_toml(data))
+
+
+def set_default_vault(config_path: Path, name: str) -> None:
+    """Point ``default_vault`` at an already-configured vault (additive, atomic).
+
+    Raises :class:`~knotica.core.errors.KnoticaError` (``INVALID_ARGUMENT``)
+    when ``name`` has no ``[vaults.<name>]`` entry -- flipping the default to an
+    unknown vault would write a config that resolves to ``NOT_CONFIGURED`` on the
+    very next call. Switching to a *configured-but-not-yet-initialized* vault is
+    allowed (that surfaces as a readiness problem in ``vault status``/``doctor``,
+    not a write error).
+    """
+    data = read_config(config_path)
+    vaults = data.get("vaults")
+    if not isinstance(vaults, dict) or name not in vaults:
+        configured = sorted(vaults) if isinstance(vaults, dict) else []
+        raise KnoticaError(
+            code=ErrorCode.INVALID_ARGUMENT,
+            message=(
+                f"Cannot switch the active vault to {name!r} because it is not "
+                f"configured. Configured vaults: {configured or '(none)'}."
+            ),
+            fix="Add it first with `vault action=add`, or pass a configured vault name.",
+        )
+    data["schema_version"] = SCHEMA_VERSION
+    data["default_vault"] = name
     config_path.parent.mkdir(parents=True, exist_ok=True)
     atomic_write(config_path, dump_config_toml(data))
 

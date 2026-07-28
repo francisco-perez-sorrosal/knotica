@@ -3,7 +3,10 @@
 import tomllib
 from pathlib import Path
 
+import pytest
+
 from knotica.core import config_write
+from knotica.core.errors import ErrorCode, KnoticaError
 
 
 def _load(path: Path) -> dict:
@@ -82,3 +85,26 @@ def test_atomic_write_replaces_contents_and_leaves_no_temp_file(tmp_path: Path):
 
     assert target.read_text(encoding="utf-8") == "new\n"
     assert [p.name for p in tmp_path.iterdir()] == ["config.toml"], "no temp file may linger"
+
+
+def test_set_default_vault_flips_to_a_configured_vault(tmp_path: Path):
+    cfg = tmp_path / "config.toml"
+    config_write.upsert_vault(cfg, "main", "/data/main", make_default=True)
+    config_write.upsert_vault(cfg, "research", "/data/research", make_default=False)
+
+    config_write.set_default_vault(cfg, "research")
+
+    data = _load(cfg)
+    assert data["default_vault"] == "research"
+    assert data["vaults"]["main"]["path"] == "/data/main", "sibling vault must survive"
+
+
+def test_set_default_vault_rejects_an_unconfigured_vault(tmp_path: Path):
+    cfg = tmp_path / "config.toml"
+    config_write.upsert_vault(cfg, "main", "/data/main", make_default=True)
+
+    with pytest.raises(KnoticaError) as exc:
+        config_write.set_default_vault(cfg, "ghost")
+
+    assert exc.value.code is ErrorCode.INVALID_ARGUMENT
+    assert _load(cfg)["default_vault"] == "main", "a rejected switch must not change the config"
