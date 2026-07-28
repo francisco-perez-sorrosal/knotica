@@ -21,9 +21,9 @@ from typing import Any
 
 from mcp.types import CallToolResult
 
-from knotica.cli.init import _atomic_write, _dump_config_toml, _read_config
 from knotica.core.arena import heuristic_arena_score
 from knotica.core.config import ResolvedVault, config_file_path, diagnose
+from knotica.core.config_write import atomic_write, dump_config_toml, read_config
 from knotica.core.doctor import build_doctor_payload, run_doctor_checks
 from knotica.core.errors import ErrorCode, KnoticaError
 from knotica.core.loop import LoopRunner, build_loop_runner, harness_evaluate
@@ -365,7 +365,7 @@ def _write_loop_cadence_config(
 ) -> None:
     """Additively merge cadence keys into ``config.toml``'s ``[loop]`` table.
 
-    Reuses ``cli.init``'s read/dump/atomic-write primitives verbatim (no
+    Reuses ``core.config_write``'s read/dump/atomic-write primitives (no
     bespoke TOML-dump logic here) -- every sibling top-level key and every
     other table (``[models]``, ``[gapfill]``, ``[vaults.*]``, ...) round-trips
     untouched because only the ``loop`` dict key is mutated before the
@@ -373,7 +373,7 @@ def _write_loop_cadence_config(
     """
     path = config_file_path()
     path.parent.mkdir(parents=True, exist_ok=True)
-    data = _read_config(path)
+    data = read_config(path)
     section = dict(data.get(LOOP_CONFIG_SECTION, {}))
     if eval_min_interval_hours is not None:
         section["eval_min_interval_hours"] = eval_min_interval_hours
@@ -382,7 +382,7 @@ def _write_loop_cadence_config(
     if eval_num_threads is not None:
         section["eval_num_threads"] = eval_num_threads
     data[LOOP_CONFIG_SECTION] = section
-    _atomic_write(path, _dump_config_toml(data))
+    atomic_write(path, dump_config_toml(data))
 
 
 def _loop_run_eval_payload(

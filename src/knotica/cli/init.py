@@ -26,7 +26,6 @@ import os
 import shutil
 import subprocess
 import sys
-import tempfile
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -38,6 +37,7 @@ from knotica.cli.common import (
     common_parent,
     console_from_args,
 )
+from knotica.core import config_write
 from knotica.core.config import config_file_path
 from knotica.core.template import TEMPLATE_DIRNAME, TemplateNotFoundError
 from knotica.core.template import packaged_template_path as _locate_template
@@ -276,13 +276,7 @@ def _setup_remote(console: Console, vault_path: Path, remote: str) -> None:
 def _write_config(console: Console, vault_name: str, vault_path: Path) -> None:
     """Write ``config.toml`` additively -- preserves any pre-existing vaults."""
     path = config_file_path()
-    path.parent.mkdir(parents=True, exist_ok=True)
-    data = _read_config(path)
-    data["schema_version"] = 1
-    data["default_vault"] = vault_name
-    vaults = data.setdefault("vaults", {})
-    vaults[vault_name] = {"path": str(vault_path)}
-    _atomic_write(path, _dump_config_toml(data))
+    config_write.upsert_vault(path, vault_name, vault_path, make_default=True)
     console.info(f"wrote config → {path}")
 
 
@@ -477,78 +471,6 @@ def _desktop_config_path() -> Path:
     if override:
         return Path(os.path.expandvars(override)).expanduser()
     return Path.home() / "Library" / "Application Support" / "Claude" / "claude_desktop_config.json"
-
-
-def _atomic_write(path: Path, text: str) -> None:
-    """Write ``text`` to ``path`` atomically: temp file in the same dir + rename.
-
-    ``config.toml`` is merged additively (every pre-existing vault is preserved),
-    so a torn write must never leave a truncated file that drops those vaults.
-    Writing a sibling temp file and ``os.replace``-ing it (an atomic rename on
-    the same filesystem) guarantees readers see either the old file or the fully
-    written new one -- never a partial merge.
-    """
-    fd, tmp_name = tempfile.mkstemp(dir=str(path.parent), prefix=f"{path.name}.", suffix=".tmp")
-    tmp = Path(tmp_name)
-    try:
-        with os.fdopen(fd, "w", encoding="utf-8") as handle:
-            handle.write(text)
-        os.replace(tmp, path)
-    except BaseException:
-        tmp.unlink(missing_ok=True)
-        raise
-
-
-def _read_config(path: Path) -> dict:
-    """Read the existing config table, or an empty table if absent/invalid."""
-    if not path.is_file():
-        return {}
-    import tomllib
-
-    try:
-        return tomllib.loads(path.read_text(encoding="utf-8"))
-    except (tomllib.TOMLDecodeError, UnicodeDecodeError, OSError):
-        return {}
-
-
-def _dump_config_toml(data: dict) -> str:
-    """Serialize the config table additively.
-
-    Handles three shapes: top-level scalars, the special ``[vaults.<name>]``
-    nested-table family, and any other dict-valued top-level key rendered as a
-    flat ``[<key>]`` table (e.g. ``[loop]``, ``[models]``, ``[gapfill]``).
-    Every writer that reads via :func:`_read_config` and writes back through
-    this function preserves sibling sections it never touched -- callers only
-    mutate the one dict key they own.
-    """
-    lines: list[str] = []
-    for key, value in data.items():
-        if key == "vaults" or isinstance(value, dict):
-            continue
-        if isinstance(value, (str, int, float, bool)):
-            lines.append(f"{key} = {_toml_scalar(value)}")
-    for name, entry in data.get("vaults", {}).items():
-        lines.append("")
-        lines.append(f"[vaults.{name}]")
-        for key, value in entry.items():
-            lines.append(f"{key} = {_toml_scalar(value)}")
-    for key, value in data.items():
-        if key == "vaults" or not isinstance(value, dict):
-            continue
-        lines.append("")
-        lines.append(f"[{key}]")
-        for sub_key, sub_value in value.items():
-            lines.append(f"{sub_key} = {_toml_scalar(sub_value)}")
-    return "\n".join(lines) + "\n"
-
-
-def _toml_scalar(value: str | int | float | bool) -> str:
-    """Render a scalar as a TOML value (bool before int/float -- ``bool`` is an int)."""
-    if isinstance(value, bool):
-        return "true" if value else "false"
-    if isinstance(value, (int, float)):
-        return str(value)
-    return json.dumps(value)  # basic string with correct escaping
 
 
 def _has_git_identity(console: Console, vault_path: Path) -> bool:
