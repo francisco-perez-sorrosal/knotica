@@ -1,6 +1,8 @@
 {
-  "knotica": {
-    "command": "uvx",
-    "args": ["--from", "${CLAUDE_PLUGIN_ROOT}", "knotica", "mcp"]
+  "mcpServers": {
+    "knotica": {
+      "command": "uvx",
+      "args": ["--from", "${CLAUDE_PLUGIN_ROOT}", "knotica", "mcp"]
+    }
   }
 }
