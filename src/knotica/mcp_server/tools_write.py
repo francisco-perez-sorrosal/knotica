@@ -94,6 +94,7 @@ def register_write_tools(mcp: FastMCP) -> None:
         summary: str,
         index_entry: str = "",
         candidate: str = "",
+        vault: str = "",
     ) -> ToolResult:
         return _write(
             lambda store, root: operations.write_page(
@@ -106,6 +107,7 @@ def register_write_tools(mcp: FastMCP) -> None:
                 index_entry=index_entry or None,
                 candidate=candidate,
             ),
+            vault=vault,
             activity=lambda result: {
                 "topic": topic,
                 "stage": "write_page",
@@ -127,6 +129,7 @@ def register_write_tools(mcp: FastMCP) -> None:
         source_url: str,
         source_type: str = "markdown",
         candidate: str = "",
+        vault: str = "",
     ) -> ToolResult:
         return _write(
             lambda store, root: operations.store_source(
@@ -140,6 +143,7 @@ def register_write_tools(mcp: FastMCP) -> None:
                 source_type,
                 candidate=candidate,
             ),
+            vault=vault,
             activity=lambda result: {
                 "topic": topic,
                 "stage": "store_source",
@@ -154,11 +158,12 @@ def register_write_tools(mcp: FastMCP) -> None:
         )
 
     @mcp.tool(name="create_topic", description=_CREATE_TOPIC_DESCRIPTION)
-    def create_topic(topic: str, description: str = "") -> ToolResult:
+    def create_topic(topic: str, description: str = "", vault: str = "") -> ToolResult:
         return _write(
             lambda store, root: operations.create_topic(
                 store, root, topic, description=description or None
             ),
+            vault=vault,
             activity=lambda result: {
                 "topic": topic,
                 "stage": "resolve_topic",
