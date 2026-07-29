@@ -81,6 +81,7 @@ Plugin aliases (`/knotica:*`) and the `knotica` CLI expose the same operations f
 |-------|---------|
 | `/knotica:setup` | Interactive first-run wizard — scaffold a vault, wire the server, pre-warm. |
 | `/knotica:use [vault-name]` | Switch or inspect the active knowledge base (vault); no arg reports the active KB + lists configured vaults. |
+| `/knotica:create [name]` | Create + initialize a new knowledge base — asks for path, name, and topic (like the dashboard's New KB button); switches to it. |
 | `/knotica:headless [on\|off\|status]` | Enable/disable/check server-side LLM mode (`query`, compile, loop/Arena) — no arg reports readiness. |
 | `/knotica:ingest <url> [topic]` | Fetch a source, place it by topic, write pages, log. |
 | `/knotica:query <question> [topic]` | Answer a question grounded in curated topic pages. |
