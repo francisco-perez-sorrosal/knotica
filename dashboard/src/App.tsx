@@ -115,22 +115,41 @@ export function App() {
     const toolClient = clientRef.current;
     if (!toolClient) return;
     const vaultArg = resolvedVaultArg();
-    const topicArg = topicRef.current;
     try {
-      const [vaultWide, topicScoped, nextMetrics] = await Promise.all([
-        toolClient.wikiStatus("", vaultArg),
-        toolClient.wikiStatus(topicArg, vaultArg),
-        includeMetrics ? toolClient.metricsRead(topicArg, vaultArg) : Promise.resolve(null),
-      ]);
+      // Vault-wide status always resolves (no topic) and lists the vault's valid
+      // topics — fetch it FIRST so we can reconcile the topic before any
+      // topic-scoped read. Switching vaults otherwise leaves a topic from the
+      // previous vault, whose topic-scoped reads 404 and break the whole view.
+      const vaultWide = await toolClient.wikiStatus("", vaultArg);
       catalog.value = vaultWide;
-      status.value = topicScoped;
-      if (nextMetrics) metrics.value = nextMetrics;
-      error.value = null;
-      updated.value = new Date();
       if (!vaultRef.current && vaultWide.vault_name) {
         setVault(vaultWide.vault_name);
         vaultRef.current = vaultWide.vault_name;
       }
+      const topics = vaultWide.topics.map((row) => row.topic);
+      let topicArg = topicRef.current;
+      if (topics.length > 0 && !topics.includes(topicArg)) {
+        topicArg = topics[0];
+        setTopic(topicArg);
+        topicRef.current = topicArg;
+        const url = new URL(window.location.href);
+        url.searchParams.set("topic", topicArg);
+        window.history.replaceState({}, "", url);
+      }
+      if (topics.includes(topicArg)) {
+        const [topicScoped, nextMetrics] = await Promise.all([
+          toolClient.wikiStatus(topicArg, vaultArg),
+          includeMetrics ? toolClient.metricsRead(topicArg, vaultArg) : Promise.resolve(null),
+        ]);
+        status.value = topicScoped;
+        if (nextMetrics) metrics.value = nextMetrics;
+      } else {
+        // A vault with no topics yet — nothing topic-scoped to show.
+        status.value = null;
+        metrics.value = null;
+      }
+      error.value = null;
+      updated.value = new Date();
     } catch (cause) {
       error.value = cause instanceof Error ? cause.message : String(cause);
     }
