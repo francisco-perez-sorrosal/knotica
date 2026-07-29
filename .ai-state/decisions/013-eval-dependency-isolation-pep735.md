@@ -2,7 +2,7 @@
 id: dec-013
 title: Eval dependency isolation via PEP 735 dependency-group, not an optional-extra
 status: superseded
-superseded_by: dec-draft-04910c92
+superseded_by: dec-055
 category: architectural
 date: 2026-07-15
 summary: Place anthropic and dspy (dspy adopted now per the 2026-07-15 user override) in a PEP 735 [dependency-groups] evals rather than [project.optional-dependencies], so the built wheel that uvx --from resolves for the MCP server never declares the eval deps, giving strictly stronger cold-start isolation and matching the existing dev-group precedent.
