@@ -163,6 +163,13 @@ export interface ToolClient {
     reason?: string,
     vault?: string,
   ): Promise<SuggestionReviewResult>;
+  vaultUse(name: string): Promise<Record<string, unknown>>;
+  vaultCreate(
+    name: string,
+    path: string,
+    topic?: string,
+    makeDefault?: boolean,
+  ): Promise<Record<string, unknown>>;
   close(): Promise<void>;
 }
 
@@ -448,6 +455,19 @@ abstract class BaseToolClient implements ToolClient {
       reason,
       vault,
     });
+  }
+
+  vaultUse(name: string): Promise<Record<string, unknown>> {
+    return this.call("vault", { action: "use", name });
+  }
+
+  vaultCreate(
+    name: string,
+    path: string,
+    topic = "",
+    makeDefault = true,
+  ): Promise<Record<string, unknown>> {
+    return this.call("vault", { action: "create", name, path, topic, make_default: makeDefault });
   }
 
   abstract close(): Promise<void>;

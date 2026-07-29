@@ -83,6 +83,12 @@ export function App() {
   const [topic, setTopic] = useState(initialTopic);
   const [vault, setVault] = useState(initialVault);
   const [pane, setPane] = useState<PaneId>(initialPane);
+  const [showNewKb, setShowNewKb] = useState(false);
+  const [newKbPath, setNewKbPath] = useState("");
+  const [newKbName, setNewKbName] = useState("");
+  const [newKbTopic, setNewKbTopic] = useState("");
+  const [newKbBusy, setNewKbBusy] = useState(false);
+  const [newKbError, setNewKbError] = useState<string | null>(null);
   const [mount, setMount] = useState<"http" | "bridge" | "connecting">(
     preferBridgeMount() ? "connecting" : "http",
   );
@@ -90,6 +96,8 @@ export function App() {
   const topicRef = useRef(topic);
   const vaultRef = useRef(vault);
   const clientRef = useRef<ToolClient | null>(null);
+  /** Last-observed ``default_vault``; undefined until the first ``wiki_status`` lands. */
+  const lastDefaultRef = useRef<string | undefined>(undefined);
   topicRef.current = topic;
   vaultRef.current = vault;
   clientRef.current = client;
@@ -222,6 +230,25 @@ export function App() {
     void refreshStatus(true);
   }, [client, topic, vault, refreshStatus]);
 
+  // Follow the server's ``default_vault`` when it changes externally (e.g. a
+  // `/knotica:use` from Claude Desktop/Code) — but never override an explicit
+  // initial ``?vault=`` selection on first observation.
+  useEffect(() => {
+    const nextDefault = catalog.value?.default_vault;
+    if (!nextDefault) return;
+    if (lastDefaultRef.current === undefined) {
+      lastDefaultRef.current = nextDefault;
+      return;
+    }
+    if (nextDefault === lastDefaultRef.current) return;
+    lastDefaultRef.current = nextDefault;
+    if (nextDefault === vaultRef.current) return;
+    setVault(nextDefault);
+    const url = new URL(window.location.href);
+    url.searchParams.set("vault", nextDefault);
+    window.history.replaceState({}, "", url);
+  }, [catalog.value?.default_vault]);
+
   const resolvedVaultName =
     vault || catalog.value?.vault_name || status.value?.vault_name || "";
   const vaultName = resolvedVaultName || "…";
@@ -237,7 +264,6 @@ export function App() {
   };
   const vaultOpenUri = obsidianOpenVaultFromContext(obsidianCtx);
   const available = catalog.value?.available_vaults ?? [];
-  const readyVaults = available.filter((entry) => entry.ready);
   const topics = catalog.value?.topics.map((row) => row.topic) ?? [topic];
   const topicRow = findTopicRow(status.value, topic) ?? findTopicRow(catalog.value, topic);
   const chipLabel = flywheelLabel({
@@ -256,12 +282,58 @@ export function App() {
   const baselineLabel =
     baselineScalar != null ? baselineScalar.toFixed(4) : "—";
   const sourcesPendingCount = topicRow?.suggestions?.pending ?? 0;
+  const llm = catalog.value?.llm;
+  const llmChip: { label: string; tone: "ok" | "warn" | "bad" } | null =
+    llm == null
+      ? null
+      : llm.available && llm.mode === "oauth"
+        ? { label: "LLM · OAuth", tone: "ok" }
+        : llm.available && llm.mode === "api_key"
+          ? { label: "LLM · API key", tone: "warn" }
+          : !llm.available && llm.reason === "credentials"
+            ? { label: "LLM · no key", tone: "bad" }
+            : !llm.available && llm.reason === "deps"
+              ? { label: "LLM · deps", tone: "bad" }
+              : null;
 
-  function selectVault(name: string) {
+  async function selectVault(name: string) {
     setVault(name);
     const url = new URL(window.location.href);
     url.searchParams.set("vault", name);
     window.history.replaceState({}, "", url);
+    try {
+      await clientRef.current?.vaultUse(name);
+      await refreshStatus(true);
+    } catch (cause) {
+      error.value = cause instanceof Error ? cause.message : String(cause);
+    }
+  }
+
+  function newKbBasename(path: string): string {
+    const trimmed = path.trim().replace(/\/+$/, "");
+    const parts = trimmed.split("/");
+    return parts[parts.length - 1] || trimmed;
+  }
+
+  async function submitNewKb(event: Event) {
+    event.preventDefault();
+    const path = newKbPath.trim();
+    if (!clientRef.current || !path) return;
+    setNewKbBusy(true);
+    setNewKbError(null);
+    try {
+      const name = newKbName.trim() || newKbBasename(path);
+      await clientRef.current.vaultCreate(name, path, newKbTopic.trim(), true);
+      setShowNewKb(false);
+      setNewKbPath("");
+      setNewKbName("");
+      setNewKbTopic("");
+      await selectVault(name);
+    } catch (cause) {
+      setNewKbError(cause instanceof Error ? cause.message : String(cause));
+    } finally {
+      setNewKbBusy(false);
+    }
   }
 
   function selectTopic(name: string) {
@@ -294,29 +366,85 @@ export function App() {
                   {vaultName}
                 </ObsidianLink>
               </h1>
-              {readyVaults.length > 1 ? (
+              {available.length >= 1 ? (
                 <label class="vault-picker vault-picker-inline">
                   <span class="sr-only">Switch vault</span>
                   <select
                     value={vault || vaultName}
-                    onChange={(event) => selectVault((event.target as HTMLSelectElement).value)}
+                    onChange={(event) => void selectVault((event.target as HTMLSelectElement).value)}
                     aria-label="Switch vault"
                   >
-                    {readyVaults.map((entry) => (
+                    {available.map((entry) => (
                       <option value={entry.name} key={entry.name}>
                         {entry.name}
-                        {entry.name === catalog.value?.default_vault ? " (default)" : ""}
+                        {entry.name === catalog.value?.default_vault ? " (active)" : ""}
                       </option>
                     ))}
                   </select>
                 </label>
               ) : null}
+              <button
+                type="button"
+                class="toggle"
+                onClick={() => {
+                  setShowNewKb((prev) => !prev);
+                  setNewKbError(null);
+                }}
+              >
+                ＋ New KB
+              </button>
             </div>
             <p class="vault-path" title={vaultPath}>
               <ObsidianLink href={vaultOpenUri} className="vault-path-link">
                 {shortenPath(vaultPath) || "resolving vault path…"}
               </ObsidianLink>
             </p>
+            {showNewKb ? (
+              <form class="doctor-repair-toolbar" onSubmit={(event) => void submitNewKb(event)}>
+                <label class="heal-inline-field">
+                  <span>path</span>
+                  <input
+                    type="text"
+                    required
+                    value={newKbPath}
+                    placeholder="/path/to/vault"
+                    onInput={(event) => setNewKbPath((event.target as HTMLInputElement).value)}
+                  />
+                </label>
+                <label class="heal-inline-field">
+                  <span>name</span>
+                  <input
+                    type="text"
+                    value={newKbName}
+                    placeholder={newKbBasename(newKbPath) || "vault name"}
+                    onInput={(event) => setNewKbName((event.target as HTMLInputElement).value)}
+                  />
+                </label>
+                <label class="heal-inline-field">
+                  <span>topic</span>
+                  <input
+                    type="text"
+                    value={newKbTopic}
+                    placeholder="optional"
+                    onInput={(event) => setNewKbTopic((event.target as HTMLInputElement).value)}
+                  />
+                </label>
+                <button type="submit" class="primary" disabled={newKbBusy || !newKbPath.trim()}>
+                  {newKbBusy ? "Creating…" : "Create"}
+                </button>
+                <button
+                  type="button"
+                  class="toggle"
+                  onClick={() => {
+                    setShowNewKb(false);
+                    setNewKbError(null);
+                  }}
+                >
+                  Cancel
+                </button>
+                {newKbError ? <p class="tone-bad">{newKbError}</p> : null}
+              </form>
+            ) : null}
           </div>
         </div>
 
@@ -407,6 +535,15 @@ export function App() {
                 {baselinePrefix} · {baselineLabel}
                 <span class="baseline-chip-topic"> · {topic}</span>
               </span>
+
+              {llmChip ? (
+                <span
+                  class={`llm-chip health-chip ${llmChip.tone}`}
+                  title="Server-side LLM powers Ask/query, Compile, Loop/Arena, and live eval. OAuth = CLAUDE_CODE_OAUTH_TOKEN (subscription, no metered spend); API key = ANTHROPIC_API_KEY (metered)."
+                >
+                  {llmChip.label}
+                </span>
+              ) : null}
 
               <span class="mount-meta">
                 {mount === "connecting"
