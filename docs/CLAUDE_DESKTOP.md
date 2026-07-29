@@ -1,7 +1,8 @@
 # Knotica on Claude Desktop
 
 End-to-end guide: install knotica, wire it into **Claude Desktop** (Chat), then run a real
-flywheel use case on the demo topic `agentic-systems` (Agent Workflow Memory).
+flywheel use case — ingest a paper (Agent Workflow Memory) into a fresh `agentic-systems`
+topic, then ask, curate, compile, and prove the improvement.
 
 Knotica is **client-as-brain** for ingest, curate, and exploratory Q&A: Claude Desktop’s model
 does the thinking while the knotica MCP server exposes deterministic tools over your Obsidian
@@ -63,7 +64,9 @@ knotica init \
 
 What this does:
 
-1. Copies `vault-template/` into `~/dev/data/knotica` (includes the AWM demo pages).
+1. Copies `vault-template/` into `~/dev/data/knotica` and seeds the requested topic
+   (`agentic-systems`) **empty** — vaults are scaffolded bare, so you ingest the AWM paper
+   yourself in the walkthrough below.
 2. `git init` on the vault.
 3. Writes `~/.config/knotica/config.toml` pointing at that vault.
 4. Patches Claude Desktop’s config (see below) with an **absolute** `uvx` path and
@@ -174,7 +177,7 @@ Credentials are read from the environment only — never `config.toml` or the va
 ### Restart and verify
 
 1. **Fully quit** Claude Desktop (not just close the window) and reopen it — MCP config is read at launch.
-2. In Chat, retry the AWM prove question via `query` (Step 2 below) or call `compile action=status` after a compile.
+2. In Chat, retry the AWM prove question via `query` (Step 3 below) or call `compile action=status` after a compile.
 3. If it still fails, check `~/Library/Logs/Claude/mcp*.log` for auth errors.
 4. Terminal sanity check (uses your shell env, not Desktop’s):
    ```bash
@@ -250,19 +253,21 @@ knotica doctor --quick
 knotica status --topic agentic-systems
 ```
 
-Doctor should be green; status should list the demo topic pages.
+Doctor should be green; status should list the `agentic-systems` topic — empty until you
+ingest a source in the walkthrough below.
 
 ---
 
 ## Real use case: Agent Workflow Memory (AWM)
 
-This walkthrough uses the template’s `agentic-systems` topic (pages for AWM, workflow
-induction, and agent memory, plus the source `wang2024awm`). You will:
+A worked example: ingest a paper into the (empty) `agentic-systems` topic, then run the
+flywheel end to end. You will:
 
-1. Ask a grounded question in Chat.
-2. Curate good answers until compile-ready.
-3. Compile (DSPy MIPROv2 / bootstrap) onto a review branch.
-4. Merge, re-ask, and prove the improvement in Ask / Dashboard.
+1. Ingest the AWM paper (pages for AWM, workflow induction, and agent memory, source `wang2024awm`).
+2. Ask a grounded question in Chat.
+3. Curate good answers until compile-ready.
+4. Compile (DSPy MIPROv2 / bootstrap) onto a review branch.
+5. Merge, re-ask, and prove the improvement in Ask / Dashboard.
 
 ### Canonical prove question (Q★)
 
@@ -274,7 +279,26 @@ online) without changing model weights; relative gains **24.6% on Mind2Web** and
 
 ---
 
-### Step 1 — Open the dashboard in Chat
+### Step 1 — Ingest the AWM paper
+
+The `agentic-systems` topic exists (from `--topic agentic-systems` above) but is empty — no
+pages yet. In a new Claude Desktop conversation, ask Claude to ingest the paper:
+
+> Load the knotica ingest protocol, then ingest `https://arxiv.org/html/2409.07429` into
+> the `agentic-systems` topic, citing it as `wang2024awm`.
+
+This is **client-as-brain** — no headless credentials needed. Claude loads the ingest
+protocol (`read_protocol`), stores the full paper text (`store_source`), writes entity
+pages (AWM, workflow induction, agent memory) with `write_page`, and wikilinks them into
+the topic index. Confirm it worked:
+
+```bash
+knotica status --topic agentic-systems
+```
+
+You should see several pages listed.
+
+### Step 2 — Open the dashboard in Chat
 
 In a new Claude Desktop conversation, ask:
 
@@ -290,7 +314,7 @@ knotica mcp --http --port 8765
 # open http://127.0.0.1:8765/?topic=agentic-systems
 ```
 
-### Step 2 — Ask Q★ (Before)
+### Step 3 — Ask Q★ (Before)
 
 Requires [headless LLM credentials](#headless-llm-credentials-query--compile--eval) in Desktop’s MCP
 `env` — `query` is server-side.
@@ -303,7 +327,7 @@ In Chat (or the dashboard **Ask** pane):
 Pin the answer as **Before** in the Ask pane (or keep the reply in the chat thread). Check that
 citations/pages look reasonable.
 
-### Step 3 — Curate good examples (fuel the flywheel)
+### Step 4 — Curate good examples (fuel the flywheel)
 
 When an answer is solid:
 
@@ -317,7 +341,7 @@ answer is real usage, so the compiled program optimizes toward questions you act
 knotica status --topic agentic-systems
 ```
 
-### Step 4 — Compile
+### Step 5 — Compile
 
 When the Vault pane shows **Ready** (or status reports `compile_ready: true`):
 
@@ -352,13 +376,13 @@ git merge compile/agentic-systems/<shortsha>
 After merge, the live vault has `<topic>/.knotica/compiled/`. The next `query` call uses the
 compiled engine automatically — **no second tool name**, no engine fields in the answer.
 
-### Step 5 — Ask Q★ again (After / Prove)
+### Step 6 — Ask Q★ again (After / Prove)
 
 Re-ask the same prove question via `query` or Ask. Compare Before vs After: numbers and
 citations should be stable or clearer. On the dashboard, the story map’s **Prove** beat
 completes when you pin Before and get a distinct After.
 
-### Step 6 — Optional: Arena heal path
+### Step 7 — Optional: Arena heal path
 
 `knotica loop --topic agentic-systems` (terminal, outside Desktop) runs the **autonomous watcher**: it
 observes new default-branch content, evals it on a clone, and — for a fresh topic — auto-freezes its

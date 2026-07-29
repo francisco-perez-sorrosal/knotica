@@ -160,21 +160,25 @@ def _canary_snapshot() -> dict[str, tuple[bool, int | None, int | None]]:
 # ---------------------------------------------------------------------------
 
 
-def test_init_scaffolds_the_full_template_and_writes_a_resolvable_config(
+def test_init_scaffolds_a_bare_vault_and_writes_a_resolvable_config(
     isolated_home: Path, hermetic_bin: Path, tmp_path: Path
 ):
-    """``init --yes --vault <tmp>`` reproduces the packaged template exactly,
-    git-inits the vault with an initial commit, and writes a config that
-    resolves that vault to READY."""
+    """``init --yes --vault <tmp>`` scaffolds a BARE vault (constitution only, no
+    packaged demo topic), git-inits it with an initial commit, and writes a
+    config that resolves that vault to READY."""
     env = _init_env(hermetic_bin)
     vault = tmp_path / "vault"
 
     result = _run_init(env, "--yes", "--vault", str(vault))
 
     assert result.returncode == 0, result.stderr
-    assert _vault_inventory(vault) == _template_inventory(), (
-        "the scaffolded vault must contain exactly the packaged vault-template inventory"
+    # init scaffolds a bare vault: constitution present, packaged demo topic never seeded.
+    inventory = _vault_inventory(vault)
+    assert "SCHEMA.md" in inventory, "init must scaffold the vault constitution"
+    assert not any(f.startswith("agentic-systems/") for f in inventory), (
+        "init must scaffold a bare vault — the demo topic is never seeded"
     )
+    assert not any(f.startswith("sources/agentic-systems/") for f in inventory)
     assert (vault / ".git").is_dir(), "init must initialize a git repository in the vault"
     assert git_commit_count(vault) >= 1, "init must land an initial commit"
     assert git_status_porcelain(vault) == "", "the freshly initialized vault must be a clean tree"

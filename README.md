@@ -61,11 +61,12 @@ Desktop gotcha: the config must use the **absolute path to `uvx`** (minimal PATH
 
 **Optional configuration:** [Eval cadence and model selection](docs/CLAUDE_DESKTOP.md#configuration-models-and-eval-cadence) are available via `~/.config/knotica/config.toml` `[loop]` and `[models]` tables. All keys are optional with defaults; no new required setup.
 
-### Quick Desktop smoke test (demo topic)
+### Quick Desktop smoke test (optional worked example)
 
-The template ships `agentic-systems` with Agent Workflow Memory pages. In Claude Desktop Chat:
+Want to see the flywheel before pointing knotica at your own material? Ingest the AWM paper
+into an `agentic-systems` topic, then ask about it. In Claude Desktop Chat:
 
-1. “Call knotica `open_dashboard` with topic `agentic-systems`.”
+1. “Ingest `https://arxiv.org/html/2409.07429` into a topic called `agentic-systems`.”
 2. “Call `query` on `agentic-systems` with: *How does Agent Workflow Memory improve web agents without changing model weights, and what relative gains does it report on Mind2Web and WebArena?*”
 3. Expect grounded gains **24.6% Mind2Web** / **51.1% WebArena**, citing `wang2024awm`.
 
@@ -81,6 +82,7 @@ Plugin aliases (`/knotica:*`) and the `knotica` CLI expose the same operations f
 |-------|---------|
 | `/knotica:setup` | Interactive first-run wizard — scaffold a vault, wire the server, pre-warm. |
 | `/knotica:use [vault-name]` | Switch or inspect the active knowledge base (vault); no arg reports the active KB + lists configured vaults. |
+| `/knotica:create [name]` | Create + initialize a new knowledge base — asks for path, name, and topic (like the dashboard's New KB button); switches to it. |
 | `/knotica:headless [on\|off\|status]` | Enable/disable/check server-side LLM mode (`query`, compile, loop/Arena) — no arg reports readiness. |
 | `/knotica:ingest <url> [topic]` | Fetch a source, place it by topic, write pages, log. |
 | `/knotica:query <question> [topic]` | Answer a question grounded in curated topic pages. |

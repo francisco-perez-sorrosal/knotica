@@ -11,9 +11,9 @@ answering questions with citations, and improving its own query prompts over tim
 
 ## How the vault is organized
 
-- **Topics live at the root** — each topic is a folder of pages (e.g. `agentic-systems/`).
-  The template ships with a small demo sample in `agentic-systems` (Agent Workflow Memory)
-  so you can see a completed ingest and a populated graph; delete it whenever you like.
+- **Topics live at the root** — each topic is a folder of pages (e.g. an `agentic-systems`
+  topic built around a paper on Agent Workflow Memory). A fresh vault starts **empty**;
+  you create topics as you ingest sources and ask questions.
 - **[[SCHEMA]]** is the constitution: page conventions, linking rules, and the frozen record
   formats. Each topic may add its own `SCHEMA.md` overlay that extends the root.
 - **[[index]]** is the global catalog of topics and pages.
@@ -33,21 +33,19 @@ rolled back. Compiles and evals always run on a **clone** and return a branch fo
 ### In Obsidian
 
 1. Open this folder as a vault (if you haven't already).
-2. Browse `agentic-systems/` and `sources/agentic-systems/wang2024awm.md`.
+2. As you create topics and ingest sources, browse `<topic>/` and `sources/<topic>/` to
+   see the pages and their raw sources.
 
 ### In Claude Desktop (Chat)
 
 1. Confirm the **knotica** MCP server is connected (Settings → MCP / Developer).
-2. Ask Claude: *Call knotica `open_dashboard` with topic `agentic-systems`.*
-3. Or ask a grounded question via the `query` tool (needs LLM credentials in Desktop MCP
-   `env` — see repo `docs/CLAUDE_DESKTOP.md`), e.g.:
-
-   > How does Agent Workflow Memory improve web agents without changing model weights, and what relative gains does it report on Mind2Web and WebArena?
-
-   Look for **24.6% Mind2Web** / **51.1% WebArena** and citation `wang2024awm`.
-
+2. Create a topic and ingest a source into it — e.g. ask Claude: *Ingest this URL into a
+   new topic called `<topic>`.*
+3. Ask a grounded question via the `query` tool (needs LLM credentials in Desktop MCP
+   `env` — see repo `docs/CLAUDE_DESKTOP.md`).
 4. When an answer is good, save it with `curate_example` (verdict `good`) — that fuels compile.
-5. Full install + compile prove walkthrough: see the repo’s `docs/CLAUDE_DESKTOP.md`.
+5. Full install + compile prove walkthrough (worked example: ingesting an Agent Workflow
+   Memory paper into an `agentic-systems` topic): see the repo’s `docs/CLAUDE_DESKTOP.md`.
 
 ### In Claude Code
 
