@@ -30,6 +30,7 @@ from knotica.mcp_server.tools_dispatch_compile import register_dispatch_compile_
 from knotica.mcp_server.tools_dispatch_datasets import register_dispatch_datasets_tools
 from knotica.mcp_server.tools_dispatch_golden import register_dispatch_golden_tools
 from knotica.mcp_server.tools_dispatch_loop import register_dispatch_loop_tools
+from knotica.mcp_server.tools_dispatch_vault import register_dispatch_vault_tools
 from knotica.mcp_server.tools_dispatch_vault_health import register_dispatch_vault_health_tools
 from knotica.mcp_server.tools_guide import register_guide_tools
 from knotica.mcp_server.tools_ingest import register_ingest_tools
@@ -66,6 +67,11 @@ _INSTRUCTIONS = (
     # (b) Stable invariant guards -- must hold even if a protocol is never loaded.
     "Store every source's FULL text faithfully — never a summary, abstract, or excerpt; topic is "
     "always an explicit argument; the vault (git) is the only state. "
+    # (b2) Active-KB honesty -- resolved per call, switchable, never assumed.
+    "The active knowledge base (vault) is resolved fresh per call and can be switched at any "
+    "time — never assume which vault is active: call `vault action=status` to state the active "
+    "KB and surface any misconfiguration, and pass an explicit vault argument to a tool to "
+    "target a different configured vault. "
     # (c) Pointer, not protocol -- the step sequences live in the vault prompts.
     "Each operation (ingest, query, lint, curate) is a multi-step protocol — call "
     "`read_protocol(operation, topic)` to load its exact steps before acting."
@@ -99,6 +105,7 @@ def _build_server(*, stateless_http: bool = False) -> FastMCP:
     register_dispatch_datasets_tools(mcp)
     register_dispatch_arena_tools(mcp)
     register_dispatch_golden_tools(mcp)
+    register_dispatch_vault_tools(mcp)
     register_dispatch_vault_health_tools(mcp)
     register_dashboard_app(mcp)
     register_guide_tools(mcp)

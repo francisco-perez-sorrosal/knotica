@@ -51,27 +51,31 @@ _READ_PAGE_DESCRIPTION = (
     "if unsure. The page argument accepts a topic-relative name (agent-memory), a "
     "vault-relative path from search (sources/<topic>/<citation-key> or "
     "<topic>/reports/...), or a bare citation key for a stored source. Returns the full "
-    "page body — call this only for pages you have decided to read."
+    "page body — call this only for pages you have decided to read. "
+    "Pass vault to select a configured vault name (default: config default_vault)."
 )
 
 _LIST_TOPICS_DESCRIPTION = (
     "List all existing topics with their page counts. Call this FIRST in any operation to run "
     "the topic-inference policy (auto-place when a source clearly matches an existing topic; ask "
     "the user when ambiguous or when a new topic seems warranted). Returns the full set (topics "
-    "are few); not paginated."
+    "are few); not paginated. "
+    "Pass vault to select a configured vault name (default: config default_vault)."
 )
 
 _SEARCH_DESCRIPTION = (
     "Search page contents and return POINTERS (topic, page path, a short snippet, relevance "
     "score) — not full page bodies. Follow up with read_page for the results you choose. "
     "Paginated: pass the returned next_cursor to get the next page; has_more indicates more "
-    "results exist. Default 10 results per call to keep responses small."
+    "results exist. Default 10 results per call to keep responses small. "
+    "Pass vault to select a configured vault name (default: config default_vault)."
 )
 
 _LIST_LINKS_DESCRIPTION = (
     "List wikilinks for one page. direction='out' = pages this page links to; direction='in' = "
     "backlinks (pages that link to this page); direction='both' = both. Returns link POINTERS "
-    "(target topic + page + the line context), not page bodies."
+    "(target topic + page + the line context), not page bodies. "
+    "Pass vault to select a configured vault name (default: config default_vault)."
 )
 
 _LINT_CHECK_DESCRIPTION = (
@@ -80,7 +84,8 @@ _LINT_CHECK_DESCRIPTION = (
     "that are mechanically detectable, and index/log consistency. Returns a list of violations "
     "as DATA (an empty list means clean) — a successful call, never an error. This does NOT do "
     "semantic linting (contradictions, staleness); that is your job in the lint operation prompt, "
-    "guided by the schemas."
+    "guided by the schemas. "
+    "Pass vault to select a configured vault name (default: config default_vault)."
 )
 
 #: Every tool returns a ``CallToolResult`` so ``isError`` is set explicitly:
@@ -107,12 +112,12 @@ def register_read_tools(mcp: FastMCP) -> None:
     """
 
     @mcp.tool(name="list_topics", description=_LIST_TOPICS_DESCRIPTION)
-    def list_topics() -> ToolResult:
-        return _read(lambda store, _root: _collect_topics(store))
+    def list_topics(vault: str = "") -> ToolResult:
+        return _read(lambda store, _root: _collect_topics(store), vault_name=vault)
 
     @mcp.tool(name="read_page", description=_READ_PAGE_DESCRIPTION)
-    def read_page(topic: str, page: str) -> ToolResult:
-        return _read(lambda store, _root: _read_one_page(store, topic, page))
+    def read_page(topic: str, page: str, vault: str = "") -> ToolResult:
+        return _read(lambda store, _root: _read_one_page(store, topic, page), vault_name=vault)
 
     @mcp.tool(name="search", description=_SEARCH_DESCRIPTION)
     def search(
@@ -120,35 +125,44 @@ def register_read_tools(mcp: FastMCP) -> None:
         topic: str = "",
         cursor: str = "",
         limit: int = DEFAULT_PAGE_SIZE,
+        vault: str = "",
     ) -> ToolResult:
         return _read(
             lambda _store, root: envelope.read_ok(
                 RipgrepBackend(root).search(query, topic=topic, cursor=cursor, limit=limit).render()
-            )
+            ),
+            vault_name=vault,
         )
 
     @mcp.tool(name="list_links", description=_LIST_LINKS_DESCRIPTION)
-    def list_links(topic: str, page: str, direction: str = "both") -> ToolResult:
-        return _read(lambda store, _root: _collect_links(store, topic, page, direction))
+    def list_links(topic: str, page: str, direction: str = "both", vault: str = "") -> ToolResult:
+        return _read(
+            lambda store, _root: _collect_links(store, topic, page, direction), vault_name=vault
+        )
 
     @mcp.tool(name="lint_check", description=_LINT_CHECK_DESCRIPTION)
-    def lint_check(topic: str = "") -> ToolResult:
+    def lint_check(topic: str = "", vault: str = "") -> ToolResult:
         return _read(
             lambda store, _root: envelope.read_ok(
                 {"violations": [violation.render() for violation in lint_vault(store, topic)]}
-            )
+            ),
+            vault_name=vault,
         )
 
 
-def _read(operation: Callable[[VaultStore, Path], dict[str, Any]]) -> ToolResult:
+def _read(
+    operation: Callable[[VaultStore, Path], dict[str, Any]], vault_name: str = ""
+) -> ToolResult:
     """Resolve the vault per call and run ``operation``, envelope-ing every outcome.
 
-    An unconfigured vault yields the ``NOT_CONFIGURED`` envelope before any store
-    is built; a typed read exception from ``operation`` is mapped to its failure
-    envelope. Nothing reaches the transport as an exception.
+    ``vault_name`` optionally selects a configured vault (empty -> the configured
+    ``default_vault``). An unconfigured vault yields the ``NOT_CONFIGURED``
+    envelope before any store is built; a typed read exception from ``operation``
+    is mapped to its failure envelope. Nothing reaches the transport as an
+    exception.
     """
     try:
-        vault = resolve()
+        vault = resolve(vault=vault_name.strip() or None)
     except KnoticaError as error:
         return envelope.error_envelope(error)
     store = LocalFSStore(vault.path)

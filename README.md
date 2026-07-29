@@ -80,6 +80,8 @@ Plugin aliases (`/knotica:*`) and the `knotica` CLI expose the same operations f
 | Alias | Purpose |
 |-------|---------|
 | `/knotica:setup` | Interactive first-run wizard — scaffold a vault, wire the server, pre-warm. |
+| `/knotica:use [vault-name]` | Switch or inspect the active knowledge base (vault); no arg reports the active KB + lists configured vaults. |
+| `/knotica:headless [on\|off\|status]` | Enable/disable/check server-side LLM mode (`query`, compile, loop/Arena) — no arg reports readiness. |
 | `/knotica:ingest <url> [topic]` | Fetch a source, place it by topic, write pages, log. |
 | `/knotica:query <question> [topic]` | Answer a question grounded in curated topic pages. |
 | `/knotica:lint [topic]` | Lint pages against the schema (links, structure, confidence, supersession). |

@@ -215,6 +215,34 @@ If `query` returns `NOT_CONFIGURED` about the eval dependency group, you have OA
 missing `anthropic` — patch Desktop config (or re-run `knotica init --desktop` from the repo) and
 fully restart Desktop. Do **not** run `uv sync` in the vault directory; the vault is data only.
 
+### Enabling headless in Claude Code
+
+Code users run the plugin channel (lean `knotica` server, no `evals` extra) — this keeps
+ingest / client-as-brain fast and credential-free. Three independent levers turn headless on,
+none of which requires editing `.mcp.json`:
+
+1. **Credentials — effectively live.** Unlike Desktop, Code's stdio MCP servers inherit your
+   shell environment, so exporting `CLAUDE_CODE_OAUTH_TOKEN` (or `ANTHROPIC_API_KEY`) in the
+   shell that launches Code is picked up with no config-file edit — see
+   [Headless LLM credentials](#headless-llm-credentials-query--compile--eval) for how to obtain
+   one. A credential alone isn't enough, though: the running lean server still lacks the
+   `evals` extra until one of the two levers below adds it.
+2. **`/knotica:headless on`** — the guided path. It runs a user-scoped
+   `claude mcp add --scope user knotica -- uvx --from <repo> --with anthropic --with dspy knotica mcp`,
+   which outranks the plugin's lean server (Code resolves MCP scope Local > Project > User >
+   Plugin, so a user-scoped `knotica` cleanly overrides it, no merge). `/knotica:headless off`
+   removes the override; `/knotica:headless status` reports current readiness.
+3. **Reuse the installed plugin directly** — now that `evals` is a real PEP 621 extra, the
+   plugin's own `uvx --from ${CLAUDE_PLUGIN_ROOT} knotica mcp` launch can be swapped for
+   `uvx --from '${CLAUDE_PLUGIN_ROOT}[evals]' knotica mcp` (or `'<repo-path>[evals]'`) in a
+   manual user- or project-scoped `claude mcp add`, without a separate `git+https://...` clone.
+
+Be honest about what's live vs. what isn't: switching the active KB (`/knotica:use`) and
+picking up new shell-env credentials both take effect on the next tool call — no restart. Toggling
+headless on/off does not: it changes *which process* is running, and dependencies are resolved at
+that process's launch, so it needs a server reconnect (or a new Code session) before it takes
+effect.
+
 ### Verify from a terminal
 
 ```bash

@@ -120,6 +120,15 @@ def test_instructions_contain_no_numbered_protocol_step_list() -> None:
     assert not re.search(r"(?<!\S)[1-9]\.\s+\S", text)
 
 
+def test_instructions_direct_the_model_to_report_the_active_vault() -> None:
+    """The router tells the model to state the active KB via `vault action=status`
+    and never assume which knowledge base is live -- the ground-truth-per-call
+    honesty contract."""
+    text = _instructions_text()
+    assert "vault action=status" in text
+    assert "never assume" in text.lower()
+
+
 # ---------------------------------------------------------------------------
 # Superset check (pre-mortem #5): every removed step marker's *substance* is
 # still reachable via the vault protocol file `read_protocol` serves — so

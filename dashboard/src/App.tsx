@@ -305,6 +305,7 @@ export function App() {
                     {readyVaults.map((entry) => (
                       <option value={entry.name} key={entry.name}>
                         {entry.name}
+                        {entry.name === catalog.value?.default_vault ? " (default)" : ""}
                       </option>
                     ))}
                   </select>
