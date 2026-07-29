@@ -63,9 +63,26 @@ field satisfies Open Knowledge Format requirements (any non-empty string is vali
 
 The following top-level names may **not** be used as topic names (lint- and tool-enforced):
 
-`sources`, `index.md`, `log.md`, `SCHEMA.md`, `START_HERE.md`, `.knotica`, `.git`
+`sources`, `notes`, `index.md`, `log.md`, `SCHEMA.md`, `START_HERE.md`, `.knotica`, `.git`
 
 Topic names are kebab-case or lowercase (e.g. `agentic-systems`).
+
+### Personal notes — unscored, excluded from all quality measures
+
+The `notes/` directory is a reserved, unscored folder family. It exists to hold human-authored
+personal reflection and marginalia on your vault's content — independent of the page and source
+graph that quality metrics and the autoimprovement loop operate over.
+
+The layout is `notes/<topic>/<file>.md`, mirroring `sources/<topic>/<key>.md`. Notes within a
+topic's notes folder are **never scored**. They are excluded by construction from:
+
+- Search results — a search never returns a note, only pages and sources
+- Lint's content-page count and orphan checks
+- The loop's change detection and improvement observation
+
+Hand-author notes freely in Obsidian or any text editor — the vault scaffold and all tooling treat
+notes as a scoped, private workspace that coexists with but never contaminates your KB's quality
+guarantees.
 
 ## Per-operation commit discipline
 

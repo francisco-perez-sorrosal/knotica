@@ -38,6 +38,16 @@ still caught). Known blind spot: an unrelated ``.delete(...)`` call on some
 non-store object in an adapter would also be flagged -- acceptable, since the
 single-writer intent is that adapters perform no mutation of any kind, and no
 such call exists on the current tree.
+
+A second, independent boundary: ``search/`` may depend on ``knotica.core``
+only through ``core.vault_layout``, the zero-dependency folder-family leaf
+(see ``core/__init__.py``'s boundary docstring). ``vault_layout`` imports
+nothing from ``knotica``, so any layer can depend on it without creating a
+cycle -- but any *other* ``knotica.core.*`` import from ``search/`` would
+give ``search`` a transitive dependency on the config/schema layer, which is
+exactly the cycle risk the leaf exists to avoid. This is checked separately
+from the single-writer scan above: it is an import-direction rule, not a
+mutation rule, so a module could satisfy one and violate the other.
 """
 
 import ast
@@ -83,6 +93,10 @@ READ_ONLY_VCS_METHODS = frozenset(
 #: ``os`` attributes that shell out -- forbidden to the adapters.
 OS_SHELL_ATTRS = frozenset({"system", "popen"})
 
+#: The one ``core`` submodule ``search/`` may depend on -- see the module
+#: docstring for why (zero-dependency leaf, no cycle risk).
+CORE_LEAF_EXEMPTION = "vault_layout"
+
 
 def _module_label(path: Path) -> str:
     """Repo-relative POSIX label for a source file (stable in failure messages)."""
@@ -93,6 +107,11 @@ def _adapter_files() -> Iterator[Path]:
     """Every ``.py`` file under the adapter packages, in stable order."""
     for package in ADAPTER_PACKAGES:
         yield from sorted((SRC_ROOT / package).rglob("*.py"))
+
+
+def _search_files() -> Iterator[Path]:
+    """Every ``.py`` file under ``search/``, in stable order."""
+    yield from sorted((SRC_ROOT / "search").rglob("*.py"))
 
 
 def _all_source_files() -> Iterator[Path]:
@@ -159,6 +178,74 @@ def _imports_core_lock(tree: ast.Module) -> bool:
             if module.endswith("core") and any(a.name == "lock" for a in node.names):
                 return True
     return False
+
+
+def _forbidden_core_imports(tree: ast.Module) -> list[tuple[str, int]]:
+    """``(offending-import, line)`` for every ``knotica.core.*`` import that
+    does not target ``knotica.core.vault_layout``.
+
+    Handles ``import knotica.core.x``, ``from knotica.core.x import y``,
+    ``from knotica.core import x``, and the relative equivalents
+    (``from ..core.x import y``, ``from ..core import x``) -- ``ast.Import
+    From.level`` counts the leading dots separately from ``.module``, so a
+    relative import with ``module == "core"`` and ``level > 0`` resolves the
+    same way as the absolute ``knotica.core`` form.
+    """
+    violations: list[tuple[str, int]] = []
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Import):
+            violations.extend(_plain_core_import_violations(node))
+        elif isinstance(node, ast.ImportFrom):
+            violations.extend(_from_core_import_violations(node))
+    return violations
+
+
+def _is_exempt_submodule(submodule: str) -> bool:
+    """Whether a ``knotica.core`` submodule path is the permitted leaf (or below it)."""
+    return submodule == CORE_LEAF_EXEMPTION or submodule.startswith(f"{CORE_LEAF_EXEMPTION}.")
+
+
+def _plain_core_import_violations(node: ast.Import) -> list[tuple[str, int]]:
+    """Offenders in ``import knotica.core`` / ``import knotica.core.x`` form."""
+    offenders: list[tuple[str, int]] = []
+    for alias in node.names:
+        name = alias.name
+        if name != "knotica.core" and not name.startswith("knotica.core."):
+            continue
+        if name.startswith(f"knotica.core.{CORE_LEAF_EXEMPTION}"):
+            continue
+        offenders.append((name, node.lineno))
+    return offenders
+
+
+def _from_core_import_violations(node: ast.ImportFrom) -> list[tuple[str, int]]:
+    """Offenders in every ``from …`` form, absolute and relative.
+
+    Includes ``from knotica import core`` / ``from .. import core``, which bind
+    the package itself: that hands the module every submodule via attribute
+    access, so it defeats the boundary just as directly as naming a submodule.
+    Dynamic access (``importlib.import_module``) is out of reach of an AST gate
+    and is not attempted here.
+    """
+    module = node.module or ""
+    relative_core = node.level > 0 and (module == "core" or module.startswith("core."))
+    if module.startswith("knotica.core.") or (relative_core and module.startswith("core.")):
+        if _is_exempt_submodule(module.rsplit("core.", 1)[1]):
+            return []
+        return [(f"{module}.{alias.name}", node.lineno) for alias in node.names]
+    if module == "knotica.core" or (relative_core and module == "core"):
+        return [
+            (f"{module}.{alias.name}", node.lineno)
+            for alias in node.names
+            if alias.name != CORE_LEAF_EXEMPTION
+        ]
+    if module == "knotica" or (node.level > 0 and not module):
+        return [
+            ("{}.core".format(module or "."), node.lineno)
+            for alias in node.names
+            if alias.name == "core"
+        ]
+    return []
 
 
 def test_adapters_do_not_shell_out_for_git() -> None:
@@ -235,4 +322,35 @@ def test_adapters_may_read_git_state() -> None:
     assert readers, (
         "expected at least one cli/mcp_server module to read git state via "
         "read-only VaultVcs methods -- the boundary permits this"
+    )
+
+
+def test_search_depends_on_core_only_through_the_vault_layout_leaf() -> None:
+    violations: list[str] = []
+    for path in _search_files():
+        for target, line in _forbidden_core_imports(_parse(path)):
+            violations.append(f"{_module_label(path)}:{line} imports {target}")
+    assert not violations, (
+        "search/ may depend on knotica.core only through core.vault_layout -- the "
+        "zero-dependency leaf that every layer can safely import without creating a "
+        "cycle (core/__init__.py's boundary docstring). Any other knotica.core "
+        f"import from search/ risks a future cycle back into core: {violations}"
+    )
+
+
+def test_search_actually_depends_on_vault_layout() -> None:
+    # Non-vacuity guard: the boundary exists to *permit* search/ -> core.vault_layout,
+    # and search/ relies on it today for topic/family classification. Without this,
+    # a future rewrite that severed the edge entirely (or renamed the leaf without
+    # updating search/) would leave the assertion above vacuously true.
+    importers: set[str] = set()
+    for path in _search_files():
+        for node in ast.walk(_parse(path)):
+            if isinstance(node, ast.ImportFrom) and (node.module or "").endswith(
+                f"core.{CORE_LEAF_EXEMPTION}"
+            ):
+                importers.add(_module_label(path))
+    assert importers, (
+        "expected at least one search/ module to import knotica.core.vault_layout -- "
+        "the boundary exists specifically to permit this dependency"
     )

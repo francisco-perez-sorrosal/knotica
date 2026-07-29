@@ -24,8 +24,9 @@ Contract summary
 
 from collections.abc import Sequence
 from dataclasses import dataclass
-from typing import Any, Literal, Protocol, runtime_checkable
+from typing import Any, Protocol, runtime_checkable
 
+from knotica.core.vault_layout import Family
 from knotica.search.cursor import (
     SORT_SCORE_DESC_PATH_ASC,
     Cursor,
@@ -58,10 +59,13 @@ __all__ = [
 DEFAULT_PAGE_SIZE = 10
 MAX_PAGE_SIZE = 50
 
-#: What kind of vault file a pointer refers to: a wiki page or a stored
-#: source under ``sources/<topic>/``. Sources are searched too (they carry
-#: the raw material pages cite); the marker lets the consumer tell them apart.
-ResultKind = Literal["page", "source"]
+#: What kind of vault file a pointer refers to: a wiki page, a stored source
+#: under ``sources/<topic>/``, or a personal note under ``notes/<topic>/``.
+#: Non-page families are searched too (sources carry the raw material pages
+#: cite); the marker lets the consumer tell them apart. Deliberately an alias
+#: of the vault's folder-family type rather than a parallel literal -- a search
+#: result's ``kind`` *is* the path's folder family, so the two must not drift.
+ResultKind = Family
 
 
 @dataclass(frozen=True, slots=True)
@@ -70,14 +74,15 @@ class SearchResult:
 
     Attributes:
         topic: The topic the file belongs to (`""` for vault-root files such
-            as the catalog pages). For sources this is the ``<topic>`` segment
-            of ``sources/<topic>/...``.
+            as the catalog pages). For a source or a note this is the
+            ``<topic>`` segment of ``sources/<topic>/...`` /
+            ``notes/<topic>/...`` -- never the family directory name itself.
         path: Vault-relative POSIX path of the matching file.
         snippet: The first matching line, stripped and truncated -- enough to
             decide whether to ``read_page`` it.
         score: BM25 relevance score (rounded) -- rewards matches on rare terms
             in short documents; a raw occurrence count would rank by file size.
-        kind: ``"page"`` or ``"source"`` (see :data:`ResultKind`).
+        kind: ``"page"``, ``"source"`` or ``"note"`` (see :data:`ResultKind`).
     """
 
     topic: str

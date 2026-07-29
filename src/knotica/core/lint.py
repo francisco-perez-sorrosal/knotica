@@ -37,6 +37,16 @@ from knotica.core.schema import (
     read_topic_overlay,
     validated_topic,
 )
+
+# RESERVED_TOP_LEVEL_NAMES is declared once in vault_layout and re-exported here
+# unchanged, so every existing `from knotica.core.lint import RESERVED_TOP_LEVEL_NAMES`
+# consumer keeps working without a code change.
+from knotica.core.vault_layout import (
+    RESERVED_TOP_LEVEL_NAMES,
+    SCORED_FAMILIES,
+    TOP_LEVEL_FAMILY_DIRS,
+    family_of,
+)
 from knotica.okf.log_fmt import iter_log_touched_paths
 from knotica.store import PathOutsideVaultError, VaultStore
 
@@ -48,13 +58,6 @@ __all__ = [
     "Violation",
     "lint_vault",
 ]
-
-#: Top-level names that may never be used as topic names (root constitution
-#: § Reserved names). Single source of truth -- the ``create_topic`` guard
-#: shares this constant.
-RESERVED_TOP_LEVEL_NAMES: frozenset[str] = frozenset(
-    {"sources", "index.md", "log.md", "SCHEMA.md", "START_HERE.md", ".knotica", ".git"}
-)
 
 #: Vault-relative path of the global catalog.
 INDEX_PATH = "index.md"
@@ -185,6 +188,13 @@ def _vault_link_map(store: VaultStore) -> dict[str, list[Link]]:
     it is skipped here (and flagged by the reserved-name check when its name
     is reserved) so lint never crashes on the malformed shapes it exists to
     report.
+
+    The map deliberately spans *every* folder family, unscored ones included:
+    a whole-vault lint reports link violations inside a note just as it does
+    inside a page. Checks that must not treat an unscored family as an equal
+    citizen filter at their own point of use (see
+    :func:`_is_scored_link_source`), so narrowing the map here would silently
+    change more than one check's findings.
     """
     vault_links: dict[str, list[Link]] = {}
     for path in iter_page_paths(store):
@@ -228,8 +238,9 @@ def _content_page_paths(store: VaultStore, topics: Iterable[str]) -> list[str]:
 def _check_reserved_names(store: VaultStore) -> list[Violation]:
     """Flag visible top-level directories claiming a reserved name.
 
-    ``sources`` is exempt: it is reserved *for* the source store, so its
-    presence is the sanctioned use, not a misuse.
+    Every folder family directory (``sources``, ``notes``) is exempt: each is
+    reserved *for* its family store, so its presence is the sanctioned use,
+    not a misuse.
     """
     return [
         Violation(
@@ -244,7 +255,7 @@ def _check_reserved_names(store: VaultStore) -> list[Violation]:
         for name in store.list_dir("")
         if not name.startswith(".")
         and name in RESERVED_TOP_LEVEL_NAMES
-        and name != _SOURCES_DIR
+        and name not in TOP_LEVEL_FAMILY_DIRS
         and _is_directory(store, name)
     ]
 
@@ -575,13 +586,39 @@ def _check_index(
     ]
 
 
+def _is_scored_link_source(path: str) -> bool:
+    """Whether wikilinks written in ``path`` may count as inbound edges.
+
+    Only the scored folder families (``page``, ``source``) qualify. The vault
+    link map is built vault-wide, so it also carries the unscored families --
+    today the private ``notes/`` tree, which is written outside the measured
+    corpus by design. Without this predicate a note's wikilink de-orphans a
+    content page: the ``PAGE_ORPHANED`` finding disappears, the lint-violation
+    count the eval scalar reads drops, and the loop records a KB quality gain
+    the KB never earned. Under a ratcheting baseline policy that inflation is
+    permanent, and nothing errors or logs. Deleting this predicate re-opens
+    exactly that leak.
+
+    The filter must also stay this narrow. Excluding any family that *is*
+    scored would stop reporting genuine orphans, which moves the same scalar in
+    the same direction for the same silent reason -- the two failure modes are
+    mirror images, so widen nothing here without a new scored-family decision.
+    """
+    return family_of(path) in SCORED_FAMILIES
+
+
 def _check_orphans(
     content_pages: Iterable[str], vault_links: dict[str, list[Link]]
 ) -> list[Violation]:
-    """Flag content pages no other page links to (self-links do not count)."""
+    """Flag content pages no scored page links to (self-links do not count).
+
+    Links originating outside the scored families do not count as inbound; see
+    :func:`_is_scored_link_source` for why that exclusion is load-bearing.
+    """
     inbound_targets = {
         link.target
         for source, links in vault_links.items()
+        if _is_scored_link_source(source)
         for link in links
         if link.target != source
     }

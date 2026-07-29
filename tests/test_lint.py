@@ -22,6 +22,8 @@ LLM's job), never from the implementation:
 
 from pathlib import Path
 
+from knotica.core import vault_layout
+from knotica.core import lint as lint_module
 from knotica.core.lint import LintCheck, Violation, lint_vault
 from knotica.store import LocalFSStore
 from support.vault import git_commit_count, git_status_porcelain
@@ -176,6 +178,20 @@ def test_top_level_directory_with_reserved_name_is_flagged(template_vault: Path)
 def test_sources_directory_is_not_a_reserved_name_violation(template_vault: Path) -> None:
     # `sources/` is reserved *for* the source store -- its presence is sanctioned.
     assert LintCheck.RESERVED_TOP_LEVEL_NAME not in checks(lint(template_vault))
+
+
+def test_notes_directory_is_not_a_reserved_name_violation(template_vault: Path) -> None:
+    # `notes/` is reserved *for* the personal-notes store -- its presence is sanctioned,
+    # exactly like `sources/`.
+    write(template_vault, "notes/agentic-systems/scratch.md", "# scratch\n")
+
+    assert LintCheck.RESERVED_TOP_LEVEL_NAME not in checks(lint(template_vault))
+
+
+def test_reserved_names_are_declared_exactly_once() -> None:
+    # `lint` re-exports the single declaration from `vault_layout` rather than
+    # carrying its own copy -- identity, not mere equality.
+    assert lint_module.RESERVED_TOP_LEVEL_NAMES is vault_layout.RESERVED_TOP_LEVEL_NAMES
 
 
 # ---------------------------------------------------------------------------

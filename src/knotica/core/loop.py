@@ -35,6 +35,7 @@ from knotica.core.loop_state import (
     write_loop_state,
 )
 from knotica.core.transaction import VaultTransaction, vault_mutation_span
+from knotica.core.vault_layout import SCORED_FAMILIES, family_of
 from knotica.core.vcs import VaultVcs
 from knotica.store import LocalFSStore, VaultStore
 
@@ -587,6 +588,14 @@ class LoopRunner:
         state (loop-state, metrics, arena, compiled) — never counts as content.
         Prompts (``.knotica/prompts/``) DO count: they are the evolvable
         substrate, and a human prompt edit deserves a fresh observation.
+
+        Paths outside :data:`~knotica.core.vault_layout.SCORED_FAMILIES` — today
+        the ``notes/`` family — do not count either. Nothing an unscored family
+        holds can move the eval scalar, so observing one would bill a full eval
+        run for a change that provably cannot alter its result: hand-authoring a
+        personal note must never wake the loop. Keying on the scored set rather
+        than on ``notes`` specifically means a future unscored family inherits
+        the same inertness instead of silently re-billing.
         """
         try:
             changed = self._vcs.changed_paths(base, head)
@@ -602,6 +611,11 @@ class LoopRunner:
                 if inside and inside[0] == "prompts":
                     return True
                 continue
+            try:
+                if family_of(path) not in SCORED_FAMILIES:
+                    continue
+            except ValueError:  # unclassifiable path: fall through and observe
+                pass
             return True
         return False
 

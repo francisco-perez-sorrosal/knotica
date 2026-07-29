@@ -9,5 +9,9 @@ mutating operation (MCP tool, CLI command, future headless loop) routes through
 
 Boundary: depends only on the ``knotica.store``/``knotica.search`` protocols and
 the stdlib. The adapters (``knotica.cli``, ``knotica.mcp_server``) depend on this
-package -- never the reverse.
+package -- never the reverse. The single exception is ``vault_layout``, the
+zero-dependency folder-family leaf: it imports nothing from ``knotica``, so
+``knotica.search`` depends on it (for the topic/family a search result reports)
+without creating a cycle. Any *other* inbound edge into this package is a
+layering violation.
 """

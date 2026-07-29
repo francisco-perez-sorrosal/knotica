@@ -40,8 +40,9 @@ import os
 import shutil
 import subprocess
 from collections.abc import Iterable, Iterator
-from pathlib import Path, PurePath, PurePosixPath
+from pathlib import Path, PurePath
 
+from knotica.core.vault_layout import SCORED_FAMILIES, SOURCES_DIR, family_of, topic_of
 from knotica.search import (
     DEFAULT_PAGE_SIZE,
     ResultKind,
@@ -55,7 +56,6 @@ from knotica.search import (
 #: Snippets are decision material ("do I read_page this?"), not payloads.
 SNIPPET_MAX_CHARS = 200
 
-_SOURCES_DIR = "sources"
 _MARKDOWN_SUFFIX = ".md"
 
 #: Ripgrep exclusion glob for every hidden path -- dot-files at any depth and
@@ -161,7 +161,7 @@ class RipgrepBackend:
         candidate = PurePath(topic)
         if candidate.is_absolute() or len(candidate.parts) != 1 or topic.startswith("."):
             raise ValueError(f"Topic must be a bare, non-hidden directory name, got: {topic!r}")
-        scoped = [self._root / topic, self._root / _SOURCES_DIR / topic]
+        scoped = [self._root / topic, self._root / SOURCES_DIR / topic]
         return [directory for directory in scoped if directory.is_dir()]
 
     def _candidates_ripgrep(self, terms: list[str], scan_dirs: list[Path]) -> list[Path]:
@@ -225,10 +225,20 @@ def _collect_matches(candidates: Iterable[Path], terms: list[str], root: Path) -
     A candidate where no term occurs (possible only through engine-specific
     case-folding edge cases) is dropped, keeping the two engines' result sets
     identical by construction.
+
+    Candidates outside a scored folder family are dropped before being read:
+    personal notes are real, indexable markdown, but retrieval must never
+    surface them, because a search result is what a KB quality measurement is
+    computed over. The check sits ahead of the file read so note contents are
+    never loaded at all. Both engines funnel through here, so the exclusion
+    cannot diverge between the ripgrep and pure-Python paths.
     """
     lowered_terms = [term.lower() for term in terms]
     matches: list[_DocMatch] = []
     for file_path in candidates:
+        rel_path = file_path.relative_to(root).as_posix()
+        if family_of(rel_path) not in SCORED_FAMILIES:
+            continue
         content = file_path.read_text(encoding="utf-8", errors="replace")
         lowered_content = content.lower()
         term_counts = {
@@ -238,7 +248,6 @@ def _collect_matches(candidates: Iterable[Path], terms: list[str], root: Path) -
         }
         if not term_counts:
             continue
-        rel_path = file_path.relative_to(root).as_posix()
         snippet = _first_matching_snippet(content, lowered_terms)
         matches.append(_DocMatch(rel_path, term_counts, snippet, len(content.encode("utf-8"))))
     return matches
@@ -290,16 +299,12 @@ def _build_result(match: _DocMatch, score: float) -> SearchResult:
 def _classify(rel_path: str) -> tuple[str, ResultKind]:
     """Derive ``(topic, kind)`` from a vault-relative path.
 
-    ``sources/<topic>/...`` is a source of that topic; a vault-root file
-    (``index.md``, ``START_HERE.md``, ...) is a page with no topic; anything
-    else is a page of its first path segment.
+    Delegates to the single folder-family module so search classification and
+    the rest of the vault agree by construction: deriving the topic positionally
+    here would misattribute any top-level family directory (a note under
+    ``notes/<topic>/`` would report the topic ``"notes"``).
     """
-    parts = PurePosixPath(rel_path).parts
-    if parts[0] == _SOURCES_DIR:
-        return (parts[1] if len(parts) >= 3 else "", "source")
-    if len(parts) == 1:
-        return ("", "page")
-    return (parts[0], "page")
+    return (topic_of(rel_path), family_of(rel_path))
 
 
 def _make_snippet(line: str) -> str:

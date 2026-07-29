@@ -27,6 +27,7 @@ from pathlib import Path
 
 import pytest
 
+from knotica.core import vault_layout
 from knotica.core.errors import ErrorCode, KnoticaError
 from knotica.core.schema import resolve_schema
 from knotica.store import LocalFSStore
@@ -38,16 +39,10 @@ from support.vault import (
     parse_log_entries,
 )
 
-# The reserved top-level namespace create_topic must protect (REQ-TOOL-03 set).
-RESERVED_TOP_LEVEL_NAMES = [
-    "sources",
-    "index.md",
-    "log.md",
-    "SCHEMA.md",
-    "START_HERE.md",
-    ".knotica",
-    ".git",
-]
+# The reserved top-level namespace create_topic must protect -- sourced directly
+# from the single production declaration so this parametrize list can never drift
+# from what create_topic actually refuses.
+RESERVED_TOP_LEVEL_NAMES = sorted(vault_layout.RESERVED_TOP_LEVEL_NAMES)
 
 NEW_TOPIC = "reinforcement-learning"
 

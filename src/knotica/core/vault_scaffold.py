@@ -32,16 +32,12 @@ from pathlib import Path
 from knotica.core.errors import ErrorCode, KnoticaError
 from knotica.core.template import TemplateNotFoundError
 from knotica.core.template import packaged_template_path as _locate_template
+from knotica.core.vault_layout import RESERVED_TOP_LEVEL_NAMES as RESERVED_TOPIC_NAMES
 
 __all__ = ["RESERVED_TOPIC_NAMES", "ScaffoldResult", "scaffold_vault"]
 
 #: Timeout for every bootstrap subprocess call.
 _SUBPROCESS_TIMEOUT_SECONDS = 120.0
-
-#: Top-level names a topic may never collide with (root constitution).
-RESERVED_TOPIC_NAMES: frozenset[str] = frozenset(
-    {"sources", "index.md", "log.md", "SCHEMA.md", "START_HERE.md", ".knotica", ".git"}
-)
 
 _EMPTY_OVERLAY = """\
 ---

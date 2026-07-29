@@ -10,7 +10,7 @@ from pathlib import Path
 
 import pytest
 
-from knotica.core import vault_scaffold
+from knotica.core import vault_layout, vault_scaffold
 from knotica.core.errors import ErrorCode, KnoticaError
 from support.vault import git_commit_count, git_status_porcelain
 
@@ -26,6 +26,10 @@ def _vault_inventory(vault: Path) -> set[str]:
             continue
         files.add(str(rel))
     return files
+
+
+def test_reserved_topic_names_is_the_same_object_as_vault_layouts_set() -> None:
+    assert vault_scaffold.RESERVED_TOPIC_NAMES is vault_layout.RESERVED_TOP_LEVEL_NAMES
 
 
 def test_scaffolds_a_fresh_vault_with_template_git_and_commit(tmp_path: Path) -> None:

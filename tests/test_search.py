@@ -23,7 +23,12 @@ Derived from the search tool contract, not from the implementation:
 - the engine is hidden behind the protocol: ripgrep and the pure-Python
   fallback must produce identical envelopes on the same corpus, so every
   scan-behavior test runs against both engines (the ripgrep half is
-  skip-marked when ``rg`` is not on PATH).
+  skip-marked when ``rg`` is not on PATH);
+- classification (``topic``, ``kind``) is derived from a result's path and
+  must stay identical for every layout a real vault contains today;
+- the ``note`` family is excluded from the unscoped retrieval path entirely --
+  an unscoped search must never return a ``notes/`` file while still
+  returning every page and stored source from the same vault.
 
 The shipped vault template is the golden fixture for classification: the
 query "memory" hits eight files spanning a stored source, topic pages, and
@@ -540,6 +545,84 @@ def test_source_hits_carry_kind_source_and_their_owning_topic(
         "paging",
     )
     assert (by_path["paging/apex.md"].kind, by_path["paging/apex.md"].topic) == ("page", "paging")
+
+
+# ---------------------------------------------------------------------------
+# Folder-family classification: (topic, kind) derivation for every layout a
+# real vault contains today, plus the note-family default-retrieval exclusion.
+# ---------------------------------------------------------------------------
+
+#: Every path layout a real vault contains today, with the (topic, kind) pair
+#: search must keep reporting for it. This is the identity-preserving guard
+#: for the eventual `_classify` -> `family_of`/`topic_of` delegation: a
+#: refactor billed as behavior-preserving must not shift any of these -- a
+#: shift here would move search-result topics, retrieval traces, and
+#: therefore downstream eval attribution with no test failure elsewhere.
+CLASSIFICATION_LAYOUTS = (
+    ("classify-topic/page.md", "classify-topic", "page"),
+    ("sources/classify-topic/doc.md", "classify-topic", "source"),
+    ("classify-topic/reports/guillotine/report.md", "classify-topic", "page"),
+    ("classify-topic/SCHEMA.md", "classify-topic", "page"),
+    ("index.md", "", "page"),
+    ("log.md", "", "page"),
+    ("SCHEMA.md", "", "page"),
+    ("START_HERE.md", "", "page"),
+)
+
+#: A personal note filed under its own topic, planted alongside every layout
+#: above so the exclusion test below has a real note to exclude. Whether the
+#: note's *own* topic and kind derive correctly (filing topic, kind
+#: ``"note"``) is pinned directly against ``family_of``/``topic_of`` in
+#: ``tests/test_vault_layout.py`` -- not here, because the seam under test
+#: here (``search()``) is contractually required to never return this path,
+#: so it cannot also be the seam that proves what it excludes classifies
+#: correctly.
+NOTES_LAYOUT_PATH = "notes/classify-topic/20260729-120000-reflection.md"
+
+
+@pytest.fixture
+def classification_vault(tmp_path: Path) -> Path:
+    """One ``SEARCH_TOKEN`` hit at every layout classification must handle."""
+    vault = tmp_path / "classification-vault"
+    for rel_path, _, _ in CLASSIFICATION_LAYOUTS:
+        _plant(vault, rel_path, 1)
+    _plant(vault, NOTES_LAYOUT_PATH, 1)
+    return vault
+
+
+@pytest.mark.parametrize(("rel_path", "expected_topic", "expected_kind"), CLASSIFICATION_LAYOUTS)
+def test_existing_layouts_keep_their_current_topic_and_kind(
+    make_backend: Callable[[Path], RipgrepBackend],
+    classification_vault: Path,
+    rel_path: str,
+    expected_topic: str,
+    expected_kind: str,
+):
+    page = make_backend(classification_vault).search(SEARCH_TOKEN, topic="", limit=50)
+
+    by_path = {result.path: result for result in page.results}
+    assert (by_path[rel_path].topic, by_path[rel_path].kind) == (expected_topic, expected_kind)
+
+
+def test_unscoped_search_excludes_the_note_family_while_still_returning_pages_and_sources(
+    make_backend: Callable[[Path], RipgrepBackend], classification_vault: Path
+):
+    """A ``notes/<topic>/x.md`` file is real, indexable content -- it is not
+    absent because it is malformed or unmatched, it is absent because the
+    default retrieval path must never surface the note family. Asserting
+    only the note's absence would pass just as well if the filter dropped
+    every result, so this also asserts every non-note layout from the same
+    vault is still returned -- the two assertions together are the only way
+    to distinguish "notes excluded" from "everything excluded".
+
+    Expected RED now: nothing currently excludes the ``note`` family from an
+    unscoped search, so the note's path is present in ``page.results``.
+    """
+    page = make_backend(classification_vault).search(SEARCH_TOKEN, topic="", limit=50)
+
+    returned_paths = {result.path for result in page.results}
+    assert NOTES_LAYOUT_PATH not in returned_paths
+    assert {rel_path for rel_path, _, _ in CLASSIFICATION_LAYOUTS} <= returned_paths
 
 
 def test_unknown_topic_yields_an_empty_envelope_not_an_error(planted_vault: Path):
