@@ -12,14 +12,7 @@ import pytest
 
 from knotica.core import vault_scaffold
 from knotica.core.errors import ErrorCode, KnoticaError
-from knotica.core.template import packaged_template_path
 from support.vault import git_commit_count, git_status_porcelain
-
-TEMPLATE_DIR = packaged_template_path()
-
-
-def _template_inventory() -> set[str]:
-    return {str(p.relative_to(TEMPLATE_DIR)) for p in TEMPLATE_DIR.rglob("*") if p.is_file()}
 
 
 def _vault_inventory(vault: Path) -> set[str]:
@@ -41,7 +34,11 @@ def test_scaffolds_a_fresh_vault_with_template_git_and_commit(tmp_path: Path) ->
     result = vault_scaffold.scaffold_vault(vault)
 
     assert result == vault_scaffold.ScaffoldResult(path=vault, created=True, committed=True)
-    assert _vault_inventory(vault) == _template_inventory()
+    # A scaffolded vault is bare: constitution present, packaged demo topic stripped.
+    inventory = _vault_inventory(vault)
+    assert "SCHEMA.md" in inventory and ".knotica/prompts/query.md" in inventory
+    assert not any(f.startswith("agentic-systems/") for f in inventory), "scaffold must be bare"
+    assert not any(f.startswith("sources/agentic-systems/") for f in inventory)
     assert (vault / ".git").is_dir()
     assert (vault / "SCHEMA.md").is_file()
     assert git_commit_count(vault) >= 1
@@ -82,3 +79,21 @@ def test_reserved_topic_name_raises_reserved_name(tmp_path: Path) -> None:
 
     assert exc.value.code is ErrorCode.RESERVED_NAME
     assert not vault.exists(), "a rejected topic must not leave a partially scaffolded vault"
+
+
+def test_scaffold_with_a_topic_seeds_only_that_topic_and_stays_bare(tmp_path: Path) -> None:
+    vault = tmp_path / "vault"
+
+    vault_scaffold.scaffold_vault(vault, topic="decision-making")
+
+    # The requested topic is seeded; the packaged demo topic is not.
+    assert (vault / "decision-making" / "SCHEMA.md").is_file()
+    assert not (vault / "agentic-systems").exists(), "no demo topic in any scaffolded vault"
+    assert not (vault / "sources" / "agentic-systems").exists()
+    # index.md / log.md carry no demo entries, but the constitution prose survives.
+    index_text = (vault / "index.md").read_text(encoding="utf-8")
+    log_text = (vault / "log.md").read_text(encoding="utf-8")
+    assert "agentic-systems" not in index_text and "### " not in index_text
+    assert "agentic-systems" not in log_text
+    assert index_text.startswith("# Index")
+    assert log_text.startswith("# Directory Update Log")

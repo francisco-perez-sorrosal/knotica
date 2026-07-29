@@ -23,6 +23,7 @@ the MCP dispatcher's structured envelope).
 
 from __future__ import annotations
 
+import re
 import shutil
 import subprocess
 from dataclasses import dataclass
@@ -67,7 +68,7 @@ class ScaffoldResult:
 
 
 def scaffold_vault(vault_path: Path, *, topic: str | None = None) -> ScaffoldResult:
-    """Scaffold a knotica vault at ``vault_path`` from the packaged template.
+    """Scaffold a **bare** knotica vault at ``vault_path`` from the packaged template.
 
     Idempotent and NO-CLOBBER: an already-scaffolded vault (root ``SCHEMA.md``
     present) is left untouched (``created=False``); a non-empty directory that
@@ -76,6 +77,15 @@ def scaffold_vault(vault_path: Path, *, topic: str | None = None) -> ScaffoldRes
     from the empty-overlay template (idempotent) after rejecting reserved
     names. Always runs the git bootstrap (``git init`` + an initial commit) --
     itself idempotent, see the module docstring's exemption note.
+
+    A scaffolded vault is always **bare** -- the constitution plus any requested
+    topic, nothing else. The packaged template ships an ``agentic-systems`` demo
+    topic solely as the test suite's fixture data, so every vault the system
+    creates (``knotica init`` or ``vault action=create``) has that demo topic
+    directory, its ``sources/<topic>`` tree, and its ``index.md`` / ``log.md``
+    entries stripped: the system never scaffolds demo content into a user's
+    vault. Only a freshly copied template is stripped; an already-scaffolded
+    vault is never mutated.
 
     Raises:
         KnoticaError: ``INVALID_ARGUMENT`` for a non-vault non-empty target or
@@ -89,10 +99,48 @@ def scaffold_vault(vault_path: Path, *, topic: str | None = None) -> ScaffoldRes
             fix="Choose a different topic name (kebab-case or lowercase).",
         )
     created = _copy_template(vault_path)
+    if created:
+        _strip_demo(vault_path)
     if topic is not None:
         _seed_topic(vault_path, topic)
     committed = _git_bootstrap(vault_path)
     return ScaffoldResult(path=vault_path, created=created, committed=committed)
+
+
+def _strip_demo(vault_path: Path) -> None:
+    """Remove the packaged demo content from a freshly copied template.
+
+    Deletes every top-level *topic* directory (a directory carrying its own
+    ``SCHEMA.md``, distinguishing it from the ``.knotica`` / ``sources``
+    constitution dirs) and its ``sources/<topic>`` tree, then trims the demo's
+    catalog/log entries: ``index.md`` keeps everything before its first ``###``
+    topic section, ``log.md`` everything before its first dated ``## YYYY-MM-DD``
+    entry (the format-doc example inside a code fence is not a real dated entry,
+    so the date-anchored split leaves it intact).
+    """
+    for entry in sorted(vault_path.iterdir()):
+        if (
+            entry.is_dir()
+            and entry.name not in RESERVED_TOPIC_NAMES
+            and (entry / "SCHEMA.md").is_file()
+        ):
+            shutil.rmtree(entry)
+            demo_sources = vault_path / "sources" / entry.name
+            if demo_sources.is_dir():
+                shutil.rmtree(demo_sources)
+    _truncate_before(vault_path / "index.md", re.compile(r"\n### "))
+    _truncate_before(vault_path / "log.md", re.compile(r"\n## \d{4}-\d{2}-\d{2}"))
+
+
+def _truncate_before(path: Path, boundary: re.Pattern[str]) -> None:
+    """Keep only the text before the first ``boundary`` match (no-op if absent)."""
+    if not path.is_file():
+        return
+    text = path.read_text(encoding="utf-8")
+    match = boundary.search(text)
+    if match is None:
+        return
+    path.write_text(text[: match.start()].rstrip() + "\n", encoding="utf-8")
 
 
 def _copy_template(vault_path: Path) -> bool:

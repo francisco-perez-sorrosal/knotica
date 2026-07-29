@@ -182,6 +182,20 @@ def test_create_rejects_clobbering_a_non_empty_non_vault_directory(
     assert "scratch" not in catalog_names, "a failed scaffold must not register the vault"
 
 
+def test_create_produces_a_bare_vault_without_the_demo_topic(
+    vault_config: Path, tmp_path: Path
+) -> None:
+    target = tmp_path / "decision-making"
+
+    vd._create_payload("decision-making", str(target), "choices", make_default=False)
+
+    assert (target / "choices" / "SCHEMA.md").is_file(), "the requested topic is seeded"
+    assert not (target / "agentic-systems").exists(), (
+        "a dashboard-created KB must be bare — no packaged demo topic"
+    )
+    assert not (target / "sources" / "agentic-systems").exists()
+
+
 # ---------------------------------------------------------------------------
 # headless status + misconfig (pure units, env/deps controlled)
 # ---------------------------------------------------------------------------
