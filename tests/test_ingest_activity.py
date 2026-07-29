@@ -229,7 +229,6 @@ def test_orphan_curate_under_ingest_run_id_is_terminal(tmp_path: Path) -> None:
     """Pre-workflow journals minted ingest-* for curate-only events — must not stay live."""
     vault = tmp_path / "vault"
     (vault / ".knotica").mkdir(parents=True)
-    store = LocalFSStore(vault)
     # Mimic the legacy line shape (no workflow key) by writing JSONL directly.
     line = (
         '{"schema_version": 1, "ts": "2026-07-17T21:08:58Z", '

@@ -173,7 +173,6 @@ def rewrite_links_for_export(
         if in_fence:
             lines.append(line)
             continue
-        masked_line = line
         # Only rewrite outside inline code spans.
         parts: list[str] = []
         last = 0

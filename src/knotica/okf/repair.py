@@ -13,7 +13,6 @@ from knotica.okf.datetime_fmt import now_rfc3339
 from knotica.okf.check import check_vault
 from knotica.okf.frontmatter import (
     is_concept_file,
-    is_reserved_file,
     normalize_concept_frontmatter,
     render_concept_document,
 )

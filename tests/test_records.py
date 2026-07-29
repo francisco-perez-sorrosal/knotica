@@ -40,7 +40,7 @@ from pathlib import Path
 
 import pytest
 
-from support.vault import KNOTICA_COMMIT_RE, LOG_ENTRY_RE, parse_frontmatter
+from support.vault import KNOTICA_COMMIT_RE, parse_frontmatter
 
 # ---------------------------------------------------------------------------
 # Frozen contract constants (vault-template/SCHEMA.md §Machine-record schemas)
@@ -519,7 +519,7 @@ def test_rendered_log_heading_satisfies_the_independent_grammar():
 
 
 def test_template_log_corpus_re_renders_byte_identically(template_vault: Path):
-    from knotica.core.records import LogEntry, format_log_entry, parse_log_entries
+    from knotica.core.records import format_log_entry, parse_log_entries
 
     log_text = (template_vault / "log.md").read_text(encoding="utf-8")
     entries = parse_log_entries(log_text)

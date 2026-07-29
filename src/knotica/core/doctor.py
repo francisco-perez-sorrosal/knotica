@@ -232,9 +232,9 @@ def _git_tree_row(branch: str | None, dirty: bool, vault_path: Path) -> CheckRow
         _WARN,
         "git",
         f"uncommitted changes in the work tree ({where})",
-        f"run `knotica doctor repair --dry-run` then "
-        f"`knotica doctor repair --apply --paths …` "
-        f"(or `knotica doctor --fix` for the command list)",
+        "run `knotica doctor repair --dry-run` then "
+        "`knotica doctor repair --apply --paths …` "
+        "(or `knotica doctor --fix` for the command list)",
     )
 
 

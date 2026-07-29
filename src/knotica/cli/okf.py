@@ -16,9 +16,9 @@ from knotica.cli.common import (
     unconfigured,
 )
 from knotica.core.config import ConfigState, diagnose
-from knotica.okf.check import OkfCheckResult, check_vault
-from knotica.okf.export import ExportOptions, ExportResult, export_bundle
-from knotica.okf.repair import RepairOptions, RepairResult, repair_vault
+from knotica.okf.check import check_vault
+from knotica.okf.export import ExportOptions, export_bundle
+from knotica.okf.repair import RepairOptions, repair_vault
 from knotica.store import LocalFSStore
 
 __all__ = ["configure", "run"]

@@ -1,6 +1,6 @@
 """Tests for OKF link parsing, resolution, and export conversion."""
 
-from knotica.okf.index import VaultIndex, build_vault_index
+from knotica.okf.index import build_vault_index
 from knotica.okf.links import (
     extract_internal_links,
     resolve_internal_link,
@@ -10,15 +10,12 @@ from knotica.store import LocalFSStore
 
 
 def test_extract_wikilink_and_markdown(template_vault):
-    store = LocalFSStore(template_vault)
-    index = build_vault_index(store)
     body = (
         "See [[agent-memory]] and [[agent-memory|Agent Memory]].\n"
         "[Paper](https://arxiv.org/abs/2210.03629)\n"
         "`[[ignored]]`\n"
     )
     (template_vault / "agentic-systems" / "note.md").write_text(body, encoding="utf-8")
-    index = build_vault_index(store)
     links = extract_internal_links("agentic-systems/note.md", body)
     internal = [link for link in links if not link.is_external]
     assert len(internal) == 2

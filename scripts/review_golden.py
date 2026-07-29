@@ -41,9 +41,7 @@ class ReviewState:
         self.reviewed_path = vault / topic / ".knotica" / "datasets" / REVIEWED_NAME
 
     def load(self) -> dict:
-        return load_golden_review(
-            self.store, self.vault, self.topic, vault_name=self.vault_name
-        )
+        return load_golden_review(self.store, self.vault, self.topic, vault_name=self.vault_name)
 
     def save(self, accepted: list[dict]) -> dict:
         return save_golden_review(self.store, self.vault, self.topic, accepted)

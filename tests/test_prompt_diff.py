@@ -183,7 +183,6 @@ def test_prompt_diff_history_id_after_branch_delete(template_vault: Path) -> Non
 def test_prompt_diff_merge_commit_fallback(template_vault: Path) -> None:
     store = LocalFSStore(template_vault)
     vcs = VaultVcs(template_vault)
-    default = vcs.default_branch()
     branch = f"compile/{TOPIC}/merge00000001"
     base_sha, head_sha = _seed_compile_branch_with_prompt(
         vcs,

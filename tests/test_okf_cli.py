@@ -1,8 +1,5 @@
 """Tests for OKF check and export against the template vault."""
 
-import shutil
-from pathlib import Path
-
 import pytest
 
 from knotica.okf.check import check_vault

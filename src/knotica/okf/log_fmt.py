@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass
-from datetime import date
 from re import Match
 
 from knotica.core.records import LOG_ENTRY_RE
