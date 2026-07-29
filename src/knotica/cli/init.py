@@ -37,12 +37,12 @@ from knotica.cli.common import (
     common_parent,
     console_from_args,
 )
-from knotica.core import config_write
+from knotica.core import config_write, vault_scaffold
 from knotica.core.config import config_file_path
-from knotica.core.template import TEMPLATE_DIRNAME, TemplateNotFoundError
-from knotica.core.template import packaged_template_path as _locate_template
+from knotica.core.errors import KnoticaError
+from knotica.core.template import TEMPLATE_DIRNAME
 
-__all__ = ["configure", "packaged_template_path", "run"]
+__all__ = ["configure", "run"]
 
 #: Config vault name written by the wizard (the schema's ``default_vault``).
 _DEFAULT_VAULT_NAME = "main"
@@ -58,22 +58,6 @@ _MCP_FROM_ENV_VAR = "KNOTICA_MCP_FROM"
 _SUBPROCESS_TIMEOUT_SECONDS = 120.0
 #: Headless LLM packages injected into Desktop's uvx launch (query / compile / Arena).
 _UVX_EVALS_PACKAGES = ("anthropic", "dspy")
-#: Top-level names a topic may never collide with (root constitution).
-_RESERVED_TOPIC_NAMES = frozenset(
-    {"sources", "index.md", "log.md", "SCHEMA.md", "START_HERE.md", ".knotica", ".git"}
-)
-
-_EMPTY_OVERLAY = """\
----
-schema_version: 1
----
-
-# SCHEMA — {topic} overlay
-
-Empty overlay: this topic starts with no divergence from the root constitution
-(root `SCHEMA.md`). Add entity types and page conventions here as the topic
-earns them.
-"""
 
 
 class _InitError(Exception):
@@ -128,29 +112,11 @@ def run(args: argparse.Namespace) -> int:
     return EXIT_SUCCESS
 
 
-def packaged_template_path() -> Path:
-    """Locate the packaged ``vault-template``, as a wizard-grammar error on miss.
-
-    Thin wrapper over :func:`knotica.core.template.packaged_template_path` (the
-    single reusable locator) that translates a missing template into the
-    wizard's three-part ``_InitError``.
-    """
-    try:
-        return _locate_template()
-    except TemplateNotFoundError as missing:
-        raise _InitError(
-            f"init failed because {missing}. "
-            "To fix: reinstall knotica so the template ships with the wheel."
-        ) from missing
-
-
 def _scaffold_and_wire(console: Console, inputs: _Inputs) -> None:
     """Run every wizard stage in order (config resolved fresh, never cached)."""
     from_source = _mcp_from_source()
-    _scaffold_vault(console, inputs.vault_path)
-    if inputs.topic is not None:
-        _seed_topic(console, inputs.vault_path, inputs.topic)
-    _git_bootstrap(console, inputs.vault_path)
+    result = _run_scaffold(inputs.vault_path, inputs.topic)
+    _report_scaffold(console, inputs, result)
     _setup_remote(console, inputs.vault_path, inputs.remote)
     _write_config(console, _DEFAULT_VAULT_NAME, inputs.vault_path)
     _register_mcp(console, from_source)
@@ -170,7 +136,7 @@ def _resolve_inputs(console: Console, args: argparse.Namespace) -> _Inputs:
         topic = _prompt(console, "Seed a topic (blank to skip)", args.topic or "") or None
         remote = _prompt(console, "Remote (none|gh-private)", args.remote) or "none"
         desktop = _prompt_yes_no(console, "Patch Claude Desktop config?", args.desktop)
-    if topic is not None and topic in _RESERVED_TOPIC_NAMES:
+    if topic is not None and topic in vault_scaffold.RESERVED_TOPIC_NAMES:
         raise _InitError(
             f"init failed because '{topic}' is a reserved name and cannot be a topic. "
             "To fix: choose a different --topic (kebab-case or lowercase)."
@@ -199,51 +165,36 @@ def _resolve_vault_path(console: Console, args: argparse.Namespace, interactive:
     return _expand(_prompt(console, "Vault path", _DEFAULT_VAULT_PATH) or _DEFAULT_VAULT_PATH)
 
 
-def _scaffold_vault(console: Console, vault_path: Path) -> None:
-    """Copy the packaged template into ``vault_path`` (idempotent, never clobbers)."""
-    if vault_path.exists() and any(vault_path.iterdir()):
-        if (vault_path / "SCHEMA.md").is_file():
-            console.info(f"vault already scaffolded at {vault_path} — leaving contents untouched")
-            return
-        raise _InitError(
-            f"init failed because {vault_path} is not empty and is not a knotica vault. "
-            "To fix: choose an empty --vault path, or remove the directory first."
-        )
-    template = packaged_template_path()
-    shutil.copytree(template, vault_path, dirs_exist_ok=True)
-    console.info(f"copied vault template → {vault_path}")
+def _run_scaffold(vault_path: Path, topic: str | None) -> vault_scaffold.ScaffoldResult:
+    """Scaffold the vault via :mod:`knotica.core.vault_scaffold`, in wizard grammar.
 
-
-def _seed_topic(console: Console, vault_path: Path, topic: str) -> None:
-    """Create a minimal empty-overlay topic (idempotent -- skips if present)."""
-    schema = vault_path / topic / "SCHEMA.md"
-    if schema.is_file():
-        console.info(f"topic '{topic}' already present — skipping")
-        return
-    schema.parent.mkdir(parents=True, exist_ok=True)
-    schema.write_text(_EMPTY_OVERLAY.format(topic=topic), encoding="utf-8")
-    console.info(f"seeded topic '{topic}'")
-
-
-def _git_bootstrap(console: Console, vault_path: Path) -> None:
-    """Initialize the vault repo and make the initial commit (idempotent).
-
-    New-repo setup only -- distinct from vault mutation, so it never touches the
-    ``core`` single-writer seam. Re-running is safe: ``init`` is skipped when a
-    repo exists and the commit is skipped when there is nothing to commit.
+    Translates the shared scaffolder's plain-fact ``KnoticaError`` into the
+    wizard's three-part ``_InitError`` -- the scaffolder itself is adapter-
+    agnostic (also used by ``vault action=create``) and never raises in CLI
+    grammar.
     """
-    if not (vault_path / ".git").exists():
-        _git(console, vault_path, "init", "-q")
-        console.info("initialized git repository")
-    _git(console, vault_path, "add", "-A")
-    if not _git(console, vault_path, "status", "--porcelain").stdout.strip():
+    try:
+        return vault_scaffold.scaffold_vault(vault_path, topic=topic)
+    except KnoticaError as failure:
+        raise _InitError(
+            f"init failed because {failure.message} To fix: {failure.fix}"
+        ) from failure
+
+
+def _report_scaffold(
+    console: Console, inputs: _Inputs, result: vault_scaffold.ScaffoldResult
+) -> None:
+    """Emit the same user-facing progress lines the inline scaffold used to print."""
+    if result.created:
+        console.info(f"copied vault template → {result.path}")
+    else:
+        console.info(f"vault already scaffolded at {result.path} — leaving contents untouched")
+    if inputs.topic is not None:
+        console.info(f"seeded topic '{inputs.topic}'")
+    if result.committed:
+        console.info("created initial commit")
+    else:
         console.info("nothing to commit — vault already committed")
-        return
-    commit = ["commit", "-q", "-m", "Initialize knotica vault (knotica init)"]
-    if not _has_git_identity(console, vault_path):
-        commit = ["-c", "user.name=knotica", "-c", "user.email=knotica@localhost", *commit]
-    _git(console, vault_path, *commit)
-    console.info("created initial commit")
 
 
 def _setup_remote(console: Console, vault_path: Path, remote: str) -> None:
@@ -471,20 +422,6 @@ def _desktop_config_path() -> Path:
     if override:
         return Path(os.path.expandvars(override)).expanduser()
     return Path.home() / "Library" / "Application Support" / "Claude" / "claude_desktop_config.json"
-
-
-def _has_git_identity(console: Console, vault_path: Path) -> bool:
-    """Return whether git has a committer identity configured for this repo."""
-    result = _git(console, vault_path, "config", "user.email", check=False)
-    return bool(result.stdout.strip())
-
-
-def _git(
-    console: Console, vault_path: Path, *args: str, check: bool = True
-) -> subprocess.CompletedProcess[str]:
-    """Run a ``git -C <vault>`` bootstrap command, surfacing failures cleanly."""
-    console.debug(f"git -C {vault_path} {' '.join(args)}")
-    return _run(["git", "-C", str(vault_path), *args], check=check)
 
 
 def _run(argv: list[str], *, check: bool) -> subprocess.CompletedProcess[str]:

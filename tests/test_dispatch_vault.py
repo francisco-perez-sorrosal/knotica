@@ -129,6 +129,60 @@ def test_add_requires_a_path(vault_config: Path) -> None:
 
 
 # ---------------------------------------------------------------------------
+# create
+# ---------------------------------------------------------------------------
+
+
+def test_create_scaffolds_and_registers_a_new_vault(vault_config: Path, tmp_path: Path) -> None:
+    target = tmp_path / "new-vault"
+
+    payload = vd._create_payload("scratch", str(target), "", make_default=False)
+
+    assert payload["name"] == "scratch"
+    assert payload["created"] is True
+    assert payload["made_default"] is False
+    assert payload["ready"] is True
+    assert (target / "SCHEMA.md").is_file()
+    assert (target / ".git").is_dir()
+    catalog = config_mod.list_vaults()
+    assert catalog["default_vault"] == "main"
+    assert {v["name"] for v in catalog["vaults"]} == {"main", "scratch"}
+
+
+def test_create_with_make_default_switches_active(vault_config: Path, tmp_path: Path) -> None:
+    target = tmp_path / "new-vault"
+
+    vd._create_payload("scratch", str(target), "", make_default=True)
+
+    assert config_mod.list_vaults()["default_vault"] == "scratch"
+
+
+def test_create_requires_a_name(vault_config: Path, tmp_path: Path) -> None:
+    with pytest.raises(KnoticaError):
+        vd._create_payload("", str(tmp_path / "new-vault"), "", make_default=False)
+
+
+def test_create_requires_a_path(vault_config: Path) -> None:
+    with pytest.raises(KnoticaError):
+        vd._create_payload("scratch", "   ", "", make_default=False)
+
+
+def test_create_rejects_clobbering_a_non_empty_non_vault_directory(
+    vault_config: Path, tmp_path: Path
+) -> None:
+    target = tmp_path / "not-a-vault"
+    target.mkdir()
+    (target / "unrelated.txt").write_text("pre-existing content", encoding="utf-8")
+
+    with pytest.raises(KnoticaError) as exc:
+        vd._create_payload("scratch", str(target), "", make_default=False)
+
+    assert exc.value.code is ErrorCode.INVALID_ARGUMENT
+    catalog_names = {v["name"] for v in config_mod.list_vaults()["vaults"]}
+    assert "scratch" not in catalog_names, "a failed scaffold must not register the vault"
+
+
+# ---------------------------------------------------------------------------
 # headless status + misconfig (pure units, env/deps controlled)
 # ---------------------------------------------------------------------------
 

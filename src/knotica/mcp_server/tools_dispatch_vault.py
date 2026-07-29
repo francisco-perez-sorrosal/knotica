@@ -21,7 +21,7 @@ from typing import Any
 from mcp.server.fastmcp import FastMCP
 from mcp.types import CallToolResult
 
-from knotica.core import config_write
+from knotica.core import config_write, vault_scaffold
 from knotica.core.config import ConfigState, config_file_path, diagnose, list_vaults
 from knotica.core.errors import ErrorCode, KnoticaError
 from knotica.evals.llm import API_KEY_ENV_VAR, OAUTH_TOKEN_ENV_VAR
@@ -33,7 +33,7 @@ __all__ = ["register_dispatch_vault_tools"]
 ToolResult = CallToolResult
 
 _DISPATCHER = "vault"
-_ACTIONS = ("list", "status", "use", "add")
+_ACTIONS = ("list", "status", "use", "add", "create")
 
 _VAULT_DISPATCH_DESCRIPTION = (
     "Inspect and switch the active knowledge base (vault). "
@@ -45,10 +45,14 @@ _VAULT_DISPATCH_DESCRIPTION = (
     "configured vaults and which is default. action=use switches the active "
     "vault by flipping default_vault (name required; effective immediately, no "
     "restart). action=add registers an EXISTING vault path (name + path "
-    "required; pass make_default to also switch to it; to CREATE a new vault run "
-    "`knotica init` / `/knotica:setup` instead). Config-level only: "
-    "reads/writes ~/.config/knotica/config.toml, never vault contents, never a "
-    "git commit."
+    "required; pass make_default to also switch to it). action=create scaffolds "
+    "a NEW vault from the packaged template (name + path required; git-inits "
+    "it, registers it in config, pass topic to seed an initial topic, "
+    "make_default to switch to it); to REGISTER an already-existing vault use "
+    "action=add instead. Config-level only: reads/writes "
+    "~/.config/knotica/config.toml, never vault contents, never a git commit "
+    "(action=create's one-time vault git-init/commit is the sole exception, "
+    "documented in knotica.core.vault_scaffold)."
 )
 
 
@@ -61,15 +65,20 @@ def register_dispatch_vault_tools(mcp: FastMCP) -> None:
         name: str = "",
         path: str = "",
         make_default: bool = False,
+        topic: str = "",
     ) -> ToolResult:
         try:
-            payload = _dispatch(action, name=name, path=path, make_default=make_default)
+            payload = _dispatch(
+                action, name=name, path=path, make_default=make_default, topic=topic
+            )
         except KnoticaError as error:
             return envelope.error_envelope(error)
         return envelope.success_result(payload)
 
 
-def _dispatch(action: str, *, name: str, path: str, make_default: bool) -> dict[str, Any]:
+def _dispatch(
+    action: str, *, name: str, path: str, make_default: bool, topic: str
+) -> dict[str, Any]:
     cleaned_action = _validate_action(action)
     record_dispatch(_DISPATCHER, cleaned_action, "")
     if cleaned_action == "list":
@@ -78,6 +87,8 @@ def _dispatch(action: str, *, name: str, path: str, make_default: bool) -> dict[
         return _status_payload()
     if cleaned_action == "use":
         return _use_payload(name)
+    if cleaned_action == "create":
+        return _create_payload(name, path, topic, make_default)
     return _add_payload(name, path, make_default)
 
 
@@ -157,6 +168,42 @@ def _add_payload(name: str, path: str, make_default: bool) -> dict[str, Any]:
             "ready": diagnosis.vault is not None,
             "detail": diagnosis.detail,
             "message": (f"vault '{cleaned}' added" + (" and set active" if make_default else "")),
+        }
+    )
+
+
+def _create_payload(name: str, path: str, topic: str, make_default: bool) -> dict[str, Any]:
+    cleaned = name.strip()
+    if not cleaned:
+        raise KnoticaError(
+            code=ErrorCode.INVALID_ARGUMENT,
+            message="vault action=create requires a name.",
+            fix="Pass name=<vault name> and path=<filesystem path>.",
+        )
+    cleaned_path = path.strip()
+    if not cleaned_path:
+        raise KnoticaError(
+            code=ErrorCode.INVALID_ARGUMENT,
+            message="vault action=create requires a path.",
+            fix="Pass path=<filesystem path> for the new vault.",
+        )
+    expanded = Path(os.path.expandvars(cleaned_path)).expanduser()
+    result = vault_scaffold.scaffold_vault(expanded, topic=topic.strip() or None)
+    config_write.upsert_vault(config_file_path(), cleaned, expanded, make_default=make_default)
+    diagnosis = diagnose(vault=cleaned)
+    return envelope.read_ok(
+        {
+            "name": cleaned,
+            "path": str(expanded),
+            "created": result.created,
+            "made_default": make_default,
+            "ready": diagnosis.vault is not None,
+            "detail": diagnosis.detail,
+            "message": (
+                f"vault '{cleaned}' "
+                + ("scaffolded" if result.created else "already existed — registered")
+                + (" and set active" if make_default else "")
+            ),
         }
     )
 
