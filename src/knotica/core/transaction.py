@@ -265,6 +265,7 @@ class VaultTransaction:
         self._topic = topic
         self._lock_timeout = lock_timeout
         self._writes: dict[str, str] = {}
+        self._deletes: set[str] = set()
         self._log_rewrite: str | None = None
         self._redactions: dict[str, tuple[RedactedSpan, ...]] = {}
         self._lock: AbstractContextManager[None] | None = None
@@ -333,10 +334,38 @@ class VaultTransaction:
         normalized = _normalize_write_path(path)
         scrubbed, spans = scrub(content)
         self._writes[normalized] = scrubbed
+        self._deletes.discard(normalized)
         if spans:
             self._redactions[normalized] = tuple(spans)
         else:
             self._redactions.pop(normalized, None)
+
+    def delete(self, path: str | PurePath) -> None:
+        """Declare removal of an existing vault file (buffered; applied at exit).
+
+        Combined with :meth:`write` of a different path, this is how a
+        transaction expresses a move: delete the old path, write the new one.
+        Both land in the same commit alongside every other declared write --
+        :meth:`~knotica.core.vcs.VaultVcs.commit_paths` stages a named
+        deletion exactly like a named write. A path that no longer exists by
+        the time the transaction finalizes is not a change (mirrors
+        :meth:`write`'s idempotency-by-result-state), so declaring a delete
+        for a path already gone is a harmless no-op, not an error.
+
+        Args:
+            path: Vault-relative target path. The operation log is refused,
+                same as :meth:`write`.
+
+        Raises:
+            RuntimeError: When called outside the ``with`` block.
+            ValueError: For absolute paths or the reserved log path.
+        """
+        if not self._active:
+            raise RuntimeError("delete() is only valid inside the transaction's `with` block")
+        normalized = _normalize_write_path(path)
+        self._deletes.add(normalized)
+        self._writes.pop(normalized, None)
+        self._redactions.pop(normalized, None)
 
     def rewrite_log(self, content: str) -> None:
         """Declare a full re-render of the operation log for this operation to build on.
@@ -377,7 +406,7 @@ class VaultTransaction:
         return self._result
 
     def _finalize(self) -> TransactionResult:
-        """Apply the buffered writes: idempotency check, log append, one commit.
+        """Apply the buffered writes and deletes: idempotency check, log append, one commit.
 
         Runs under the lock. On any failure after the first physical write,
         rolls back exactly the paths written so far and re-raises.
@@ -385,8 +414,10 @@ class VaultTransaction:
         changed = {
             path: content for path, content in self._writes.items() if self._differs(path, content)
         }
+        # A delete for a path already gone is not a change (mirrors _differs).
+        deletes = sorted(path for path in self._deletes if self._store.exists(path))
         redactions = tuple(RedactedWrite(path, spans) for path, spans in self._redactions.items())
-        if not changed and self._log_rewrite is None:
+        if not changed and not deletes and self._log_rewrite is None:
             return TransactionResult(
                 changed=False,
                 commit_sha=self._vcs.head_sha(),
@@ -404,6 +435,9 @@ class VaultTransaction:
             for path, content in changed.items():
                 self._store.write_text_atomic(path, content)
                 touched.append(path)
+            for path in deletes:
+                self._store.delete(path)
+                touched.append(path)
             self._store.write_text_atomic(LOG_PATH, log_content)
             touched.append(LOG_PATH)
             commit_sha = self._vcs.commit_paths(touched, self._commit_subject)
@@ -412,7 +446,7 @@ class VaultTransaction:
         return TransactionResult(
             changed=True,
             commit_sha=commit_sha,
-            touched_paths=tuple(changed),
+            touched_paths=tuple(changed) + tuple(deletes),
             redactions=redactions,
         )
 
