@@ -41,6 +41,8 @@ Exit codes (documented interface -- hooks and scripts branch on these):
 * ``5`` the topic has no golden set -- run ``knotica eval --bootstrap`` first.
 """
 
+from __future__ import annotations
+
 import argparse
 import warnings
 from collections.abc import Iterator
@@ -125,7 +127,9 @@ def _surfacing_metered_fallback(console: Console) -> Iterator[None]:
                     console.warn(f"WARNING: {entry.message}")
 
 
-def configure(subparsers: argparse._SubParsersAction) -> argparse.ArgumentParser:
+def configure(
+    subparsers: argparse._SubParsersAction[argparse.ArgumentParser],
+) -> argparse.ArgumentParser:
     """Register the ``eval`` subcommand and its flags."""
     parser = subparsers.add_parser(
         "eval",

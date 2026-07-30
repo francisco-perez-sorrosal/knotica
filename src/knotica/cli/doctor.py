@@ -14,6 +14,7 @@ from __future__ import annotations
 import argparse
 import json
 from pathlib import Path
+from typing import Any
 
 from knotica.cli.common import (
     EXIT_ERROR,
@@ -38,7 +39,9 @@ from knotica.store import LocalFSStore
 __all__ = ["DOCTOR_JSON_SCHEMA_VERSION", "configure", "run"]
 
 
-def configure(subparsers: argparse._SubParsersAction) -> argparse.ArgumentParser:
+def configure(
+    subparsers: argparse._SubParsersAction[argparse.ArgumentParser],
+) -> argparse.ArgumentParser:
     """Register the ``doctor`` command, flags, and ``repair`` subcommand."""
     parser = subparsers.add_parser(
         "doctor",
@@ -151,7 +154,7 @@ def _run_repair(console: Console, args: argparse.Namespace) -> int:
     return EXIT_ERROR if "error" in payload else EXIT_SUCCESS
 
 
-def _render_repair_human(console: Console, payload: dict) -> None:
+def _render_repair_human(console: Console, payload: dict[str, Any]) -> None:
     if "error" in payload:
         error = payload["error"]
         console.data(f"FAIL  doctor repair: {error.get('message', 'failed')}")

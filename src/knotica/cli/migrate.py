@@ -18,6 +18,8 @@ The three-way migration never clobbers evolved files; ``--dry-run`` shows the
 plan without writing, and an apply asks for confirmation unless ``--yes``.
 """
 
+from __future__ import annotations
+
 import argparse
 import json
 from pathlib import PurePath
@@ -40,7 +42,9 @@ from knotica.store import LocalFSStore
 __all__ = ["configure", "run"]
 
 
-def configure(subparsers: argparse._SubParsersAction) -> argparse.ArgumentParser:
+def configure(
+    subparsers: argparse._SubParsersAction[argparse.ArgumentParser],
+) -> argparse.ArgumentParser:
     """Register the ``migrate`` subcommand and its flags."""
     parser = subparsers.add_parser(
         "migrate",

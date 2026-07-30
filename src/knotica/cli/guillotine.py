@@ -16,6 +16,7 @@ from knotica.cli.common import (
 )
 from knotica.core.config import ConfigState, diagnose
 from knotica.core.operations.guillotine import apply_guillotine, persist_guillotine_artifacts
+from knotica.guillotine.models import GuillotineReport
 from knotica.guillotine.report import artifact_paths_for, build_report, render_cli_summary
 from knotica.guillotine.runner import (
     ClaimNotFoundError,
@@ -33,7 +34,9 @@ EXIT_PATCH_FAILED = 3
 EXIT_APPLY_FAILED = 4
 
 
-def configure(subparsers: argparse._SubParsersAction) -> argparse.ArgumentParser:
+def configure(
+    subparsers: argparse._SubParsersAction[argparse.ArgumentParser],
+) -> argparse.ArgumentParser:
     """Register the ``guillotine`` subcommand."""
     parser = subparsers.add_parser(
         "guillotine",
@@ -194,7 +197,7 @@ def _short_summary(claim: str) -> str:
     return " ".join(words[:8]).rstrip(".,;:") + "…"
 
 
-def _json_output(report) -> str:
+def _json_output(report: GuillotineReport) -> str:
     payload = {
         "claim": report.claim,
         "normalized_claim": report.normalized_claim,

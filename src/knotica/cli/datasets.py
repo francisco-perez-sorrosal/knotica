@@ -29,7 +29,9 @@ from knotica.store import LocalFSStore
 __all__ = ["configure", "run"]
 
 
-def configure(subparsers: argparse._SubParsersAction) -> argparse.ArgumentParser:
+def configure(
+    subparsers: argparse._SubParsersAction[argparse.ArgumentParser],
+) -> argparse.ArgumentParser:
     """Register ``datasets`` with ``bootstrap-train`` and ``freeze`` subcommands."""
     parser = subparsers.add_parser(
         "datasets",

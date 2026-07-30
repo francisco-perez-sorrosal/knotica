@@ -11,6 +11,8 @@ mounts the standalone dashboard at ``/`` and the stateless MCP transport at
 the lock -- it only runs the selected transport.
 """
 
+from __future__ import annotations
+
 import argparse
 
 from knotica.cli.common import EXIT_SUCCESS, common_parent, console_from_args
@@ -18,7 +20,9 @@ from knotica.cli.common import EXIT_SUCCESS, common_parent, console_from_args
 __all__ = ["configure", "run"]
 
 
-def configure(subparsers: argparse._SubParsersAction) -> argparse.ArgumentParser:
+def configure(
+    subparsers: argparse._SubParsersAction[argparse.ArgumentParser],
+) -> argparse.ArgumentParser:
     """Register the ``mcp`` subcommand and its flags."""
     parser = subparsers.add_parser(
         "mcp",

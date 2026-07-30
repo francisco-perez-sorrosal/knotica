@@ -15,9 +15,12 @@ unconfigured (mirrors the tool ``NOT_CONFIGURED`` contract). ``--topic`` scopes
 to one topic; ``--wide`` renders full width, ignoring ``$COLUMNS``.
 """
 
+from __future__ import annotations
+
 import argparse
 import json
 import os
+from typing import Any
 
 from knotica.cli.common import (
     EXIT_ERROR,
@@ -46,7 +49,9 @@ STATUS_JSON_SCHEMA_VERSION = STATUS_SCHEMA_VERSION
 _DEFAULT_COLUMNS = 80
 
 
-def configure(subparsers: argparse._SubParsersAction) -> argparse.ArgumentParser:
+def configure(
+    subparsers: argparse._SubParsersAction[argparse.ArgumentParser],
+) -> argparse.ArgumentParser:
     """Register the ``status`` subcommand and its flags."""
     parser = subparsers.add_parser(
         "status",
@@ -103,7 +108,7 @@ def _report_unconfigured(
     return EXIT_NOT_CONFIGURED
 
 
-def _cli_json(payload: dict) -> str:
+def _cli_json(payload: dict[str, Any]) -> str:
     """CLI ``--json`` keeps the status-v1 field set (no gate/loop extras required)."""
     cli_payload = {
         "schema_version": payload["schema_version"],
@@ -129,7 +134,7 @@ def _cli_json(payload: dict) -> str:
     return json.dumps(cli_payload, ensure_ascii=False, indent=2)
 
 
-def _render_nudge(console: Console, payload: dict, vault: ResolvedVault) -> None:
+def _render_nudge(console: Console, payload: dict[str, Any], vault: ResolvedVault) -> None:
     """Print the SessionStart nudge: active KB, topic list, then attention items.
 
     Leads with the active knowledge base (name + path) so every session states
@@ -159,7 +164,7 @@ def _render_nudge(console: Console, payload: dict, vault: ResolvedVault) -> None
         console.data("Needs attention: " + ", ".join(items))
 
 
-def _render_table(console: Console, payload: dict, wide: bool) -> None:
+def _render_table(console: Console, payload: dict[str, Any], wide: bool) -> None:
     """Print the counts table to stdout, truncating topic names to ``$COLUMNS``."""
     vault_path = payload["vault"]
     topics = payload["topics"]
@@ -173,7 +178,7 @@ def _render_table(console: Console, payload: dict, wide: bool) -> None:
     _render_footer(console, payload)
 
 
-def _render_rows(console: Console, topics: list[dict], wide: bool) -> None:
+def _render_rows(console: Console, topics: list[dict[str, Any]], wide: bool) -> None:
     """Render the aligned per-topic rows with a header."""
     fixed = len("  ") + len("  pages") + len("  curated") + len("  to-compile")
     budget = max(8, _columns(wide) - fixed)
@@ -188,7 +193,7 @@ def _render_rows(console: Console, topics: list[dict], wide: bool) -> None:
         )
 
 
-def _render_footer(console: Console, payload: dict) -> None:
+def _render_footer(console: Console, payload: dict[str, Any]) -> None:
     """Render the vault-wide totals and the lint/remote status lines."""
     totals = payload["totals"]
     last_lint = payload["last_lint"]

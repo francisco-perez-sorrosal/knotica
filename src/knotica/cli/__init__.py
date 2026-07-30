@@ -19,11 +19,13 @@ race. Every command module exports the same two callables:
 * ``run(args) -> int`` -- execute and return the process exit code.
 """
 
+from __future__ import annotations
+
 import argparse
 import sys
 from importlib import import_module
 from importlib.metadata import version
-from types import ModuleType
+from typing import Protocol, cast
 
 from knotica.cli.common import EXIT_ERROR, EXIT_MISUSE
 
@@ -45,6 +47,22 @@ COMMAND_NAMES: tuple[str, ...] = (
     "gapfill",
     "service",
 )
+
+
+class _CommandModule(Protocol):
+    """The ``configure``/``run`` shape every ``knotica.cli.<name>`` module exports.
+
+    ``import_module`` returns a plain ``ModuleType`` (attribute access is
+    untyped), so this Protocol is the one place that names the self-
+    registration contract precisely enough for the dispatch in :func:`main`
+    to type-check without widening to ``Any``.
+    """
+
+    def configure(
+        self, subparsers: argparse._SubParsersAction[argparse.ArgumentParser]
+    ) -> argparse.ArgumentParser: ...
+
+    def run(self, args: argparse.Namespace) -> int: ...
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -75,11 +93,20 @@ def main(argv: list[str] | None = None) -> int:
         return EXIT_ERROR
 
 
-def _register_commands(subparsers: argparse._SubParsersAction) -> dict[str, ModuleType]:
-    """Import each command module and let it register its own subparser."""
-    modules: dict[str, ModuleType] = {}
+def _register_commands(
+    subparsers: argparse._SubParsersAction[argparse.ArgumentParser],
+) -> dict[str, _CommandModule]:
+    """Import each command module and let it register its own subparser.
+
+    ``import_module`` returns an untyped ``ModuleType``; the ``cast`` here is
+    the single, justified site asserting every ``knotica.cli.<name>`` module
+    satisfies the ``configure``/``run`` contract (the docstring-documented
+    self-registration convention) -- callers downstream then get a properly
+    typed ``run(args) -> int`` instead of ``Any``.
+    """
+    modules: dict[str, _CommandModule] = {}
     for name in COMMAND_NAMES:
-        module = import_module(f"knotica.cli.{name}")
+        module = cast(_CommandModule, import_module(f"knotica.cli.{name}"))
         module.configure(subparsers)
         modules[name] = module
     return modules

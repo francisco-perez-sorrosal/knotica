@@ -14,6 +14,8 @@ prints the shared message to stderr and exits 3; a malformed vault surfaces the
 resolver's typed fault as an error.
 """
 
+from __future__ import annotations
+
 import argparse
 
 from knotica.cli.common import (
@@ -29,7 +31,9 @@ from knotica.core.prompts import OPERATIONS, get_prompt
 __all__ = ["configure", "run"]
 
 
-def configure(subparsers: argparse._SubParsersAction) -> argparse.ArgumentParser:
+def configure(
+    subparsers: argparse._SubParsersAction[argparse.ArgumentParser],
+) -> argparse.ArgumentParser:
     """Register the ``prompt`` subcommand and its flags."""
     parser = subparsers.add_parser(
         "prompt",

@@ -86,3 +86,14 @@ warn_unreachable = true
 # relax checking of our own code that uses it.
 module = ["dspy", "dspy.*"]
 ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
+# `dspy` resolves to `Any` (no stubs, see the override above), and strict mode's
+# `disallow_subclassing_any` therefore rejects any class that must subclass
+# `dspy.Module`. No amount of local annotation can fix that -- it is a property
+# of the dependency, not of this code. The relaxation is deliberately scoped to
+# ONE rule in the two modules that subclass dspy; every other strict check
+# still applies to them, and hand-written dspy stubs were rejected as a worse
+# option (a fast-moving untyped library's stubs become a confident lie).
+module = ["knotica.evals.program", "knotica.evals.harness"]
+disallow_subclassing_any = false

@@ -20,6 +20,8 @@ single-writer seam (``core.transaction``/``core.vcs``) and never imports
 it is a plain file write, not a vault mutation.
 """
 
+from __future__ import annotations
+
 import argparse
 import json
 import os
@@ -28,6 +30,7 @@ import subprocess
 import sys
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Any
 
 from knotica.cli.common import (
     EXIT_ERROR,
@@ -78,7 +81,9 @@ class _Inputs:
     desktop: bool
 
 
-def configure(subparsers: argparse._SubParsersAction) -> argparse.ArgumentParser:
+def configure(
+    subparsers: argparse._SubParsersAction[argparse.ArgumentParser],
+) -> argparse.ArgumentParser:
     """Register the ``init`` subcommand and its flags."""
     parser = subparsers.add_parser(
         "init",
@@ -281,7 +286,7 @@ def _patch_desktop(console: Console, from_source: str) -> None:
         return
     path = _desktop_config_path()
     path.parent.mkdir(parents=True, exist_ok=True)
-    existing: dict = {}
+    existing: dict[str, Any] = {}
     if path.is_file():
         backup = path.with_name(path.name + ".bak")
         shutil.copy2(path, backup)

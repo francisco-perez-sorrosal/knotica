@@ -16,6 +16,8 @@ All state lands in loop-state / ``metrics.jsonl`` via ``VaultTransaction`` --
 ``wiki_status`` / ``metrics_read`` remain the only dashboard data paths.
 """
 
+from __future__ import annotations
+
 import argparse
 import sys
 import threading
@@ -30,18 +32,20 @@ from knotica.cli.common import (
     console_from_args,
     unconfigured,
 )
-from knotica.core.arena import heuristic_arena_score
+from knotica.core.arena import VariantSpec, heuristic_arena_score
 from knotica.core.config import diagnose
 from knotica.core.gapfill_config import resolve_gapfill_config
 from knotica.core.loop import (
     DEFAULT_BRANCH_PREFIX,
-    LoopDecision,
+    EvalOutcome,
+    EvaluateFn,
     LoopRunner,
     build_loop_runner,
     harness_evaluate,
 )
 from knotica.core.loop_heartbeat import clear_heartbeat, write_heartbeat
 from knotica.core.loop_progress import read_progress
+from knotica.core.loop_state import LoopDecision
 
 __all__ = ["configure", "run"]
 
@@ -54,7 +58,9 @@ _DEFAULT_INTERVAL_SECONDS = 5.0
 _DEFAULT_OBSERVE_QUIET_SECONDS = 20.0
 
 
-def configure(subparsers: argparse._SubParsersAction) -> argparse.ArgumentParser:
+def configure(
+    subparsers: argparse._SubParsersAction[argparse.ArgumentParser],
+) -> argparse.ArgumentParser:
     """Register the ``loop`` subcommand and its flags."""
     parser = subparsers.add_parser(
         "loop",
@@ -289,7 +295,7 @@ def _tick(runner: LoopRunner, *, observe: bool) -> bool:
 
 
 def _build_runner(args: argparse.Namespace, vault: Path) -> LoopRunner:
-    evaluate = harness_evaluate
+    evaluate: EvaluateFn = harness_evaluate
     if args.eval_threads is not None:
         evaluate = partial(harness_evaluate, num_threads=max(1, args.eval_threads))
     if args.fake_scalar is not None:
@@ -312,10 +318,8 @@ def _build_runner(args: argparse.Namespace, vault: Path) -> LoopRunner:
     )
 
 
-def _load_variants(path: str) -> list:
+def _load_variants(path: str) -> list[VariantSpec]:
     import json
-
-    from knotica.core.arena import VariantSpec
 
     payload = json.loads(Path(path).expanduser().read_text(encoding="utf-8"))
     if not isinstance(payload, list):
@@ -339,10 +343,10 @@ def _resolve_vault(explicit: str | None) -> Path | None:
     return Path(diagnosis.vault.path)
 
 
-def _fake_evaluate_factory(scalar: float):
+def _fake_evaluate_factory(scalar: float) -> EvaluateFn:
     """Zero-network evaluate: clone the ref, fabricate a metrics record at ``scalar``."""
 
-    def _evaluate(topic: str, source_root: Path, ref: str | None):
+    def _evaluate(topic: str, source_root: Path, ref: str | None) -> EvalOutcome:
         import tempfile
         from datetime import UTC, datetime
 

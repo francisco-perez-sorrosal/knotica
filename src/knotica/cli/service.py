@@ -39,7 +39,9 @@ from knotica.service import manager
 __all__ = ["configure", "run"]
 
 
-def configure(subparsers: argparse._SubParsersAction) -> argparse.ArgumentParser:
+def configure(
+    subparsers: argparse._SubParsersAction[argparse.ArgumentParser],
+) -> argparse.ArgumentParser:
     """Register the ``service`` command and its three subcommands."""
     parser = subparsers.add_parser(
         "service",
@@ -59,7 +61,7 @@ def configure(subparsers: argparse._SubParsersAction) -> argparse.ArgumentParser
     return parser
 
 
-def _configure_install(service_sub: argparse._SubParsersAction) -> None:
+def _configure_install(service_sub: argparse._SubParsersAction[argparse.ArgumentParser]) -> None:
     install = service_sub.add_parser(
         "install",
         parents=[common_parent()],
@@ -75,7 +77,7 @@ def _configure_install(service_sub: argparse._SubParsersAction) -> None:
     )
 
 
-def _configure_uninstall(service_sub: argparse._SubParsersAction) -> None:
+def _configure_uninstall(service_sub: argparse._SubParsersAction[argparse.ArgumentParser]) -> None:
     uninstall = service_sub.add_parser(
         "uninstall",
         parents=[common_parent()],
@@ -90,7 +92,7 @@ def _configure_uninstall(service_sub: argparse._SubParsersAction) -> None:
     )
 
 
-def _configure_status(service_sub: argparse._SubParsersAction) -> None:
+def _configure_status(service_sub: argparse._SubParsersAction[argparse.ArgumentParser]) -> None:
     status = service_sub.add_parser(
         "status",
         parents=[common_parent()],

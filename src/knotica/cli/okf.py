@@ -24,7 +24,9 @@ from knotica.store import LocalFSStore
 __all__ = ["configure", "run"]
 
 
-def configure(subparsers: argparse._SubParsersAction) -> argparse.ArgumentParser:
+def configure(
+    subparsers: argparse._SubParsersAction[argparse.ArgumentParser],
+) -> argparse.ArgumentParser:
     """Register the ``okf`` command group."""
     parser = subparsers.add_parser(
         "okf",
