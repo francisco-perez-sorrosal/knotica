@@ -233,28 +233,32 @@ def _plan_anchor(store: VaultStore, quote: str, pages: tuple[str, ...]) -> _Anch
     """Decide what the capture can honestly pin, given what the caller claimed."""
     if not pages:
         return _AnchorPlan(page="", fidelity=_TOPIC_FIDELITY, start=None, degradation=None)
-    existing = [page for page in pages if store.exists(page)]
-    if not existing:
+    readable = _readable_pages(store, pages)
+    if not readable:
         return _AnchorPlan(
             page="",
             fidelity=_TOPIC_FIDELITY,
             start=None,
             degradation=(
-                "None of the claimed pages exist in this vault "
-                f"({', '.join(pages)}), so the note is anchored to the topic only."
+                "None of the claimed pages could be read as a page in this vault "
+                f"({', '.join(repr(page) for page in pages)}) -- each one is missing, is not "
+                "a file, or lies outside the vault -- so the note is anchored to the topic only."
             ),
         )
     if not quote:
-        # Naming a page the server verified is real is a true statement even
-        # with no passage to quote; degrading it would discard caller input.
-        return _AnchorPlan(page=existing[0], fidelity=_PAGE_FIDELITY, start=None, degradation=None)
-
-    matched = [page for page in existing if quote in store.read_text(page)]
-    if len(matched) == 1:
+        # Naming a page the server read is a true statement even with no
+        # passage to quote; degrading it would discard caller input.
         return _AnchorPlan(
-            page=matched[0],
+            page=readable[0][0], fidelity=_PAGE_FIDELITY, start=None, degradation=None
+        )
+
+    matched = [(page, text) for page, text in readable if quote in text]
+    if len(matched) == 1:
+        page, text = matched[0]
+        return _AnchorPlan(
+            page=page,
             fidelity=_SPAN_FIDELITY,
-            start=_disambiguator(store.read_text(matched[0]), quote),
+            start=_disambiguator(text, quote),
             degradation=None,
         )
     if matched:
@@ -264,19 +268,40 @@ def _plan_anchor(store: VaultStore, quote: str, pages: tuple[str, ...]) -> _Anch
             start=None,
             degradation=(
                 f"The quote appears on {len(matched)} of the claimed pages "
-                f"({', '.join(matched)}); pinning one of them would be a guess, so the note "
-                "is anchored to the topic only."
+                f"({', '.join(page for page, _ in matched)}); pinning one of them would be a "
+                "guess, so the note is anchored to the topic only."
             ),
         )
     return _AnchorPlan(
-        page=existing[0],
+        page=readable[0][0],
         fidelity=_PAGE_FIDELITY,
         start=None,
         degradation=(
             f"The quote was not found on any claimed page, so the note is anchored to "
-            f"'{existing[0]}' at page level rather than to a span within it."
+            f"'{readable[0][0]}' at page level rather than to a span within it."
         ),
     )
+
+
+def _readable_pages(store: VaultStore, pages: tuple[str, ...]) -> list[tuple[str, str]]:
+    """The claimed pages that resolve to a readable file, paired with their text.
+
+    ``pages`` is a model's provenance guess arriving straight off the wire, so a
+    directory name, an empty string, or a path escaping the vault is ordinary
+    input rather than an attack. A path that cannot be read is simply not a
+    candidate: it is dropped here, and the storage layer's exception type never
+    reaches the caller, because a bad path must cost the *pin*, never the note.
+    """
+    readable: list[tuple[str, str]] = []
+    for page in pages:
+        try:
+            if store.exists(page):
+                readable.append((page, store.read_text(page)))
+        except (OSError, ValueError):
+            # OSError covers a directory or an unreadable file; ValueError
+            # covers PathOutsideVaultError and its siblings.
+            continue
+    return readable
 
 
 def _disambiguator(text: str, quote: str) -> int | None:

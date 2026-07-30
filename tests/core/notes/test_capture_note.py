@@ -473,6 +473,130 @@ def test_when_none_of_several_claimed_pages_exist_the_capture_pins_at_topic_fide
 
 
 # ---------------------------------------------------------------------------
+# Unusable page paths: `pages` is the model's provenance guess arriving straight
+# off the wire, so a directory name, an empty string, or a path escaping the
+# vault is ordinary input -- not adversarial. None of it may raise, and none of
+# it may be silently accepted as a page-level pin either: a page that cannot be
+# read is not a candidate at all.
+# ---------------------------------------------------------------------------
+
+_ESCAPING_PAGE = "../../../etc/passwd"
+_DIRECTORY_PAGE = "sources"
+
+
+def test_a_page_path_escaping_the_vault_degrades_instead_of_raising(template_vault: Path):
+    result = _success(
+        _capture(
+            template_vault,
+            TOPIC,
+            "the model guessed a path outside the vault",
+            quote="a passage no vault page can confirm",
+            pages=[_ESCAPING_PAGE],
+        )
+    )
+
+    assert "ANCHOR_DEGRADED" in _warning_codes(result)
+    document = _read_captured_note(template_vault, result["path"])
+    anchor = document.anchors[0]
+    assert anchor.page == ""
+    assert anchor.fidelity == "topic"
+    assert anchor.quote == "a passage no vault page can confirm", (
+        "an unusable path must cost the pin, never the user's reflection or its quote"
+    )
+
+
+def test_a_directory_supplied_as_a_page_degrades_instead_of_raising(template_vault: Path):
+    assert (template_vault / _DIRECTORY_PAGE).is_dir(), "test setup: must be a real directory"
+
+    result = _success(
+        _capture(
+            template_vault,
+            TOPIC,
+            "the model named a folder, not a page",
+            quote="a passage that lives in no single file",
+            pages=[_DIRECTORY_PAGE],
+        )
+    )
+
+    assert "ANCHOR_DEGRADED" in _warning_codes(result)
+    document = _read_captured_note(template_vault, result["path"])
+    assert document.anchors[0].page == ""
+    assert document.anchors[0].fidelity == "topic"
+
+
+def test_a_directory_supplied_as_a_page_is_not_a_page_level_pin_when_no_quote_is_given(
+    template_vault: Path,
+):
+    """The quiet face of the same defect: with no quote to fail the match, an
+    unreadable path used to sail through as a valid page-level pin, leaving the
+    note claiming to point at something that is not a file.
+    """
+    result = _success(
+        _capture(
+            template_vault,
+            TOPIC,
+            "no quote, and the only claimed page is a directory",
+            quote="",
+            pages=[_DIRECTORY_PAGE],
+        )
+    )
+
+    assert "ANCHOR_DEGRADED" in _warning_codes(result)
+    document = _read_captured_note(template_vault, result["path"])
+    assert document.anchors[0].page == "", "a directory is not a page and must never be pinned"
+    assert document.anchors[0].fidelity == "topic"
+
+
+def test_an_empty_string_page_is_not_a_page_level_pin(template_vault: Path):
+    result = _success(
+        _capture(
+            template_vault,
+            TOPIC,
+            "the model emitted an empty provenance string",
+            quote="",
+            pages=[""],
+        )
+    )
+
+    assert "ANCHOR_DEGRADED" in _warning_codes(result)
+    document = _read_captured_note(template_vault, result["path"])
+    assert document.anchors[0].page == ""
+    assert document.anchors[0].fidelity == "topic"
+
+
+def test_one_usable_page_among_unusable_ones_still_pins_correctly(template_vault: Path):
+    """The mixed list is the case most likely to regress: dropping the unusable
+    candidates must not disturb the matching rule applied to what survives.
+    """
+    page_relpath = f"{TOPIC}/mixed-list-target.md"
+    quote = "the one passage that is actually findable"
+    _seed_page(
+        template_vault,
+        page_relpath,
+        f"# Mixed list target\n\n{quote}.\n",
+        "test: seed mixed-list-target page",
+    )
+
+    result = _success(
+        _capture(
+            template_vault,
+            TOPIC,
+            "two junk paths and one real one",
+            quote=quote,
+            pages=[_DIRECTORY_PAGE, _ESCAPING_PAGE, page_relpath],
+        )
+    )
+
+    assert _warning_codes(result) == [], (
+        "exactly one usable page matched, so the anchor is as good as claimed -- "
+        "the discarded junk paths cost nothing"
+    )
+    document = _read_captured_note(template_vault, result["path"])
+    assert document.anchors[0].page == page_relpath
+    assert document.anchors[0].fidelity == "span"
+
+
+# ---------------------------------------------------------------------------
 # Exactly one commit, frozen grammar, idempotency
 # ---------------------------------------------------------------------------
 
