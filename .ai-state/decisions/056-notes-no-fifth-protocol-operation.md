@@ -1,7 +1,7 @@
 ---
-id: dec-draft-db9c1bcf
+id: dec-056
 title: Notes overlay adds no fifth read_protocol operation
-status: proposed
+status: accepted
 category: architectural
 date: 2026-07-29
 summary: Note capture is carried by the tool description plus wiki-maintenance routing judgment, not by a new vault-resident operation prompt.

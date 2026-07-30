@@ -1,7 +1,7 @@
 ---
-id: dec-draft-b3775b57
+id: dec-060
 title: Notes live at vault-root notes/<topic>/ behind a first-class folder-family concept
-status: proposed
+status: accepted
 category: architectural
 date: 2026-07-29
 summary: Personal notes are stored at vault-root notes/<topic>/ (sibling to sources/) so every scoring surface excludes them by omission; a new core/vault_layout.py collapses the duplicated reserved-name declarations and introduces family_of/topic_of, with four declaration moves and three predicate uses — the eight sources-specific literals stay put.
@@ -45,9 +45,9 @@ Verified additionally, and not covered by either research pass: `lint._vault_lin
 
 **Notes frontmatter** is flat scalars only — `type: note`, `schema_version`, `id`, `topic`, `intent` (`reflection|dispute|gap|question`), `created`, `updated`, `status`, `tags` — inside knotica's strict YAML subset and Obsidian-native. `id` equals the filename stem exactly. `type`, `id`, `topic` and `created` are required on read; every other field defaults (`schema_version`→`1`, `intent`→`reflection`, `updated`→`created`, `status`→`active`, `tags`→`[]`), so a hand-authored note needs only four fields and a body. `confidence`, `sources` and `supersedes` are deliberately absent. Notes are exempt from the core page contract, `INDEX_MISSING_ENTRY` and `PAGE_ORPHANED` **by construction**: `_topic_directories()` excludes reserved names, so a note is never a member of `_content_page_paths`. No lint exemption list is added.
 
-**Anchors live in the note body** under an `## Anchors` heading, as a markdown list — one bullet per anchor (a list of maps is not expressible in knotica's strict frontmatter parser, and a body list is what the user wants to see anyway, is clickable in Obsidian, and is something a human appends to by hand without thinking). Each bullet's wikilink target is vault-root-relative, so multi-anchor and cross-topic anchors are free; `topic` is the note's filing location, not an anchor constraint. Full bullet grammar and the section-detection rule are specified in `dec-draft-9f240fc7`.
+**Anchors live in the note body** under an `## Anchors` heading, as a markdown list — one bullet per anchor (a list of maps is not expressible in knotica's strict frontmatter parser, and a body list is what the user wants to see anyway, is clickable in Obsidian, and is something a human appends to by hand without thinking). Each bullet's wikilink target is vault-root-relative, so multi-anchor and cross-topic anchors are free; `topic` is the note's filing location, not an anchor constraint. Full bullet grammar and the section-detection rule are specified in `dec-058`.
 
-> **Amended 2026-07-29, during Phase 1 implementation.** Originally specified as `> [!quote]` callouts; restated as a `## Anchors` markdown list for the reasons recorded in `dec-draft-9f240fc7`'s own amendment note (the callout cannot carry per-anchor fidelity or the append-only supersession history). The `id` frontmatter field was likewise absent from the original field list and is now named explicitly, along with the required-vs-defaultable split. Neither change touches this decision's substance — the layout, the folder family, the four declaration moves, the three predicate uses, and the graph-scoping call all stand as written.
+> **Amended 2026-07-29, during Phase 1 implementation.** Originally specified as `> [!quote]` callouts; restated as a `## Anchors` markdown list for the reasons recorded in `dec-058`'s own amendment note (the callout cannot carry per-anchor fidelity or the append-only supersession history). The `id` frontmatter field was likewise absent from the original field list and is now named explicitly, along with the required-vs-defaultable split. Neither change touches this decision's substance — the layout, the folder family, the four declaration moves, the three predicate uses, and the graph-scoping call all stand as written.
 
 **There is no second link graph.** Notes use ordinary `[[...]]` wikilinks and join the one existing graph — which is what produces Obsidian backlinks on the annotated KB page for free. Separation is achieved by scoping the single consumer where graph membership has consequences (`_check_orphans`).
 

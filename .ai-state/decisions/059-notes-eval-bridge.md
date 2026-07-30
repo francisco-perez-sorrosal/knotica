@@ -1,7 +1,7 @@
 ---
-id: dec-draft-90eda308
+id: dec-059
 title: Notes reach the eval corpus through curate_example into the trainset only; gaps reuse the reported origin and are never auto-filed
-status: proposed
+status: accepted
 category: architectural
 date: 2026-07-29
 summary: A note-derived question is promoted by a human-confirmed curate_example() append to qa.jsonl with pages_used naming the anchored KB page; golden promotion is deferred; dispute/gap/question notes file gaps through the existing reported origin with a note pointer in reported_reason; an orphaned note never auto-files anything.

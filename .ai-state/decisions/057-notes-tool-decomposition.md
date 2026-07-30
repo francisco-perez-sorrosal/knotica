@@ -1,7 +1,7 @@
 ---
-id: dec-draft-81415016
+id: dec-057
 title: Notes overlay tool decomposition -- one flat capture tool plus one notes dispatcher
-status: proposed
+status: accepted
 category: architectural
 date: 2026-07-29
 summary: Note capture gets a flat conversational tool (note_capture); all note management collapses into a new notes action-dispatcher.

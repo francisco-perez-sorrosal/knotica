@@ -1,7 +1,7 @@
 ---
-id: dec-draft-9f240fc7
+id: dec-058
 title: Personal-note anchoring — bi-partite immutable anchor of record plus derived live projection
-status: proposed
+status: accepted
 category: architectural
 date: 2026-07-29
 summary: A note's anchor is an immutable (page, commit_sha, quote[, start]) record written once at capture, plus a projection onto HEAD (exact|shifted|fuzzy|orphaned) derived lazily at read time; no block-ID injection, no commit-time re-anchoring, corrections append.

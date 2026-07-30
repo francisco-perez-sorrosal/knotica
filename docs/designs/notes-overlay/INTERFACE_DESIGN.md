@@ -422,7 +422,7 @@ evolvable substrate, the honest place is a section inside the existing `query.md
 operation, and it puts the flywheel offer exactly where the flywheel already lives. I recommend
 that as the follow-on, not a fifth operation.
 
-ADR fragment: `dec-draft-db9c1bcf`.
+ADR fragment: `dec-056`.
 
 ---
 
@@ -1287,8 +1287,8 @@ definition so the next low-friction surface does not have to relitigate it.
 
 | Fragment | id | Decision |
 |---|---|---|
-| `.ai-state/decisions/drafts/20260729-1219-fperez-main-notes-tool-decomposition.md` | `dec-draft-81415016` | One flat `note_capture` + one `notes` dispatcher |
-| `.ai-state/decisions/drafts/20260729-1219-fperez-main-notes-no-fifth-protocol-operation.md` | `dec-draft-db9c1bcf` | No fifth `read_protocol` operation |
+| `.ai-state/decisions/drafts/20260729-1219-fperez-main-notes-tool-decomposition.md` | `dec-057` | One flat `note_capture` + one `notes` dispatcher |
+| `.ai-state/decisions/drafts/20260729-1219-fperez-main-notes-no-fifth-protocol-operation.md` | `dec-056` | No fifth `read_protocol` operation |
 
 Both need a `LEARNINGS.md ### Decisions Made` entry when the pipeline reaches that stage.
 

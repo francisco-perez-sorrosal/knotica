@@ -524,6 +524,6 @@ Tier 1 (self-review). Findings folded into the architecture above; the non-obvio
 
 | Fragment | id | Covers |
 |---|---|---|
-| `.ai-state/decisions/drafts/20260729-1930-fperez-main-notes-anchor-model.md` | `dec-draft-9f240fc7` | Bi-partite anchor, no block IDs, resolution ladder, re-anchor locus |
-| `.ai-state/decisions/drafts/20260729-1930-fperez-main-notes-storage-folder-family.md` | `dec-draft-b3775b57` | `notes/<topic>/`, `vault_layout.py` folder family, graph scoping, frontmatter |
-| `.ai-state/decisions/drafts/20260729-1930-fperez-main-notes-eval-bridge.md` | `dec-draft-90eda308` | `curate_example` bridge, golden deferral, `reported` origin reuse, no auto-gap |
+| `.ai-state/decisions/drafts/20260729-1930-fperez-main-notes-anchor-model.md` | `dec-058` | Bi-partite anchor, no block IDs, resolution ladder, re-anchor locus |
+| `.ai-state/decisions/drafts/20260729-1930-fperez-main-notes-storage-folder-family.md` | `dec-060` | `notes/<topic>/`, `vault_layout.py` folder family, graph scoping, frontmatter |
+| `.ai-state/decisions/drafts/20260729-1930-fperez-main-notes-eval-bridge.md` | `dec-059` | `curate_example` bridge, golden deferral, `reported` origin reuse, no auto-gap |
