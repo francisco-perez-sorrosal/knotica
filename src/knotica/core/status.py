@@ -25,6 +25,7 @@ from knotica.core.loop_heartbeat import read_runner_liveness
 from knotica.core.loop_progress import read_progress
 from knotica.core.loop_state import LoopState, compute_gate, read_loop_state
 from knotica.core.metrics import last_eval_summary, read_last_metrics
+from knotica.core.notes.store import ResolvedNote, list_notes
 from knotica.core.page import TopicNotFoundError
 from knotica.core.gap_classifier import gaps_path
 from knotica.core.gapfill import suggestions_path
@@ -83,6 +84,7 @@ class TopicStatus:
     last_eval: dict[str, Any] | None
     suggestions: dict[str, Any]
     gaps: dict[str, Any]
+    notes: dict[str, int]
 
     @property
     def to_compile_ready(self) -> int:
@@ -104,6 +106,7 @@ class TopicStatus:
             "last_eval": self.last_eval,
             "suggestions": self.suggestions,
             "gaps": self.gaps,
+            "notes": self.notes,
         }
 
 
@@ -146,7 +149,8 @@ def gather_wiki_status(
     if view == "scope":
         return _scope_status(store, name, scope=scope)
 
-    topics = _topic_statuses(store, scope=scope or None)
+    vcs = VaultVcs(vault_path)
+    topics = _topic_statuses(store, vcs, scope=scope or None)
     last_lint = _last_lint(store)
     unpushed = _unpushed(vault_path)
     gate, loop = _gate_and_loop(store, vault_path, topics)
@@ -167,6 +171,10 @@ def gather_wiki_status(
             "pages": sum(t.pages for t in topics),
             "curated": sum(t.curated for t in topics),
             "lint_violations": sum(t.lint_violations for t in topics),
+            "notes": {
+                "total": sum(t.notes["total"] for t in topics),
+                "drifted": sum(t.notes["drifted"] for t in topics),
+            },
         },
         "last_lint": last_lint,
         "unpushed": unpushed,
@@ -202,7 +210,7 @@ def _scope_status(store: VaultStore, vault_name: str, *, scope: str) -> dict[str
     }
 
 
-def _topic_statuses(store: VaultStore, *, scope: str | None) -> list[TopicStatus]:
+def _topic_statuses(store: VaultStore, vcs: VaultVcs, *, scope: str | None) -> list[TopicStatus]:
     """Gather per-topic status rows (optionally one topic)."""
     if scope:
         if not _is_topic(store, scope):
@@ -212,10 +220,14 @@ def _topic_statuses(store: VaultStore, *, scope: str | None) -> list[TopicStatus
         names = _topic_directories(store)
 
     lint_counts = _lint_counts_by_topic(store, scope=scope)
-    return [_topic_status(store, name, lint_violations=lint_counts.get(name, 0)) for name in names]
+    return [
+        _topic_status(store, vcs, name, lint_violations=lint_counts.get(name, 0)) for name in names
+    ]
 
 
-def _topic_status(store: VaultStore, name: str, *, lint_violations: int) -> TopicStatus:
+def _topic_status(
+    store: VaultStore, vcs: VaultVcs, name: str, *, lint_violations: int
+) -> TopicStatus:
     trainset_n = count_query_train_examples(store, name)
     golden_n = _golden_count(store, name)
     artifact = load_compiled(store, name)
@@ -244,7 +256,25 @@ def _topic_status(store: VaultStore, name: str, *, lint_violations: int) -> Topi
         last_eval=last_eval_summary(read_last_metrics(store, name)),
         suggestions=_suggestion_block(store, name),
         gaps=_gap_block(store, name),
+        notes=_notes_summary(store, vcs, name),
     )
+
+
+def _notes_summary(store: VaultStore, vcs: VaultVcs, topic: str) -> dict[str, int]:
+    """Note counts for one topic: ``total`` notes, ``drifted`` (orphaned-anchor) notes.
+
+    Drifted counts ``orphaned`` only -- not ``shifted`` (the resolver healed it
+    automatically), not ``unanchored`` (nothing was ever pointed at), and not
+    ``anchor-invalid`` (a corrupt record, a data-integrity concern rather than
+    "the wiki moved on").
+    """
+    listing = list_notes(store, vcs, topic)
+    drifted = sum(1 for note in listing.notes if _has_orphaned_anchor(note))
+    return {"total": len(listing.notes), "drifted": drifted}
+
+
+def _has_orphaned_anchor(note: ResolvedNote) -> bool:
+    return any(projection.status == "orphaned" for _, projection in note.resolved_anchors)
 
 
 def _suggestion_block(store: VaultStore, topic: str) -> dict[str, Any]:
