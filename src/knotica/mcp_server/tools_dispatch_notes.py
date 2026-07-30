@@ -11,11 +11,15 @@ here. Supplying one is rejected with ``INVALID_ARGUMENT`` rather than accepted
 and quietly ignored -- an action that appears to work and does nothing is worse
 than one that says it does not exist.
 
-``status`` is a note's *drift* bucket, derived from the resolved projections of
-its anchors: a note is as drifted as its weakest anchor. Phase 1's resolver
-ladder produces ``exact``, ``shifted``, and ``orphaned`` only -- there is no
-fuzzy rung yet -- so those are the only three buckets, and no ``fuzzy`` key is
-invented to stand in for a capability that does not exist.
+``status`` is a note's resolved-anchor bucket, derived from the resolved
+projections of its anchors: a note is as drifted as its weakest anchor. Phase
+1's resolver ladder produces ``exact``, ``shifted``, ``orphaned``, and
+``unanchored`` -- there is no fuzzy rung yet, so no ``fuzzy`` key is invented
+to stand in for a capability that does not exist. ``unanchored`` is not drift
+-- it means the anchor never pointed at a page at all (no quote, an unreadable
+claimed page, or a quote matched on several claimed pages), never that
+something the anchor once pointed at is now gone -- but it is still a real
+bucket a caller can filter and count on.
 """
 
 from __future__ import annotations
@@ -45,9 +49,12 @@ ToolResult = CallToolResult
 _DISPATCHER = "notes"
 _ACTIONS = ("list", "read")
 
-#: The drift buckets Phase 1's resolver can actually produce, weakest last --
-#: the order is also the precedence used to bucket a multi-anchor note.
-_DRIFT_STATUSES: tuple[str, ...] = ("exact", "shifted", "orphaned")
+#: The resolved-anchor buckets Phase 1's resolver can actually produce, weakest
+#: last -- the order is also the precedence used to bucket a multi-anchor note.
+#: ``unanchored`` sits between ``exact`` and ``shifted``: a genuine ``orphaned``
+#: or ``shifted`` anchor on the same note must still surface over a merely
+#: unanchored one, since those are the buckets a person actually needs to act on.
+_ANCHOR_STATUSES: tuple[str, ...] = ("exact", "unanchored", "shifted", "orphaned")
 
 #: A note whose anchor never resolved at all points nowhere the vault knows, so
 #: for a drift badge it belongs with the orphans. The distinction (corrupt
@@ -71,8 +78,8 @@ _NOTES_DISPATCH_DESCRIPTION = (
     "written with `note_capture` or by hand in Obsidian. `action=list` is the "
     'recall path ("what did I note about this?"): notes live outside the wiki '
     "corpus, so `search` will never find them. Filter `list` by `intent` "
-    "(reflection|dispute|gap|question|all) and by anchor drift `status` "
-    "(exact|shifted|orphaned|all), and paginate with the opaque cursor from a "
+    "(reflection|dispute|gap|question|all) and by resolved anchor `status` "
+    "(exact|shifted|orphaned|unanchored|all), and paginate with the opaque cursor from a "
     "prior next_cursor (default 20, max 50 per page); the response carries "
     "intent_counts and status_counts for the whole topic. `action=read` returns "
     "one note in full -- its text and every anchor with the page, the passage "
@@ -219,7 +226,7 @@ def _drift_status(note: ResolvedNote) -> str | None:
         return None
     if _ANCHOR_INVALID in statuses:
         return "orphaned"
-    for candidate in reversed(_DRIFT_STATUSES):
+    for candidate in reversed(_ANCHOR_STATUSES):
         if candidate in statuses:
             return candidate
     return None
@@ -231,13 +238,13 @@ def _intent_counts(notes: tuple[ResolvedNote, ...]) -> dict[str, int]:
 
 
 def _status_counts(notes: tuple[ResolvedNote, ...]) -> dict[str, int]:
-    """Per-drift-bucket breakdown over every anchored note in the topic.
+    """Per-status breakdown over every anchored note in the topic.
 
     Anchorless notes are in no bucket, so the counts can sum to less than
     ``total_count`` -- deliberately, rather than inflating ``exact``.
     """
     counter = Counter(status for note in notes if (status := _drift_status(note)) is not None)
-    return {value: counter.get(value, 0) for value in _DRIFT_STATUSES}
+    return {value: counter.get(value, 0) for value in _ANCHOR_STATUSES}
 
 
 def _next_cursor(intent_filter: str, status_filter: str, offset: int, has_more: bool) -> str:
@@ -329,11 +336,11 @@ def _validate_intent_filter(intent: str) -> str:
 
 def _validate_status_filter(status: str) -> str:
     cleaned = status.strip().lower()
-    if cleaned != _ALL_FILTER and cleaned not in _DRIFT_STATUSES:
+    if cleaned != _ALL_FILTER and cleaned not in _ANCHOR_STATUSES:
         raise KnoticaError(
             ErrorCode.INVALID_ARGUMENT,
-            f"status must be one of {'|'.join(_DRIFT_STATUSES)}|{_ALL_FILTER}, got {status!r}",
-            fix=f"Pass status as one of: {', '.join((*_DRIFT_STATUSES, _ALL_FILTER))}.",
+            f"status must be one of {'|'.join(_ANCHOR_STATUSES)}|{_ALL_FILTER}, got {status!r}",
+            fix=f"Pass status as one of: {', '.join((*_ANCHOR_STATUSES, _ALL_FILTER))}.",
         )
     return cleaned
 

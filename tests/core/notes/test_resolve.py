@@ -186,6 +186,50 @@ def test_quote_repeated_at_head_resolves_to_the_occurrence_nearest_the_historica
 
 
 # ---------------------------------------------------------------------------
+# Unanchored -- no page was ever claimed (checked before anything else)
+# ---------------------------------------------------------------------------
+
+
+def test_an_anchor_with_no_page_resolves_unanchored_at_topic_fidelity_with_no_span():
+    anchor = _anchor(page="", quote="")
+
+    projection = resolve_anchor("", None, anchor)
+
+    assert projection.status == "unanchored"
+    assert projection.fidelity == "topic"
+    assert projection.span is None
+
+
+def test_an_anchor_with_no_page_but_a_preserved_quote_still_resolves_unanchored():
+    """A degraded capture keeps the quote verbatim for readability -- that does
+    not make the anchor locatable, so it must resolve the same as a bare topic
+    pin with no quote at all.
+    """
+    anchor = _anchor(page="", quote="a passage preserved for readability only")
+
+    projection = resolve_anchor("", None, anchor)
+
+    assert projection.status == "unanchored"
+    assert projection.fidelity == "topic"
+    assert projection.span is None
+
+
+def test_a_pageless_anchor_resolves_unanchored_even_when_the_quote_is_nowhere_to_be_found():
+    """Historical resolution must never run for a pageless anchor -- there is
+    no page to have read history from, so even a quote that would fail the
+    historical-lookup rung (and land on ``anchor-invalid`` for a real anchor)
+    must not leak that outcome here.
+    """
+    anchor = _anchor(page="", quote="a quote that appears nowhere in the historical blob")
+
+    projection = resolve_anchor("completely unrelated historical text", None, anchor)
+
+    assert projection.status == "unanchored"
+    assert projection.fidelity == "topic"
+    assert projection.span is None
+
+
+# ---------------------------------------------------------------------------
 # Orphaned -- page gone at HEAD
 # ---------------------------------------------------------------------------
 

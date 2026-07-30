@@ -18,8 +18,8 @@ Phase 1 scope, pinned here:
   `detach`, `promote`, `archive`) are Phase 2 and must be rejected with
   `INVALID_ARGUMENT` rather than silently accepted or no-op'd.
 - `notes action=list`'s `status_counts` carries only the statuses Phase 1's
-  resolver actually produces (`exact`, `shifted`, `orphaned`) -- no `fuzzy`
-  key, which is a Phase 2 capability.
+  resolver actually produces (`exact`, `shifted`, `orphaned`, `unanchored`) --
+  no `fuzzy` key, which is a Phase 2 capability.
 """
 
 from __future__ import annotations
@@ -222,11 +222,30 @@ def test_notes_list_defaults_to_empty_with_status_counts_and_no_fuzzy_key(
     assert body["total_count"] == 0
     assert body["has_more"] is False
     assert body["next_cursor"] == ""
-    assert set(body["status_counts"]) == {"exact", "shifted", "orphaned"}, (
+    assert set(body["status_counts"]) == {"exact", "shifted", "orphaned", "unanchored"}, (
         "Phase 1's resolver never produces 'fuzzy' (that ladder rung is Phase 2); "
         f"got keys {sorted(body['status_counts'])}"
     )
     assert set(body["intent_counts"]) == {"reflection", "dispute", "gap", "question"}
+
+
+def test_notes_list_status_filter_accepts_unanchored_and_counts_a_quote_less_capture(
+    vault_config: Path, template_vault: Path
+) -> None:
+    """A quote-less, page-less capture never pointed at anything, so it must
+    bucket -- and be filterable and countable -- as `unanchored`, never
+    `orphaned` (which would claim something was lost)."""
+    server = build_full_server()
+    captured = assert_success(capture(server, TOPIC, "a purely topical reflection"))
+
+    unanchored_only = assert_success(notes_call(server, "list", topic=TOPIC, status="unanchored"))
+    ids = {note["note_id"] for note in unanchored_only["notes"]}
+    assert captured["note_id"] in ids
+    assert unanchored_only["status_counts"]["unanchored"] >= 1
+    assert unanchored_only["status_counts"]["orphaned"] == 0
+
+    orphaned_only = assert_success(notes_call(server, "list", topic=TOPIC, status="orphaned"))
+    assert captured["note_id"] not in {note["note_id"] for note in orphaned_only["notes"]}
 
 
 def test_notes_list_intent_filter_excludes_notes_of_a_different_intent(

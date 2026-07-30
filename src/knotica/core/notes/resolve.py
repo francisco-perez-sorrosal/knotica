@@ -7,25 +7,34 @@ resolver improvement applies retroactively to every note without touching a sing
 
 The ladder, in order:
 
-0. **Historical resolution.** Locate ``anchor.quote`` in ``historical_text`` -- the blob as
+0. **No page was ever claimed.** ``anchor.page`` is empty -- the anchor never pointed at
+   anything, whether because the capture had no quote at all, the claimed page could not be
+   read, or the quote matched several claimed pages at once. There is no page to read history
+   from, so none of the later rungs are meaningful: reported as ``unanchored`` at ``topic``
+   fidelity, checked first and regardless of whether ``anchor.quote`` happens to be non-empty
+   (a degraded capture preserves the quote for readability; that does not make it locatable).
+   This is distinct from ``orphaned``, which means a page *was* claimed and something about it
+   is now gone -- an anchor that never pointed at a page has not lost anything.
+1. **Historical resolution.** Locate ``anchor.quote`` in ``historical_text`` -- the blob as
    it stood at ``anchor.pinned_at`` -- disambiguated by ``anchor.start`` when the quote
    repeats. Failure here means the anchor was never valid (hand-edited or forged): reported
    as ``anchor-invalid``, a data-integrity outcome distinct from "the wiki moved on" and
    checked before any comparison against ``head_text`` is attempted.
-1. ``head_text`` is missing or empty (the page was deleted or renamed) -- ``orphaned`` at
+2. ``head_text`` is missing or empty (the page was deleted or renamed) -- ``orphaned`` at
    ``topic`` fidelity. Stop.
-2. The quote occurs verbatim in ``head_text`` at the same offset it held historically --
+3. The quote occurs verbatim in ``head_text`` at the same offset it held historically --
    ``exact`` at ``span`` fidelity. Stop.
-3. The quote occurs verbatim at a different offset (proximity to the historical offset
+4. The quote occurs verbatim at a different offset (proximity to the historical offset
    disambiguates repeats) -- ``shifted`` at ``span`` fidelity. Stop.
-4. Otherwise the page is intact but the quote is gone -- ``orphaned`` at ``page`` fidelity,
+5. Otherwise the page is intact but the quote is gone -- ``orphaned`` at ``page`` fidelity,
    with no best-guess span. Phase 2 adds fuzzy matching (keyword candidates, similarity
    scoring) past this point; Phase 1 stops here deliberately -- an absent capability is
    simpler than a stub that lies about being tested.
 
 ``Projection.fidelity`` is ``None`` exactly when ``status == "anchor-invalid"``: that status
 means nothing was ever located, so no fidelity claim -- not even ``"topic"`` -- is honest to
-make about the record. The pairing is enforced structurally, not by convention.
+make about the record. The pairing is enforced structurally, not by convention. ``unanchored``
+carries ``"topic"`` fidelity like ``orphaned`` does, so it is unaffected by that pairing.
 """
 
 from dataclasses import dataclass
@@ -35,7 +44,7 @@ from knotica.core.notes.anchor import AnchorRecord
 
 __all__ = ["Projection", "resolve_anchor"]
 
-ProjectionStatus = Literal["exact", "shifted", "orphaned", "anchor-invalid"]
+ProjectionStatus = Literal["exact", "shifted", "orphaned", "unanchored", "anchor-invalid"]
 ProjectionFidelity = Literal["span", "page", "topic"]
 
 
@@ -63,6 +72,9 @@ class Projection:
 
 def resolve_anchor(historical_text: str, head_text: str | None, anchor: AnchorRecord) -> Projection:
     """Resolve ``anchor`` against its historical and current text -- ladder steps 0-3."""
+    if not anchor.page:
+        return Projection(status="unanchored", fidelity="topic", span=None)
+
     historical_offset = _locate_historical(historical_text, anchor.quote, anchor.start)
     if historical_offset is None:
         return Projection(status="anchor-invalid", fidelity=None, span=None)
