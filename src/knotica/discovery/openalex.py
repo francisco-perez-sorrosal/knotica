@@ -121,7 +121,7 @@ class OpenAlexEnricher:
 
     def _fetch_batch(self, dois: Sequence[str]) -> dict[str, Mapping[str, object]]:
         """One OR-filter request for up to ``MAX_DOIS_PER_BATCH`` DOIs."""
-        params: dict[str, object] = {
+        params: dict[str, str | int] = {
             "filter": "doi:" + "|".join(dois),
             "per_page": len(dois),
             "select": _SELECT_FIELDS,

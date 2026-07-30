@@ -22,6 +22,7 @@ the caller -- and the credential never appears in that error's message.
 
 from __future__ import annotations
 
+import time
 from collections.abc import Callable, Mapping, Sequence
 from typing import TYPE_CHECKING
 
@@ -62,12 +63,15 @@ class YouComProvider:
         sleep: Callable[[float], None] | None = None,
         max_retries: int = DEFAULT_MAX_RETRIES,
     ) -> None:
-        client_kwargs: dict[str, object] = {"transport": transport, "max_retries": max_retries}
-        if sleep is not None:
-            client_kwargs["sleep"] = sleep
+        # Explicit kwargs (no **dict splat): SearchHttpClient's keyword params
+        # are heterogeneously typed, so a splatted dict[str, object] can't
+        # type-check against all of them at once. `sleep` falls back to the
+        # same `time.sleep` SearchHttpClient itself defaults to.
         self._client = SearchHttpClient(
             auth_headers={"Authorization": f"Bearer {api_key}"},
-            **client_kwargs,
+            transport=transport,
+            sleep=sleep if sleep is not None else time.sleep,
+            max_retries=max_retries,
         )
 
     def search(self, query: SearchQuery) -> list[SourceCandidate]:
@@ -76,7 +80,7 @@ class YouComProvider:
         return _parse_response(response.json())
 
 
-def _build_params(query: SearchQuery) -> dict[str, object]:
+def _build_params(query: SearchQuery) -> dict[str, str | int]:
     """Map a :class:`SearchQuery` to the documented you.com query params.
 
     Only ``query``/``num_web_results``/domain filters are sent -- date
@@ -85,7 +89,7 @@ def _build_params(query: SearchQuery) -> dict[str, object]:
     param name; that filter degrades gracefully (silently unhonored) rather
     than risking a malformed request.
     """
-    params: dict[str, object] = {
+    params: dict[str, str | int] = {
         "query": query.text,
         "count": query.max_results,
     }

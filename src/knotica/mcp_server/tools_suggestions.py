@@ -25,7 +25,7 @@ from __future__ import annotations
 import json
 from collections import Counter
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 from mcp.server.fastmcp import FastMCP
 from mcp.types import CallToolResult
@@ -441,7 +441,10 @@ def _read_records(store: VaultStore, topic: str) -> tuple[list[SuggestionRecord]
 
 def _record_dict(record: SuggestionRecord) -> dict[str, Any]:
     """Render one record as its wire dict (candidate denormalized), via the JSON line."""
-    return json.loads(record.to_json_line())
+    # `to_json_line` always emits a JSON object, so the decode is a dict -- but
+    # `json.loads` is typed to return `Any`, and this is a wire-contract boundary
+    # where the declared shape is the point.
+    return cast("dict[str, Any]", json.loads(record.to_json_line()))
 
 
 def _candidate_title(record: SuggestionRecord) -> str:

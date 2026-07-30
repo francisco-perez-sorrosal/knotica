@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 import json
+from collections.abc import Sequence
 from datetime import UTC, date, datetime
+from typing import assert_never
 
 from knotica.core.page import serialize_frontmatter
 from knotica.guillotine.models import (
@@ -489,7 +491,12 @@ def _patch_action_label(patch: Patch) -> str:
         return "Annotate claim"
     if patch.action == "insert":
         return "Insert qualification"
-    return patch.action.replace("_", " ").title()
+    # PatchAction is an exhaustive Literal; the four checks above cover every
+    # member, so mypy proves this unreachable. assert_never (not deletion)
+    # keeps the exhaustiveness check live -- widening PatchAction without a
+    # matching branch here now fails loudly, at both type-check and runtime,
+    # instead of silently falling through to a generic label (td-019 cluster D).
+    assert_never(patch.action)
 
 
 def _render_patch_diff_block(patch: Patch) -> str:
@@ -787,7 +794,7 @@ def _receipt_callout(
     return _callout("abstract", "Audit receipt", body)
 
 
-def _role_counts(passages: list[Passage]) -> dict[str, int]:
+def _role_counts(passages: Sequence[Passage]) -> dict[str, int]:
     counts: dict[str, int] = {}
     for passage in passages:
         counts[passage.role.value] = counts.get(passage.role.value, 0) + 1

@@ -17,7 +17,7 @@ from knotica.okf.frontmatter import (
     is_reserved_file,
     normalize_concept_frontmatter,
 )
-from knotica.okf.index import build_vault_index
+from knotica.okf.index import VaultIndex, build_vault_index
 from knotica.okf.links import (
     extract_internal_links,
     resolve_internal_link,
@@ -57,6 +57,9 @@ class ExportResult:
 
 def export_bundle(store: VaultStore, options: ExportOptions) -> ExportResult:
     """Export the vault to a pure OKF bundle at ``options.output``."""
+    # store.root is a LocalFSStore concretion, not on the VaultStore protocol
+    # (td-019 cluster D); every production caller resolves a LocalFSStore.
+    assert isinstance(store, LocalFSStore), "export_bundle requires a LocalFSStore-backed vault"
     source_root = Path(store.root).resolve()
     output = options.output.resolve()
 
@@ -117,9 +120,9 @@ def export_bundle(store: VaultStore, options: ExportOptions) -> ExportResult:
             continue
 
         if is_concept_file(path):
-            normalized = normalize_concept_frontmatter(path, raw, pure=options.pure)
-            result.warnings.extend(normalized.warnings)
-            if not normalized.fields.get("type"):
+            normalized_frontmatter = normalize_concept_frontmatter(path, raw, pure=options.pure)
+            result.warnings.extend(normalized_frontmatter.warnings)
+            if not normalized_frontmatter.fields.get("type"):
                 result.warnings.append(f"{path}: export produced type-less frontmatter")
             _, _err, body = parse_page(raw)
             before_links = body.count("[[")
@@ -134,7 +137,7 @@ def export_bundle(store: VaultStore, options: ExportOptions) -> ExportResult:
             result.wikilinks_converted += before_links - body.count("[[")
             if options.export_ready and "[[" in body:
                 result.warnings.append(f"{path}: export-ready mode left wikilinks in body")
-            content = serialize_frontmatter(normalized.fields) + body
+            content = serialize_frontmatter(normalized_frontmatter.fields) + body
             dest.write_text(content, encoding="utf-8")
             result.files_exported += 1
             if content != raw:
@@ -185,7 +188,7 @@ def export_bundle(store: VaultStore, options: ExportOptions) -> ExportResult:
     return result
 
 
-def _collect_attachment_paths(store: VaultStore, index) -> set[str]:
+def _collect_attachment_paths(store: VaultStore, index: VaultIndex) -> set[str]:
     paths: set[str] = set()
     for path, body in index.body_by_path.items():
         for link in extract_internal_links(path, body):

@@ -57,7 +57,15 @@ class CitingPrediction(Protocol):
     ``Prediction``, a ``dspy.Prediction``, a test stand-in) satisfies it.
     """
 
-    citations: Sequence[str]
+    @property
+    def citations(self) -> Sequence[str]:
+        """The prediction's cited source keys.
+
+        Declared read-only: the concrete implementers are frozen dataclasses
+        (the runner's ``Prediction``), and a settable protocol member would
+        exclude them from structurally satisfying this protocol.
+        """
+        ...
 
 
 def integrity(store: VaultStore, topic: str, prediction: CitingPrediction) -> float:

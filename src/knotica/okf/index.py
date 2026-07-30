@@ -9,7 +9,7 @@ from pathlib import PurePosixPath
 from knotica.core.links import iter_page_paths
 from knotica.core.page import parse_page
 from knotica.okf.frontmatter import is_reserved_file
-from knotica.store import VaultStore
+from knotica.store import LocalFSStore, VaultStore
 
 
 @dataclass
@@ -33,6 +33,9 @@ def build_vault_index(
     overrides: dict[str, str] | None = None,
 ) -> VaultIndex:
     """Scan the vault once and build a resolution index."""
+    # store.root is a LocalFSStore concretion, not on the VaultStore protocol
+    # (td-019 cluster D); every production caller resolves a LocalFSStore.
+    assert isinstance(store, LocalFSStore), "build_vault_index requires a LocalFSStore-backed vault"
     index = VaultIndex(bundle_root=str(store.root))
     overrides = overrides or {}
     for path in iter_page_paths(store):

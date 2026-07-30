@@ -4,7 +4,14 @@ from __future__ import annotations
 
 import re
 
-from knotica.guillotine.models import Passage, PassageRole, SuggestedAction
+from knotica.guillotine.models import (
+    Modality,
+    Passage,
+    PassageRole,
+    RiskLevel,
+    Strength,
+    SuggestedAction,
+)
 from knotica.guillotine.search import CandidateHit, normalize_claim
 
 _REFUTE_MARKERS = (
@@ -135,7 +142,7 @@ def _looks_assertion(text: str, claim: str) -> bool:
     return any(marker in lowered for marker in categorical)
 
 
-def _infer_modality(text: str, role: PassageRole) -> str:
+def _infer_modality(text: str, role: PassageRole) -> Modality:
     lowered = text.lower()
     if role == PassageRole.QUOTES:
         return "quoted"
@@ -150,7 +157,7 @@ def _infer_modality(text: str, role: PassageRole) -> str:
     return "uncertain"
 
 
-def _infer_strength(text: str, role: PassageRole) -> str:
+def _infer_strength(text: str, role: PassageRole) -> Strength:
     if role in {PassageRole.REFUTES, PassageRole.CONTRADICTS, PassageRole.IRRELEVANT}:
         return "weak"
     lowered = text.lower()
@@ -161,7 +168,7 @@ def _infer_strength(text: str, role: PassageRole) -> str:
     return "medium"
 
 
-def _infer_risk(role: PassageRole, text: str, is_source: bool) -> str:
+def _infer_risk(role: PassageRole, text: str, is_source: bool) -> RiskLevel:
     if is_source or role in {PassageRole.REFUTES, PassageRole.CONTRADICTS, PassageRole.IRRELEVANT}:
         return "none" if role != PassageRole.IRRELEVANT else "low"
     if role == PassageRole.QUOTES:
@@ -181,7 +188,7 @@ def _infer_risk(role: PassageRole, text: str, is_source: bool) -> str:
 def _suggest_action(role: PassageRole, is_source: bool) -> SuggestedAction:
     if is_source:
         return "keep"
-    return {
+    actions: dict[PassageRole, SuggestedAction] = {
         PassageRole.ASSERTS: "retract",
         PassageRole.QUALIFIES: "keep",
         PassageRole.CONTRADICTS: "keep",
@@ -190,7 +197,8 @@ def _suggest_action(role: PassageRole, is_source: bool) -> SuggestedAction:
         PassageRole.MENTIONS: "keep",
         PassageRole.DEPENDS_ON: "qualify",
         PassageRole.IRRELEVANT: "ignore",
-    }[role]
+    }
+    return actions[role]
 
 
 def _reason_for_role(role: PassageRole, is_source: bool, claim_in_text: bool) -> str:

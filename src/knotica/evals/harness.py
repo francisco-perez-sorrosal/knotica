@@ -66,7 +66,7 @@ from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path, PurePath
-from typing import Any, Unpack
+from typing import Any, Unpack, cast
 
 from knotica.core.config import resolve
 from knotica.core.errors import ErrorCode, KnoticaError
@@ -91,11 +91,18 @@ from knotica.evals.config import (
     harness_version,
 )
 from knotica.evals.error_capture import OnOutcome, classify_error
+
 from knotica.evals.llm import AnthropicClient, Completion, LLMClient, Message
 from knotica.evals.program import BaselineProgram
-from knotica.evals.runner import RUNNER_CACHE_NAMESPACE, MessagesApiRunner
+from knotica.evals.runner import RUNNER_CACHE_NAMESPACE, MessagesApiRunner, Prediction
 from knotica.evals.scorer import build_metric
 from knotica.store import LocalFSStore, VaultStore
+
+#: One ``dspy.Evaluate`` result triple. dspy is untyped, so ``.results`` arrives
+#: as opaque objects. The gold element is a ``dspy.Example`` (untyped, hence
+#: ``Any``); the prediction is always the runner's concrete ``Prediction``. Stated
+#: once here rather than re-narrowed at each of the dozen downstream accesses.
+_EvalTriple = tuple[Any, "Prediction", float]
 
 __all__ = [
     "EvalHarnessError",
@@ -600,8 +607,10 @@ def _remap_scorer_outcome_by_question(
 
 
 def _with_example_progress(
-    dspy: object,
-    program: object,
+    # The lazily-imported ``dspy`` module itself. Genuinely untyped (dspy ships no
+    # stubs), so ``Any`` is the honest annotation for it rather than a silencer.
+    dspy: Any,
+    program: Any,
     total: int,
     on_example: Callable[[int, int, str], None] | None,
     on_substage: Callable[[str, int, int], None] | None = None,
@@ -625,7 +634,7 @@ def _with_example_progress(
     failure triple and :func:`_reject_on_failures` still aborts identically.
     """
 
-    class _ProgressProgram(dspy.Module):  # type: ignore[attr-defined,misc]
+    class _ProgressProgram(dspy.Module):
         def __init__(self) -> None:
             super().__init__()
             self._count = 0
@@ -656,12 +665,14 @@ def _with_example_progress(
 
 
 def _run_evaluate(
-    dspy: object,
-    records: Sequence[object],
-    program: object,
-    metric: object,
+    # ``dspy``, ``program`` and ``metric`` are dspy objects -- genuinely untyped
+    # (dspy ships no stubs), so ``Any`` is honest here rather than a silencer.
+    dspy: Any,
+    records: Sequence[QARecord],
+    program: Any,
+    metric: Any,
     config: HarnessConfig,
-) -> list[tuple[object, object, float]]:
+) -> list[_EvalTriple]:
     """Score the golden devset with ``dspy.Evaluate`` and return its ``.results``.
 
     Builds the devset (lazy ``dspy.Example`` conversion), runs the program over
@@ -678,7 +689,7 @@ def _run_evaluate(
     that raised it must see it reach ``dspy.Evaluate``, not dspy's own default.
     """
     devset = [golden.to_example(record) for record in records]
-    evaluator = dspy.Evaluate(  # type: ignore[attr-defined]
+    evaluator = dspy.Evaluate(
         devset=devset,
         metric=metric,
         num_threads=config.num_threads,
@@ -686,10 +697,12 @@ def _run_evaluate(
         max_errors=len(devset) + 1,
         failure_score=config.failure_score,
     )
-    return list(evaluator(program).results)
+    # The one narrowing point: dspy hands back untyped triples, and every
+    # downstream consumer relies on the concrete shape declared by _EvalTriple.
+    return cast(list[_EvalTriple], list(evaluator(program).results))
 
 
-def _reject_on_failures(topic: str, results: Sequence[tuple[object, object, float]]) -> None:
+def _reject_on_failures(topic: str, results: Sequence[_EvalTriple]) -> None:
     """Abort loudly if any example failed with an instrument error.
 
     ``dspy.Evaluate`` catches a per-example exception (a malformed runner
@@ -759,7 +772,7 @@ def _per_example_breakdown(
     topic: str,
     run_cache: ResponseCache,
     config: HarnessConfig,
-    results: Sequence[tuple[object, object, float]],
+    results: Sequence[_EvalTriple],
 ) -> list[_ExampleBreakdown]:
     """Re-derive each example's QA and citation components for the record + manifest.
 
@@ -795,7 +808,7 @@ def _per_example_breakdown(
     return breakdown
 
 
-def _citation_validity(store: VaultStore, topic: str, gold: object, prediction: object) -> float:
+def _citation_validity(store: VaultStore, topic: str, gold: Any, prediction: Prediction) -> float:
     """Deterministic citation validity with the scorer's reference-aware guard.
 
     Mirrors the guard the scorer applies (kept here rather than importing the

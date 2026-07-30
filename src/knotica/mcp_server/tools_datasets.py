@@ -80,7 +80,7 @@ def _bootstrap_train_payload(
         clear_progress(root, cleaned)
 
 
-def _map_exception(exc: BaseException) -> ToolResult:
+def _map_exception(exc: Exception) -> ToolResult:
     if isinstance(exc, KnoticaError):
         return envelope.error_envelope(exc)
     if isinstance(exc, GoldenSetContaminationError):

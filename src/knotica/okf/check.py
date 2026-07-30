@@ -14,7 +14,7 @@ from knotica.okf.frontmatter import (
 from knotica.okf.index import build_vault_index
 from knotica.okf.links import extract_internal_links, resolve_internal_link
 from knotica.okf.log_fmt import check_log_shape
-from knotica.store import VaultStore
+from knotica.store import LocalFSStore, VaultStore
 
 
 @dataclass
@@ -43,6 +43,9 @@ def check_vault(
 ) -> OkfCheckResult:
     """Check native OKF compatibility of the vault."""
     index = build_vault_index(store, overrides=overrides)
+    # store.root is a LocalFSStore concretion, not on the VaultStore protocol
+    # (td-019 cluster D); every production caller resolves a LocalFSStore.
+    assert isinstance(store, LocalFSStore), "check_vault requires a LocalFSStore-backed vault"
     result = OkfCheckResult(status="OKF-COMPATIBLE", bundle_root=str(store.root))
     overrides = overrides or {}
 

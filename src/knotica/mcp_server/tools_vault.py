@@ -522,6 +522,8 @@ def _consume_nonce(vault_path: Path, kind: str, topic: str, confirm: str) -> dic
     except (OSError, json.JSONDecodeError):
         return None
     path.unlink(missing_ok=True)
+    if not isinstance(payload, dict):
+        return None
     if payload.get("nonce") != confirm:
         return None
     try:

@@ -50,6 +50,12 @@ __all__ = [
     "SearchHttpClient",
 ]
 
+#: A single query-string value, matching what ``httpx``'s ``Client.request``
+#: accepts for a ``Mapping``-shaped ``params`` argument (its own private
+#: ``httpx._types.QueryParamTypes`` union, restated here since that module is
+#: not part of httpx's public API).
+_QueryParamValue = str | int | float | bool | None
+
 #: Statuses worth retrying: rate-limit (429) plus the transient server errors.
 #: A 5xx or 429 may clear on its own; every 4xx below 429 (400/401/403/404) is a
 #: caller/credential problem that the same request will not fix, so it fails fast.
@@ -106,7 +112,7 @@ class SearchHttpClient:
         url: str,
         *,
         headers: Mapping[str, str] | None = None,
-        params: Mapping[str, object] | None = None,
+        params: Mapping[str, _QueryParamValue] | None = None,
         json: object | None = None,
     ) -> httpx.Response:
         """Issue one request with bounded retry, or raise ``SEARCH_API_ERROR``.
@@ -167,7 +173,11 @@ class SearchHttpClient:
 
     def _backoff_delay(self, attempt: int) -> float:
         """Exponential backoff ``base * 2**attempt``, capped at :data:`_MAX_BACKOFF_SECONDS`."""
-        return min(self._backoff_base * (2**attempt), _MAX_BACKOFF_SECONDS)
+        # `1 << attempt` instead of `2**attempt`: `attempt` is always >= 0, but
+        # typeshed's int.__pow__ returns Any for a non-literal exponent (the
+        # result could be int or float depending on sign) -- the equivalent
+        # left-shift is unambiguously `int` and carries the same value here.
+        return min(self._backoff_base * (1 << attempt), _MAX_BACKOFF_SECONDS)
 
     # -- typed errors (credential never appears in any message) -------------
 
@@ -226,7 +236,9 @@ def _parse_retry_after(value: str | None) -> float | None:
         when = parsedate_to_datetime(stripped)
     except (TypeError, ValueError):
         return None
-    if when is None:
-        return None
+    # `parsedate_to_datetime` (Python 3.10+) raises ValueError rather than
+    # returning None for an unparseable date -- already handled above, so a
+    # `when is None` guard here is unreachable per typeshed's `-> datetime`
+    # return type. Confirmed, not assumed: td-019 cluster D.
     now = datetime.now(timezone.utc) if when.tzinfo is not None else datetime.now()
     return max((when - now).total_seconds(), 0.0)

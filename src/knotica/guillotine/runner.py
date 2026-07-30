@@ -5,7 +5,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from knotica.guillotine.classify import classify_passages
-from knotica.guillotine.models import GuillotineResult, Verdict
+from knotica.guillotine.models import GuillotineResult, Passage, PassageRole, Verdict
 from knotica.guillotine.patch import propose_patches, render_diff
 from knotica.guillotine.score import build_evidence_graph, score_and_recommend
 from knotica.guillotine.search import (
@@ -116,24 +116,20 @@ def run_guillotine(
     return result, diff_text
 
 
-def _load_file_contents(store: VaultStore, passages: list) -> dict[str, str]:
+def _load_file_contents(store: VaultStore, passages: list[Passage]) -> dict[str, str]:
     paths = sorted({passage.path for passage in passages})
     return {path: store.read_text(path) for path in paths}
 
 
-def _has_actionable_assertions(passages: list) -> bool:
-    from knotica.guillotine.models import PassageRole
-
+def _has_actionable_assertions(passages: list[Passage]) -> bool:
     return any(
         passage.role in {PassageRole.ASSERTS, PassageRole.DEPENDS_ON} and not passage.is_source
         for passage in passages
     )
 
 
-def _filter_relevant_passages(claim: str, passages: list) -> list:
+def _filter_relevant_passages(claim: str, passages: list[Passage]) -> list[Passage]:
     """Drop weak lexical overlaps that are not about the target claim."""
-    from knotica.guillotine.models import Passage, PassageRole
-
     kept: list[Passage] = []
     for passage in passages:
         if passage.role != PassageRole.IRRELEVANT:

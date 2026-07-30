@@ -430,7 +430,8 @@ def _default_run_topic(vault_root: Path, topic: str) -> None:
     pays for it, and the heavy dependency loads only in the running daemon.
     """
     from knotica.core.gapfill_config import resolve_gapfill_config
-    from knotica.core.loop import LoopDecision, build_loop_runner, harness_evaluate
+    from knotica.core.loop import build_loop_runner, harness_evaluate
+    from knotica.core.loop_state import LoopDecision
     from knotica.core.loop_heartbeat import write_heartbeat
 
     write_heartbeat(vault_root, topic, interval_seconds=DEFAULT_SUPERVISION_INTERVAL_SECONDS)

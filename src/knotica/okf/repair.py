@@ -17,7 +17,7 @@ from knotica.okf.frontmatter import (
     render_concept_document,
 )
 from knotica.okf.log_fmt import canonicalize_log
-from knotica.store import VaultStore
+from knotica.store import LocalFSStore, VaultStore
 
 
 @dataclass(frozen=True)
@@ -43,6 +43,9 @@ class RepairResult:
 
 def repair_vault(store: VaultStore, options: RepairOptions) -> RepairResult:
     """Repair the active vault for native OKF compatibility."""
+    # store.root is a LocalFSStore concretion, not on the VaultStore protocol
+    # (td-019 cluster D); every production caller resolves a LocalFSStore.
+    assert isinstance(store, LocalFSStore), "repair_vault requires a LocalFSStore-backed vault"
     vault_root = Path(store.root).resolve()
     result = RepairResult(status="OK", dry_run=not options.apply)
 
