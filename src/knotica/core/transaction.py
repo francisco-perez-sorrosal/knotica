@@ -35,6 +35,8 @@ Invariants (each is load-bearing; the module structure makes them evident):
   declared write changes anything, the transaction exits with
   ``changed=False``, writes no log entry, and makes **zero** commits -- so
   retrying an operation after a transport failure never dirties the audit log.
+  A declared log re-render (:meth:`VaultTransaction.rewrite_log`) is itself an
+  effective mutation, so it makes the transaction effective on its own.
 * **Redaction is always loud.** Content passes through
   :func:`~knotica.core.scrub.scrub` at declaration time; every redaction is
   reported on the result (with spans located in the caller's original text),
@@ -209,6 +211,7 @@ class VaultTransaction:
         self._title = title
         self._lock_timeout = lock_timeout
         self._writes: dict[str, str] = {}
+        self._log_rewrite: str | None = None
         self._redactions: dict[str, tuple[RedactedSpan, ...]] = {}
         self._lock: AbstractContextManager[None] | None = None
         self._active = False
@@ -261,7 +264,10 @@ class VaultTransaction:
         Args:
             path: Vault-relative target path. The operation log is refused --
                 the transaction is its only writer, and a second append path
-                would break the one-entry-per-operation invariant.
+                would break the one-entry-per-operation invariant. An operation
+                that legitimately re-renders the whole log declares it through
+                :meth:`rewrite_log` instead, which composes with the append
+                rather than competing with it.
             content: The full new file content (UTF-8 text).
 
         Raises:
@@ -277,6 +283,37 @@ class VaultTransaction:
             self._redactions[normalized] = tuple(spans)
         else:
             self._redactions.pop(normalized, None)
+
+    def rewrite_log(self, content: str) -> None:
+        """Declare a full re-render of the operation log for this operation to build on.
+
+        The narrow escape valve for the one operation class that legitimately
+        owns the whole log file rather than a single entry in it: OKF repair
+        canonicalizes ``log.md`` as part of its repair. The rewrite does not
+        replace the transaction's own log append -- it *is* the base that append
+        composes with, so this operation's entry still lands and the
+        one-entry-per-operation invariant holds. Declaring a rewrite also makes
+        the transaction effective even when no page write changed, because
+        re-rendering the log is itself a vault mutation.
+
+        Everything else uses :meth:`write`, which refuses ``log.md`` on purpose.
+        Declaring a rewrite twice replaces the earlier one (last one wins).
+
+        Args:
+            content: The full new log content, *before* this operation's entry
+                is prepended to it. Secret-scrubbed like any declared write.
+
+        Raises:
+            RuntimeError: When called outside the ``with`` block.
+        """
+        if not self._active:
+            raise RuntimeError("rewrite_log() is only valid inside the transaction's `with` block")
+        scrubbed, spans = scrub(content)
+        self._log_rewrite = scrubbed
+        if spans:
+            self._redactions[LOG_PATH] = tuple(spans)
+        else:
+            self._redactions.pop(LOG_PATH, None)
 
     @property
     def result(self) -> TransactionResult:
@@ -295,7 +332,7 @@ class VaultTransaction:
             path: content for path, content in self._writes.items() if self._differs(path, content)
         }
         redactions = tuple(RedactedWrite(path, spans) for path, spans in self._redactions.items())
-        if not changed:
+        if not changed and self._log_rewrite is None:
             return TransactionResult(
                 changed=False,
                 commit_sha=self._vcs.head_sha(),
@@ -360,8 +397,23 @@ class VaultTransaction:
         return self._store.read_text(path) != content
 
     def _appended_log(self, pages: tuple[str, ...]) -> str:
-        """The full new log content: existing log with this operation prepended (newest first)."""
-        existing = self._store.read_text(LOG_PATH) if self._store.exists(LOG_PATH) else ""
+        """The full new log content: the current log with this operation prepended (newest first).
+
+        "Current" means the log this transaction is about to leave behind, not
+        the one still on disk. An operation that legitimately re-renders the
+        whole log declares it via :meth:`rewrite_log`, and *that* is the base
+        the new entry prepends to: reading disk here instead would apply the
+        declared rewrite and then immediately overwrite it with a render built
+        from stale bytes, silently discarding the operation's own work. With no
+        declared rewrite -- every other operation -- the base is disk, exactly
+        as before.
+        """
+        if self._log_rewrite is not None:
+            existing = self._log_rewrite
+        elif self._store.exists(LOG_PATH):
+            existing = self._store.read_text(LOG_PATH)
+        else:
+            existing = ""
         return prepend_operation_log(
             existing,
             entry_date=datetime.now(UTC).strftime("%Y-%m-%d"),

@@ -56,15 +56,22 @@ whose target is a specific gitignored runtime-state path (verified against
 ``vault-template/.gitignore``) or an external application's own config file.
 See the allowlist constants below for the reasoning behind each entry.
 
-Scope: this raw-write check covers the same ``ADAPTER_PACKAGES`` as the checks
-above (``cli``, ``mcp_server``, ``evals``) -- not the wider tree. ``core/``
-hosts the sole writer itself plus a family of legitimate non-vault operational
-writers (locks, heartbeats, progress files, config, caches) that were never
-part of "the vault" in the git-committed-content sense; folding it in would
-require a much larger allowlist unrelated to this gap. ``guillotine/``,
-``discovery/``, ``dashboard/``, ``programs/``, and ``search/`` perform no raw
-filesystem writes at all today (verified by grep), so widening the scan to
-include them would not currently change its outcome.
+Scope: this raw-write check covers ``RAW_WRITE_PACKAGES`` -- the adapter
+packages (``cli``, ``mcp_server``, ``evals``) plus ``okf`` -- not the wider
+tree. ``okf/`` joins the scan because ``okf/repair.py`` mutates the live vault:
+it once wrote pages and its own report raw and shelled out to ``git
+add``/``git commit`` outside the transaction (td-020), and now routes both
+through ``core.transaction``, so the scan is what keeps it there. It joins the
+raw-write scan only, not the adapter-boundary checks above -- ``okf/`` is a
+domain layer, not a surface adapter, and the codebase-wide
+``commit_paths``/``rollback_paths`` check already covers its git surface.
+``core/`` hosts the sole writer itself plus a family of legitimate non-vault
+operational writers (locks, heartbeats, progress files, config, caches) that
+were never part of "the vault" in the git-committed-content sense; folding it
+in would require a much larger allowlist unrelated to this gap.
+``guillotine/``, ``discovery/``, ``dashboard/``, ``programs/``, and ``search/``
+perform no raw filesystem writes at all today (verified by grep), so widening
+the scan to include them would not currently change its outcome.
 
 A second, independent boundary: ``search/`` may depend on ``knotica.core``
 only through ``core.vault_layout``, the zero-dependency folder-family leaf
@@ -90,6 +97,12 @@ SRC_ROOT = Path(__file__).resolve().parent.parent / "src" / "knotica"
 #: same single-writer rule as the adapters -- ``clone_to`` is a read/checkout
 #: method (absent from ``MUTATING_VCS_METHODS``), so cloning the corpus is allowed.
 ADAPTER_PACKAGES = ("cli", "mcp_server", "evals")
+
+#: Packages covered by the raw-filesystem-write scan: the adapters plus ``okf``,
+#: whose ``repair.py`` mutates the live vault and must stay on the transaction
+#: path (td-020). Wider than ``ADAPTER_PACKAGES`` on purpose -- see the module
+#: docstring's scope paragraph.
+RAW_WRITE_PACKAGES = (*ADAPTER_PACKAGES, "okf")
 
 #: The only module permitted to call the mutating git surface.
 SOLE_WRITER = SRC_ROOT / "core" / "transaction.py"
@@ -153,6 +166,12 @@ RAW_WRITE_MODULE_ALLOWLIST = frozenset(
         # backing lives under a constructor-supplied storage_root -- never
         # vault content.
         "evals/cache.py",
+        # OKF bundle export: every write targets `ExportOptions.output`, a
+        # directory outside the vault, and `export_bundle` refuses outright when
+        # that path equals the active vault root ("refusing to export into the
+        # active vault path"). It copies vault content OUT; it never mutates the
+        # vault, so it is not subject to the single-writer transaction path.
+        "okf/export.py",
     }
 )
 
@@ -187,6 +206,12 @@ def _module_label(path: Path) -> str:
 def _adapter_files() -> Iterator[Path]:
     """Every ``.py`` file under the adapter packages, in stable order."""
     for package in ADAPTER_PACKAGES:
+        yield from sorted((SRC_ROOT / package).rglob("*.py"))
+
+
+def _raw_write_scanned_files() -> Iterator[Path]:
+    """Every ``.py`` file under the raw-write-scanned packages, in stable order."""
+    for package in RAW_WRITE_PACKAGES:
         yield from sorted((SRC_ROOT / package).rglob("*.py"))
 
 
@@ -459,7 +484,7 @@ def test_adapters_do_not_call_mutating_vcs_methods() -> None:
 
 def test_adapters_do_not_perform_raw_filesystem_writes() -> None:
     violations: list[str] = []
-    for path in _adapter_files():
+    for path in _raw_write_scanned_files():
         label = _module_label(path)
         if label in RAW_WRITE_MODULE_ALLOWLIST:
             continue
@@ -470,7 +495,7 @@ def test_adapters_do_not_perform_raw_filesystem_writes() -> None:
                 continue
             violations.append(f"{label}:{line} calls {description}(...) directly")
     assert not violations, (
-        "cli/, mcp_server/, and evals/ must not perform raw filesystem writes "
+        "cli/, mcp_server/, evals/, and okf/ must not perform raw filesystem writes "
         "(Path.write_text/write_bytes/unlink, os.replace/os.remove, "
         "shutil.copy*/move, or open(..., 'w'|'a'|'x')) -- these bypass "
         "core.transaction's single-writer path just as effectively as calling "

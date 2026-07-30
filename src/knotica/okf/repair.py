@@ -2,13 +2,15 @@
 
 from __future__ import annotations
 
-import subprocess
 from dataclasses import dataclass, field
 from datetime import date
 from pathlib import Path
 
+from knotica.core.errors import ErrorCode, KnoticaError
 from knotica.core.links import iter_page_paths
 from knotica.core.page import parse_page, serialize_frontmatter
+from knotica.core.transaction import LOG_PATH, VaultTransaction
+from knotica.core.vcs import VaultVcs
 from knotica.okf.datetime_fmt import now_rfc3339
 from knotica.okf.check import check_vault
 from knotica.okf.frontmatter import (
@@ -18,6 +20,16 @@ from knotica.okf.frontmatter import (
 )
 from knotica.okf.log_fmt import canonicalize_log
 from knotica.store import LocalFSStore, VaultStore
+
+#: Commit-subject / log-entry slots for the repair operation. ``repair`` is the
+#: op name the OKF log layer already knows (``log_fmt._REPAIR_OPS``), so the
+#: entry renders with kind ``Repair`` and round-trips back to ``repair``.
+_REPAIR_OP = "repair"
+_REPAIR_TOPIC = "okf"
+_REPAIR_TITLE = "native OKF compatibility"
+
+#: Vault-relative directory the dated repair report lands in.
+_REPORTS_DIR = "reports/okf"
 
 
 @dataclass(frozen=True)
@@ -42,7 +54,13 @@ class RepairResult:
 
 
 def repair_vault(store: VaultStore, options: RepairOptions) -> RepairResult:
-    """Repair the active vault for native OKF compatibility."""
+    """Repair the active vault for native OKF compatibility.
+
+    On apply, every write (repaired pages, the canonicalized ``log.md``, and the
+    dated report) and the single git commit go through one
+    :class:`~knotica.core.transaction.VaultTransaction`, so the run is
+    flock-guarded and serializes with every other vault writer.
+    """
     # store.root is a LocalFSStore concretion, not on the VaultStore protocol
     # (td-019 cluster D); every production caller resolves a LocalFSStore.
     assert isinstance(store, LocalFSStore), "repair_vault requires a LocalFSStore-backed vault"
@@ -52,8 +70,23 @@ def repair_vault(store: VaultStore, options: RepairOptions) -> RepairResult:
     if options.apply and not options.force and _git_dirty(vault_root):
         raise ValueError("git working tree is dirty; commit or stash changes, or pass --force")
 
-    planned: dict[str, str] = {}
+    planned = _plan_repairs(store, result)
+    result.files_changed = sorted(planned.keys())
 
+    if options.apply:
+        _apply_repairs(store, vault_root, options, result, planned)
+    else:
+        result.status = "DRY-RUN"
+
+    post = check_vault(store, overrides=planned if not options.apply else None)
+    if post.failed:
+        result.status = "FAILED"
+    return result
+
+
+def _plan_repairs(store: LocalFSStore, result: RepairResult) -> dict[str, str]:
+    """The full new content of every page this run would rewrite, by vault path."""
+    planned: dict[str, str] = {}
     for path in sorted(iter_page_paths(store)):
         raw = store.read_text(path)
         if is_concept_file(path):
@@ -68,48 +101,93 @@ def repair_vault(store: VaultStore, options: RepairOptions) -> RepairResult:
             preamble = "# Index\n\n<!-- frontmatter removed by okf repair -->\n\n"
             planned[path] = preamble + body.lstrip()
             result.warnings.append(f"{path}: removed accidental frontmatter")
-        elif path.endswith("log.md"):
+        elif path.endswith(LOG_PATH):
             canonical = canonicalize_log(raw)
             if canonical != raw:
                 planned[path] = canonical
                 if "newest last" in raw or "```" in raw.split("## ", 1)[0]:
                     result.warnings.append(f"{path}: canonicalized OKF log preamble")
+    return planned
 
-    result.files_changed = sorted(planned.keys())
 
-    if options.apply:
+def _apply_repairs(
+    store: LocalFSStore,
+    vault_root: Path,
+    options: RepairOptions,
+    result: RepairResult,
+    planned: dict[str, str],
+) -> None:
+    """Write the plan and the report, and commit, through one vault transaction."""
+    _require_committable_vault(vault_root)
+    report_relpath = _report_relpath(vault_root, options.reports_dir)
+    report_content = _render_report_document(result, vault_root)
+
+    with VaultTransaction(
+        store, vault_root, _REPAIR_OP, _REPAIR_TOPIC, _REPAIR_TITLE
+    ) as transaction:
         for path, content in planned.items():
-            store.write_text_atomic(path, content)
-        report_dir = options.reports_dir or (vault_root / "reports" / "okf")
-        report_dir.mkdir(parents=True, exist_ok=True)
-        report_path = report_dir / f"{date.today().isoformat()}-okf-repair.md"
-        report_body = _render_report(result, vault_root)
-        report_frontmatter = {
-            "type": "report",
-            "title": "OKF Repair Report",
-            "timestamp": now_rfc3339(),
-            "topic": "okf",
-            "tags": ["okf", "repair"],
-        }
-        report_path.write_text(
-            serialize_frontmatter(report_frontmatter) + report_body,
-            encoding="utf-8",
+            if path == LOG_PATH:
+                # The transaction owns log.md: the canonicalized log is the base
+                # its own operation entry prepends to, not a competing write.
+                transaction.rewrite_log(content)
+            else:
+                transaction.write(path, content)
+        transaction.write(report_relpath, report_content)
+
+    result.report_path = str(vault_root / report_relpath)
+    result.commit_sha = transaction.result.commit_sha
+
+
+def _require_committable_vault(vault_root: Path) -> None:
+    """Refuse to apply a repair to a vault that has no git repository to commit into."""
+    if _git_available(vault_root):
+        return
+    raise KnoticaError(
+        ErrorCode.GIT_ERROR,
+        f"The vault at {vault_root} is not a git repository, so an OKF repair cannot "
+        "be committed. Every mutating vault operation is one git commit; applying "
+        "without one would leave the repair with no audit trail or rollback point.",
+        fix="Run `git init` in the vault (or `knotica init`), then re-run the repair.",
+    )
+
+
+def _report_relpath(vault_root: Path, reports_dir: Path | None) -> str:
+    """Vault-relative path of today's repair report; rejects a target outside the vault.
+
+    The report is committed vault content written through the transaction, so it
+    must be addressable as a vault-relative path. An override pointing outside
+    the vault is refused rather than silently ignored or silently uncommitted.
+    """
+    filename = f"{date.today().isoformat()}-okf-repair.md"
+    if reports_dir is None:
+        return f"{_REPORTS_DIR}/{filename}"
+    resolved = Path(reports_dir).resolve()
+    if not resolved.is_relative_to(vault_root):
+        raise KnoticaError(
+            ErrorCode.INVALID_ARGUMENT,
+            f"The repair report directory {resolved} is outside the vault at {vault_root}. "
+            "The report is committed vault content, so it has to live inside the vault.",
+            fix=f"Pass a directory inside the vault, or omit it to use `{_REPORTS_DIR}/`.",
         )
-        result.report_path = str(report_path)
-        if _git_available(vault_root):
-            commit_paths = [*result.files_changed, str(report_path.relative_to(vault_root))]
-            _git_add_commit(vault_root, commit_paths)
-            result.commit_sha = _git_head(vault_root)
-    else:
-        result.status = "DRY-RUN"
-
-    post = check_vault(store, overrides=planned if not options.apply else None)
-    if post.failed:
-        result.status = "FAILED"
-    return result
+    return f"{resolved.relative_to(vault_root).as_posix()}/{filename}"
 
 
-def _render_report(result: RepairResult, vault_root: Path) -> str:
+def _render_report_document(result: RepairResult, vault_root: Path) -> str:
+    """The full report page: report frontmatter plus the rendered body."""
+    frontmatter = {
+        "type": "report",
+        "title": "OKF Repair Report",
+        "timestamp": now_rfc3339(),
+        "topic": "okf",
+        "tags": ["okf", "repair"],
+    }
+    return serialize_frontmatter(frontmatter) + _render_report_body(result, vault_root)
+
+
+def _render_report_body(result: RepairResult, vault_root: Path) -> str:
+    # No rollback section: the report is rendered before the commit that
+    # contains it, so the commit sha cannot appear inside it -- the sha hashes a
+    # tree that already includes this file. `RepairResult.commit_sha` carries it.
     lines = [
         "# OKF Repair Report",
         "",
@@ -126,45 +204,19 @@ def _render_report(result: RepairResult, vault_root: Path) -> str:
         lines.append("## Warnings")
         lines.extend(f"- {warning}" for warning in result.warnings)
         lines.append("")
-    if result.commit_sha:
-        lines.append(f"## Rollback\n\n```bash\ngit revert {result.commit_sha}\n```\n")
     return "\n".join(lines)
 
 
 def _git_dirty(root: Path) -> bool:
+    """Whether the vault work tree has uncommitted changes (untracked included).
+
+    The same ``git status --porcelain`` predicate the pre-transaction version
+    shelled out for, now read through the read-only git surface.
+    """
     if not _git_available(root):
         return False
-    proc = subprocess.run(
-        ["git", "status", "--porcelain"],
-        cwd=root,
-        capture_output=True,
-        text=True,
-        check=False,
-    )
-    return bool(proc.stdout.strip())
+    return VaultVcs(root).is_dirty()
 
 
 def _git_available(root: Path) -> bool:
     return (root / ".git").exists()
-
-
-def _git_add_commit(root: Path, paths: list[str]) -> None:
-    if not paths:
-        return
-    subprocess.run(["git", "add", *paths], cwd=root, check=True)
-    subprocess.run(
-        ["git", "commit", "-m", "knotica(okf): repair native OKF compatibility"],
-        cwd=root,
-        check=True,
-    )
-
-
-def _git_head(root: Path) -> str | None:
-    proc = subprocess.run(
-        ["git", "rev-parse", "HEAD"],
-        cwd=root,
-        capture_output=True,
-        text=True,
-        check=False,
-    )
-    return proc.stdout.strip() or None
