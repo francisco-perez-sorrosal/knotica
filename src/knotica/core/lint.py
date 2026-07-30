@@ -160,7 +160,11 @@ def lint_vault(
     topics = [scope] if scope else _topic_directories(store)
     vault_links = _vault_link_map(store)
     content_pages = [path for path in _content_page_paths(store, topics) if path in vault_links]
-    scoped_pages = [path for path in vault_links if scope is None or _in_topic(path, scope)]
+    scoped_pages = [
+        path
+        for path in vault_links
+        if (scope is None or _in_topic(path, scope)) and family_of(path) in SCORED_FAMILIES
+    ]
 
     violations: list[Violation] = []
     if scope is None:

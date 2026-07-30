@@ -230,7 +230,7 @@ def test_notes_list_defaults_to_empty_with_status_counts_and_no_fuzzy_key(
         "Phase 1's resolver never produces 'fuzzy' (that ladder rung is Phase 2); "
         f"got keys {sorted(body['status_counts'])}"
     )
-    assert set(body["intent_counts"]) == {"reflection", "dispute", "gap", "question"}
+    assert set(body["intent_counts"]) == {"reflection", "dispute", "gap", "question", "other"}
 
 
 def test_notes_list_status_filter_accepts_unanchored_and_counts_a_quote_less_capture(
@@ -415,3 +415,92 @@ def test_dispatcher_drifted_count_agrees_with_wiki_status_across_a_mixed_bucket(
     assert (
         dispatcher_body["status_counts"]["orphaned"] == status_payload["totals"]["notes"]["drifted"]
     ), "the dispatcher and wiki_status must agree on the drifted count for the same vault state"
+
+
+# ---------------------------------------------------------------------------
+# notes action=list -- topic validation must agree with `note_capture`
+# ---------------------------------------------------------------------------
+
+
+def test_notes_list_rejects_a_nonexistent_topic_as_topic_not_found(
+    vault_config: Path, template_vault: Path
+) -> None:
+    """A mistyped topic must fail loudly, never return a confident empty
+    listing -- `note_capture` already rejects the identical input this way."""
+    del template_vault
+    server = build_full_server()
+    err = error_of(notes_call(server, "list", topic="no-such-topic"))
+    assert_error_shape(err, "TOPIC_NOT_FOUND")
+
+
+def test_notes_list_rejects_a_dot_segment_topic_as_topic_not_found(
+    vault_config: Path, template_vault: Path
+) -> None:
+    """`..` must never resolve to the vault root and walk every page in it."""
+    del template_vault
+    server = build_full_server()
+    err = error_of(notes_call(server, "list", topic=".."))
+    assert_error_shape(err, "TOPIC_NOT_FOUND")
+
+
+# ---------------------------------------------------------------------------
+# notes action=list -- intent_counts must never under-report the topic total
+# ---------------------------------------------------------------------------
+
+
+def _fixture_text(name: str) -> str:
+    fixtures = Path(__file__).resolve().parent / "fixtures" / "notes"
+    return (fixtures / name).read_text(encoding="utf-8")
+
+
+def _seed_fixture_note(vault: Path, note_id: str, fixture_name: str) -> None:
+    path = vault / "notes" / TOPIC / f"{note_id}.md"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(_fixture_text(fixture_name), encoding="utf-8")
+    run_git(vault, "add", "-A")
+    run_git(vault, "commit", "-m", f"test: seed {note_id}")
+
+
+def test_notes_list_intent_counts_carries_an_other_bucket_for_an_unknown_intent(
+    vault_config: Path, template_vault: Path
+) -> None:
+    """A hand-typed note with an out-of-enum intent must stay counted and
+    filterable -- never silently dropped from `intent_counts`."""
+    server = build_full_server()
+    captured = assert_success(capture(server, TOPIC, "a note with a known intent"))
+    hand_authored = _forged_note("20260101-080000-musing", intent="musing", anchors=())
+    _write_forged_note(template_vault, "20260101-080000-musing", hand_authored)
+
+    body = assert_success(notes_call(server, "list", topic=TOPIC))
+
+    assert body["total_count"] == 2
+    assert sum(body["intent_counts"].values()) == 2, (
+        f"intent_counts must sum to total_count, got {body['intent_counts']!r}"
+    )
+    assert body["intent_counts"]["other"] == 1
+
+    other_only = assert_success(notes_call(server, "list", topic=TOPIC, intent="other"))
+    ids = {note["note_id"] for note in other_only["notes"]}
+    assert ids == {"20260101-080000-musing"}
+    assert captured["note_id"] not in ids
+
+
+# ---------------------------------------------------------------------------
+# notes action=read -- skipped_anchor_count must reach the wire
+# ---------------------------------------------------------------------------
+
+
+def test_notes_read_surfaces_skipped_anchor_count_for_a_malformed_bullet(
+    vault_config: Path, template_vault: Path
+) -> None:
+    """A hand-authored note with one valid anchor and one unparseable bullet
+    must report the malformed count -- otherwise a person gets no feedback
+    that their bullet did not parse."""
+    note_id = "20260705-133045-half-good-half-broken"
+    _seed_fixture_note(template_vault, note_id, "broken_anchor.md")
+    server = build_full_server()
+
+    body = assert_success(notes_call(server, "read", topic=TOPIC, note_id=note_id))
+
+    assert body["skipped_anchor_count"] == 1
+    assert len(body["anchors"]) == 1, "the one well-formed anchor must still survive"

@@ -215,7 +215,15 @@ export interface WikiStatus {
     gaps?: GapStatusSummary;
     notes?: NotesStatusSummary;
   }>;
-  totals: { topics: number; pages: number; curated: number; lint_violations: number };
+  totals: {
+    topics: number;
+    pages: number;
+    curated: number;
+    lint_violations: number;
+    /** Vault-wide roll-up of the per-topic note counts. Absent on a server
+     *  whose wiki_status predates the notes layer. */
+    notes?: NotesStatusSummary;
+  };
   last_lint: string | null;
   unpushed: number | null;
   gate: { state: GateState; baseline: number | null; last_scalar: number | null };

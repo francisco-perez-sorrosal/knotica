@@ -115,7 +115,7 @@ Every note carries YAML frontmatter. The minimum required fields are `type`, `id
 | `schema_version` | No | integer | `1` | Schema version. Omit unless you have a reason to override. |
 | `intent` | No | string | `reflection` | One of `reflection`, `dispute`, `gap`, `question` — nothing else. `reflection` is private and stays in the notes layer forever; the other three mark the note as *promotable*, meaning you may later choose to carry it into the wiki. Marking is not promoting: crossing into the wiki is always a separate, deliberate act. |
 | `updated` | No | string | `created` value | RFC 3339 timestamp of the last edit, UTC. Defaults to `created` if omitted. |
-| `status` | No | string | `active` | Either `active` or `archived`. Archiving retires a note without deleting it; nothing ever removes a note file. |
+| `status` | No | string | `active` | Either `active` or `archived`. This release has no tool that sets it — set it by hand if you want to mark a note archived. Nothing ever removes a note file regardless of this field. |
 | `tags` | No | list of strings | `[]` | Keywords for searching and organizing. |
 
 Example frontmatter:
@@ -146,7 +146,7 @@ After the body (or if the note has no body), you can add an optional `## Anchors
 Under this heading, list one anchor per bullet point. The format is strict but tolerant:
 
 ```markdown
-- [[<vault-path>[#<Heading>]]] — `<fidelity>` · pinned@`<sha>`
+- [[<vault-path>[#<Heading>]]] — `<fidelity>` · pinned@`<sha>`[ · at=<int>]
   > <quote>
 ```
 
@@ -158,6 +158,7 @@ Under this heading, list one anchor per bullet point. The format is strict but t
 - `<fidelity>` — how specific the pin is: `span` (a single sentence or phrase), `page` (the whole page), or `topic` (the topic as a whole, no specific page). Two further values, `block` and `section`, are not yet produced; a file containing one is read without complaint and left untouched.
 - `pinned@`<sha>`` — the git commit SHA the page was at when you read it. Backticks are required. This is what makes the passage permanently recoverable: however much the page is rewritten later, the text you actually saw can always be retrieved from that commit.
 - `<quote>` — **optional.** The exact text you're pinning, on the following line, beginning with `>`. **Copy it character-for-character from the page** — it is matched verbatim to locate your note later, so an approximation still stores fine but will not be found, and the note will read as unanchored. Omit the line entirely if you're pinning a whole page rather than a passage.
+- `at=<int>` — **optional, and only ever needed if you're writing a bullet by hand.** A trailing `· at=<int>` after `pinned@`<sha>`` disambiguates *which* occurrence of the quote on the page is meant, for the rare case where the quote appears more than once. Tools that capture an anchor add it automatically whenever it's needed; when hand-writing an anchor, omit it unless your quote repeats on the page.
 
 A bullet needs at minimum a fidelity and a `pinned@` token — that pair is what marks it as an anchor rather than an ordinary list item.
 
@@ -174,7 +175,7 @@ A bullet needs at minimum a fidelity and a `pinned@` token — that pair is what
 
 - Extra whitespace around `—` or `·` is fine; the parser is forgiving about separators.
 - A missing `#Heading` is OK (the quote still pins to the page).
-- An unparseable bullet line (e.g., a typo in the link or fidelity) is skipped silently — the note remains valid, and readable anchors survive.
+- An unparseable bullet line (e.g., a typo in the link or fidelity) is dropped from the note, but not silently: it is counted and reported back to you (as a "skipped/malformed" count) when you list or read notes, so you know a bullet needs fixing. The note itself remains valid, and its readable anchors survive.
 - A bare `## Anchors` heading with no bullets is valid.
 - A note with no `## Anchors` section at all is valid (a topic-level reflection with no specific quotes).
 

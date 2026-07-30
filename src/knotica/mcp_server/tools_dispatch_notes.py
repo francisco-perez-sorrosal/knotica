@@ -32,9 +32,9 @@ from mcp.server.fastmcp import FastMCP
 from mcp.types import CallToolResult
 
 from knotica.core.errors import ErrorCode, KnoticaError
-from knotica.core.notes.anchor import NOTE_INTENTS
 from knotica.core.notes.store import NotesListing, ResolvedNote, list_notes
 from knotica.core.page import TopicNotFoundError
+from knotica.core.schema import validated_topic
 from knotica.core.vcs import VaultVcs
 from knotica.mcp_server.dispatch_telemetry import record_dispatch, record_rejected_action
 from knotica.mcp_server.tools_notes import render_anchors
@@ -60,6 +60,12 @@ _ANCHOR_STATUSES: tuple[str, ...] = ("exact", "unanchored", "shifted", "orphaned
 _ALL_FILTER = "all"
 
 _INTENT_VALUES: tuple[str, ...] = ("reflection", "dispute", "gap", "question")
+
+#: A hand-authored note may carry any intent string -- the parser deliberately
+#: does not enforce ``NOTE_INTENTS`` on read, so a note stays readable even
+#: with a typo'd or invented intent. This bucket keeps `intent_counts` summing
+#: to `total_count` for those notes, rather than silently under-reporting.
+_OTHER_INTENT = "other"
 
 _DEFAULT_LIMIT = 20
 _MAX_LIMIT = 50
@@ -127,7 +133,7 @@ def _dispatch_payload(
     limit: int,
 ) -> dict[str, Any]:
     cleaned_action = _validate_action(action)
-    cleaned_topic = _validate_topic(topic)
+    cleaned_topic = _validate_topic(store, topic)
     record_dispatch(_DISPATCHER, cleaned_action, cleaned_topic)
     listing = list_notes(store, VaultVcs(vault_path), cleaned_topic)
     if cleaned_action == "read":
@@ -179,13 +185,20 @@ def _filtered(
     return [
         note
         for note in notes
-        if _matches(note.document.intent, intent_filter)
+        if _matches_intent(note.document.intent, intent_filter)
         and _matches(_drift_status(note), status_filter)
     ]
 
 
 def _matches(value: str | None, wanted: str) -> bool:
     return wanted == _ALL_FILTER or value == wanted
+
+
+def _matches_intent(value: str, wanted: str) -> bool:
+    """Like :func:`_matches`, but ``other`` catches a hand-typed unknown intent."""
+    if wanted == _OTHER_INTENT:
+        return value not in _INTENT_VALUES
+    return _matches(value, wanted)
 
 
 def _sorted(notes: list[ResolvedNote]) -> list[ResolvedNote]:
@@ -207,6 +220,7 @@ def _note_summary(note: ResolvedNote) -> dict[str, Any]:
         "tags": list(document.tags),
         "note": document.body,
         "anchors": render_anchors(note),
+        "skipped_anchor_count": document.skipped_anchor_count,
     }
 
 
@@ -236,8 +250,17 @@ def _drift_status(note: ResolvedNote) -> str | None:
 
 
 def _intent_counts(notes: tuple[ResolvedNote, ...]) -> dict[str, int]:
+    """Per-intent breakdown, plus ``other`` for a hand-typed unknown intent.
+
+    Always sums to the topic's ``total_count``: every note has exactly one of
+    the four known intents or falls into ``other`` -- never silently dropped.
+    """
     counter = Counter(note.document.intent for note in notes)
-    return {value: counter.get(value, 0) for value in _INTENT_VALUES}
+    counts = {value: counter.get(value, 0) for value in _INTENT_VALUES}
+    counts[_OTHER_INTENT] = sum(
+        count for intent, count in counter.items() if intent not in _INTENT_VALUES
+    )
+    return counts
 
 
 def _status_counts(notes: tuple[ResolvedNote, ...]) -> dict[str, int]:
@@ -319,20 +342,33 @@ def _validate_action(action: str) -> str:
     return cleaned
 
 
-def _validate_topic(topic: str) -> str:
-    cleaned = topic.strip().strip("/")
-    if not cleaned or "/" in cleaned:
-        raise TopicNotFoundError(topic or "(empty)")
+def _validate_topic(store: VaultStore, topic: str) -> str:
+    """Reject anything that is not an existing topic directory.
+
+    Mirrors ``capture_note``'s validation exactly: a bare-topic-shape check
+    (``core.schema.validated_topic``, which also rejects dot-prefixed
+    segments like ``.``/``..``) followed by an existence check against the
+    store. Without the existence check, a mistyped topic silently returns an
+    empty listing instead of ``TOPIC_NOT_FOUND`` -- a wrong answer delivered
+    with false confidence.
+    """
+    try:
+        cleaned = validated_topic(topic)
+    except ValueError as error:
+        raise TopicNotFoundError(topic or "(empty)") from error
+    if not store.exists(cleaned):
+        raise TopicNotFoundError(cleaned)
     return cleaned
 
 
 def _validate_intent_filter(intent: str) -> str:
     cleaned = intent.strip().lower()
-    if cleaned != _ALL_FILTER and cleaned not in NOTE_INTENTS:
+    allowed = (*_INTENT_VALUES, _OTHER_INTENT, _ALL_FILTER)
+    if cleaned not in allowed:
         raise KnoticaError(
             ErrorCode.INVALID_ARGUMENT,
-            f"intent must be one of {'|'.join(_INTENT_VALUES)}|{_ALL_FILTER}, got {intent!r}",
-            fix=f"Pass intent as one of: {', '.join((*_INTENT_VALUES, _ALL_FILTER))}.",
+            f"intent must be one of {'|'.join(allowed)}, got {intent!r}",
+            fix=f"Pass intent as one of: {', '.join(allowed)}.",
         )
     return cleaned
 
