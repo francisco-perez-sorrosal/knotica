@@ -1,0 +1,60 @@
+# Pre-commit hooks for knotica. Install once per clone: `pre-commit install`.
+#
+# mypy is intentionally NOT wired yet -- a separate concurrent workstream is
+# fixing 128 pre-existing strict-mode errors (see td-019 in
+# .ai-state/TECH_DEBT_LEDGER.md); a mypy hook today would block every commit.
+# Uncomment the stanza at the bottom once that lands.
+
+repos:
+  # ruff: pinned to the same version this project resolves in uv.lock
+  # (0.15.20) so `pre-commit run` and `uv run ruff` never disagree.
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: c59bba8fb259db0fec2bbb77ad8ba51ea7341b56 # v0.15.20
+    hooks:
+      # --fix is deliberately OFF: this hook should report exactly what CI
+      # would report, not silently rewrite the diff being committed. Run
+      # `uv run ruff check --fix` by hand when you want auto-fixes.
+      - id: ruff-check
+        name: ruff check
+      - id: ruff-format
+        name: ruff format --check
+        args: [--check]
+
+  # Secret scanning. detect-secrets over gitleaks: pure-Python (fits the
+  # project's existing uv/pip toolchain instead of a separately-managed Go
+  # binary release) and its scan is fully offline/heuristic -- no network
+  # call at commit time, matching this project's "no network at commit"
+  # preference. .secrets.baseline pins the known false positives (test
+  # fixtures for the scrub/redaction feature, doc examples of env vars).
+  - repo: https://github.com/Yelp/detect-secrets
+    rev: 68e8b45440415753fff70a312ece8da92ba85b4a # v1.5.0
+    hooks:
+      - id: detect-secrets
+        args: [--baseline, .secrets.baseline]
+        exclude: uv\.lock
+
+  # Inbound id-citation discipline (td-014): blocks ephemeral pipeline
+  # identifiers (REQ-*, AC-*, Step N, PM-N, dec-draft-<hash>, WIP.md /
+  # SYSTEMS_PLAN.md / IMPLEMENTATION_PLAN.md references) from landing in
+  # committed code/tests, where nothing ever rewrites or deletes them once
+  # .ai-work/ is cleaned up. Local hook: no separate repo to pin, and it
+  # needs no dependencies beyond the stdlib.
+  - repo: local
+    hooks:
+      - id: id-citation-discipline
+        name: id-citation discipline (inbound)
+        entry: python3 scripts/check_id_citation_discipline.py --files
+        language: system
+        types_or: [python, ts, tsx, javascript, jsx, rust, go, java, kotlin, ruby, shell]
+        pass_filenames: true
+
+  # Uncomment once td-019 (mypy baseline) lands:
+  # - repo: local
+  #   hooks:
+  #     - id: mypy
+  #       name: mypy
+  #       entry: uv run --frozen mypy
+  #       language: system
+  #       types: [python]
+  #       pass_filenames: false
+  #       args: [src/knotica]

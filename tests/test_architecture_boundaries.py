@@ -39,6 +39,33 @@ non-store object in an adapter would also be flagged -- acceptable, since the
 single-writer intent is that adapters perform no mutation of any kind, and no
 such call exists on the current tree.
 
+A third check closes a gap in the above: matching by *store method name* is
+blind to a raw filesystem bypass -- ``Path(...).write_text(...)`` writes the
+vault exactly as effectively as ``store.write_text_atomic(...)`` without ever
+calling a name the scan above looks for. ``test_adapters_do_not_perform_raw_
+filesystem_writes`` detects ``Path.write_text``/``write_bytes``/``unlink``
+(bare attribute name, same aliasing-robust idiom), ``os.replace``/``os.remove``
+and ``shutil.copy*``/``shutil.move`` (receiver-checked on the module name,
+since "replace"/"remove"/"copy"/"move" are too generic to match by bare
+attribute name alone), and ``open()``/``Path.open()`` calls whose mode is a
+*literal* string containing ``w``, ``a``, or ``x`` (a dynamically computed
+mode is an accepted, documented blind spot). Two allowlists carve out the
+writes that are genuinely not vault mutations: entire modules whose own
+design excludes vault coupling, and individual ``module::function`` pairs
+whose target is a specific gitignored runtime-state path (verified against
+``vault-template/.gitignore``) or an external application's own config file.
+See the allowlist constants below for the reasoning behind each entry.
+
+Scope: this raw-write check covers the same ``ADAPTER_PACKAGES`` as the checks
+above (``cli``, ``mcp_server``, ``evals``) -- not the wider tree. ``core/``
+hosts the sole writer itself plus a family of legitimate non-vault operational
+writers (locks, heartbeats, progress files, config, caches) that were never
+part of "the vault" in the git-committed-content sense; folding it in would
+require a much larger allowlist unrelated to this gap. ``guillotine/``,
+``discovery/``, ``dashboard/``, ``programs/``, and ``search/`` perform no raw
+filesystem writes at all today (verified by grep), so widening the scan to
+include them would not currently change its outcome.
+
 A second, independent boundary: ``search/`` may depend on ``knotica.core``
 only through ``core.vault_layout``, the zero-dependency folder-family leaf
 (see ``core/__init__.py``'s boundary docstring). ``vault_layout`` imports
@@ -97,6 +124,60 @@ OS_SHELL_ATTRS = frozenset({"system", "popen"})
 #: docstring for why (zero-dependency leaf, no cycle risk).
 CORE_LEAF_EXEMPTION = "vault_layout"
 
+#: Path methods that mutate the filesystem directly -- matched by trailing
+#: attribute name (also catches ``os.unlink``, which shares the same name).
+RAW_WRITE_PATH_METHODS = frozenset({"write_text", "write_bytes", "unlink"})
+
+#: ``os`` attributes that mutate the filesystem -- receiver-checked (module
+#: name only, no aliasing), since "replace"/"remove" are too generic to match
+#: by bare attribute name (``str.replace``, ``list.remove`` would collide).
+RAW_WRITE_OS_ATTRS = frozenset({"replace", "remove"})
+
+#: ``shutil`` attributes that copy or move files -- receiver-checked for the
+#: same reason as ``RAW_WRITE_OS_ATTRS``.
+RAW_WRITE_SHUTIL_ATTRS = frozenset({"copy", "copy2", "copyfile", "copytree", "move"})
+
+#: Characters whose presence in a literal ``open``/``Path.open`` mode string
+#: marks the call as a write. A read-write mode not containing any of these
+#: (e.g. ``"r+"``) is an accepted blind spot -- none exist in the scanned
+#: packages today (verified by grep).
+_WRITE_MODE_CHARS = frozenset("wax")
+
+#: Whole modules exempt from the raw-write scan below -- every write in the
+#: module targets a location outside the vault's git-tracked content, so none
+#: of it is subject to the single-writer transaction path.
+RAW_WRITE_MODULE_ALLOWLIST = frozenset(
+    {
+        # Stdlib-only response cache; "no vault coupling" is a load-bearing
+        # design constraint stated in the module's own docstring. The on-disk
+        # backing lives under a constructor-supplied storage_root -- never
+        # vault content.
+        "evals/cache.py",
+    }
+)
+
+#: ``module::function`` entries exempt from the raw-write scan -- narrower
+#: than the module allowlist above because the rest of the module IS subject
+#: to the single-writer rule.
+RAW_WRITE_FUNCTION_ALLOWLIST = frozenset(
+    {
+        # Writes the golden-bootstrap review scratchpad at the gitignored
+        # `.knotica/datasets/golden.staging.jsonl` -- deliberately never
+        # committed (a human reviews it before the accept step freezes it via
+        # VaultTransaction).
+        "evals/golden.py::_write_staging",
+        # Backs up and patches the Claude Desktop app's own config file --
+        # external application state, never vault content.
+        "cli/init.py::_patch_desktop",
+        # Mints a single-use nonce under the gitignored `.knotica/locks/`
+        # directory -- the same runtime-lock class the vault flock
+        # (core/lock.py) uses, never vault content.
+        "mcp_server/tools_vault.py::_mint_nonce",
+        # Consumes (and deletes) the same gitignored nonce file minted above.
+        "mcp_server/tools_vault.py::_consume_nonce",
+    }
+)
+
 
 def _module_label(path: Path) -> str:
     """Repo-relative POSIX label for a source file (stable in failure messages)."""
@@ -134,6 +215,84 @@ def _called_method_names(tree: ast.Module) -> list[tuple[str, int]]:
         if isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute):
             calls.append((node.func.attr, node.func.lineno))
     return calls
+
+
+def _module_attr_write_lines(
+    tree: ast.Module, module_name: str, attrs: frozenset[str]
+) -> list[tuple[str, int]]:
+    """``(attribute-name, line)`` for ``<module_name>.<attr>(...)`` calls, ``attr in attrs``.
+
+    Receiver-checked (module name only, no aliasing) -- mirrors ``_os_shell_lines``.
+    """
+    lines: list[tuple[str, int]] = []
+    for node in ast.walk(tree):
+        if not (isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute)):
+            continue
+        if node.func.attr not in attrs:
+            continue
+        if isinstance(node.func.value, ast.Name) and node.func.value.id == module_name:
+            lines.append((node.func.attr, node.func.lineno))
+    return lines
+
+
+def _literal_open_mode(node: ast.Call, is_builtin: bool) -> str | None:
+    """The literal string mode argument of an ``open``/``Path.open`` call, if any."""
+    positional_index = 1 if is_builtin else 0
+    if len(node.args) > positional_index:
+        arg = node.args[positional_index]
+        return arg.value if isinstance(arg, ast.Constant) and isinstance(arg.value, str) else None
+    for keyword in node.keywords:
+        if keyword.arg == "mode" and isinstance(keyword.value, ast.Constant):
+            return keyword.value.value if isinstance(keyword.value.value, str) else None
+    return None
+
+
+def _write_mode_open_lines(tree: ast.Module) -> list[tuple[str, int]]:
+    """Lines calling ``open(...)`` or ``<expr>.open(...)`` with a literal write mode.
+
+    Covers builtin ``open`` and ``Path.open`` alike. A call with no mode argument
+    at all defaults to read (``"r"``) and is correctly not flagged.
+    """
+    lines: list[tuple[str, int]] = []
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.Call):
+            continue
+        is_builtin_open = isinstance(node.func, ast.Name) and node.func.id == "open"
+        is_path_open = isinstance(node.func, ast.Attribute) and node.func.attr == "open"
+        if not (is_builtin_open or is_path_open):
+            continue
+        mode = _literal_open_mode(node, is_builtin_open)
+        if mode is not None and any(char in mode for char in _WRITE_MODE_CHARS):
+            lines.append(("open", node.lineno))
+    return lines
+
+
+def _raw_write_calls(tree: ast.Module) -> list[tuple[str, int]]:
+    """``(description, line)`` for every raw filesystem-write call detectable in ``tree``.
+
+    See the module docstring's third-check paragraph for what this covers and why.
+    """
+    calls: list[tuple[str, int]] = [
+        (name, line) for name, line in _called_method_names(tree) if name in RAW_WRITE_PATH_METHODS
+    ]
+    for attr, line in _module_attr_write_lines(tree, "os", RAW_WRITE_OS_ATTRS):
+        calls.append((f"os.{attr}", line))
+    for attr, line in _module_attr_write_lines(tree, "shutil", RAW_WRITE_SHUTIL_ATTRS):
+        calls.append((f"shutil.{attr}", line))
+    calls.extend(_write_mode_open_lines(tree))
+    return calls
+
+
+def _enclosing_function(tree: ast.Module, line: int) -> str | None:
+    """Name of the innermost function/method enclosing ``line``, or ``None`` at module scope."""
+    best: ast.FunctionDef | ast.AsyncFunctionDef | None = None
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.FunctionDef | ast.AsyncFunctionDef):
+            continue
+        if node.lineno <= line <= (node.end_lineno or node.lineno):
+            if best is None or node.lineno > best.lineno:
+                best = node
+    return best.name if best else None
 
 
 def _imports_subprocess(tree: ast.Module) -> bool:
@@ -295,6 +454,43 @@ def test_adapters_do_not_call_mutating_vcs_methods() -> None:
     assert not violations, (
         "cli/ and mcp_server/ must not commit or roll back the vault (no "
         f"commit_paths/rollback_paths): {violations}"
+    )
+
+
+def test_adapters_do_not_perform_raw_filesystem_writes() -> None:
+    violations: list[str] = []
+    for path in _adapter_files():
+        label = _module_label(path)
+        if label in RAW_WRITE_MODULE_ALLOWLIST:
+            continue
+        tree = _parse(path)
+        for description, line in _raw_write_calls(tree):
+            qualified = f"{label}::{_enclosing_function(tree, line)}"
+            if qualified in RAW_WRITE_FUNCTION_ALLOWLIST:
+                continue
+            violations.append(f"{label}:{line} calls {description}(...) directly")
+    assert not violations, (
+        "cli/, mcp_server/, and evals/ must not perform raw filesystem writes "
+        "(Path.write_text/write_bytes/unlink, os.replace/os.remove, "
+        "shutil.copy*/move, or open(..., 'w'|'a'|'x')) -- these bypass "
+        "core.transaction's single-writer path just as effectively as calling "
+        f"write_text_atomic directly would: {violations}"
+    )
+
+
+def test_raw_write_scanner_detects_the_allowlisted_golden_staging_write() -> None:
+    # Non-vacuity guard: proves the scanner actually sees `_write_staging`'s
+    # write_text call -- the function allowlist above is suppressing a real
+    # detection, not filtering nothing. Without this, a future rename of
+    # `_write_staging` that silently stopped the allowlist entry from matching
+    # would leave the allowlist entry dead and this guard would be the only
+    # thing to notice.
+    tree = _parse(SRC_ROOT / "evals" / "golden.py")
+    detected = {name for name, _line in _raw_write_calls(tree)}
+    assert "write_text" in detected, (
+        "expected the raw-write scanner to detect golden.py's _write_staging "
+        "write_text call -- if this fails, the allowlist entry "
+        "'evals/golden.py::_write_staging' matches nothing"
     )
 
 

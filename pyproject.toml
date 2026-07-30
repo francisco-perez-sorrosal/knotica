@@ -35,6 +35,7 @@ evals = [
 dev = [
     "pytest",
     "ruff",
+    "mypy",
 ]
 # Compatibility alias of the `evals` *extra* above (the source of truth) so
 # existing `uv sync --group evals` dev/CI flows keep working unchanged. Same
@@ -62,3 +63,26 @@ packages = ["src/knotica"]
 [tool.ruff]
 target-version = "py312"
 line-length = 100
+
+[tool.mypy]
+python_version = "3.12"
+strict = true
+# Absolute-import project; keep error output navigable and precise.
+files = ["src/knotica"]
+show_error_codes = true
+warn_unused_ignores = true
+warn_redundant_casts = true
+warn_unreachable = true
+# Scope note: `tests/` is deliberately NOT type-checked. Test code legitimately
+# leans on fixtures, monkeypatching and deliberately-malformed inputs, where
+# strict typing costs more than it catches. The production surface is the
+# contract worth gating. Widening to `tests/` is a separate, later decision --
+# not a silent omission.
+
+[[tool.mypy.overrides]]
+# `dspy` ships no type stubs and no `py.typed` marker (verified: the only
+# import-not-found modules in the whole tree are `dspy` and `dspy.teleprompt`).
+# This silences the missing-stub error for the dependency itself; it does NOT
+# relax checking of our own code that uses it.
+module = ["dspy", "dspy.*"]
+ignore_missing_imports = true

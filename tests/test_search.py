@@ -625,6 +625,38 @@ def test_unscoped_search_excludes_the_note_family_while_still_returning_pages_an
     assert {rel_path for rel_path, _, _ in CLASSIFICATION_LAYOUTS} <= returned_paths
 
 
+# ---------------------------------------------------------------------------
+# Corpus-statistics parity: a sibling notes/ tree must not move any score
+# ---------------------------------------------------------------------------
+
+
+def test_bm25_score_is_identical_with_and_without_a_sibling_notes_tree(
+    make_backend: Callable[[Path], RipgrepBackend], tmp_path: Path
+):
+    """Notes are excluded from *results* by family filtering, but until the
+    corpus-statistics walk applies that same filter, a populated ``notes/``
+    tree still inflates ``doc_count`` and average byte length -- perturbing
+    the score of pages that ARE returned, even though neither note contains
+    the search term. Expected RED until ``_corpus_stats`` agrees with
+    ``_collect_matches`` on what the corpus is.
+    """
+    vault = tmp_path / "vault"
+    _plant(vault, "topicx/three.md", 3)
+    _plant(vault, "topicx/one.md", 1)
+    before = make_backend(vault).search(SEARCH_TOKEN, limit=50)
+    scores_before = {result.path: result.score for result in before.results}
+
+    vault_with_notes = tmp_path / "vault-with-notes"
+    shutil.copytree(vault, vault_with_notes)
+    _plant_text(vault_with_notes, "notes/topicx/short.md", "an unrelated private note\n")
+    _plant_text(vault_with_notes, "notes/topicx/long.md", "unrelated padding prose\n" * 500)
+
+    after = make_backend(vault_with_notes).search(SEARCH_TOKEN, limit=50)
+    scores_after = {result.path: result.score for result in after.results}
+
+    assert scores_after == scores_before
+
+
 def test_unknown_topic_yields_an_empty_envelope_not_an_error(planted_vault: Path):
     page = RipgrepBackend(planted_vault).search(SEARCH_TOKEN, topic="ghost-topic")
 

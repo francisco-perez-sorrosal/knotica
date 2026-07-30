@@ -139,8 +139,8 @@ class RipgrepBackend:
         if self._rg_path is not None:
             candidates = self._candidates_ripgrep(terms, scan_dirs)
         else:
-            candidates = list(_walk_markdown_files(scan_dirs))
-        doc_count, average_bytes = _corpus_stats(scan_dirs)
+            candidates = list(_walk_markdown_files(self._root, scan_dirs))
+        doc_count, average_bytes = _corpus_stats(self._root, scan_dirs)
         matches = _collect_matches(candidates, terms, self._root)
         results = _score_bm25(matches, terms, doc_count, average_bytes)
         ranked = sorted(results, key=lambda result: (-result.score, result.path))
@@ -194,25 +194,38 @@ class RipgrepBackend:
         return [Path(line) for line in completed.stdout.splitlines() if line]
 
 
-def _walk_markdown_files(scan_dirs: Iterable[Path]) -> Iterator[Path]:
-    """Yield every non-hidden ``*.md`` file under the scan dirs, skipping dot-folders."""
+def _walk_markdown_files(root: Path, scan_dirs: Iterable[Path]) -> Iterator[Path]:
+    """Yield every scored, non-hidden ``*.md`` file under the scan dirs.
+
+    Filters to :data:`SCORED_FAMILIES` here -- the same predicate
+    ``_collect_matches`` applies to ripgrep-selected candidates -- so every
+    consumer of this walk (corpus statistics, and the pure-Python engine's
+    own candidate selection) agrees with the two engines' scored results on
+    what the corpus is. A personal note is real, indexable markdown, but it
+    must never move a ranking or a corpus statistic: the two disagreeing was
+    the whole bug.
+    """
     for scan_dir in scan_dirs:
         for dirpath, dirnames, filenames in os.walk(scan_dir):
             dirnames[:] = sorted(name for name in dirnames if not name.startswith("."))
             for filename in sorted(filenames):
-                if filename.endswith(_MARKDOWN_SUFFIX) and not filename.startswith("."):
-                    yield Path(dirpath) / filename
+                if not filename.endswith(_MARKDOWN_SUFFIX) or filename.startswith("."):
+                    continue
+                file_path = Path(dirpath) / filename
+                rel_path = file_path.relative_to(root).as_posix()
+                if family_of(rel_path) in SCORED_FAMILIES:
+                    yield file_path
 
 
-def _corpus_stats(scan_dirs: Iterable[Path]) -> tuple[int, float]:
-    """Document count and average byte length over every markdown file in scope.
+def _corpus_stats(root: Path, scan_dirs: Iterable[Path]) -> tuple[int, float]:
+    """Document count and average byte length over every scored markdown file in scope.
 
     Stat-only (no file reads): byte size is the BM25 document-length proxy, so
     the corpus average costs one ``stat`` per file rather than a full read.
     """
     doc_count = 0
     total_bytes = 0
-    for file_path in _walk_markdown_files(scan_dirs):
+    for file_path in _walk_markdown_files(root, scan_dirs):
         doc_count += 1
         total_bytes += file_path.stat().st_size
     average_bytes = (total_bytes / doc_count) if doc_count else 0.0

@@ -4,8 +4,9 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from knotica.core.page import parse_page
 from knotica.core.text_reflow import reflow_pdf_markdown
+
+_FIXTURES_DIR = Path(__file__).parent / "fixtures" / "text_reflow"
 
 S1_SAMPLE = """\
 ## 1 Introduction
@@ -80,13 +81,16 @@ def test_reflow_preserves_markdown_headers() -> None:
     assert reflowed.startswith("## 1 Introduction\n")
 
 
-def test_hu2025memory_s1_intro_reflow_is_idempotent() -> None:
-    path = Path("/Users/fperez/dev/data/knotica/sources/agentic-systems/hu2025memory-s1-intro.md")
-    if not path.exists():
-        return
-    _frontmatter, _error, body = parse_page(path.read_text(encoding="utf-8"))
-    assert _error is None
-    reflowed = reflow_pdf_markdown(body)
+def test_reflow_is_idempotent_on_real_extracted_pdf_text() -> None:
+    # Fixture: a raw, pre-reflow PDF-extraction excerpt (the "Key Questions" and
+    # "Contributions" sections of a real vault source page, hu2025memory-s1-intro),
+    # copied verbatim from the un-reflowed extraction so the awkward shapes a
+    # hand-written sample would not reproduce are preserved: mid-sentence column
+    # wraps, a hyphenated line break ("up-to-\ndate"), a run-in heading, and a
+    # bullet list with a wrapped continuation line.
+    raw = (_FIXTURES_DIR / "hu2025memory-s1-intro-raw-excerpt.md").read_text(encoding="utf-8")
+    reflowed = reflow_pdf_markdown(raw)
     assert reflow_pdf_markdown(reflowed) == reflowed
-    assert "language models (LLMs) into powerful" in reflowed
-    assert "language models\n(LLMs)" not in reflowed
+    assert "up-to-date" in reflowed
+    assert "up-to-\ndate" not in reflowed
+    assert "### Key Questions" in reflowed
