@@ -1,6 +1,6 @@
 ---
 name: wiki-maintenance
-description: This skill should be used whenever a conversation shows the symptoms of being wiki-relevant — even when the user never names knotica or "the wiki": a factual question about something the vault might cover; a user sharing a source, URL, or paper worth capturing; an expressed sense that "the wiki was wrong" or "we're missing X"; or any talk of the self-improvement loop, pending suggestions, or wiki status. It teaches how to detect wiki-relevant conversation, decide whether it is in scope with a cheap scope-check, and route to the right operation (ingest / query / lint / curate) — offering, never silently mutating. The step-by-step protocol for each operation lives in the vault's operation prompts (load via read_protocol).
+description: This skill should be used whenever a conversation shows the symptoms of being wiki-relevant — even when the user never names knotica or "the wiki": a factual question about something the vault might cover; a user sharing a source, URL, or paper worth capturing; an expressed sense that "the wiki was wrong" or "we're missing X"; any talk of the self-improvement loop, pending suggestions, or wiki status; or a personal reaction to something the wiki just said — a connection the user drew, a doubt, a disagreement, or a "worth coming back to" aside. It teaches how to detect wiki-relevant conversation, decide whether it is in scope with a cheap scope-check, and route to the right operation (ingest / query / lint / curate) — offering, never silently mutating. The step-by-step protocol for each operation lives in the vault's operation prompts (load via read_protocol).
 version: 0.1.0
 ---
 
@@ -38,6 +38,9 @@ of wiki-relevant talk, not on the user naming knotica. Watch for four:
   or any question you would otherwise answer from your own memory).
 - **A shared source** — the user drops a URL, paper, or document worth capturing.
 - **A reported gap or error** — "the wiki was wrong about Y", "we're missing Z".
+- **A personal reaction** — the user responds to something *you just told them from the wiki*
+  with a thought of their own: a connection ("this is just Goodhart with extra steps"), a doubt
+  ("I've never bought that argument"), or a marker ("worth revisiting when we redo the eval").
 - **Loop / suggestion / status talk** — anything about candidates, the self-improvement
   loop, pending suggestions, or wiki health.
 
@@ -75,6 +78,37 @@ sequence for each operation — lives in the vault's operation prompts; load one
 The operations are not siloed: a query may reveal a contradiction (fold into a lint), an
 ingest may supersede an existing page (see supersession below), and every good interaction is
 a curation candidate.
+
+## Notes: the user's own layer
+
+A **note** is the user's marginalia on the wiki — their thinking, not the wiki's knowledge. It
+lives in `notes/<topic>/`, is never scored, never feeds an eval, and never changes what the wiki
+says. That makes it the one write that is always safe.
+
+Capture with `note_capture` when the user's message **is** the note: an addressed remark ("note
+this", "worth remembering:") or a reflective aside about what they just read. Pass their words
+verbatim, the passage you displayed as `quote`, and the pages you synthesized it from as
+`pages` — the server pins the strongest anchor it can prove and tells you where it landed in one
+line. Never infer a note from the user thinking aloud, and never write one for them; an
+unaddressed reaction gets an offer ("want me to note that?"), not a write.
+
+**Note vs. gap vs. source — one question decides it: does the user want the KB to change?**
+
+- No, they want their own thought on the record → `note_capture`. Disagreement with the wiki
+  that is theirs to hold, not a fact to fix, is `intent="dispute"`.
+- Yes, the wiki is wrong or missing and should be fixed → `gap_report`. Do not file the same
+  thing twice: a note and a gap are different acts.
+- They handed you external material to capture → ingest.
+
+**When you cannot tell, note it and offer to escalate.** A note is private and reversible; a gap
+enters a research queue and cannot be un-filed as cheaply. If the user later decides the wiki
+really is wrong, file a fresh `gap_report` — there is no action yet that converts a note into a
+gap directly.
+
+To recall notes, use `notes action=list`: notes sit outside the wiki corpus, so `search` will
+never find one. Filter by `intent` (`reflection`/`dispute`/`gap`/`question`) or by resolved anchor
+`status` (`exact`/`shifted`/`orphaned`/`unanchored`); `notes action=read` returns one note in full,
+its text and anchors included.
 
 ## Schema-first discipline
 

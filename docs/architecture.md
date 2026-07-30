@@ -5,13 +5,16 @@
      .ai-state/DESIGN.md; the converged design lives in docs/PRE_PLAN.md.
      Created by systems-architect; updated by implementer; verified by doc-engineer at checkpoints. -->
 
-> **Status: MVP + Phase-2 `evals/` + Phase-3a `programs/`/compile/loop + consolidation P-A/P-B/P-C/P-D (Built as of 2026-07-21).** The `store/`,
+> **Status: MVP + Phase-2 `evals/` + Phase-3a `programs/`/compile/loop + consolidation P-A/P-B/P-C/P-D + notes-overlay Phase 1 (Built as of 2026-07-30).** The `store/`,
 > `search/`, `core/`, `mcp_server/`, `cli/`, `evals/`, and `programs/` packages plus the autonomous
 > `knotica loop` watcher, the cold-start dataset bootstrap, the plugin layer, and the dashboard MCP App
 > are on disk. **P-A loop-internals (branch namespaces, best_effort, arena-race, runner factory)** and
 > **P-B tool-surface two-tier dispatcher** (7 operator dispatchers + 18-core + 4-straggler conversational tools;
 > additive-alias migration window active) are Built. **P-C transparency/routing** (skill + slimmed instructions)
-> partially Built. Outer-loop `agent/` (SIA / Phase 3b) and **P-D service lifecycle** remain Planned. For design rationale, read
+> partially Built. **Notes overlay Phase 1** — personal marginalia (`core/notes/`, `note_capture`, the `notes`
+> dispatcher's `list`/`read` actions, the dashboard Notes tab, `/knotica:note`) — is Built; the resolution ladder's
+> `fuzzy` rung, `reanchor`/`detach`/`promote`/`archive`, and the eval-bridge are Phase 2+. Outer-loop `agent/`
+> (SIA / Phase 3b) and **P-D service lifecycle** remain Planned. For design rationale, read
 > [`.ai-state/DESIGN.md`](../.ai-state/DESIGN.md); for the full design, [`docs/PRE_PLAN.md`](./PRE_PLAN.md).
 > End-user Desktop install: [`docs/CLAUDE_DESKTOP.md`](./CLAUDE_DESKTOP.md) (headless `query`/compile/eval
 > credentials: [Headless LLM credentials](./CLAUDE_DESKTOP.md#headless-llm-credentials-query--compile--eval)).
@@ -24,7 +27,7 @@
 | **Type** | Stateless MCP server + CLI over a versioned Obsidian vault; Claude plugin marketplace |
 | **Language / Framework** | Python 3.12+ (uv) / official `mcp` SDK (`FastMCP`) |
 | **Architecture pattern** | Hexagonal, single-mutation-core |
-| **Last verified against code** | 2026-07-29 — MVP tree + Phase-2 `evals/` + Phase-3a `programs/`/compile/loop + Phase-0 `core.vault_layout` (folder families, folder-family constants, classifiers) Built; `agent/` (SIA outer loop) Planned (Phase 3b). Notes-overlay Phase 0: `core/vault_layout.py` new leaf declaring `RESERVED_TOP_LEVEL_NAMES` (incl. `notes`), the `Family` type, `SOURCES_DIR`/`NOTES_DIR`, `TOP_LEVEL_FAMILY_DIRS`, `SCORED_FAMILIES`, and pure classifiers `family_of`/`topic_of`; `search/` now delegates `_classify` to these classifiers and aliases `ResultKind = Family` for acyclic `search → core.vault_layout` edge |
+| **Last verified against code** | 2026-07-30 — MVP tree + Phase-2 `evals/` + Phase-3a `programs/`/compile/loop + notes-overlay Phase 1 (`core/notes/`, `capture_note`, `note_capture` tool, `notes` dispatcher's `list`/`read` actions, the dashboard Notes tab, `/knotica:note`, the `wiki-maintenance` note-routing section) all Built; `agent/` (SIA outer loop) Planned (Phase 3b); notes overlay's `fuzzy` resolution rung, `reanchor`/`detach`/`promote`/`archive`, and the eval bridge are Phase 2+, not yet on disk |
 
 Knotica is an AI-maintained markdown wiki in an Obsidian vault. The **Claude client's LLM is the brain**;
 the server exposes deterministic tools and holds no session state. Every vault mutation flows through a
@@ -63,12 +66,14 @@ knotica → the vault git repo. Deployment is out of scope (local-only Phases 0�
 | `search/` | `SearchBackend` protocol + `RipgrepBackend` — read-only full-text search with cursor paging. A result's `kind` is the path's folder family: `ResultKind` is an alias of `core.vault_layout.Family` (`"page"`/`"source"`/`"note"`) rather than a parallel literal, and `ripgrep._classify` derives `(topic, kind)` by delegating to `family_of`/`topic_of` instead of matching path segments itself — so a search result can never disagree with the rest of the codebase about what a path holds. This is the one place `search/` depends on `core/`: a single import of the `core.vault_layout` leaf (which imports nothing from `knotica`), so the edge is one-directional and acyclic | `src/knotica/search/` |
 | `core/` | Vault semantics: `config`, `schema`, `page`/`links`, `lint`, `vcs`, `lock`, `scrub`, `records`, `template` (read-only packaged-template locator), `transaction.VaultTransaction`, the four `operations.*` writes, and the loop spine (`loop.LoopRunner` — observe/gate/heal; `loop_state` — persisted `LoopState`/`LoopStage`/`LoopDecision`; `loop_heartbeat` — runner-liveness file under `.knotica/locks/`; `loop_progress` — in-flight per-question eval progress, same locks dir). Operations are config-agnostic — `(store, vault_root, *semantic_args)`, resolving config only at the adapter boundary. **P-A consolidation (Built):** `branch_namespaces.py` owns the single source of truth for all five branch-prefix constants and classify/parse helpers (formerly scattered across four modules); `best_effort.py` owns the shared failure-isolation context manager for six fallback sites across `loop.py` and `source_gate.py` | `src/knotica/core/` |
 | `core/vault_layout.py` | Vault folder families. Declares `RESERVED_TOP_LEVEL_NAMES` (the single declaration — `sources`, `notes`, the four root files, `.knotica`, `.git`), the family constants (`SOURCES_DIR`, `NOTES_DIR`, `TOP_LEVEL_FAMILY_DIRS`, `SCORED_FAMILIES`), and two pure classifiers — `family_of(rel_path) -> "page"|"source"|"note"` and `topic_of(rel_path) -> str`. Because `notes` is a reserved top-level name, the topic-enumeration walks that skip reserved names (`vault_metadata_tree`, `status`, `mcp_server.tools_read`, `service.manager`) exclude `notes/` for free — do not remove that membership without replacing the guarantee. A path that is absolute, empty, or contains a `..` segment raises `ValueError`. Imports nothing from `knotica`, so any layer may depend on it | `src/knotica/core/vault_layout.py` |
-| `mcp_server/` | FastMCP adapter: read tools, mutating tools, resources, and prompts. Resolves config per call; delegates every mutation to `core.operations.*`; never writes the vault directly | `src/knotica/mcp_server/` |
+| `core/notes/` | **Notes overlay, Phase 1 (Built):** `anchor.py` (note document model — frontmatter + `## Anchors` bullet grammar, pure string functions, tolerant parsing so a hand-typed note never raises), `resolve.py` (the read-time resolution ladder, steps 0–3: `unanchored`/`anchor-invalid`/`orphaned`/`exact`/`shifted`; a pure function of two text blobs, re-runs on every read so a resolver fix applies retroactively), `store.py` (`list_notes`/`read_note` — read-only enumeration + resolution, no lock, no `VaultTransaction`). Phase 1 fidelities: `span`/`page`/`topic` only; Phase 1 statuses: `exact`/`shifted`/`orphaned`/`unanchored` only — `fuzzy` and `block`/`section` fidelity have no producer yet (Phase 2) | `src/knotica/core/notes/` |
+| `core/operations/capture_note.py` | **`capture_note` — the one-shot note write (Built):** validates topic/note/intent, plans the anchor (substring match against claimed pages, degrading to page or topic fidelity on ambiguity rather than guessing), then one `VaultTransaction` write. Anchoring never fails the call — a degraded anchor rides back as an `ANCHOR_DEGRADED` warning on a success envelope | `src/knotica/core/operations/capture_note.py` |
+| `mcp_server/` | FastMCP adapter: read tools, mutating tools, resources, and prompts. Resolves config per call; delegates every mutation to `core.operations.*`; never writes the vault directly. **Notes overlay, Phase 1 (Built):** flat tool `note_capture` (`tools_notes.py`) and dispatcher `notes` (`tools_dispatch_notes.py`) registering **exactly** `action=list` and `action=read` — `drift`/`reanchor`/`detach`/`promote`/`archive` are Phase 2+ and rejected with `INVALID_ARGUMENT` | `src/knotica/mcp_server/` |
 | `cli/` | `knotica` console entry point — self-registering subcommand registry (`init`/`mcp`/`doctor`/`status`/`migrate`/`prompt`/`guillotine`/`okf`/`eval`/`compile`/`datasets`/`loop`). Reads via `core` read functions; mutations only through `core.operations.*`; never writes the vault directly. `loop` (`cli/loop.py`) owns the watch/once/set-baseline entry to `core.loop.LoopRunner`, plus the heartbeat thread | `src/knotica/cli/` |
 | `evals/` | Frozen-corpus evaluator (Phase 2, headless `knotica eval`): clones the vault at a pinned SHA, scores a topic's held-out golden set through `dspy.Evaluate` over a baseline runner + cached LLM-as-judge, composes one stable scalar, and appends a `MetricsRecord` to the *clone's* `metrics.jsonl` through `core.transaction` — never the live vault. `--bootstrap` stages synthetic golden candidates for human review (never auto-frozen). `run_eval(..., on_example=, on_substage=)` progress seams feed `core.loop_progress`. `error_capture.classify_error(exc) -> (error_class, detail)` (`"rate_limit_429"`/`"parse_error"`/`"other"`) is a small, dependency-light leaf module the runner and scorer seams both import to classify a caught per-example exception, at `src/knotica/evals/error_capture.py`. `train_bootstrap.bootstrap_trainset` cold-starts a fresh topic's `qa.jsonl` from its own entity pages (LLM-grounded, `source: seed_train`; displaced by curated records over time). `anthropic`+`dspy` are isolated in the `evals` dependency group, off the MCP launch path | `src/knotica/evals/` |
 | `programs/` | Phase 3a DSPy query compile (MIPROv2 with bootstrap fallback) → JSON compiled artifact (`optimizer`/`fallback_reason` recorded on fallback; never fabricates a compile score without LLM credentials) + `CompiledRunner`; selected by `query_engine` behind the single MCP `query` tool | `src/knotica/programs/` |
-| Dashboard | Single-file Preact MCP client: MCP App (`ui://knotica/dashboard` + `open_dashboard`) and HTTP mount (`knotica mcp --http`) | `dashboard/`, `src/knotica/dashboard/`, `src/knotica/mcp_server/app_ui.py` |
-| Plugin layer | Claude plugin marketplace surface: manifests, ten `/knotica:*` command aliases (`commands/*.md`, incl. `/knotica:loop`), SessionStart pre-warm hook, the maintenance skill, and the MCP server registration | `.claude-plugin/`, `commands/`, `hooks/`, `skills/wiki-maintenance/`, `.mcp.json` |
+| Dashboard | Single-file Preact MCP client: MCP App (`ui://knotica/dashboard` + `open_dashboard`) and HTTP mount (`knotica mcp --http`). **Notes overlay, Phase 1 (Built):** a Notes tab (`NotesPane.tsx`) — Browse view only (card list, intent + anchor-status filters, empty/loading/error/partial states, `[ Open in Obsidian ]` link rendering the vault-relative path). The drift-review queue, promotion dialog, and notes graph are Phase 2+ (no `reanchor`/`promote`/`archive` action to back them yet) | `dashboard/`, `src/knotica/dashboard/`, `src/knotica/mcp_server/app_ui.py` |
+| Plugin layer | Claude plugin marketplace surface: manifests, eleven `/knotica:*` command aliases (`commands/*.md`, incl. `/knotica:loop` and, new for notes-overlay Phase 1, `/knotica:note`), SessionStart pre-warm hook, the maintenance skill (Phase 1 addition: a note-vs-gap-vs-source routing section), and the MCP server registration | `.claude-plugin/`, `commands/`, `hooks/`, `skills/wiki-maintenance/`, `.mcp.json` |
 
 The single-writer boundary (adapters never mutate the vault; the sole writer is `core.transaction`) is
 enforced statically by `tests/test_architecture_boundaries.py`; `evals/` and compile route writes through
@@ -372,6 +377,57 @@ loop, and is not part of the eval harness, so it rotates no fingerprint.
 | `loop.baseline_frozen` / `loop.baseline_scalar` | Whether/at-what the gate baseline is frozen |
 | `loop.baseline_policy` | `"latest"` or `"best"` — the current gate policy |
 | `topics[].compiled.optimizer` / `.fallback_reason` | Which optimizer produced the compiled artifact (MIPRO, or the bootstrap fallback + why) |
+
+## 3d. Notes Overlay (Phase 1, Built)
+
+A **note** is the user's personal marginalia on a KB topic — never scored, never part of the wiki
+corpus, never touched by the loop. It lives at `notes/<topic>/<YYYYMMDD-HHMMSS>-<slug>.md`, a
+reserved top-level folder family (`core/vault_layout.py`) excluded by omission from
+`SCORED_FAMILIES`, from `search`, and from the link graph the orphan-detector walks.
+
+**Capture (`note_capture`, flat conversational tool).** One call, one commit: the client passes
+the user's words verbatim as `note`, the passage it displayed as `quote`, and the pages it
+synthesized that passage from as `pages`. `capture_note` (`core/operations/capture_note.py`)
+substring-matches `quote` against the claimed pages' working-tree text and pins the strongest
+anchor it can prove — `span` (unambiguous match), `page` (no quote, or a claimed page that could
+not be read), or `topic` (no page claimed, or the quote matched more than one claimed page).
+**Anchoring never fails the call**: every degradation rides back as an `ANCHOR_DEGRADED` warning
+on a success envelope, never an error. The response's `placement` field is a pre-composed sentence
+("Saved as a reflection, anchored to the passage you quoted in *alignment-failures* (exact).") so
+the client never re-derives a location claim from `fidelity` × `status`.
+
+**Recall and inspection (`notes` dispatcher).** Phase 1 registers **exactly** `action=list` and
+`action=read` — both read-only, no lock, no commit. `list` is the only recall path (notes sit
+outside the wiki corpus, so `search` never finds one); it filters by `intent`
+(`reflection`/`dispute`/`gap`/`question`) and by resolved anchor `status`, paginates with an
+opaque cursor, and returns `intent_counts`/`status_counts` for the whole topic. `read` returns one
+note in full. The other five actions the interface design names — `drift`, `reanchor`, `detach`,
+`promote`, `archive` — are Phase 2+; supplying one is rejected with `INVALID_ARGUMENT` rather than
+silently accepted.
+
+**Resolution ladder (`core/notes/resolve.py`, steps 0–3 of the design's five-step ladder).** A pure
+function of `(historical_text, head_text, anchor)`, recomputed on every read rather than cached, so
+a resolver improvement applies retroactively to every existing note:
+
+| Status | Meaning |
+|---|---|
+| `unanchored` | No page was ever claimed at capture (no quote, an unreadable claimed page, or a quote matching several claimed pages) — the ordinary, common outcome of a degraded capture, not drift |
+| `anchor-invalid` | The quote was never found in the page as it stood at `pinned_at` — a data-integrity outcome (hand-edited or forged), checked before any comparison to the live page |
+| `orphaned` | A page *was* claimed but the page is gone, or the quote is gone from it — something the anchor once pointed at is now missing |
+| `exact` | The quote occurs verbatim at its historical offset |
+| `shifted` | The quote occurs verbatim at a different offset (the page moved but the passage survives) |
+
+`fuzzy` (keyword/similarity matching past a verbatim miss) and `block`/`section` fidelity are
+Phase 2 — the ladder stops at step 3 deliberately: an absent capability is simpler than a stub that
+lies about being tested. `wiki_status` carries a per-topic `notes: {total, drifted}` count (drifted
+= any anchor `orphaned`) consumed by the dashboard tab badge and the SessionStart nudge.
+
+**Human surface.** A note is an ordinary Markdown file with YAML frontmatter and an optional
+`## Anchors` section of real `[[wikilinks]]`, hand-writable in Obsidian with no special tooling —
+see [`vault-template/SCHEMA.md`](../vault-template/SCHEMA.md) for the frontmatter fields and the
+anchor-bullet grammar. `/knotica:note` and the dashboard's Notes tab (Browse view only — see the
+Dashboard row in § 3) are the two client-side entry points; `skills/wiki-maintenance/SKILL.md`
+carries the note-vs-gap-vs-source routing judgment.
 
 ## 4. Getting Started
 
