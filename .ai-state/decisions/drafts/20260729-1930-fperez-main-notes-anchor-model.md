@@ -47,6 +47,8 @@ The anchor is **bi-partite**.
 
 An optional ` · at=<int>` token disambiguates a quote that occurs more than once. The bullet carries **record facts only**; the projection's `status` is derived at read time and is never written to disk.
 
+Both the wikilink and the quote line are **optional**, and the backticked fidelity plus the `pinned@` token are the bullet's signature. A linkless bullet is how `topic` fidelity is written — which matters more than it looks: when a capture cannot be pinned to a page, the linkless bullet is what still carries the passage the user was reacting to. Without it a degraded capture would store the reflection and drop its provoking quote, defeating the guarantee this decision exists to provide. A bullet with no quote line records "this note is about that page", which is a legitimate capture with nothing to quote.
+
 > **Amended 2026-07-29, during Phase 1 implementation.** This decision originally specified an Obsidian `> [!quote]` callout. The callout has no slot for the capture-time fidelity and no legible shape for the append-only supersession history this ADR mandates for corrections, so Phase 2's `reanchor` would have had to change the format anyway. The markdown-list rendering carries both. The *decision* — an immutable three-scalar record living in the note body, derived projection never persisted — is unchanged; only its on-disk rendering is restated.
 >
 > Two further points were settled against the implementation and are binding on any future reader:

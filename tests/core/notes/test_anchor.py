@@ -281,7 +281,14 @@ def test_note_with_no_anchors_section_at_all_is_a_valid_topic_fidelity_note():
     assert document.skipped_anchor_count == 0
 
 
-def test_anchor_bullet_missing_its_quote_line_is_malformed_not_an_exception():
+def test_anchor_bullet_with_no_quote_line_at_all_is_valid_with_an_empty_quote():
+    """Correction to the frozen grammar: the blockquote is optional, not required.
+
+    A bullet naming a page and a fidelity but supplying no quote records that
+    "no quote was supplied" honestly (``quote == ""``) instead of being
+    discarded as malformed -- the earlier grammar made this shape
+    unconstructible, which is a hole, not a valid rejection.
+    """
     text = (
         "---\n"
         "type: note\n"
@@ -299,8 +306,14 @@ def test_anchor_bullet_missing_its_quote_line_is_malformed_not_an_exception():
 
     assert error is None
     assert document is not None
-    assert document.anchors == ()
-    assert document.skipped_anchor_count == 1
+    assert document.skipped_anchor_count == 0
+    assert len(document.anchors) == 1
+    anchor = document.anchors[0]
+    assert anchor.page == "agentic-systems/agent-memory.md"
+    assert anchor.heading == "Working memory"
+    assert anchor.fidelity == "span"
+    assert anchor.pinned_at == "9f1a3c0"
+    assert anchor.quote == ""
 
 
 def test_anchor_line_at_disambiguator_is_parsed_into_the_start_field():
@@ -354,6 +367,164 @@ def test_forward_generation_fidelity_value_is_carried_through_as_an_opaque_strin
     assert reparse_error is None
     assert reparsed is not None
     assert reparsed.anchors[0].fidelity == "block"
+
+
+# ---------------------------------------------------------------------------
+# Relaxed anchor-line grammar: the wikilink and the blockquote are each
+# independently optional. The (fidelity, pinned@) pair is what remains
+# required -- it is the signature that distinguishes an anchor bullet from an
+# ordinary list item, and it must not weaken alongside the two relaxations.
+# ---------------------------------------------------------------------------
+
+
+def test_anchor_bullet_without_a_wikilink_pins_at_topic_fidelity_with_the_quote_preserved():
+    """No page could be verified, but the passage the user reacted to must
+    never be lost to a degraded capture -- the wikilink is optional, the
+    quote is what stays.
+    """
+    text = (
+        "---\n"
+        "type: note\n"
+        "id: 20260730-080000-linkless-topic-anchor\n"
+        "topic: agentic-systems\n"
+        "created: 2026-07-30T08:00:00Z\n"
+        "---\n"
+        "\n"
+        "## Anchors\n"
+        "\n"
+        "- `topic` · pinned@`a3f9c21`\n"
+        "  > the passage the user was reacting to, preserved verbatim\n"
+    )
+
+    document, error = parse_note(text)
+
+    assert error is None
+    assert document is not None
+    assert document.skipped_anchor_count == 0
+    assert len(document.anchors) == 1
+    anchor = document.anchors[0]
+    assert anchor.page == ""
+    assert anchor.heading == ""
+    assert anchor.fidelity == "topic"
+    assert anchor.pinned_at == "a3f9c21"
+    assert anchor.quote == "the passage the user was reacting to, preserved verbatim"
+
+    reparsed, reparse_error = parse_note(serialize_note(document))
+
+    assert reparse_error is None
+    assert reparsed is not None
+    assert reparsed.anchors == document.anchors
+
+
+def test_anchor_bullet_without_a_blockquote_pins_with_an_empty_quote_not_malformed():
+    """No quote was supplied at all -- the bullet still names the page it
+    pins; it must not be confused with a malformed bullet.
+    """
+    text = (
+        "---\n"
+        "type: note\n"
+        "id: 20260730-081500-quoteless-page-anchor\n"
+        "topic: agentic-systems\n"
+        "created: 2026-07-30T08:15:00Z\n"
+        "---\n"
+        "\n"
+        "## Anchors\n"
+        "\n"
+        "- [[agentic-systems/agent-memory]] — `page` · pinned@`a3f9c21`\n"
+    )
+
+    document, error = parse_note(text)
+
+    assert error is None
+    assert document is not None
+    assert document.skipped_anchor_count == 0
+    assert len(document.anchors) == 1
+    anchor = document.anchors[0]
+    assert anchor.page == "agentic-systems/agent-memory.md"
+    assert anchor.heading == ""
+    assert anchor.fidelity == "page"
+    assert anchor.pinned_at == "a3f9c21"
+    assert anchor.quote == ""
+
+    reparsed, reparse_error = parse_note(serialize_note(document))
+
+    assert reparse_error is None
+    assert reparsed is not None
+    assert reparsed.anchors == document.anchors
+
+
+def test_a_bullet_with_neither_a_fidelity_nor_a_pinned_token_stays_malformed():
+    """Regression probe: relaxing the wikilink and the blockquote must not
+    also relax the (fidelity, pinned@) signature pair -- an ordinary list
+    item under the heading is still not an anchor.
+    """
+    text = (
+        "---\n"
+        "type: note\n"
+        "id: 20260730-083000-not-an-anchor-at-all\n"
+        "topic: agentic-systems\n"
+        "created: 2026-07-30T08:30:00Z\n"
+        "---\n"
+        "\n"
+        "## Anchors\n"
+        "\n"
+        "- just a plain list item that happens to live under the heading\n"
+    )
+
+    document, error = parse_note(text)
+
+    assert error is None
+    assert document is not None
+    assert document.anchors == ()
+    assert document.skipped_anchor_count == 1
+
+
+def test_a_bullet_with_a_fidelity_token_but_no_pinned_token_stays_malformed():
+    """Regression probe: half of the signature pair is still not enough."""
+    text = (
+        "---\n"
+        "type: note\n"
+        "id: 20260730-084500-fidelity-without-pin\n"
+        "topic: agentic-systems\n"
+        "created: 2026-07-30T08:45:00Z\n"
+        "---\n"
+        "\n"
+        "## Anchors\n"
+        "\n"
+        "- `span` some prose that mentions a fidelity token but never pins anything\n"
+    )
+
+    document, error = parse_note(text)
+
+    assert error is None
+    assert document is not None
+    assert document.anchors == ()
+    assert document.skipped_anchor_count == 1
+
+
+def test_a_bullet_with_a_pinned_token_but_no_fidelity_token_stays_malformed():
+    """Regression probe: the other half of the signature pair, alone, is
+    also still not enough.
+    """
+    text = (
+        "---\n"
+        "type: note\n"
+        "id: 20260730-090000-pin-without-fidelity\n"
+        "topic: agentic-systems\n"
+        "created: 2026-07-30T09:00:00Z\n"
+        "---\n"
+        "\n"
+        "## Anchors\n"
+        "\n"
+        "- pinned@`a3f9c21` but with no fidelity token at all\n"
+    )
+
+    document, error = parse_note(text)
+
+    assert error is None
+    assert document is not None
+    assert document.anchors == ()
+    assert document.skipped_anchor_count == 1
 
 
 # ---------------------------------------------------------------------------

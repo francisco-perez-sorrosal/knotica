@@ -152,11 +152,14 @@ Under this heading, list one anchor per bullet point. The format is strict but t
 
 **Anchor line reference:**
 
-- `[[vault-path]]` — a wikilink to the page you're pinning (without `.md`; Obsidian convention). Examples: `[[agentic-systems/agent-memory]]` or `[[agentic-systems/agent-memory#Working memory]]`.
-  - The optional `#<Heading>` names a specific section on the page. Omit if you're pinning the whole page.
-- `<fidelity>` — how specific the pin is. In Phase 1, use one of: `span` (a single sentence or phrase), `page` (the entire page), `topic` (the topic as a whole, no specific page).
-- `pinned@`<sha>`` — the git commit SHA where the page was when you read it. Backticks are required. This records the historical context; if the page changes later, you have a record of what you saw.
-- `<quote>` — the exact text you're pinning. This line begins with `>` and is indented below the bullet. **Copy it character-for-character from the page** — the quote is the anchor of record, and it is matched verbatim against the page to locate your note later. An approximation still stores fine, but it will not be found on the page and the note will read as unanchored.
+- `[[vault-path]]` — **optional.** A wikilink to the page you're pinning, written without the `.md` suffix, as Obsidian expects.
+  - The optional `#<Heading>` after the path names a specific section. Omit it to pin the whole page.
+  - Omit the wikilink entirely when the note belongs to the topic but not to any one page. Write the bullet as `` - `topic` · pinned@`<sha>` `` and keep the quote underneath — that way the passage you were reacting to is still recorded even though nothing points at a page.
+- `<fidelity>` — how specific the pin is: `span` (a single sentence or phrase), `page` (the whole page), or `topic` (the topic as a whole, no specific page). Two further values, `block` and `section`, are not yet produced; a file containing one is read without complaint and left untouched.
+- `pinned@`<sha>`` — the git commit SHA the page was at when you read it. Backticks are required. This is what makes the passage permanently recoverable: however much the page is rewritten later, the text you actually saw can always be retrieved from that commit.
+- `<quote>` — **optional.** The exact text you're pinning, on the following line, beginning with `>`. **Copy it character-for-character from the page** — it is matched verbatim to locate your note later, so an approximation still stores fine but will not be found, and the note will read as unanchored. Omit the line entirely if you're pinning a whole page rather than a passage.
+
+A bullet needs at minimum a fidelity and a `pinned@` token — that pair is what marks it as an anchor rather than an ordinary list item.
 
 **Full example:**
 

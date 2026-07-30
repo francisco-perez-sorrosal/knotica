@@ -8,7 +8,15 @@ by the verbatim quote it pins::
     - [[<vault-path>[#<Heading>]]] — `<fidelity>` · pinned@`<sha>`[ · at=<int>]
       > <quote>
 
-Two properties are load-bearing and deliberate:
+The wikilink and the quote line are each independently optional; the backticked
+fidelity plus the ``pinned@`` token are the bullet's signature, and a bullet
+carrying neither is not an anchor at all. A link-less bullet is how a page-less
+(``topic``-fidelity) anchor keeps the passage that provoked the note::
+
+    - `topic` · pinned@`a3f9c21`
+      > the passage the user was reacting to, preserved verbatim
+
+Three properties are load-bearing and deliberate:
 
 *Reading never raises on content.* A file a human typed by hand in Obsidian is
 the fourth capture surface, so the parser is tolerant by construction: irregular
@@ -45,6 +53,7 @@ __all__ = [
     "DEFAULT_INTENT",
     "DEFAULT_SCHEMA_VERSION",
     "DEFAULT_STATUS",
+    "NOTE_INTENTS",
     "NOTE_TYPE",
     "PHASE_ONE_FIDELITIES",
     "REQUIRED_NOTE_FIELDS",
@@ -68,13 +77,20 @@ DEFAULT_SCHEMA_VERSION = 1
 DEFAULT_INTENT = "reflection"
 DEFAULT_STATUS = "active"
 
+#: The intents a *writer* may stamp. Reading deliberately does not enforce this
+#: -- a hand-typed note with an unknown intent must stay readable -- so the
+#: write paths (capture, and the tool boundary above it) are its only guard.
+NOTE_INTENTS: frozenset[str] = frozenset({"reflection", "dispute", "gap", "question"})
+
 _ANCHORS_HEADING = "## Anchors"
 _ANCHORS_HEADING_RE = re.compile(r"^##\s+Anchors\s*$", re.IGNORECASE)
 _HEADING_RE = re.compile(r"^#{1,2}\s")
 _BULLET_PREFIX = "- "
+#: The bullet's signature is the backticked fidelity plus the ``pinned@`` token;
+#: the wikilink is optional (its absence is how a page-less anchor is written).
 _ANCHOR_LINE_RE = re.compile(
-    r"^-\s+\[\[(?P<target>[^\[\]]+)\]\]"
-    r"\s*—\s*`(?P<fidelity>[^`]+)`"
+    r"^-\s+(?:\[\[(?P<target>[^\[\]]+)\]\]\s*—\s*)?"
+    r"`(?P<fidelity>[^`]+)`"
     r"\s*·\s*pinned@`(?P<sha>[^`]+)`"
     r"(?:\s*·\s*at=(?P<start>\d+))?"
     r"\s*$"
@@ -340,30 +356,31 @@ def _parse_anchor_block(block: list[str]) -> AnchorRecord | None:
     match = _ANCHOR_LINE_RE.match(block[0].strip())
     if match is None:
         return None
-    quote = _first_quote(block[1:])
-    if quote is None:
-        return None
-    page, heading = _split_wikilink_target(match.group("target"))
+    page, heading = _split_wikilink_target(match.group("target") or "")
     start = match.group("start")
     return AnchorRecord(
         page=page,
         heading=heading,
         fidelity=match.group("fidelity").strip(),
         pinned_at=match.group("sha").strip(),
-        quote=quote,
+        quote=_first_quote(block[1:]),
         start=int(start) if start is not None else None,
     )
 
 
-def _first_quote(lines: list[str]) -> str | None:
-    """The bullet's verbatim quote line; ``None`` when it has none."""
+def _first_quote(lines: list[str]) -> str:
+    """The bullet's verbatim quote line, or ``""`` when it supplied none.
+
+    A bullet's block only ever collects blank lines and a single terminating
+    quote line (:meth:`_BodyScanner._feed_section_line` sends anything else
+    back to the body), so the absence of a ``>`` line means the quote was
+    genuinely omitted -- a valid anchor, not a malformed one.
+    """
     for line in lines:
         stripped = line.strip()
         if stripped.startswith(">"):
             return stripped[1:].strip()
-        if stripped:
-            return None
-    return None
+    return ""
 
 
 def _split_wikilink_target(target: str) -> tuple[str, str]:
@@ -375,12 +392,18 @@ def _split_wikilink_target(target: str) -> tuple[str, str]:
 
 
 def _serialize_anchor(anchor: AnchorRecord) -> str:
-    target = anchor.page.removesuffix(_MARKDOWN_SUFFIX)
-    if anchor.heading:
-        target = f"{target}#{anchor.heading}"
-    bullet = f"- [[{target}]] — `{anchor.fidelity}` · pinned@`{anchor.pinned_at}`"
+    """Render one anchor bullet, omitting the parts the record does not carry."""
+    bullet = "-"
+    if anchor.page or anchor.heading:
+        target = anchor.page.removesuffix(_MARKDOWN_SUFFIX)
+        if anchor.heading:
+            target = f"{target}#{anchor.heading}"
+        bullet += f" [[{target}]] —"
+    bullet += f" `{anchor.fidelity}` · pinned@`{anchor.pinned_at}`"
     if anchor.start is not None:
         bullet += f" · at={anchor.start}"
+    if not anchor.quote:
+        return bullet
     return f"{bullet}\n  > {anchor.quote}"
 
 

@@ -263,7 +263,9 @@ def test_a_note_with_one_malformed_anchor_bullet_still_lists_its_readable_anchor
         f"- [[{TOPIC}/notes-target]] — `span` · pinned@`{page_sha}`\n"
         "  > The valid anchor points here.\n"
         "\n"
-        f"- [[{TOPIC}/notes-target]] — `span` · pinned@`{page_sha}`\n"
+        # No fidelity/pinned@ signature pair: the one shape the relaxed anchor
+        # grammar still refuses, so this bullet is genuinely unreadable.
+        f"- [[{TOPIC}/notes-target]] but nothing that pins it to a commit\n"
     )
     _write_raw_note(template_vault, TOPIC, "20260101-093000-partially-broken-anchors", text)
     _commit_all(template_vault, "test: capture note with one broken anchor bullet")

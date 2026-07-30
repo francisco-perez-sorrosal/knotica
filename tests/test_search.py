@@ -109,7 +109,7 @@ PLANTED_EXCLUDED = (
 #: Golden rank order for the shipped template, query "memory". The hand-counted
 #: occurrence ground truth is wang2024awm.md 35, agent-memory.md 14,
 #: agent-workflow-memory.md 10, workflow-induction.md 6, log.md 5, index.md 4,
-#: SCHEMA.md 2, START_HERE.md 2 -- under BM25 the ~55KB stored source drops
+#: SCHEMA.md 4, START_HERE.md 2 -- under BM25 the ~55KB stored source drops
 #: below every concept page despite its raw count (length normalization + tf
 #: saturation), which is the ranking fix this golden characterizes. Exact
 #: scores are deliberately unpinned (k1/b implementation detail); order,
@@ -117,11 +117,19 @@ PLANTED_EXCLUDED = (
 #: source, topic page, vault-root page (root pages carry ``topic=""``). The
 #: template's ``.knotica/prompts/`` also contains "memory" -- its absence below
 #: is the dot-folder exclusion working.
+#: ``log.md`` and ``workflow-induction.md`` sit close enough together that the
+#: pair is sensitive to corpus-wide statistics rather than to either file: BM25
+#: normalizes by average document length, so growing *any* template file can
+#: reorder them. Documenting the personal-note format in ``SCHEMA.md`` did
+#: exactly that. Re-derive this tuple from a real search rather than hand-
+#: editing it when template content legitimately changes -- and check that a
+#: root-level page has not climbed above the concept pages, which would be a
+#: genuine ranking regression rather than normalization noise.
 GOLDEN_MEMORY_RANKING = (
     ("agentic-systems/agent-memory.md", "agentic-systems", "page"),
     ("agentic-systems/agent-workflow-memory.md", "agentic-systems", "page"),
-    ("log.md", "", "page"),
     ("agentic-systems/workflow-induction.md", "agentic-systems", "page"),
+    ("log.md", "", "page"),
     ("index.md", "", "page"),
     ("sources/agentic-systems/wang2024awm.md", "agentic-systems", "source"),
     ("START_HERE.md", "", "page"),
