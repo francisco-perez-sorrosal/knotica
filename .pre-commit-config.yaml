@@ -1,9 +1,8 @@
 # Pre-commit hooks for knotica. Install once per clone: `pre-commit install`.
 #
-# mypy is intentionally NOT wired yet -- a separate concurrent workstream is
-# fixing 128 pre-existing strict-mode errors (see td-019 in
-# .ai-state/TECH_DEBT_LEDGER.md); a mypy hook today would block every commit.
-# Uncomment the stanza at the bottom once that lands.
+# All four hooks are live. The tree is at zero ruff errors and zero strict-mypy
+# errors, so every one of these passes on a clean checkout -- a gate that fires
+# on HEAD gets uninstalled on day one.
 
 repos:
   # ruff: pinned to the same version this project resolves in uv.lock
@@ -48,13 +47,14 @@ repos:
         types_or: [python, ts, tsx, javascript, jsx, rust, go, java, kotlin, ruby, shell]
         pass_filenames: true
 
-  # Uncomment once td-019 (mypy baseline) lands:
-  # - repo: local
-  #   hooks:
-  #     - id: mypy
-  #       name: mypy
-  #       entry: uv run --frozen mypy
-  #       language: system
-  #       types: [python]
-  #       pass_filenames: false
-  #       args: [src/knotica]
+  # Strict mypy over src/knotica. Enabled now that the tree is at zero errors
+  # (td-019); `pass_filenames: false` because mypy needs the whole package to
+  # resolve types, not just the staged files.
+  - repo: local
+    hooks:
+      - id: mypy
+        name: mypy (strict, src/knotica)
+        entry: uv run --frozen mypy
+        language: system
+        types: [python]
+        pass_filenames: false
