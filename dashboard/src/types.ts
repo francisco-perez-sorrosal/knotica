@@ -869,7 +869,8 @@ export type AnchorStatusFilter = AnchorStatus | "all";
 /**
  * A single anchor's projection status. Adds `anchor-invalid` — a record that
  * never located anything at all (unreadable claimed page, ambiguous quote).
- * The note-level bucket folds it into `orphaned`; per anchor it stays distinct.
+ * It is a data-integrity problem, not drift, so it is excluded from the
+ * note-level bucket entirely rather than folded into `orphaned`.
  */
 export type AnchorProjectionStatus = AnchorStatus | "anchor-invalid";
 

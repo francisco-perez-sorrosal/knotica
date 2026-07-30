@@ -162,7 +162,7 @@ def test_a_wikilink_inside_a_real_captured_note_does_not_deorphan_its_target(
 
 
 # ---------------------------------------------------------------------------
-# 2. AC-04, full characterization: byte-identical with and without notes/
+# 2. Full characterization: byte-identical with and without notes/
 # ---------------------------------------------------------------------------
 
 
@@ -260,6 +260,43 @@ def test_eval_scored_legs_are_byte_identical_with_and_without_a_populated_notes_
             f"the entity-page corpus feeding qa_accuracy/citation_validity moved for "
             f"topic {topic!r}"
         )
+
+
+# ---------------------------------------------------------------------------
+# 2b. Deleting a note: the other direction of the same guarantee
+# ---------------------------------------------------------------------------
+
+
+def test_deleting_a_captured_note_leaves_the_scored_topic_lint_untouched(
+    template_vault: Path,
+) -> None:
+    """Removing a note is as ordinary as writing one, and must cost nothing.
+
+    Every capture appends an entry to the vault-root ``log.md`` stamped with
+    the note's *KB* topic, and the log's touched paths are checked under that
+    topic's lint. Deleting the note in Obsidian -- or renaming it, which is a
+    delete plus an add -- therefore has a straight path into the scored
+    ``lint_violations`` leg unless the log check ignores unscored paths. The
+    loop stays correctly asleep at the deletion, so a regression here lands
+    silently and first surfaces as an unearned drop at some later, unrelated
+    eval.
+    """
+    before = _lint(template_vault, TOPIC)
+    assert before == [], "fixture sanity: the topic must lint clean before any note exists"
+
+    result = _capture(template_vault, TOPIC, "a private reflection nobody else should score")
+    assert _lint(template_vault, TOPIC) == [], "capturing a note moved the scored topic's lint"
+
+    note_path = result["path"]
+    assert isinstance(note_path, str)
+    (template_vault / note_path).unlink()
+    run_git(template_vault, "add", "-A")
+    run_git(template_vault, "commit", "-m", "test: the user deletes their own note in Obsidian")
+
+    assert _lint(template_vault, TOPIC) == [], (
+        "deleting a note raised a violation against the scored topic -- the note's log "
+        "entry is being checked as if the unscored file it names were part of the wiki"
+    )
 
 
 # ---------------------------------------------------------------------------

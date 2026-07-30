@@ -56,11 +56,6 @@ _ACTIONS = ("list", "read")
 #: unanchored one, since those are the buckets a person actually needs to act on.
 _ANCHOR_STATUSES: tuple[str, ...] = ("exact", "unanchored", "shifted", "orphaned")
 
-#: A note whose anchor never resolved at all points nowhere the vault knows, so
-#: for a drift badge it belongs with the orphans. The distinction (corrupt
-#: record vs the wiki moving on) survives per-anchor in ``status``.
-_ANCHOR_INVALID = "anchor-invalid"
-
 #: The synthetic filter value meaning "do not filter on this axis".
 _ALL_FILTER = "all"
 
@@ -216,16 +211,24 @@ def _note_summary(note: ResolvedNote) -> dict[str, Any]:
 
 
 def _drift_status(note: ResolvedNote) -> str | None:
-    """The note's drift bucket -- as drifted as its weakest anchor.
+    """The note's drift bucket -- as drifted as its weakest bucketable anchor.
 
-    ``None`` for a note with no anchors: nothing can drift, and claiming
-    ``exact`` would assert a pin the note never made.
+    ``None`` for a note with no bucketable anchors: either it has no anchors
+    at all, or every anchor is ``anchor-invalid`` -- a corrupt/hand-forged
+    record, not an anchor-resolution outcome. ``anchor-invalid`` is never
+    folded into ``orphaned`` here: ``core/status.py`` counts ``drifted`` as
+    ``orphaned`` only, and folding would inflate that count with a
+    data-integrity problem rather than a "the wiki moved on" one. The
+    per-anchor status still surfaces ``anchor-invalid`` verbatim via
+    ``render_anchors`` -- only the note-level bucket excludes it.
     """
-    statuses = {projection.status for _anchor, projection in note.resolved_anchors}
+    statuses = {
+        projection.status
+        for _anchor, projection in note.resolved_anchors
+        if projection.status in _ANCHOR_STATUSES
+    }
     if not statuses:
         return None
-    if _ANCHOR_INVALID in statuses:
-        return "orphaned"
     for candidate in reversed(_ANCHOR_STATUSES):
         if candidate in statuses:
             return candidate

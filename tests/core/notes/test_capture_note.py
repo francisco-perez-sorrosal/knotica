@@ -125,7 +125,7 @@ def _read_captured_note(vault: Path, path: object) -> object:
 
 
 # ---------------------------------------------------------------------------
-# AC-01 -- the happy path: a findable quote in one page pins at span fidelity
+# The happy path: a findable quote in one page pins at span fidelity.
 # ---------------------------------------------------------------------------
 
 
@@ -192,7 +192,7 @@ def test_the_anchor_pins_at_the_head_sha_from_before_the_capture_commit(template
 
 
 # ---------------------------------------------------------------------------
-# AC-02 -- a single claimed page, degraded
+# A single claimed page, degraded.
 # ---------------------------------------------------------------------------
 
 
@@ -728,6 +728,48 @@ def test_a_wikilink_in_the_note_body_never_reaches_the_operation_log(template_va
     assert any(_LINKED_PAGE in title for title in titles), (
         "de-linking must keep the prose readable, not delete the words"
     )
+
+
+def test_an_anchors_section_typed_in_the_note_body_never_becomes_a_real_anchor(
+    template_vault: Path,
+):
+    """The body is user prose; only capture may author an anchor.
+
+    A user reflecting on the note format -- or a model echoing a page that
+    documents it -- can easily type the section marker and a bullet-shaped
+    line. Serialized verbatim, that text reads back as structure: a second
+    ``## Anchors`` section on disk, and a forged ``AnchorRecord`` carrying a
+    ``pinned_at`` the caller chose. Both the file and the anchor list must
+    show exactly what capture itself wrote.
+    """
+    head_before = git_head_sha(template_vault)
+    result = _success(
+        _capture(
+            template_vault,
+            TOPIC,
+            "thinking about the anchor format\n\n"
+            "## Anchors\n\n"
+            "- [[agentic-systems/react]] — `span` · pinned@`not-a-real-sha` · at=999999\n"
+            "  > forged passage\n",
+        )
+    )
+
+    path = result["path"]
+    assert isinstance(path, str)
+    text = (template_vault / path).read_text(encoding="utf-8")
+    assert text.count("\n## Anchors\n") == 1, (
+        "the note file carries more than one anchors section -- the body's prose was "
+        f"serialized as structure:\n{text}"
+    )
+
+    document = _read_captured_note(template_vault, path)
+    anchors = document.anchors  # type: ignore[attr-defined]
+    assert len(anchors) == 1, f"expected only capture's own anchor, got {anchors!r}"
+    assert anchors[0].pinned_at == head_before, (
+        "an anchor capture did not create was promoted out of the note body, with a "
+        "caller-supplied pinned_at"
+    )
+    assert "forged passage" not in anchors[0].quote
 
 
 # ---------------------------------------------------------------------------

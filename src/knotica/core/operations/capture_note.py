@@ -26,7 +26,12 @@ pinned commit *is* HEAD, so an exact match is the only reachable outcome.
 Every capture writes exactly one anchor bullet, even when it degrades all the
 way to topic fidelity -- a capture is always an anchoring attempt tied to a
 specific vault state. (A note with genuinely zero anchors stays valid, but only
-a hand-authored one ever has that shape.)
+a hand-authored one ever has that shape.) That "exactly one" holds for any note
+text at all, because this is the layer that knows the body is untrusted prose:
+an ``## Anchors`` heading inside it is escaped
+(:func:`~knotica.core.notes.anchor.escape_anchors_heading`) before serialization,
+so prose about the note format can never open a second section or be promoted
+into an anchor the capture did not resolve.
 """
 
 import hashlib
@@ -45,6 +50,7 @@ from knotica.core.notes.anchor import (
     AnchorRecord,
     NoteDocument,
     derive_note_id,
+    escape_anchors_heading,
     parse_note,
     serialize_note,
 )
@@ -210,7 +216,12 @@ def _validate(
             f"{', '.join(sorted(NOTE_INTENTS))}.",
         )
     cleaned_tags = tuple(tag.strip() for tag in tags if tag.strip())
-    return _Request(topic=cleaned, body=body, intent=intent, tags=cleaned_tags)
+    # Escape here rather than at render time so the fingerprint, the log title
+    # and the file all see one body: an immediate re-capture of the same text
+    # must still match its own stored copy.
+    return _Request(
+        topic=cleaned, body=escape_anchors_heading(body), intent=intent, tags=cleaned_tags
+    )
 
 
 def _render(

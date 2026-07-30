@@ -60,6 +60,7 @@ __all__ = [
     "AnchorRecord",
     "NoteDocument",
     "derive_note_id",
+    "escape_anchors_heading",
     "parse_note",
     "serialize_note",
 ]
@@ -85,6 +86,8 @@ NOTE_INTENTS: frozenset[str] = frozenset({"reflection", "dispute", "gap", "quest
 _ANCHORS_HEADING = "## Anchors"
 _ANCHORS_HEADING_RE = re.compile(r"^##\s+Anchors\s*$", re.IGNORECASE)
 _HEADING_RE = re.compile(r"^#{1,2}\s")
+#: The leading hashes of a heading line, as escaped by :func:`escape_anchors_heading`.
+_HEADING_HASHES_RE = re.compile(r"#+")
 _BULLET_PREFIX = "- "
 #: The bullet's signature is the backticked fidelity plus the ``pinned@`` token;
 #: the wikilink is optional (its absence is how a page-less anchor is written).
@@ -216,6 +219,32 @@ def serialize_note(document: NoteDocument) -> str:
         parts.append("\n".join(_serialize_anchor(anchor) for anchor in document.anchors))
         parts.append("\n")
     return "".join(parts)
+
+
+def escape_anchors_heading(body: str) -> str:
+    """Neutralize ``## Anchors`` headings in prose about to become a note body.
+
+    A writer serializing text a user (or a model) typed must call this first.
+    :func:`serialize_note` emits the body verbatim above the section it renders
+    itself, so a line the scanner would read back as the sentinel opens a
+    second anchor region: the file ends up with two ``## Anchors`` sections and
+    any bullet-shaped prose below the first is promoted into an
+    :class:`AnchorRecord` the writer never created, carrying whatever
+    ``pinned@`` sha the text happened to contain. Escaping the hashes the way
+    markdown does keeps the line rendering as the words the user wrote while
+    making it ordinary prose to :func:`parse_note`.
+
+    Reading is deliberately not the place for this: in a hand-authored file the
+    sentinel is real, and the parser must stay tolerant.
+    """
+    return "\n".join(
+        _escape_heading_hashes(line) if _ANCHORS_HEADING_RE.match(line.strip()) else line
+        for line in body.splitlines()
+    )
+
+
+def _escape_heading_hashes(line: str) -> str:
+    return _HEADING_HASHES_RE.sub(lambda match: r"\#" * len(match.group()), line, count=1)
 
 
 def derive_note_id(

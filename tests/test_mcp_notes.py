@@ -30,7 +30,11 @@ from typing import Any
 
 import pytest
 
+from knotica.core.notes.anchor import AnchorRecord, NoteDocument, serialize_note
+from knotica.core.status import gather_wiki_status
+from knotica.store import LocalFSStore
 from support.dispatch import TOPIC, build_full_server, call_tool, payload_of, tool_schema
+from support.vault import git_head_sha, run_git
 
 #: The Phase 1 error-code subset for the notes surface. `ANCHOR_DEGRADED` is
 #: warning-only (never the sole content of a failure envelope) but is listed
@@ -289,3 +293,125 @@ def test_notes_read_unknown_note_id_is_note_not_found(
         notes_call(server, "read", topic=TOPIC, note_id="20260101-000000-does-not-exist")
     )
     assert_error_shape(err, "NOTE_NOT_FOUND")
+
+
+# ---------------------------------------------------------------------------
+# Cross-layer agreement: "drifted" means `orphaned` only, everywhere
+# ---------------------------------------------------------------------------
+#
+# `wiki_status` (core/status.py), the `notes` dispatcher, and the dashboard's
+# NotesPane each derive a drifted count from the same resolved-anchor data.
+# Nothing forces them to agree except discipline, and they have drifted apart
+# before (F-02): the dispatcher folded `anchor-invalid` into `orphaned`, and
+# the pane summed `shifted + orphaned`. This test pins the dispatcher side of
+# the reconciliation against `wiki_status`'s own count for the identical
+# vault state, so a future edit to either side that reintroduces a mismatch
+# fails here rather than surfacing as two contradictory numbers on one screen.
+
+
+def _forged_anchor(**overrides: object) -> AnchorRecord:
+    defaults: dict[str, object] = {
+        "page": f"{TOPIC}/forged-target.md",
+        "heading": "",
+        "fidelity": "span",
+        "pinned_at": "0000000",
+        "quote": "a quote that will not matter for this test",
+        "start": None,
+    }
+    defaults.update(overrides)
+    return AnchorRecord(**defaults)
+
+
+def _forged_note(note_id: str, **overrides: object) -> NoteDocument:
+    defaults: dict[str, object] = {
+        "id": note_id,
+        "topic": TOPIC,
+        "intent": "reflection",
+        "created": "2026-01-01T09:00:00Z",
+        "updated": "2026-01-01T09:00:00Z",
+        "status": "active",
+        "tags": (),
+        "body": "A loose thought.",
+        "anchors": (_forged_anchor(),),
+        "skipped_anchor_count": 0,
+    }
+    defaults.update(overrides)
+    return NoteDocument(**defaults)
+
+
+def _write_forged_note(vault: Path, note_id: str, document: NoteDocument) -> None:
+    path = vault / "notes" / TOPIC / f"{note_id}.md"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(serialize_note(document), encoding="utf-8")
+    run_git(vault, "add", "-A")
+    run_git(vault, "commit", "-m", f"test: seed {note_id}")
+
+
+def test_dispatcher_drifted_count_agrees_with_wiki_status_across_a_mixed_bucket(
+    vault_config: Path, template_vault: Path
+) -> None:
+    """One genuinely orphaned note plus one anchor-invalid (hand-forged) note:
+    both layers must report exactly 1 drifted, never 2 -- proving the
+    dispatcher no longer folds `anchor-invalid` into `orphaned`."""
+    orphan_page = f"{TOPIC}/orphan-page.md"
+    (template_vault / orphan_page).parent.mkdir(parents=True, exist_ok=True)
+    (template_vault / orphan_page).write_text(
+        "# Orphan Page\n\nsome text that will disappear before HEAD.\n", encoding="utf-8"
+    )
+    run_git(template_vault, "add", "-A")
+    run_git(template_vault, "commit", "-m", "test: seed orphan page")
+    orphan_sha = git_head_sha(template_vault)
+    _write_forged_note(
+        template_vault,
+        "20260101-090000-orphaned-note",
+        _forged_note(
+            "20260101-090000-orphaned-note",
+            anchors=(
+                _forged_anchor(
+                    page=orphan_page,
+                    pinned_at=orphan_sha,
+                    quote="some text that will disappear before HEAD",
+                ),
+            ),
+        ),
+    )
+    (template_vault / orphan_page).write_text(
+        "# Orphan Page\n\nEntirely different content now.\n", encoding="utf-8"
+    )
+    run_git(template_vault, "add", "-A")
+    run_git(template_vault, "commit", "-m", "test: rewrite the orphan page, losing the quote")
+
+    forged_page = f"{TOPIC}/forged-target.md"
+    (template_vault / forged_page).write_text(
+        "# Forged target\n\nNone of this text matches the anchor's quote.\n", encoding="utf-8"
+    )
+    run_git(template_vault, "add", "-A")
+    run_git(template_vault, "commit", "-m", "test: seed forged-target page")
+    forged_sha = git_head_sha(template_vault)
+    _write_forged_note(
+        template_vault,
+        "20260101-091000-forged-note",
+        _forged_note(
+            "20260101-091000-forged-note",
+            anchors=(
+                _forged_anchor(
+                    page=forged_page,
+                    pinned_at=forged_sha,
+                    quote="a quote that was never in the historical blob",
+                ),
+            ),
+        ),
+    )
+
+    server = build_full_server()
+    dispatcher_body = assert_success(notes_call(server, "list", topic=TOPIC))
+    status_payload = gather_wiki_status(LocalFSStore(template_vault), template_vault, topic=TOPIC)
+
+    assert dispatcher_body["status_counts"]["orphaned"] == 1, (
+        "the anchor-invalid note must not inflate the dispatcher's orphaned "
+        f"bucket: got {dispatcher_body['status_counts']!r}"
+    )
+    assert status_payload["totals"]["notes"]["drifted"] == 1
+    assert (
+        dispatcher_body["status_counts"]["orphaned"] == status_payload["totals"]["notes"]["drifted"]
+    ), "the dispatcher and wiki_status must agree on the drifted count for the same vault state"

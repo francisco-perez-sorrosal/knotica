@@ -650,6 +650,8 @@ def _check_log(store: VaultStore, scope: str | None) -> list[Violation]:
     for line_number, entry_topic, touched_path in iter_log_touched_paths(store.read_text(LOG_PATH)):
         if scope is not None and entry_topic != scope:
             continue
+        if not _is_scored_touched_path(touched_path):
+            continue
         if not _path_exists(store, touched_path):
             violations.append(
                 Violation(
@@ -664,6 +666,29 @@ def _check_log(store: VaultStore, scope: str | None) -> list[Violation]:
                 )
             )
     return violations
+
+
+def _is_scored_touched_path(path: str) -> bool:
+    """Whether a log entry's touched path is this check's business.
+
+    Only the scored folder families (``page``, ``source``) qualify, mirroring
+    :func:`_is_scored_link_source`. The log records that a file *was written*,
+    which stays true forever; whether it still exists is the wiki's concern
+    only for files the wiki measures. A personal note is deleted or renamed in
+    Obsidian as a matter of course, and every capture stamps its log entry with
+    the note's KB topic -- so without this filter that ordinary act raises a
+    ``LOG_MISSING_PATH`` against the *scored* topic, depressing the
+    ``lint_violations`` leg of the eval scalar for a file the eval has no
+    standing over. The loop sleeps through note changes, so the drop would land
+    silently and resurface later as an unearned regression.
+
+    An unclassifiable path (absolute, or escaping via ``..``) is treated as
+    scored, so a genuinely corrupt log entry keeps being reported.
+    """
+    try:
+        return family_of(path) in SCORED_FAMILIES
+    except ValueError:
+        return True
 
 
 def _path_exists(store: VaultStore, path: str) -> bool:

@@ -147,7 +147,10 @@ export function NotesPane({
   const topicTotal = intentCounts
     ? Object.values(intentCounts).reduce((sum, count) => sum + count, 0)
     : 0;
-  const driftedTotal = statusCounts ? statusCounts.shifted + statusCounts.orphaned : 0;
+  // Drifted counts `orphaned` only -- `shifted` self-healed and needs no
+  // attention. Mirrors core/status.py's totals.notes.drifted so the pane
+  // header and the wiki_status-fed tab badge never contradict each other.
+  const driftedTotal = statusCounts ? statusCounts.orphaned : 0;
 
   return (
     <section class="panel notes-panel" aria-label="Personal notes">
@@ -162,7 +165,7 @@ export function NotesPane({
         <div class="notes-header-counts">
           <span class="health-chip">{topicTotal} notes</span>
           {driftedTotal > 0 ? (
-            <span class="health-chip warn" title="Notes whose anchors shifted or were orphaned">
+            <span class="health-chip warn" title="Notes whose anchor pointed at a passage the page no longer has">
               <span aria-hidden="true">⚠</span> {driftedTotal} drifted
             </span>
           ) : null}
