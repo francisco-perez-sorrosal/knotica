@@ -80,11 +80,12 @@ warn_unreachable = true
 # not a silent omission.
 
 [[tool.mypy.overrides]]
-# `dspy` ships no type stubs and no `py.typed` marker (verified: the only
-# import-not-found modules in the whole tree are `dspy` and `dspy.teleprompt`).
-# This silences the missing-stub error for the dependency itself; it does NOT
-# relax checking of our own code that uses it.
-module = ["dspy", "dspy.*"]
+# Optional dependencies that may be absent from a lean environment. `dspy`
+# genuinely ships no stubs; `anthropic` does ship types, so when the `evals`
+# extra IS installed mypy uses them and this setting is inert. It exists so the
+# gate is green both with and without `--extra evals` -- a type gate that only
+# passes in one environment gets bypassed in the other.
+module = ["dspy", "dspy.*", "anthropic", "anthropic.*"]
 ignore_missing_imports = true
 
 [[tool.mypy.overrides]]

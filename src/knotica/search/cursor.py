@@ -82,7 +82,7 @@ def decode_cursor(token: str) -> Cursor:
     # reproduced in isolation with `_CURSOR_FIELDS` typed as plain `set[str]`
     # (no false positive) vs. `frozenset[str]` (false positive), independent
     # of `raw`'s `Any`-ness. The validation itself is correct and unchanged.
-    query, sort, offset = raw["query"], raw["sort"], raw["offset"]  # type: ignore[unreachable]
+    query, sort, offset = raw["query"], raw["sort"], raw["offset"]
     if not isinstance(query, str) or not isinstance(sort, str):
         raise InvalidCursorError("Cursor 'query' and 'sort' must be strings.")
     if isinstance(offset, bool) or not isinstance(offset, int) or offset < 0:
