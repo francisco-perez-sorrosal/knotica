@@ -36,7 +36,22 @@ Knotica has three structural advantages no surveyed system has: the corpus is ve
 The anchor is **bi-partite**.
 
 **Anchor of record — immutable, written once at capture, never modified:**
-`(page, commit_sha, quote[, start])`, stored in the note body as an Obsidian `> [!quote]` callout carrying a wikilink to the page, a backticked commit token, and the verbatim quote.
+`(page, commit_sha, quote[, start])`, stored in the note body under an `## Anchors` heading as a markdown list — one bullet per anchor, carrying a vault-relative wikilink to the page, the capture-time fidelity, and a backticked commit token, with the verbatim quote as a blockquote line beneath it:
+
+```markdown
+## Anchors
+
+- [[agentic-systems/alignment-failures#Reward hacking]] — `span` · pinned@`a3f9c21`
+  > the model learns to satisfy the metric rather than the goal
+```
+
+An optional ` · at=<int>` token disambiguates a quote that occurs more than once. The bullet carries **record facts only**; the projection's `status` is derived at read time and is never written to disk.
+
+> **Amended 2026-07-29, during Phase 1 implementation.** This decision originally specified an Obsidian `> [!quote]` callout. The callout has no slot for the capture-time fidelity and no legible shape for the append-only supersession history this ADR mandates for corrections, so Phase 2's `reanchor` would have had to change the format anyway. The markdown-list rendering carries both. The *decision* — an immutable three-scalar record living in the note body, derived projection never persisted — is unchanged; only its on-disk rendering is restated.
+>
+> Two further points were settled against the implementation and are binding on any future reader:
+> **(a)** an `## Anchors` heading opens an anchor region and any other level-1/2 heading closes it; a note may open the region any number of times and anchors are recovered from **every** region, with all non-anchor lines flowing back into the body in document order. The obvious first-heading-to-next-heading reading silently discarded data four ways and was rejected on evidence.
+> **(b)** the stored `fidelity` is carried as an opaque string, not a closed enumeration, so a file written by a later generation (`block`, `section`) round-trips through an earlier reader rather than raising.
 
 Only three fields are stored because the rest of the W3C selector composition is *derivable*: given `(page, commit, quote)`, `read_file_at(commit, page)` yields the historical text, and locating the quote in it recomputes `start`, `end`, `prefix`, `suffix` and the enclosing heading on demand, guaranteed self-consistent. `start` is retained only to disambiguate a repeated quote. In a versioned corpus, `TextPositionSelector` and prefix/suffix are a cache of a git read, not data.
 
