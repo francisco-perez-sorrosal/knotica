@@ -19,7 +19,8 @@ export type PaneId =
   | "datasets"
   | "golden"
   | "ingest"
-  | "sources";
+  | "sources"
+  | "notes";
 
 export type DatasetRole = "trainset" | "held_out" | "seal" | "candidates" | "reviewed";
 
@@ -212,6 +213,7 @@ export interface WikiStatus {
     last_eval: MetricsRecord | null;
     suggestions?: SuggestionStatusSummary;
     gaps?: GapStatusSummary;
+    notes?: NotesStatusSummary;
   }>;
   totals: { topics: number; pages: number; curated: number; lint_violations: number };
   last_lint: string | null;
@@ -840,4 +842,93 @@ export interface SuggestionReviewResult {
   commit?: string | null;
   decided_at?: string | null;
   ingested_at?: string | null;
+}
+
+// ---------------------------------------------------------------------------
+// Personal notes (marginalia) — the read-only `notes` dispatcher.
+// ---------------------------------------------------------------------------
+
+/** Why the note was written. Filterable on the list action. */
+export type NoteIntent = "reflection" | "dispute" | "gap" | "question";
+export type NoteIntentFilter = NoteIntent | "all";
+
+/**
+ * How precisely an anchor located its target. The resolver ladder produces only
+ * these three — there is no `block`/`section` rung, so none is declared.
+ */
+export type AnchorFidelity = "span" | "page" | "topic";
+
+/**
+ * A note's resolved-anchor bucket — the filterable, countable set. `unanchored`
+ * is not drift: the anchor never pointed at a page. `orphaned` is drift: what it
+ * pointed at is gone. There is no `fuzzy` rung yet, so none is declared.
+ */
+export type AnchorStatus = "exact" | "unanchored" | "shifted" | "orphaned";
+export type AnchorStatusFilter = AnchorStatus | "all";
+
+/**
+ * A single anchor's projection status. Adds `anchor-invalid` — a record that
+ * never located anything at all (unreadable claimed page, ambiguous quote).
+ * The note-level bucket folds it into `orphaned`; per anchor it stays distinct.
+ */
+export type AnchorProjectionStatus = AnchorStatus | "anchor-invalid";
+
+/** One anchor as recorded, plus how it resolves against the vault right now. */
+export interface NoteAnchor {
+  index: number;
+  /** Vault-relative page path; "" for a topic-fidelity anchor. */
+  page: string;
+  heading: string;
+  /** What the anchor bullet recorded. */
+  fidelity: string;
+  status: AnchorProjectionStatus;
+  /** What it resolves to today; null exactly when status is `anchor-invalid`. */
+  resolved_fidelity: AnchorFidelity | null;
+  /** The passage originally pinned. */
+  quote: string;
+  /** Commit sha the pin was taken against. */
+  pinned_at: string;
+}
+
+export interface NoteRecord {
+  note_id: string;
+  /** Vault-relative path to the note file, for opening it by hand. */
+  path: string;
+  intent: NoteIntent;
+  created: string;
+  updated: string;
+  /** The note's own lifecycle field from frontmatter (defaults to "active"). */
+  note_status: string;
+  /** Resolved-anchor bucket; null for a note with no anchors at all. */
+  status: AnchorStatus | null;
+  tags: string[];
+  /** The note's text. */
+  note: string;
+  anchors: NoteAnchor[];
+}
+
+/** `notes action=read` — one note in full, with its owning topic echoed back. */
+export interface NoteReadResult extends NoteRecord {
+  topic: string;
+}
+
+/** `notes action=list` — one filtered, sorted, paginated page of notes. */
+export interface NotesListResult {
+  topic: string;
+  intent_filter: NoteIntentFilter;
+  status_filter: AnchorStatusFilter;
+  notes: NoteRecord[];
+  intent_counts: Record<NoteIntent, number>;
+  /** Anchorless notes are in no bucket, so these can sum to less than total_count. */
+  status_counts: Record<AnchorStatus, number>;
+  next_cursor: string;
+  has_more: boolean;
+  total_count: number;
+  skipped_malformed: number;
+}
+
+/** ``wiki_status``'s per-topic notes summary; absent on servers that predate it. */
+export interface NotesStatusSummary {
+  total: number;
+  drifted: number;
 }

@@ -8,6 +8,7 @@ import { AskPane } from "./AskPane";
 import { DatasetsPane } from "./DatasetsPane";
 import { IngestPane } from "./IngestPane";
 import { LoopPane } from "./LoopPane";
+import { NotesPane } from "./NotesPane";
 import { SourcesPane } from "./SourcesPane";
 import { VaultPane } from "./VaultPane";
 import {
@@ -45,7 +46,8 @@ const initialPane = (
   paneParam === "loop" ||
   paneParam === "ask" ||
   paneParam === "arena" ||
-  paneParam === "sources"
+  paneParam === "sources" ||
+  paneParam === "notes"
     ? paneParam === "golden"
       ? "datasets"
       : paneParam
@@ -301,6 +303,9 @@ export function App() {
   const baselineLabel =
     baselineScalar != null ? baselineScalar.toFixed(4) : "—";
   const sourcesPendingCount = topicRow?.suggestions?.pending ?? 0;
+  // Drifted, not total: the badge is an attention signal, matching Sources' pending count.
+  // Absent on a server whose wiki_status predates the notes summary — then no badge.
+  const notesDriftedCount = topicRow?.notes?.drifted ?? 0;
   const llm = catalog.value?.llm;
   const llmChip: { label: string; tone: "ok" | "warn" | "bad" } | null =
     llm == null
@@ -518,6 +523,18 @@ export function App() {
               </button>
               <button
                 type="button"
+                class={pane === "notes" ? "active" : ""}
+                onClick={() => selectPane("notes")}
+              >
+                Notes
+                {notesDriftedCount > 0 ? (
+                  <span class="pane-tab-badge" title="Notes whose anchors drifted">
+                    {notesDriftedCount}
+                  </span>
+                ) : null}
+              </button>
+              <button
+                type="button"
                 class={pane === "arena" ? "active" : ""}
                 onClick={() => selectPane("arena")}
               >
@@ -651,6 +668,9 @@ export function App() {
           status={status.value}
           onStatusRefresh={() => refreshStatus(false)}
         />
+      ) : null}
+      {pane === "notes" ? (
+        <NotesPane client={client} topic={topic} vault={resolvedVaultName} />
       ) : null}
       {pane === "arena" ? (
         <ArenaPane

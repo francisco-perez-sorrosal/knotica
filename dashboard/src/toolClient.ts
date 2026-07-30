@@ -29,6 +29,10 @@ import type {
   LoopSetBaselineResult,
   BaselineProbeResult,
   MetricsWindow,
+  NoteIntentFilter,
+  NoteReadResult,
+  NotesListResult,
+  AnchorStatusFilter,
   OkfCheckResult,
   OkfRepairResult,
   QueryAnswer,
@@ -163,6 +167,15 @@ export interface ToolClient {
     reason?: string,
     vault?: string,
   ): Promise<SuggestionReviewResult>;
+  notesList(
+    topic: string,
+    intent?: NoteIntentFilter,
+    status?: AnchorStatusFilter,
+    cursor?: string,
+    limit?: number,
+    vault?: string,
+  ): Promise<NotesListResult>;
+  notesRead(topic: string, noteId: string, vault?: string): Promise<NoteReadResult>;
   vaultUse(name: string): Promise<Record<string, unknown>>;
   vaultCreate(
     name: string,
@@ -455,6 +468,21 @@ abstract class BaseToolClient implements ToolClient {
       reason,
       vault,
     });
+  }
+
+  notesList(
+    topic: string,
+    intent: NoteIntentFilter = "all",
+    status: AnchorStatusFilter = "all",
+    cursor = "",
+    limit = 20,
+    vault = "",
+  ): Promise<NotesListResult> {
+    return this.call("notes", { action: "list", topic, intent, status, cursor, limit, vault });
+  }
+
+  notesRead(topic: string, noteId: string, vault = ""): Promise<NoteReadResult> {
+    return this.call("notes", { action: "read", topic, note_id: noteId, vault });
   }
 
   vaultUse(name: string): Promise<Record<string, unknown>> {
