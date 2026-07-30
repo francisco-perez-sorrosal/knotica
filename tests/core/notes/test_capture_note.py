@@ -52,6 +52,9 @@ from support.vault import (
 )
 
 TOPIC = "agentic-systems"
+_CAPTURE_OP = "note_capture"
+_LINKED_PAGE = f"{TOPIC}/agent-memory"
+_EMBEDDED_PAGE = f"{TOPIC}/diagram"
 _NOTE_ID_RE = re.compile(r"^\d{8}-\d{6}(-[a-z0-9-]+)?$")
 
 
@@ -684,6 +687,46 @@ def test_an_unrecognized_intent_value_is_refused_with_invalid_argument(template_
     assert git_commit_count(template_vault) == commits_before, (
         "an invalid intent is a tool-boundary validation failure, not an anchoring problem, "
         "and must make no commit -- anchor.py itself deliberately does not validate intent"
+    )
+
+
+def test_a_wikilink_in_the_note_body_never_reaches_the_operation_log(template_vault: Path):
+    """The mechanism behind the isolation guarantee, pinned directly.
+
+    The log entry's title is derived from the note body, and ``log.md`` sits at
+    the vault root, so its family is *scored* and its full text is scanned for
+    ``[[...]]``. A wikilink surviving into it becomes a genuine inbound link
+    that de-orphans the page the note merely mentioned -- moving the eval
+    scalar. The note-family link filter cannot catch it, because by then the
+    link's source really is ``log.md``.
+
+    Scoped to the *note body's own* link targets: the log entry separately
+    renders the written note path as a wikilink, which every operation does and
+    which points at a note file rather than a knowledge page.
+    """
+    _success(
+        _capture(
+            template_vault,
+            TOPIC,
+            f"points at [[{_LINKED_PAGE}]] and ![[{_EMBEDDED_PAGE}]] on purpose",
+        )
+    )
+
+    log_text = (template_vault / "log.md").read_text(encoding="utf-8")
+    # Scoped to the entries this capture wrote: the template's own log preamble
+    # legitimately quotes `[[SCHEMA]]` and is not this operation's output.
+    entries = [line for line in log_text.splitlines() if _CAPTURE_OP in line]
+    # Drop the trailing `([[<written path>]])` the log renders for every
+    # operation; what remains is the note-derived title this module owns.
+    titles = [line.rpartition(" ([[")[0] for line in entries]
+
+    assert entries, "sanity: the capture must have written a log entry"
+    assert all("[[" not in title for title in titles), (
+        "a wikilink was laundered from the note body into log.md, a scored file -- "
+        f"the link map would read it as a real inbound edge and de-orphan the page: {titles}"
+    )
+    assert any(_LINKED_PAGE in title for title in titles), (
+        "de-linking must keep the prose readable, not delete the words"
     )
 
 

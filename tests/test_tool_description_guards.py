@@ -64,7 +64,10 @@ _MUTATING_TOOLS = _DIRECT_MUTATING_TOOLS + _MUTATING_DISPATCHERS
 #: Read-only tools that must NOT carry the mutation-confirmation guard --
 #: a negative control proving the guard is scoped to tools that actually
 #: mutate, not pasted onto every description regardless of effect.
-_READ_ONLY_CONTROLS = ("query", "wiki_status", "suggestions_read", "arena")
+#: ``notes`` joins ``arena`` here for the same reason: in this phase both
+#: dispatchers expose zero mutating actions (``notes`` registers only
+#: ``list``/``read``), so neither has anything to guard against.
+_READ_ONLY_CONTROLS = ("query", "wiki_status", "suggestions_read", "arena", "notes")
 
 
 @pytest.fixture(scope="module")
@@ -112,6 +115,38 @@ def test_read_only_tool_description_carries_no_confirmation_precondition(
     assert "confirm" not in description, (
         f"{tool_name!r} is read-only but its description carries confirmation "
         f"language meant for mutating tools: {tool_descriptions[tool_name]!r}"
+    )
+
+
+# ---------------------------------------------------------------------------
+# note_capture -- the guard re-specified on the addressed-vs-unaddressed axis.
+#
+# Every other mutating tool states the guard as a literal confirmation
+# precondition ("confirm"). Applied verbatim to a one-shot conversational
+# capture, that would force a round-trip on every note. The guard's purpose
+# survives intact on a different axis instead: an addressed remark ("note
+# this", an explicit reflective aside) IS the note and captures immediately;
+# an unaddressed reaction is not inferred into a write and routes to an
+# offer. `note_capture` is therefore checked on its own terms, not folded
+# into `_DIRECT_MUTATING_TOOLS`'s literal "confirm" check.
+# ---------------------------------------------------------------------------
+
+
+def test_note_capture_description_gates_on_addressed_intent_not_confirmation(
+    tool_descriptions: dict[str, str],
+) -> None:
+    """A model deciding whether to call `note_capture` from a detection pass
+    must be told that only an addressed remark counts as explicit intent --
+    a merely-detected reaction must route to an offer, never a silent write."""
+    assert "note_capture" in tool_descriptions, "note_capture is not a registered tool"
+    description = tool_descriptions["note_capture"].lower()
+    assert "addressed" in description, (
+        "the explicit-intent axis (an addressed remark) must be named in the "
+        f"description: {tool_descriptions['note_capture']!r}"
+    )
+    assert "offer" in description, (
+        "an unaddressed reaction must be routed to an offer, not written silently: "
+        f"{tool_descriptions['note_capture']!r}"
     )
 
 

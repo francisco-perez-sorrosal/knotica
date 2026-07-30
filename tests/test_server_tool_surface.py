@@ -15,7 +15,7 @@ loop at the level a real client actually sees: the one, fully-wired
 Three checks, corresponding to this integration checkpoint's server-level
 proof obligations:
 
-1. tool-count/shape census -- 31 unique names, none carrying a deprecation
+1. tool-count/shape census -- 33 unique names, none carrying a deprecation
    suffix;
 2. every dispatcher is reachable end-to-end through the full server with one
    representative action each (`payload_of` requires a structured JSON
@@ -46,15 +46,18 @@ DISPATCHER_NAMES = (
     "datasets",
     "golden",
     "loop",
+    "notes",
     "vault",
     "vault_health",
 )
 
-#: The 19 conversational-core tools + `open_dashboard` -- neither a
-#: dispatcher nor a standalone diagnostic. Derived by elimination: 31 tools
-#: total, minus the 8 dispatchers, minus 4 standalone diagnostics not
+#: The 20 conversational-core tools + `open_dashboard` -- neither a
+#: dispatcher nor a standalone diagnostic. Derived by elimination: 33 tools
+#: total, minus the 9 dispatchers, minus 4 standalone diagnostics not
 #: wrapped by any dispatcher (`baseline_probe`, `ingest_activity_read`,
-#: `metrics_read`, `prompt_diff`), leaves these 19.
+#: `metrics_read`, `prompt_diff`), leaves these 20. `note_capture` joins this
+#: set -- per INTERFACE_DESIGN.md §1, it is deliberately a flat conversational
+#: tool (capture friction is fatal to the feature), not a `notes` action.
 CORE_AND_DASHBOARD = frozenset(
     {
         "create_topic",
@@ -64,6 +67,7 @@ CORE_AND_DASHBOARD = frozenset(
         "lint_check",
         "list_links",
         "list_topics",
+        "note_capture",
         "open_dashboard",
         "query",
         "read_page",
@@ -99,16 +103,17 @@ REPRESENTATIVE_CALLS: dict[str, tuple[dict[str, Any], str | None]] = {
     "datasets": ({"action": "inventory", "topic": TOPIC}, None),
     "golden": ({"action": "load", "topic": TOPIC}, "PAGE_NOT_FOUND"),
     "loop": ({"action": "baseline_policy", "topic": TOPIC, "policy": "latest"}, None),
+    "notes": ({"action": "list", "topic": TOPIC}, None),
     "vault": ({"action": "status"}, None),
     "vault_health": ({"action": "doctor", "topic": TOPIC}, None),
 }
 
 
-def test_tool_surface_has_31_unique_names(vault_config: Path, template_vault: Path) -> None:
+def test_tool_surface_has_33_unique_names(vault_config: Path, template_vault: Path) -> None:
     del vault_config, template_vault
     names = [tool.name for tool in list_tools(build_full_server())]
-    assert len(names) == 31
-    assert len(set(names)) == 31
+    assert len(names) == 33
+    assert len(set(names)) == 33
 
 
 def test_no_tool_carries_a_deprecation_suffix(vault_config: Path, template_vault: Path) -> None:

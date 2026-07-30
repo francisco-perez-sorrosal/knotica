@@ -30,10 +30,12 @@ from knotica.mcp_server.tools_dispatch_compile import register_dispatch_compile_
 from knotica.mcp_server.tools_dispatch_datasets import register_dispatch_datasets_tools
 from knotica.mcp_server.tools_dispatch_golden import register_dispatch_golden_tools
 from knotica.mcp_server.tools_dispatch_loop import register_dispatch_loop_tools
+from knotica.mcp_server.tools_dispatch_notes import register_dispatch_notes_tools
 from knotica.mcp_server.tools_dispatch_vault import register_dispatch_vault_tools
 from knotica.mcp_server.tools_dispatch_vault_health import register_dispatch_vault_health_tools
 from knotica.mcp_server.tools_guide import register_guide_tools
 from knotica.mcp_server.tools_ingest import register_ingest_tools
+from knotica.mcp_server.tools_notes import register_notes_tools
 from knotica.mcp_server.tools_prompt_diff import register_prompt_diff_tools
 from knotica.mcp_server.tools_query import register_query_tools
 from knotica.mcp_server.tools_read import register_read_tools
@@ -98,12 +100,14 @@ def _build_server(*, stateless_http: bool = False) -> FastMCP:
     register_suggestions_tools(mcp)
     register_source_ingest_tools(mcp)
     register_ingest_tools(mcp)
+    register_notes_tools(mcp)
     # Operator long-tail two-tier surface: 7 action-parameterized dispatchers.
     register_dispatch_loop_tools(mcp)
     register_dispatch_branches_tools(mcp)
     register_dispatch_compile_tools(mcp)
     register_dispatch_datasets_tools(mcp)
     register_dispatch_arena_tools(mcp)
+    register_dispatch_notes_tools(mcp)
     register_dispatch_golden_tools(mcp)
     register_dispatch_vault_tools(mcp)
     register_dispatch_vault_health_tools(mcp)

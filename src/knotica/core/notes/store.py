@@ -112,9 +112,22 @@ def _resolve_anchors(
     resolved: list[tuple[AnchorRecord, Projection]] = []
     for anchor in anchors:
         historical_text = vcs.read_file_at(anchor.pinned_at, anchor.page) or ""
-        head_text = store.read_text(anchor.page) if store.exists(anchor.page) else None
-        resolved.append((anchor, resolve_anchor(historical_text, head_text, anchor)))
+        resolved.append(
+            (anchor, resolve_anchor(historical_text, _head_text(store, anchor), anchor))
+        )
     return resolved
+
+
+def _head_text(store: VaultStore, anchor: AnchorRecord) -> str | None:
+    """The anchored page as it stands now, or ``None`` when there is no page.
+
+    A topic-fidelity anchor records the empty path -- ``store.exists("")`` is
+    true (the vault root is a real directory) and reading it raises, so the
+    emptiness must be checked before the existence.
+    """
+    if not anchor.page or not store.exists(anchor.page):
+        return None
+    return store.read_text(anchor.page)
 
 
 def _anchors_page(resolved: ResolvedNote, page: str) -> bool:

@@ -30,6 +30,7 @@ a hand-authored one ever has that shape.)
 """
 
 import hashlib
+import re
 from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import UTC, datetime
@@ -69,6 +70,12 @@ _TIMESTAMP_FORMAT = "%Y-%m-%dT%H:%M:%SZ"
 #: Max length of the note-derived commit/log title before truncation.
 _TITLE_MAX_LEN = 72
 
+#: Title used when the note's text collapses to nothing once de-linked.
+_FALLBACK_TITLE = "captured note"
+
+#: Wikilink and embed syntax, as it may appear in a user-authored note body.
+_WIKILINK_RE = re.compile(r"!?\[\[(?P<target>[^\[\]]*)\]\]")
+
 
 @dataclass(frozen=True)
 class _AnchorPlan:
@@ -91,6 +98,7 @@ class _Request:
     topic: str
     body: str
     intent: str
+    tags: tuple[str, ...]
 
 
 def capture_note(
@@ -103,6 +111,7 @@ def capture_note(
     quote: str = "",
     pages: Sequence[str] = (),
     intent: str = DEFAULT_INTENT,
+    tags: Sequence[str] = (),
 ) -> dict[str, object]:
     """Write one note under ``notes/<topic>/``, degrading the anchor as needed.
 
@@ -116,13 +125,17 @@ def capture_note(
         pages: Vault-relative page paths the caller believes the quote came
             from, best-first. May be empty.
         intent: One of :data:`~knotica.core.notes.anchor.NOTE_INTENTS`.
+        tags: Free-form labels recorded in the note's frontmatter.
 
     Returns:
-        A success envelope ``{note_id, path, fidelity, duplicate}`` -- carrying
-        an ``ANCHOR_DEGRADED`` warning when the anchor could not be pinned as
-        claimed -- or a typed failure envelope for the three non-anchor errors.
+        A success envelope ``{note_id, path, fidelity, duplicate, commit}`` --
+        carrying an ``ANCHOR_DEGRADED`` warning when the anchor could not be
+        pinned as claimed -- or a typed failure envelope for the three
+        non-anchor errors. ``commit`` is the vault ``HEAD`` the note is durable
+        at: the capture's own commit, or the head the duplicate was matched
+        against.
     """
-    request = _validate(store, topic, note, intent)
+    request = _validate(store, topic, note, intent, tags)
     if not isinstance(request, _Request):
         return request
 
@@ -132,7 +145,14 @@ def capture_note(
     fingerprint = _fingerprint(request.topic, request.body, plan.page, quote)
     duplicate = _find_duplicate(store, note_paths, request.topic, fingerprint)
     if duplicate is not None:
-        return ok({**duplicate, "fidelity": plan.fidelity, "duplicate": True})
+        return ok(
+            {
+                **duplicate,
+                "fidelity": plan.fidelity,
+                "duplicate": True,
+                "commit": vcs.head_sha(),
+            }
+        )
 
     created = datetime.now(UTC).strftime(_TIMESTAMP_FORMAT)
     taken = {PurePath(path).stem for path in note_paths}
@@ -159,12 +179,13 @@ def capture_note(
         "path": path,
         "fidelity": plan.fidelity,
         "duplicate": False,
+        "commit": txn.result.commit_sha,
     }
     return ok(pointer, warnings=warnings)
 
 
 def _validate(
-    store: VaultStore, topic: str, note: str, intent: str
+    store: VaultStore, topic: str, note: str, intent: str, tags: Sequence[str]
 ) -> _Request | dict[str, object]:
     """The three hard failures, all of them checked before any anchoring."""
     try:
@@ -188,7 +209,8 @@ def _validate(
             f"capture_note failed because intent {intent!r} is not one of "
             f"{', '.join(sorted(NOTE_INTENTS))}.",
         )
-    return _Request(topic=cleaned, body=body, intent=intent)
+    cleaned_tags = tuple(tag.strip() for tag in tags if tag.strip())
+    return _Request(topic=cleaned, body=body, intent=intent, tags=cleaned_tags)
 
 
 def _render(
@@ -217,7 +239,7 @@ def _render(
             created=created,
             updated=created,
             status=DEFAULT_STATUS,
-            tags=(),
+            tags=request.tags,
             body=request.body,
             anchors=(anchor,),
         )
@@ -373,8 +395,23 @@ def _find_duplicate(
 
 
 def _title(body: str) -> str:
-    """One-line commit/log title derived from the note (collapsed, truncated)."""
-    collapsed = " ".join(body.split())
+    """One-line commit/log title derived from the note (de-linked, truncated).
+
+    Wikilink syntax is flattened to its inner text before the title leaves this
+    module. The title is written into the vault-root ``log.md``, whose family is
+    *scored* -- so a `[[page]]` surviving into it would be indexed as a genuine
+    inbound link and quietly de-orphan the page the note merely talked about,
+    moving the eval scalar. The note-family link filter cannot catch that: by
+    then the link's source really is ``log.md``, not the note.
+    """
+    collapsed = " ".join(_delink(body).split())
+    if not collapsed:
+        return _FALLBACK_TITLE
     if len(collapsed) <= _TITLE_MAX_LEN:
         return collapsed
     return collapsed[: _TITLE_MAX_LEN - 1].rstrip() + "…"
+
+
+def _delink(text: str) -> str:
+    """Replace every ``[[target]]`` / ``![[embed]]`` with its display text."""
+    return _WIKILINK_RE.sub(lambda match: match.group("target").rpartition("|")[2], text)
