@@ -164,6 +164,16 @@ def _run_repair(store: LocalFSStore, args: argparse.Namespace, console: Console)
     if args.verbose:
         for path in result.files_changed:
             console.info(f"  {path}")
+    if result.skipped_dirty:
+        console.info(f"Skipped (uncommitted): {len(result.skipped_dirty)}")
+        for path in result.skipped_dirty:
+            _status_line(console, Status.WARN, f"skipped (uncommitted): {path}")
+    if result.relocated_reports:
+        # Files the user can see in Obsidian move on disk, so say so rather
+        # than letting them notice a folder has quietly emptied (td-022).
+        console.info(f"Relocated old reports: {len(result.relocated_reports)}")
+        for old_path, new_path in result.relocated_reports:
+            console.info(f"  {old_path} -> {new_path}")
     if result.report_path:
         console.info(f"Report: {result.report_path}")
     if result.commit_sha:

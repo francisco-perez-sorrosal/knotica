@@ -84,6 +84,103 @@ Hand-author notes freely in Obsidian or any text editor — the vault scaffold a
 notes as a scoped, private workspace that coexists with but never contaminates your KB's quality
 guarantees.
 
+### Personal notes — on-disk format
+
+A note is a Markdown file with YAML frontmatter and an optional `## Anchors` section that pins
+quoted moments to specific vault locations. Create notes by typing them directly in Obsidian or
+your editor — no special tools required. The file format is the only contract; a note authored
+by hand and one written by the capture tool are indistinguishable on disk.
+
+#### Filename and identity
+
+The filename is `<YYYYMMDD-HHMMSS>-<slug>.md`, where:
+
+- `<YYYYMMDD-HHMMSS>` is the timestamp when the note was created (e.g., `20260729-142211`)
+- `<slug>` is the note's heading or opening words, lowercased, hyphenated, truncated to 40 characters (e.g., `reward-hacking-is-goodhart`)
+
+Store notes in `notes/<topic>/` — the topic organizes your personal reflections by subject, mirroring the `sources/<topic>/` structure. For example, a reflection on agentic systems lives at `notes/agentic-systems/20260729-142211-reward-hacking-is-goodhart.md`.
+
+The frontmatter `id` field (see below) equals the filename stem exactly — just the timestamp and slug, no directory or `.md` extension. Files are never renamed after creation; the id is stable.
+
+#### Frontmatter
+
+Every note carries YAML frontmatter. The minimum required fields are `type`, `id`, `topic`, and `created`. All others are optional and carry defaults:
+
+| Field | Required? | Type | Default | Meaning |
+|-------|-----------|------|---------|---------|
+| `type` | Yes | string | — | Always `note`. |
+| `id` | Yes | string | — | Filename stem: `<YYYYMMDD-HHMMSS>-<slug>`. |
+| `topic` | Yes | string | — | Topic folder the note belongs to (e.g., `agentic-systems`). |
+| `created` | Yes | string | — | RFC 3339 timestamp, UTC (e.g., `2026-07-29T14:22:11Z`). |
+| `schema_version` | No | integer | `1` | Schema version. Omit unless you have a reason to override. |
+| `intent` | No | string | `reflection` | One of `reflection`, `dispute`, `gap`, `question` — nothing else. `reflection` is private and stays in the notes layer forever; the other three mark the note as *promotable*, meaning you may later choose to carry it into the wiki. Marking is not promoting: crossing into the wiki is always a separate, deliberate act. |
+| `updated` | No | string | `created` value | RFC 3339 timestamp of the last edit, UTC. Defaults to `created` if omitted. |
+| `status` | No | string | `active` | Either `active` or `archived`. This release has no tool that sets it — set it by hand if you want to mark a note archived. Nothing ever removes a note file regardless of this field. |
+| `tags` | No | list of strings | `[]` | Keywords for searching and organizing. |
+
+Example frontmatter:
+
+```yaml
+---
+type: note
+id: 20260729-142211-reward-hacking-is-goodhart
+topic: agentic-systems
+created: 2026-07-29T14:22:11Z
+intent: reflection
+updated: 2026-07-29T14:22:11Z
+status: active
+tags: [metrics, incentives]
+---
+```
+
+#### Body and anchors section
+
+Write the note's body freely — your thoughts, reflections, questions, anything. Markdown is supported (headings, emphasis, lists, etc.). The body is plain prose with no constraints.
+
+After the body (or if the note has no body), you can add an optional `## Anchors` section. This section pins quoted passages from other vault pages to your reflection. Start with a level-2 heading:
+
+```markdown
+## Anchors
+```
+
+Under this heading, list one anchor per bullet point. The format is strict but tolerant:
+
+```markdown
+- [[<vault-path>[#<Heading>]]] — `<fidelity>` · pinned@`<sha>`[ · at=<int>]
+  > <quote>
+```
+
+**Anchor line reference:**
+
+- `[[vault-path]]` — **optional.** A wikilink to the page you're pinning, written without the `.md` suffix, as Obsidian expects.
+  - The optional `#<Heading>` after the path names a specific section. Omit it to pin the whole page.
+  - Omit the wikilink entirely when the note belongs to the topic but not to any one page. Write the bullet as `` - `topic` · pinned@`<sha>` `` and keep the quote underneath — that way the passage you were reacting to is still recorded even though nothing points at a page.
+- `<fidelity>` — how specific the pin is: `span` (a single sentence or phrase), `page` (the whole page), or `topic` (the topic as a whole, no specific page). Two further values, `block` and `section`, are not yet produced; a file containing one is read without complaint and left untouched.
+- `pinned@`<sha>`` — the git commit SHA the page was at when you read it. Backticks are required. This is what makes the passage permanently recoverable: however much the page is rewritten later, the text you actually saw can always be retrieved from that commit.
+- `<quote>` — **optional.** The exact text you're pinning, on the following line, beginning with `>`. **Copy it character-for-character from the page** — it is matched verbatim to locate your note later, so an approximation still stores fine but will not be found, and the note will read as unanchored. Omit the line entirely if you're pinning a whole page rather than a passage.
+- `at=<int>` — **optional, and only ever needed if you're writing a bullet by hand.** A trailing `· at=<int>` after `pinned@`<sha>`` disambiguates *which* occurrence of the quote on the page is meant, for the rare case where the quote appears more than once. Tools that capture an anchor add it automatically whenever it's needed; when hand-writing an anchor, omit it unless your quote repeats on the page.
+
+A bullet needs at minimum a fidelity and a `pinned@` token — that pair is what marks it as an anchor rather than an ordinary list item.
+
+**Full example:**
+
+```markdown
+## Anchors
+
+- [[agentic-systems/agent-memory#Working memory]] — `span` · pinned@`a3f9c21`
+  > the model learns to satisfy the metric rather than the goal
+```
+
+**Tolerance and recovery:**
+
+- Extra whitespace around `—` or `·` is fine; the parser is forgiving about separators.
+- A missing `#Heading` is OK (the quote still pins to the page).
+- An unparseable bullet line (e.g., a typo in the link or fidelity) is dropped from the note, but not silently: it is counted and reported back to you (as a "skipped/malformed" count) when you list or read notes, so you know a bullet needs fixing. The note itself remains valid, and its readable anchors survive.
+- A bare `## Anchors` heading with no bullets is valid.
+- A note with no `## Anchors` section at all is valid (a topic-level reflection with no specific quotes).
+
+**Known limitation:** a body line that consists of *exactly* the text `## Anchors` (as prose) is indistinguishable from the section marker and is dropped on round-trip. This is an edge case; write `### Anchors` or reword the prose if you need to mention the anchor format literally inside a note.
+
 ## Per-operation commit discipline
 
 - Every mutating operation (`write_page`, `store_source`, `create_topic`, `curate_example`,

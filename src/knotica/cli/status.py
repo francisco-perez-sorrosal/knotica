@@ -140,9 +140,10 @@ def _render_nudge(console: Console, payload: dict[str, Any], vault: ResolvedVaul
     Leads with the active knowledge base (name + path) so every session states
     which vault is live -- the honest, ground-truth answer to "which KB am I on?"
     (the nudge only runs once a vault has resolved READY). Then reuses the
-    already-assembled ``topics[].suggestions``/``compile_ready`` fields from
-    ``payload`` (the default ``summary`` view) -- no new aggregation, just a
-    plain-text rendering for the hook to echo verbatim.
+    already-assembled ``topics[].suggestions``/``compile_ready`` and
+    ``totals.notes.drifted`` fields from ``payload`` (the default ``summary``
+    view) -- no new aggregation, just a plain-text rendering for the hook to
+    echo verbatim.
     """
     console.data(f"Active KB: {vault.name} ({vault.path})")
     topics = payload["topics"]
@@ -153,6 +154,7 @@ def _render_nudge(console: Console, payload: dict[str, Any], vault: ResolvedVaul
     pending = sum(t["suggestions"]["pending"] for t in topics)
     refused = sum(t["suggestions"]["refused_awaiting_rework"] for t in topics)
     compile_ready = sum(1 for t in topics if t["compile_ready"])
+    drifted = payload["totals"]["notes"]["drifted"]
     items = []
     if pending:
         items.append(f"{pending} pending suggestion(s)")
@@ -160,6 +162,8 @@ def _render_nudge(console: Console, payload: dict[str, Any], vault: ResolvedVaul
         items.append(f"{refused} refused-awaiting-rework")
     if compile_ready:
         items.append(f"{compile_ready} topic(s) compile-ready")
+    if drifted:
+        items.append(f"{drifted} notes drifted")
     if items:
         console.data("Needs attention: " + ", ".join(items))
 

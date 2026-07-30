@@ -785,3 +785,63 @@ def test_no_heal_happens_inside_an_active_mutation_span(
         "a transaction nested inside a live span must NOT heal -- the span's "
         "own merge may be legitimately in flight"
     )
+
+
+# ---------------------------------------------------------------------------
+# 8. A title can never forge a wikilink
+#
+# ``title`` is the one transaction input made of free, caller-supplied prose,
+# and it lands in two shared places: the commit subject and the vault-root
+# ``log.md``. ``log.md``'s folder family is *scored*, so a surviving
+# ``[[page]]`` is read back as a genuine inbound link -- de-orphaning the page
+# the caller merely mentioned and moving the eval scalar's lint_violations leg.
+# The guarantee is asserted here, at the constructor every mutating operation
+# passes through, rather than per operation: an operation added tomorrow
+# inherits it without its author knowing the hazard exists.
+# ---------------------------------------------------------------------------
+
+
+def _log_title(vault: Path) -> str:
+    return parse_log_entries((vault / LOG_PATH).read_text(encoding="utf-8"))[-1].title
+
+
+def test_a_wikilink_in_any_operations_title_reaches_neither_the_commit_nor_the_log(
+    template_vault: Path,
+) -> None:
+    _write_page_b(template_vault, title="disputing [[agentic-systems/react]] again")
+
+    subject = run_git(template_vault, "log", "-1", "--format=%s").strip()
+    parsed = parse_knotica_commit(subject)
+    assert parsed is not None
+    assert parsed["title"] == "disputing agentic-systems/react again"
+    assert _log_title(template_vault) == "disputing agentic-systems/react again"
+
+
+def test_an_aliased_wikilink_in_a_title_keeps_the_text_the_reader_would_have_seen(
+    template_vault: Path,
+) -> None:
+    _write_page_b(template_vault, title="on [[agentic-systems/react|ReAct]] and ![[diagram.png]]")
+
+    assert _log_title(template_vault) == "on ReAct and diagram.png"
+
+
+def test_a_title_made_entirely_of_wikilink_syntax_still_yields_a_usable_title(
+    template_vault: Path,
+) -> None:
+    """Flattening can empty a title, and the frozen grammar refuses an empty
+    slot -- but refusing the whole operation over the shape of its title would
+    be a worse answer than logging it under a placeholder.
+    """
+    _write_page_b(template_vault, title="[[]]")
+
+    assert _log_title(template_vault) == "untitled"
+
+
+def test_an_empty_title_is_still_rejected_before_any_lock(template_vault: Path) -> None:
+    """Negative control: neutralization must not paper over a genuinely empty
+    slot the commit grammar exists to catch.
+    """
+    with pytest.raises(ValueError, match="title must not be empty"):
+        VaultTransaction(
+            _store(template_vault), template_vault, "write_page", "agentic-systems", ""
+        )

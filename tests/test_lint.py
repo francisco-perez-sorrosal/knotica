@@ -160,6 +160,20 @@ def test_bare_schema_link_from_subdirectory_is_flagged(template_vault: Path) -> 
     assert violation.path == MEMORY_PAGE
 
 
+def test_whole_vault_lint_does_not_check_links_inside_a_note(template_vault: Path) -> None:
+    # A personal note is not a scored family: a broken wikilink inside it (or an
+    # anchor bullet whose page was later deleted -- the `orphaned` outcome the
+    # resolver exists to absorb) must never surface as a whole-vault hygiene
+    # violation attributed to the note file.
+    write(
+        template_vault,
+        "notes/agentic-systems/scratch.md",
+        "# scratch\n\nSee [[agentic-systems/does-not-exist]].\n",
+    )
+
+    assert lint(template_vault) == []
+
+
 # ---------------------------------------------------------------------------
 # Reserved names.
 # ---------------------------------------------------------------------------

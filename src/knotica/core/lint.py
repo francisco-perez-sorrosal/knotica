@@ -160,7 +160,11 @@ def lint_vault(
     topics = [scope] if scope else _topic_directories(store)
     vault_links = _vault_link_map(store)
     content_pages = [path for path in _content_page_paths(store, topics) if path in vault_links]
-    scoped_pages = [path for path in vault_links if scope is None or _in_topic(path, scope)]
+    scoped_pages = [
+        path
+        for path in vault_links
+        if (scope is None or _in_topic(path, scope)) and family_of(path) in SCORED_FAMILIES
+    ]
 
     violations: list[Violation] = []
     if scope is None:
@@ -462,9 +466,37 @@ def _check_page_links(page: str, links: Iterable[Link]) -> list[Violation]:
             violations.append(_dot_path_violation(page, link))
         elif in_subdirectory and link.raw_target == "SCHEMA":
             violations.append(_bare_schema_violation(page, link))
-        elif not link.resolved:
+        elif not link.resolved and _is_scored_link_target(link.target):
             violations.append(_unresolved_violation(page, link))
     return violations
+
+
+def _is_scored_link_target(target: str) -> bool:
+    """Whether a wikilink's *target* must resolve for the wiki to be healthy.
+
+    A third question about scored families, distinct from the two already
+    asked here: :func:`_is_scored_link_source` asks whether a link written in
+    some file may count as an inbound edge, :func:`_is_scored_touched_path`
+    asks whether a log entry's touched path is worth existence-checking, and
+    this asks whether the *absence* of a link's destination is a wiki defect.
+
+    It is not, when the destination lies outside the scored families. Every
+    capture stamps ``log.md`` -- itself a scored page -- with a wikilink to the
+    note file it wrote, so deleting or renaming that note in Obsidian, an
+    entirely ordinary act on a private file, otherwise raises
+    ``LINK_UNRESOLVED`` against ``log.md`` in ``doctor`` and the whole-vault
+    health view. That is the same story as ``LOG_MISSING_PATH``, reached
+    through a different check: a private note's identity in a shared file
+    manufacturing a defect in the shared file.
+
+    An unclassifiable target (absolute, or escaping via ``..``) is treated as
+    scored, mirroring :func:`_is_scored_touched_path`, so a genuinely broken
+    link keeps being reported.
+    """
+    try:
+        return family_of(target) in SCORED_FAMILIES
+    except ValueError:
+        return True
 
 
 def _dot_path_violation(page: str, link: Link) -> Violation:
@@ -650,6 +682,8 @@ def _check_log(store: VaultStore, scope: str | None) -> list[Violation]:
     for line_number, entry_topic, touched_path in iter_log_touched_paths(store.read_text(LOG_PATH)):
         if scope is not None and entry_topic != scope:
             continue
+        if not _is_scored_touched_path(touched_path):
+            continue
         if not _path_exists(store, touched_path):
             violations.append(
                 Violation(
@@ -664,6 +698,29 @@ def _check_log(store: VaultStore, scope: str | None) -> list[Violation]:
                 )
             )
     return violations
+
+
+def _is_scored_touched_path(path: str) -> bool:
+    """Whether a log entry's touched path is this check's business.
+
+    Only the scored folder families (``page``, ``source``) qualify, mirroring
+    :func:`_is_scored_link_source`. The log records that a file *was written*,
+    which stays true forever; whether it still exists is the wiki's concern
+    only for files the wiki measures. A personal note is deleted or renamed in
+    Obsidian as a matter of course, and every capture stamps its log entry with
+    the note's KB topic -- so without this filter that ordinary act raises a
+    ``LOG_MISSING_PATH`` against the *scored* topic, depressing the
+    ``lint_violations`` leg of the eval scalar for a file the eval has no
+    standing over. The loop sleeps through note changes, so the drop would land
+    silently and resurface later as an unearned regression.
+
+    An unclassifiable path (absolute, or escaping via ``..``) is treated as
+    scored, so a genuinely corrupt log entry keeps being reported.
+    """
+    try:
+        return family_of(path) in SCORED_FAMILIES
+    except ValueError:
+        return True
 
 
 def _path_exists(store: VaultStore, path: str) -> bool:

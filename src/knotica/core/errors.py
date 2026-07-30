@@ -13,9 +13,10 @@ model can branch on, and ``retryable`` tells it whether retrying can help
 (only ``LOCK_BUSY`` is retryable: lock contention clears; everything else
 needs a different call).
 
-``SECRET_SCRUBBED`` is the one code that is a **warning, never an error**: a
-write that scrubbed secrets still succeeds, and the warning rides on the
-success envelope. Constructing an error with it fails fast.
+``SECRET_SCRUBBED`` and ``ANCHOR_DEGRADED`` are **warnings, never errors**: a
+write that scrubbed secrets still succeeds, and so does a note capture whose
+anchor could only be pinned loosely -- the warning rides on the success
+envelope. Constructing an error with either fails fast.
 """
 
 from collections.abc import Iterable, Mapping
@@ -43,6 +44,8 @@ class ErrorCode(StrEnum):
     SEARCH_API_ERROR = "SEARCH_API_ERROR"
     SUGGESTION_NOT_FOUND = "SUGGESTION_NOT_FOUND"
     SUGGESTION_NOT_APPROVED = "SUGGESTION_NOT_APPROVED"
+    NOTE_NOT_FOUND = "NOTE_NOT_FOUND"
+    ANCHOR_DEGRADED = "ANCHOR_DEGRADED"
 
 
 #: Canonical fix text per code (the static part of the contract). Callers may
@@ -82,6 +85,14 @@ DEFAULT_FIX: Mapping[ErrorCode, str] = MappingProxyType(
         ErrorCode.SUGGESTION_NOT_APPROVED: (
             "Approve it first: `suggestions_review(action=approve, mode=apply)`."
         ),
+        ErrorCode.NOTE_NOT_FOUND: (
+            "Call `notes(action=list)` for this topic to see current note ids."
+        ),
+        ErrorCode.ANCHOR_DEGRADED: (
+            "The note is saved and the quote is preserved. Call `notes(action=read)` to see"
+            " what the anchor actually recorded, and re-capture naming a more specific page"
+            " if the provenance matters."
+        ),
     }
 )
 
@@ -95,7 +106,9 @@ RETRYABLE_CODES: frozenset[ErrorCode] = frozenset(
 )
 
 #: Codes that ride on *success* envelopes as warnings and can never be errors.
-WARNING_CODES: frozenset[ErrorCode] = frozenset({ErrorCode.SECRET_SCRUBBED})
+WARNING_CODES: frozenset[ErrorCode] = frozenset(
+    {ErrorCode.SECRET_SCRUBBED, ErrorCode.ANCHOR_DEGRADED}
+)
 
 _ENVELOPE_RESERVED_KEYS: frozenset[str] = frozenset({"error", "warnings"})
 

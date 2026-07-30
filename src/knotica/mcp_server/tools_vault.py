@@ -152,6 +152,13 @@ def _okf_repair_payload(store: VaultStore, *, mode: str, force: bool) -> dict[st
             "status": result.status,
             "dry_run": result.dry_run,
             "files_changed": list(result.files_changed),
+            "skipped_dirty": list(result.skipped_dirty),
+            # Reported, not silent: these files moved on disk and the user can
+            # see them in Obsidian.
+            "relocated_reports": [
+                {"from": old_path, "to": new_path}
+                for old_path, new_path in result.relocated_reports
+            ],
             # Avoid envelope-reserved key ``warnings``.
             "notes": list(result.warnings),
             "report_path": result.report_path,

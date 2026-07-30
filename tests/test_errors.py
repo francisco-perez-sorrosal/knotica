@@ -64,10 +64,18 @@ RETRYABLE_BY_CODE = {
     # session for a suggestion that isn't approved yet -- final, the caller
     # must get it approved first; nothing here clears on its own.
     "SUGGESTION_NOT_APPROVED": False,
+    # Notes overlay: a read targeted a note_id the topic does not hold --
+    # final, the caller must list the topic's notes to find a real id.
+    "NOTE_NOT_FOUND": False,
 }
 
 ERROR_CODE_NAMES = frozenset(RETRYABLE_BY_CODE)
-ALL_CODE_NAMES = ERROR_CODE_NAMES | {"SECRET_SCRUBBED"}
+
+# Codes that only ever ride on a *success* envelope. ANCHOR_DEGRADED joins
+# SECRET_SCRUBBED here: a note whose anchor could not be pinned as claimed is
+# still captured, and "retryable" is as meaningless for it as for a scrub.
+WARNING_ONLY_CODE_NAMES = frozenset({"SECRET_SCRUBBED", "ANCHOR_DEGRADED"})
+ALL_CODE_NAMES = ERROR_CODE_NAMES | WARNING_ONLY_CODE_NAMES
 
 # Message-uniformity markers: every surface's unconfigured remediation must
 # name BOTH setup paths (plugin command and CLI). test_config.py imports this
