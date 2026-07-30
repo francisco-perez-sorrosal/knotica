@@ -51,6 +51,10 @@ class RepairResult:
     warnings: list[str] = field(default_factory=list)
     report_path: str | None = None
     commit_sha: str | None = None
+    #: Paths that needed repair but were declined because git shows them as
+    #: dirty (modified, staged, or untracked) -- the user's in-flight work,
+    #: not this run's business. See ``_plan_repairs`` (td-021).
+    skipped_dirty: list[str] = field(default_factory=list)
 
 
 def repair_vault(store: VaultStore, options: RepairOptions) -> RepairResult:
@@ -66,12 +70,14 @@ def repair_vault(store: VaultStore, options: RepairOptions) -> RepairResult:
     assert isinstance(store, LocalFSStore), "repair_vault requires a LocalFSStore-backed vault"
     vault_root = Path(store.root).resolve()
     result = RepairResult(status="OK", dry_run=not options.apply)
+    dirty_paths = _dirty_paths(vault_root)
 
-    if options.apply and not options.force and _git_dirty(vault_root):
+    if options.apply and not options.force and dirty_paths:
         raise ValueError("git working tree is dirty; commit or stash changes, or pass --force")
 
-    planned = _plan_repairs(store, result)
+    planned = _plan_repairs(store, result, dirty_paths)
     result.files_changed = sorted(planned.keys())
+    result.skipped_dirty.sort()
 
     if options.apply:
         _apply_repairs(store, vault_root, options, result, planned)
@@ -84,8 +90,17 @@ def repair_vault(store: VaultStore, options: RepairOptions) -> RepairResult:
     return result
 
 
-def _plan_repairs(store: LocalFSStore, result: RepairResult) -> dict[str, str]:
-    """The full new content of every page this run would rewrite, by vault path."""
+def _plan_repairs(
+    store: LocalFSStore, result: RepairResult, dirty_paths: frozenset[str]
+) -> dict[str, str]:
+    """The full new content of every page this run would rewrite, by vault path.
+
+    A path in ``dirty_paths`` (modified, staged, or untracked) is the user's
+    in-flight work, not this run's business: it is declined and recorded on
+    ``result.skipped_dirty`` rather than rewritten, whether or not the change
+    it needs would otherwise be legitimate. Applies unconditionally -- on a
+    clean tree ``dirty_paths`` is empty, so this is a no-op (td-021).
+    """
     planned: dict[str, str] = {}
     for path in sorted(iter_scored_page_paths(store)):
         raw = store.read_text(path)
@@ -94,9 +109,13 @@ def _plan_repairs(store: LocalFSStore, result: RepairResult) -> dict[str, str]:
             if normalized.changed or normalized.warnings:
                 new_content = render_concept_document(path, raw)
                 if new_content != raw:
+                    if _skip_dirty(path, dirty_paths, result):
+                        continue
                     planned[path] = new_content
                     result.warnings.extend(f"{path}: {w}" for w in normalized.warnings)
         elif path.endswith("index.md") and raw.startswith("---"):
+            if _skip_dirty(path, dirty_paths, result):
+                continue
             _, _err, body = parse_page(raw)
             preamble = "# Index\n\n<!-- frontmatter removed by okf repair -->\n\n"
             planned[path] = preamble + body.lstrip()
@@ -104,10 +123,20 @@ def _plan_repairs(store: LocalFSStore, result: RepairResult) -> dict[str, str]:
         elif path.endswith(LOG_PATH):
             canonical = canonicalize_log(raw)
             if canonical != raw:
+                if _skip_dirty(path, dirty_paths, result):
+                    continue
                 planned[path] = canonical
                 if "newest last" in raw or "```" in raw.split("## ", 1)[0]:
                     result.warnings.append(f"{path}: canonicalized OKF log preamble")
     return planned
+
+
+def _skip_dirty(path: str, dirty_paths: frozenset[str], result: RepairResult) -> bool:
+    """Record and decline ``path`` when it is dirty; a no-op on a clean path."""
+    if path not in dirty_paths:
+        return False
+    result.skipped_dirty.append(path)
+    return True
 
 
 def _apply_repairs(
@@ -204,18 +233,28 @@ def _render_report_body(result: RepairResult, vault_root: Path) -> str:
         lines.append("## Warnings")
         lines.extend(f"- {warning}" for warning in result.warnings)
         lines.append("")
+    if result.skipped_dirty:
+        lines.append(f"## Skipped (uncommitted): {len(result.skipped_dirty)}")
+        lines.append(
+            "These paths needed repair but were declined because git shows them as "
+            "uncommitted. Commit or stash them, then re-run repair."
+        )
+        lines.extend(f"- `{path}`" for path in result.skipped_dirty)
+        lines.append("")
     return "\n".join(lines)
 
 
-def _git_dirty(root: Path) -> bool:
-    """Whether the vault work tree has uncommitted changes (untracked included).
+def _dirty_paths(root: Path) -> frozenset[str]:
+    """Vault-relative paths with uncommitted git state -- one status call.
 
-    The same ``git status --porcelain`` predicate the pre-transaction version
-    shelled out for, now read through the read-only git surface.
+    Modified, staged, and untracked paths are all the user's in-flight work.
+    Sourced from a single ``git status --porcelain`` invocation (not a
+    per-path check) so a large vault costs one subprocess, not N.
     """
     if not _git_available(root):
-        return False
-    return VaultVcs(root).is_dirty()
+        return frozenset()
+    entries = VaultVcs(root).list_dirty_entries()
+    return frozenset(str(entry["path"]) for entry in entries)
 
 
 def _git_available(root: Path) -> bool:

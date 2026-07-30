@@ -152,6 +152,7 @@ def _okf_repair_payload(store: VaultStore, *, mode: str, force: bool) -> dict[st
             "status": result.status,
             "dry_run": result.dry_run,
             "files_changed": list(result.files_changed),
+            "skipped_dirty": list(result.skipped_dirty),
             # Avoid envelope-reserved key ``warnings``.
             "notes": list(result.warnings),
             "report_path": result.report_path,

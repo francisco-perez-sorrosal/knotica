@@ -199,6 +199,72 @@ def test_dirty_tree_with_force_proceeds(template_vault):
     assert result.commit_sha is not None
 
 
+def test_apply_force_skips_uncommitted_draft_and_does_not_commit_it(template_vault):
+    """``--force`` proceeds despite a dirty tree; it does not adopt the dirt.
+
+    A user's untracked draft that repair would otherwise rewrite (no
+    frontmatter -> gets some injected) must survive byte-identical and never
+    land in the repair commit, while repairs the vault genuinely needs (its
+    log preamble, per ``test_apply_canonicalizes_log_md``) still happen.
+    """
+    store = LocalFSStore(template_vault)
+    draft = make_foreign_edit(template_vault)
+    draft_relpath = draft.path.relative_to(template_vault).as_posix()
+
+    result = repair_vault(store, RepairOptions(apply=True, force=True))
+
+    draft.assert_intact()
+    assert draft_relpath not in result.files_changed
+    assert draft_relpath in result.skipped_dirty
+    assert "log.md" in result.files_changed
+    tracked = run_git(template_vault, "ls-files", draft_relpath).strip()
+    assert tracked == ""
+
+
+def test_dry_run_with_dirty_tree_reports_the_same_skips_force_would(template_vault):
+    """A dry run on a dirty tree previews exactly what ``--force`` would decline."""
+    store = LocalFSStore(template_vault)
+    draft = make_foreign_edit(template_vault)
+    draft_relpath = draft.path.relative_to(template_vault).as_posix()
+
+    dry_result = repair_vault(store, RepairOptions(apply=False))
+
+    assert draft_relpath not in dry_result.files_changed
+    assert draft_relpath in dry_result.skipped_dirty
+    draft.assert_intact()
+
+
+def test_dirty_tracked_page_that_needs_repair_is_skipped_and_reported(template_vault):
+    """An unstaged edit to an existing tracked page is declined the same way an
+    untracked draft is -- dirty is dirty, tracked or not.
+
+    ``START_HERE.md`` is a concept page the template vault already needs to
+    repair (see the dry-run ``files_changed`` baseline); a stray edit to it
+    must not change whether it needs repair, only whether this run may touch
+    it. ``log.md`` is unsuitable for this case -- the transaction always
+    rewrites it as part of every commit, regardless of what repair plans.
+    """
+    store = LocalFSStore(template_vault)
+    page_path = template_vault / "START_HERE.md"
+    original = page_path.read_text(encoding="utf-8")
+    page_path.write_text(original + "\nstray user edit\n", encoding="utf-8")
+
+    result = repair_vault(store, RepairOptions(apply=True, force=True))
+
+    assert "START_HERE.md" in result.skipped_dirty
+    assert "START_HERE.md" not in result.files_changed
+    assert page_path.read_text(encoding="utf-8") == original + "\nstray user edit\n"
+
+
+def test_clean_tree_apply_reports_no_skips(template_vault):
+    """On a clean tree the dirty-path filter is a no-op -- unchanged behaviour."""
+    store = LocalFSStore(template_vault)
+
+    result = repair_vault(store, RepairOptions(apply=True, force=True))
+
+    assert result.skipped_dirty == []
+
+
 def test_second_same_day_apply_replans_its_own_prior_report(template_vault):
     """Characterizes a measured (not assumed) quirk: ``repair_vault`` walks every
     ``.md`` page in the vault via ``iter_page_paths``, including the report file

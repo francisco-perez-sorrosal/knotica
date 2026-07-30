@@ -164,6 +164,10 @@ def _run_repair(store: LocalFSStore, args: argparse.Namespace, console: Console)
     if args.verbose:
         for path in result.files_changed:
             console.info(f"  {path}")
+    if result.skipped_dirty:
+        console.info(f"Skipped (uncommitted): {len(result.skipped_dirty)}")
+        for path in result.skipped_dirty:
+            _status_line(console, Status.WARN, f"skipped (uncommitted): {path}")
     if result.report_path:
         console.info(f"Report: {result.report_path}")
     if result.commit_sha:
