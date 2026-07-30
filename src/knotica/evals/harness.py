@@ -66,7 +66,7 @@ from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path, PurePath
-from typing import Any
+from typing import Any, Unpack
 
 from knotica.core.config import resolve
 from knotica.core.errors import ErrorCode, KnoticaError
@@ -87,6 +87,7 @@ from knotica.evals.config import (
     JUDGE_SNAPSHOT,
     WORKER_SNAPSHOT,
     HarnessConfig,
+    HarnessOverrides,
     harness_version,
 )
 from knotica.evals.error_capture import OnOutcome, classify_error
@@ -355,7 +356,7 @@ def run_eval(
     on_example: Callable[[int, int, str], None] | None = None,
     on_substage: Callable[[str, int, int], None] | None = None,
     on_outcome: OnOutcome | None = None,
-    **overrides: object,
+    **overrides: Unpack[HarnessOverrides],
 ) -> EvalRunResult:
     """Evaluate ``topic`` against its frozen golden set and append one metrics record.
 

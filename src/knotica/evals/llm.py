@@ -50,7 +50,7 @@ import os
 import warnings
 from collections.abc import Sequence
 from dataclasses import dataclass
-from typing import Protocol, runtime_checkable
+from typing import Protocol, cast, runtime_checkable
 
 from knotica.core.errors import ErrorCode, KnoticaError
 
@@ -274,6 +274,57 @@ def _metered_fallback_message() -> str:
     )
 
 
+class _ContentBlock(Protocol):
+    """The Messages API content-block surface this module reads.
+
+    Structural, not nominal: ``anthropic`` is imported lazily (see
+    :func:`_import_anthropic`), so the SDK's own response types are unavailable at
+    this boundary and only the two attributes actually touched are described here.
+    ``text`` is read *solely* for blocks whose ``type`` is ``"text"`` -- the
+    runtime filter in :func:`_extract_text` is what makes that access safe for the
+    non-text block variants (tool-use, thinking) the SDK may also return.
+    """
+
+    type: str
+    text: str
+
+
+class _ResponseUsage(Protocol):
+    """The Messages API ``usage`` surface this module reads.
+
+    Only the two always-present counters are declared. The cache counters are
+    read defensively via ``getattr`` in :func:`_usage_from_response` because a
+    response that reports no cache activity omits them entirely.
+    """
+
+    input_tokens: int
+    output_tokens: int
+
+
+class _MessagesResponse(Protocol):
+    """The Messages API response surface this module reads: ``content`` + ``usage``."""
+
+    content: Sequence[_ContentBlock]
+    usage: _ResponseUsage
+
+
+class _MessagesResource(Protocol):
+    """The ``client.messages`` surface this module calls.
+
+    ``create`` takes ``**kwargs: object`` because the request body is assembled as
+    a ``dict[str, object]`` (the ``output_config`` / ``temperature`` keys are
+    conditional -- see :meth:`AnthropicClient.complete`).
+    """
+
+    def create(self, **kwargs: object) -> _MessagesResponse: ...
+
+
+class _AnthropicSDKClient(Protocol):
+    """The lazily-imported SDK client surface this module holds: ``.messages`` only."""
+
+    messages: _MessagesResource
+
+
 def _import_anthropic() -> object:
     """Import the ``anthropic`` module lazily, or raise an actionable typed error.
 
@@ -382,7 +433,7 @@ class AnthropicClient:
 _SDK_MAX_RETRIES = 5
 
 
-def _build_sdk_client(anthropic: object, auth_mode: str, credential: str) -> object:
+def _build_sdk_client(anthropic: object, auth_mode: str, credential: str) -> _AnthropicSDKClient:
     """Build the Anthropic SDK client for the resolved ``auth_mode`` + ``credential``.
 
     OAuth mode authenticates with a bearer token via the SDK's ``auth_token=``
@@ -393,13 +444,18 @@ def _build_sdk_client(anthropic: object, auth_mode: str, credential: str) -> obj
     client; knotica keeps no copy. Both modes carry :data:`_SDK_MAX_RETRIES` so
     transient 429/5xx statuses retry in-process with the SDK's own backoff.
     """
+    # ``anthropic`` arrives as ``object`` from the lazy import, so the constructor
+    # lookup is unverifiable here and the built client is untyped; the cast pins it
+    # to the surface :class:`_AnthropicSDKClient` declares and nothing wider.
     if auth_mode == AUTH_MODE_OAUTH:
-        return anthropic.Anthropic(  # type: ignore[attr-defined]
+        oauth_client = anthropic.Anthropic(  # type: ignore[attr-defined]
             auth_token=credential,
             default_headers={_OAUTH_BETA_HEADER_NAME: _OAUTH_BETA_HEADER_VALUE},
             max_retries=_SDK_MAX_RETRIES,
         )
-    return anthropic.Anthropic(api_key=credential, max_retries=_SDK_MAX_RETRIES)  # type: ignore[attr-defined]
+        return cast(_AnthropicSDKClient, oauth_client)
+    key_client = anthropic.Anthropic(api_key=credential, max_retries=_SDK_MAX_RETRIES)  # type: ignore[attr-defined]
+    return cast(_AnthropicSDKClient, key_client)
 
 
 def _structured_output_config(json_schema: dict[str, object]) -> dict[str, object]:
@@ -461,7 +517,7 @@ def _llm_api_error(exc: Exception, auth_mode: str) -> KnoticaError:
     return KnoticaError(ErrorCode.LLM_API_ERROR, message, retryable=True)
 
 
-def _extract_text(blocks: list) -> str:
+def _extract_text(blocks: Sequence[_ContentBlock]) -> str:
     """Join the text of every text block in a Messages API response.
 
     The response ``content`` is block-based, not a plain string; non-text blocks
@@ -470,7 +526,7 @@ def _extract_text(blocks: list) -> str:
     return "".join(block.text for block in blocks if getattr(block, "type", None) == "text")
 
 
-def _usage_from_response(usage: object) -> TokenUsage:
+def _usage_from_response(usage: _ResponseUsage) -> TokenUsage:
     """Map an SDK ``Usage`` object to :class:`TokenUsage`, coercing absent cache fields to 0."""
     return TokenUsage(
         input_tokens=usage.input_tokens,

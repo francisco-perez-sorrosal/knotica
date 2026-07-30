@@ -106,7 +106,7 @@ def save_golden_review(
     """Normalize kept candidates and commit them as ``golden.staging.reviewed.jsonl``."""
     cleaned = _require_topic(store, topic)
     rows = [_normalized_candidate(row) for row in accepted]
-    payload = "".join(json.dumps(row, ensure_ascii=False) + "\n" for row in rows)
+    serialized = "".join(json.dumps(row, ensure_ascii=False) + "\n" for row in rows)
     relative = reviewed_relative_path(cleaned)
     with VaultTransaction(
         store,
@@ -115,10 +115,10 @@ def save_golden_review(
         cleaned,
         f"save {len(rows)} reviewed golden candidates",
     ) as txn:
-        txn.write(relative, payload)
+        txn.write(relative, serialized)
     result = txn.result
     assert result is not None
-    payload = {
+    payload: dict[str, Any] = {
         "written": str(vault_path / relative),
         "count": len(rows),
         "commit_sha": result.commit_sha,

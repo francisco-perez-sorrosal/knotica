@@ -125,9 +125,7 @@ def bootstrap_trainset(
                     query=question,
                     pages_used=(page.path,),
                     answer=answer,
-                    citations=tuple(
-                        str(source) for source in ((page.frontmatter or {}).get("sources") or ())
-                    ),
+                    citations=_declared_sources(page),
                     verdict="good",
                     corrected_answer=None,
                     source=SEED_SOURCE,
@@ -169,6 +167,20 @@ def bootstrap_trainset(
         "source": SEED_SOURCE,
         "snapshot": snapshot,
     }
+
+
+def _declared_sources(page: Page) -> tuple[str, ...]:
+    """The page's declared ``sources`` citation keys, as strings.
+
+    ``sources`` is frontmatter-validated as a list of strings (see
+    :mod:`knotica.core.page`), so a non-list value is malformed and contributes no
+    citations -- the same ``isinstance``-list narrowing :mod:`knotica.core.lint`
+    applies when it reads the field.
+    """
+    declared = (page.frontmatter or {}).get("sources")
+    if not isinstance(declared, list):
+        return ()
+    return tuple(str(source) for source in declared)
 
 
 def _filter_pages(pages: list[Page], allowed: Sequence[str]) -> list[Page]:

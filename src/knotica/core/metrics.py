@@ -8,7 +8,6 @@ never a hardcoded vault path.
 
 from __future__ import annotations
 
-from collections.abc import Mapping
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
@@ -95,7 +94,7 @@ def render_metrics_record(record: MetricsRecord) -> dict[str, Any]:
 def next_metrics_generation(store: VaultStore, topic: str) -> int:
     """Return the next 1-based generation number for ``topic``."""
     window = read_metrics_window(store, topic, limit=MAX_METRICS_LIMIT)
-    records = window["records"]
+    records: list[MetricsRecord] = window["records"]
     if not records:
         return 1
     return max(record.generation for record in records) + 1
@@ -281,7 +280,7 @@ def _parse_all(text: str) -> tuple[list[MetricsRecord], int]:
     return records, skipped
 
 
-def last_eval_summary(record: MetricsRecord | None) -> Mapping[str, Any] | None:
+def last_eval_summary(record: MetricsRecord | None) -> dict[str, Any] | None:
     """Compact ``last_eval`` object for ``wiki_status`` (or ``None``)."""
     if record is None:
         return None

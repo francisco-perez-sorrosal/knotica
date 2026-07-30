@@ -356,7 +356,7 @@ def _normalize_role(role: str) -> DatasetRole:
             f"unknown dataset role {role!r}",
             fix=f"Use one of: {', '.join(DATASET_ROLES)}.",
         )
-    return mapped  # type: ignore[return-value]
+    return mapped
 
 
 def _require_topic(store: VaultStore, topic: str) -> str:

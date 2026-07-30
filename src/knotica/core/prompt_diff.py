@@ -251,9 +251,9 @@ def compiled_prompt_diff(
         vault_path = path_at_base
         vault_body = vcs.read_file_at(query_ref, vault_path) or ""
     else:
-        resolved = resolve_prompt(store, "query", cleaned_topic)
-        vault_path = resolved.source_path or root_prompt_path("query")
-        vault_body = resolved.body
+        resolved_prompt = resolve_prompt(store, "query", cleaned_topic)
+        vault_path = resolved_prompt.source_path or root_prompt_path("query")
+        vault_body = resolved_prompt.body
 
     artifact = _load_compiled_at(vcs, cleaned_topic, compiled_ref)
     if artifact is None and compiled_ref == "HEAD":

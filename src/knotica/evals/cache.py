@@ -45,7 +45,9 @@ import tempfile
 import threading
 from collections.abc import Callable
 from dataclasses import dataclass
+from enum import Enum, auto
 from pathlib import Path
+from typing import Final, Literal, cast
 
 __all__ = ["CacheStats", "ResponseCache", "cache_key"]
 
@@ -58,9 +60,23 @@ _ENTRY_SUFFIX = ".json"
 #: Suffix for the same-directory temp file swapped into place atomically.
 _TEMP_SUFFIX = ".tmp"
 
+
+class _Missing(Enum):
+    """The type of the :data:`_MISS` sentinel.
+
+    A single-member ``Enum`` rather than a bare ``object()`` so a type checker can
+    *narrow* ``JsonValue | Literal[_Missing.MISS]`` through an ``is not _MISS``
+    guard -- identity semantics (and therefore runtime behaviour) are identical to
+    a bare sentinel object, but the "absent" branch is now provably eliminated at
+    the guard instead of leaking an opaque ``object`` into the return type.
+    """
+
+    MISS = auto()
+
+
 #: Sentinel distinguishing "absent from cache" from a legitimately stored value
 #: (which may itself be ``None`` / ``0`` / ``""`` -- none of which are this object).
-_MISS: object = object()
+_MISS: Final = _Missing.MISS
 
 
 def cache_key(snapshot: str, prompt_hash: str, inputs: object) -> str:
@@ -209,7 +225,7 @@ class ResponseCache:
         hits, misses = self._namespace_stats.get(namespace, (0, 0))
         return CacheStats(hits=hits, misses=misses)
 
-    def _lookup(self, key: str) -> JsonValue | object:
+    def _lookup(self, key: str) -> JsonValue | Literal[_Missing.MISS]:
         """Return the stored value for ``key``, or :data:`_MISS`.
 
         Checks memory first, then the on-disk backing; a disk hit is promoted
@@ -219,7 +235,7 @@ class ResponseCache:
             return self._memory[key]
         value = self._read_disk(key)
         if value is not _MISS:
-            self._memory[key] = value  # type: ignore[assignment]
+            self._memory[key] = value
         return value
 
     def _entry_path(self, key: str) -> Path | None:
@@ -228,7 +244,7 @@ class ResponseCache:
             return None
         return self._storage_root / f"{key}{_ENTRY_SUFFIX}"
 
-    def _read_disk(self, key: str) -> JsonValue | object:
+    def _read_disk(self, key: str) -> JsonValue | Literal[_Missing.MISS]:
         """Load ``key``'s on-disk entry, or :data:`_MISS` if absent/corrupted.
 
         A missing file, an OS-level read error, or malformed JSON all resolve to
@@ -238,7 +254,10 @@ class ResponseCache:
         if entry_path is None:
             return _MISS
         try:
-            return json.loads(entry_path.read_text(encoding="utf-8"))
+            # ``json.loads`` is typed ``Any``; a successfully parsed JSON document is
+            # a ``JsonValue`` by construction (entries are written by ``_write_disk``,
+            # which only accepts one), and a malformed file lands in the except arm.
+            return cast(JsonValue, json.loads(entry_path.read_text(encoding="utf-8")))
         except (OSError, ValueError):
             return _MISS
 

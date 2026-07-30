@@ -320,8 +320,14 @@ class RetrievalLexicalRunner:
         results = retrieve_search_results(backend, topic, question, limit=DEFAULT_MAX_PAGES)
         pages = [read_page(store, topic, result.path) for result in results]
         answer = _assemble_user(topic, question, pages)
+        # No synthesis call, so no tokens are spent. ``TokenUsage`` requires both
+        # counters explicitly (they have no defaults -- only the cache counters do),
+        # so state the zeros rather than relying on absent defaults.
         return Prediction(
-            answer=answer, citations=[], usage=TokenUsage(), pages=_page_trace(topic, pages)
+            answer=answer,
+            citations=[],
+            usage=TokenUsage(input_tokens=0, output_tokens=0),
+            pages=_page_trace(topic, pages),
         )
 
 

@@ -137,7 +137,7 @@ def _resolve_apply_paths(
             ),
         )
 
-    selected: list[str] = []
+    selected = []
     for raw in paths:
         path = PurePath(raw).as_posix().lstrip("/")
         entry = dirty_by_path.get(path)

@@ -20,7 +20,7 @@ from dataclasses import dataclass
 from datetime import datetime
 from datetime import time as _time_of_day
 from pathlib import Path
-from typing import Protocol
+from typing import TYPE_CHECKING, Protocol
 
 from knotica.core import branch_namespaces
 from knotica.core.arena import ArenaState, ScoreFn, VariantSpec
@@ -39,6 +39,11 @@ from knotica.core.vault_layout import SCORED_FAMILIES, family_of
 from knotica.core.vcs import VaultVcs
 from knotica.store import LocalFSStore, VaultStore
 
+if TYPE_CHECKING:
+    # Type-only: ``gap_classifier`` is imported lazily at its use site by design.
+    from knotica.core.gap_classifier import RegressionClassification
+    from knotica.core.records import GapRecord
+
 __all__ = [
     "DEFAULT_BRANCH_PREFIX",
     "RESULT_BRANCH_PREFIX",
@@ -54,8 +59,8 @@ __all__ = [
 # Re-exported from the branch-namespace single source of truth so the loop's
 # historical public names (``loop.DEFAULT_BRANCH_PREFIX`` / ``RESULT_BRANCH_PREFIX``,
 # imported by cli/loop, branch_scoreboard, loop_promote, status) keep resolving.
-DEFAULT_BRANCH_PREFIX = branch_namespaces.DEFAULT_BRANCH_PREFIX
-RESULT_BRANCH_PREFIX = branch_namespaces.RESULT_BRANCH_PREFIX
+DEFAULT_BRANCH_PREFIX: str = branch_namespaces.DEFAULT_BRANCH_PREFIX
+RESULT_BRANCH_PREFIX: str = branch_namespaces.RESULT_BRANCH_PREFIX
 
 #: ``log.md`` is an append-only journal: concurrent branches legitimately add
 #: different lines at the same location, so it must merge with git's union
@@ -372,6 +377,7 @@ class LoopRunner:
                 }
                 message = f"first observation auto-froze baseline at {scalar:.4f}"
             elif instrument_changed and auto_baseline:
+                assert baseline is not None  # implied by ``instrument_changed``
                 updates |= {
                     "baseline_scalar": scalar,
                     "baseline_harness_version": outcome.harness_version,
@@ -421,6 +427,7 @@ class LoopRunner:
             and not (instrument_changed and auto_baseline)
         )
         if regressed:
+            assert baseline is not None  # implied by ``regressed``
             redirect = self._maybe_redirect_to_gaps(
                 state, default, merged_head, scalar, float(baseline), outcome
             )
@@ -692,7 +699,7 @@ class LoopRunner:
 
     def _classify_and_persist_gaps(
         self, outcome: EvalOutcome, scalar: float, baseline: float
-    ) -> tuple[object, list[object]] | None:
+    ) -> tuple[RegressionClassification, list[GapRecord]] | None:
         """Classify a regression from the clone manifest and persist knowledge gaps.
 
         Returns ``None`` when no diagnostic substrate exists (missing or absent
@@ -1055,7 +1062,7 @@ def harness_evaluate(
     # Question + substage context persists across events -- an outcome write
     # (which is not itself a substage transition) replays whatever substage
     # was last reported rather than inventing an unrecognized label.
-    context = {
+    context: dict[str, int | str] = {
         "current": 0,
         "total": 0,
         "detail": "",
@@ -1119,7 +1126,9 @@ def harness_evaluate(
             on_example=_on_example,
             on_substage=_on_substage,
             on_outcome=_on_outcome,
-            **overrides,
+            # mypy resolves this open passthrough against ``run_eval``'s *named*
+            # keyword params rather than its own ``**overrides: object`` catch-all.
+            **overrides,  # type: ignore[arg-type]
         )
     finally:
         clear_progress(source_root, topic)

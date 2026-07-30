@@ -629,7 +629,12 @@ def freeze(
     if len(records) >= EVAL_MIN_GOLDEN:
         from knotica.core.baseline_probe import maybe_auto_baseline_probe
 
-        maybe_auto_baseline_probe(store, vault_root, topic)
+        # ``vault_root`` is annotated as wide as the vault-transaction convention
+        # allows (``str | PurePath``); the probe does real filesystem work and takes
+        # the narrower ``str | Path``, so adapt at the boundary rather than widening
+        # it. ``Path`` is idempotent over ``str``/``Path``, which is all this ever
+        # receives -- it is the same conversion the probe performs on its first line.
+        maybe_auto_baseline_probe(store, Path(vault_root), topic)
     return freeze_result
 
 

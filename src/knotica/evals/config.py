@@ -69,6 +69,7 @@ import json
 from collections.abc import Mapping
 from dataclasses import dataclass, replace
 from importlib.metadata import PackageNotFoundError, version
+from typing import TypedDict, Unpack
 
 from knotica.evals.scalar import LAMBDA, SCALAR_FORMULA_VERSION, W_LINT
 
@@ -90,6 +91,7 @@ __all__ = [
     "W_QA",
     "WORKER_SNAPSHOT",
     "HarnessConfig",
+    "HarnessOverrides",
     "harness_version",
 ]
 
@@ -236,6 +238,31 @@ def _reject_nonpositive_ceiling(name: str, value: float, unit: str) -> None:
         )
 
 
+class HarnessOverrides(TypedDict, total=False):
+    """The per-field override map :meth:`HarnessConfig.with_overrides` accepts.
+
+    Mirrors :class:`HarnessConfig`'s fields with every key optional, so the
+    CLI-flag override path is typed *per field* rather than as an opaque
+    ``str -> object`` mapping. Keeping the two in lockstep is the point: a new
+    ``HarnessConfig`` field that is meant to be overridable gets a key here.
+    """
+
+    judge_snapshot: str
+    worker_snapshot: str
+    n_judge_samples: int
+    w_qa: float
+    w_cite: float
+    w_lint: float
+    lam: float
+    tau: float
+    threshold: float
+    num_threads: int
+    failure_score: float
+    scalar_formula_version: int
+    max_total_tokens: int
+    max_usd: float
+
+
 @dataclass(frozen=True, slots=True)
 class HarnessConfig:
     """The resolved, immutable set of eval-harness knobs for one run.
@@ -269,7 +296,7 @@ class HarnessConfig:
         _reject_nonpositive_ceiling("max_total_tokens", self.max_total_tokens, "token")
         _reject_nonpositive_ceiling("max_usd", self.max_usd, "USD")
 
-    def with_overrides(self, **overrides: object) -> HarnessConfig:
+    def with_overrides(self, **overrides: Unpack[HarnessOverrides]) -> HarnessConfig:
         """Return a new config with ``overrides`` applied, re-validated.
 
         The clean CLI-override path: ``DEFAULT_CONFIG.with_overrides(num_threads=2)``
