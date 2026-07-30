@@ -63,6 +63,11 @@ packages = ["src/knotica"]
 [tool.ruff]
 target-version = "py312"
 line-length = 100
+# Nested git worktrees live under .claude/worktrees/ and are full copies of the
+# repo. Without this, `ruff check` from the repo root scans every worktree too --
+# 987 files instead of 328 -- and reports "errors" that live in another branch's
+# copy, which someone will eventually try to fix in the wrong place.
+extend-exclude = [".claude"]
 
 [tool.mypy]
 python_version = "3.12"

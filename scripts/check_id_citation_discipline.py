@@ -75,6 +75,9 @@ CODE_EXTENSIONS = frozenset(
 )
 
 EXEMPT_PATH_PREFIXES = (
+    # Nested git worktrees are full repo copies; scanning them reports another
+    # branch's violations against this one.
+    ".claude/",
     ".ai-work/",
     ".ai-state/",
     "docs/",
