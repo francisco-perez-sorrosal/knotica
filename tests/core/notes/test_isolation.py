@@ -60,6 +60,8 @@ from knotica.core.lint import LintCheck, Violation, lint_vault
 from knotica.core.loop import LoopRunner
 from knotica.core.operations.capture_note import capture_note
 from knotica.core.operations.create_topic import create_topic
+from knotica.core.operations.curate_example import curate_example
+from knotica.core.records import parse_log_entries
 from knotica.core.vcs import VaultVcs
 from knotica.evals.golden import entity_pages
 from knotica.evals.harness import _count_content_pages
@@ -299,6 +301,33 @@ def test_deleting_a_captured_note_leaves_the_scored_topic_lint_untouched(
     )
 
 
+def test_deleting_a_captured_note_raises_no_defect_in_the_whole_vault_health_view(
+    template_vault: Path,
+) -> None:
+    """The same user story, through the other check that reaches ``log.md``.
+
+    The eval scalar is topic-scoped and so is unaffected either way, which is
+    exactly why this one lands silently: the cost is user-facing. ``doctor``
+    and the unscoped ``wiki_status`` health view both lint the whole vault, and
+    ``log.md`` carries a *wikilink* to the note file the capture wrote. Deleting
+    that note in Obsidian -- or renaming it, which is a delete plus an add --
+    otherwise reports the user's own private file as a broken wiki link.
+    """
+    before = _lint(template_vault)
+
+    result = _capture(template_vault, TOPIC, "a private reflection nobody else should score")
+    note_path = result["path"]
+    assert isinstance(note_path, str)
+    (template_vault / note_path).unlink()
+    run_git(template_vault, "add", "-A")
+    run_git(template_vault, "commit", "-m", "test: the user deletes their own note in Obsidian")
+
+    assert _lint(template_vault) == before, (
+        "deleting a private note changed the whole-vault lint -- a note's identity in "
+        "the shared log is manufacturing a defect against the shared log"
+    )
+
+
 # ---------------------------------------------------------------------------
 # 3. Loop silence at scale
 # ---------------------------------------------------------------------------
@@ -327,4 +356,72 @@ def test_loop_silence_scales_across_several_captures_and_two_topics(
         "three captures spanning two topics must still classify as unscored content in "
         "aggregate -- a realistic capture burst, not just one isolated commit, is the "
         "case that must never wake the loop"
+    )
+
+
+# ---------------------------------------------------------------------------
+# 4. The title chokepoint: no operation may launder a wikilink into log.md
+# ---------------------------------------------------------------------------
+
+
+def test_curating_an_example_whose_query_quotes_a_page_does_not_deorphan_it(
+    template_vault: Path,
+) -> None:
+    """The leak proven at an operation that has nothing to do with notes.
+
+    ``capture_note`` was simply the first operation whose title routinely
+    contained wikilink syntax; the exposure belongs to the *title slot*, which
+    every mutating operation fills with caller prose and which lands verbatim
+    in the vault-root ``log.md`` -- a scored page. A curated eval question that
+    quotes a page by wikilink would otherwise create a genuine inbound link
+    from a scored source, suppress that page's ``PAGE_ORPHANED`` finding, and
+    move the ``lint_violations`` leg of the very scalar the curated example
+    feeds. Curating a training example must not perturb the metric.
+    """
+    _plant_genuine_orphan(template_vault)
+    before = _lint(template_vault, TOPIC)
+    assert LintCheck.PAGE_ORPHANED in _checks(before), (
+        "fixture sanity: the planted page must be a genuine, confirmed orphan before "
+        "the curate call -- otherwise the assertion below would prove nothing"
+    )
+
+    result = curate_example(
+        LocalFSStore(template_vault),
+        template_vault,
+        TOPIC,
+        f"What does [[{TOPIC}/{ORPHAN_STEM}]] actually claim?",
+        (ORPHAN_PAGE,),
+        "It is the page this test planted.",
+        "good",
+    )
+    assert "error" not in result, f"expected a successful curate, got {result!r}"
+
+    assert _lint(template_vault, TOPIC) == before, (
+        "curating an example whose query quotes a page by wikilink moved the scored "
+        "topic's lint -- the title slot is laundering the link into log.md"
+    )
+
+
+def test_no_operations_log_title_ever_carries_live_wikilink_syntax(
+    template_vault: Path,
+) -> None:
+    """The narrow, direct statement of the same guarantee, over two unrelated
+    operations at once: whatever the caller wrote, ``log.md`` holds prose.
+    """
+    _capture(template_vault, TOPIC, f"still chewing on [[{TOPIC}/react]] weeks later")
+    curate_example(
+        LocalFSStore(template_vault),
+        template_vault,
+        TOPIC,
+        f"Why does [[{TOPIC}/react]] work at all?",
+        (),
+        "Because of the interleaving.",
+        "good",
+    )
+
+    log_text = (template_vault / "log.md").read_text(encoding="utf-8")
+    titles = [entry.title for entry in parse_log_entries(log_text)]
+    assert titles, "sanity: both operations must have written a log entry"
+    assert not any("[[" in title for title in titles), (
+        f"a log title carried live wikilink syntax: {titles!r}"
     )

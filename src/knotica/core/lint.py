@@ -466,9 +466,37 @@ def _check_page_links(page: str, links: Iterable[Link]) -> list[Violation]:
             violations.append(_dot_path_violation(page, link))
         elif in_subdirectory and link.raw_target == "SCHEMA":
             violations.append(_bare_schema_violation(page, link))
-        elif not link.resolved:
+        elif not link.resolved and _is_scored_link_target(link.target):
             violations.append(_unresolved_violation(page, link))
     return violations
+
+
+def _is_scored_link_target(target: str) -> bool:
+    """Whether a wikilink's *target* must resolve for the wiki to be healthy.
+
+    A third question about scored families, distinct from the two already
+    asked here: :func:`_is_scored_link_source` asks whether a link written in
+    some file may count as an inbound edge, :func:`_is_scored_touched_path`
+    asks whether a log entry's touched path is worth existence-checking, and
+    this asks whether the *absence* of a link's destination is a wiki defect.
+
+    It is not, when the destination lies outside the scored families. Every
+    capture stamps ``log.md`` -- itself a scored page -- with a wikilink to the
+    note file it wrote, so deleting or renaming that note in Obsidian, an
+    entirely ordinary act on a private file, otherwise raises
+    ``LINK_UNRESOLVED`` against ``log.md`` in ``doctor`` and the whole-vault
+    health view. That is the same story as ``LOG_MISSING_PATH``, reached
+    through a different check: a private note's identity in a shared file
+    manufacturing a defect in the shared file.
+
+    An unclassifiable target (absolute, or escaping via ``..``) is treated as
+    scored, mirroring :func:`_is_scored_touched_path`, so a genuinely broken
+    link keeps being reported.
+    """
+    try:
+        return family_of(target) in SCORED_FAMILIES
+    except ValueError:
+        return True
 
 
 def _dot_path_violation(page: str, link: Link) -> Violation:

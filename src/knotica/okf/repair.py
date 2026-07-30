@@ -7,12 +7,12 @@ from datetime import date
 from pathlib import Path
 
 from knotica.core.errors import ErrorCode, KnoticaError
-from knotica.core.links import iter_page_paths
 from knotica.core.page import parse_page, serialize_frontmatter
 from knotica.core.transaction import LOG_PATH, VaultTransaction
 from knotica.core.vcs import VaultVcs
 from knotica.okf.datetime_fmt import now_rfc3339
 from knotica.okf.check import check_vault
+from knotica.core.links import iter_scored_page_paths
 from knotica.okf.frontmatter import (
     is_concept_file,
     normalize_concept_frontmatter,
@@ -87,7 +87,7 @@ def repair_vault(store: VaultStore, options: RepairOptions) -> RepairResult:
 def _plan_repairs(store: LocalFSStore, result: RepairResult) -> dict[str, str]:
     """The full new content of every page this run would rewrite, by vault path."""
     planned: dict[str, str] = {}
-    for path in sorted(iter_page_paths(store)):
+    for path in sorted(iter_scored_page_paths(store)):
         raw = store.read_text(path)
         if is_concept_file(path):
             normalized = normalize_concept_frontmatter(path, raw)

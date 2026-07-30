@@ -6,8 +6,8 @@ from collections import defaultdict
 from dataclasses import dataclass, field
 from pathlib import PurePosixPath
 
-from knotica.core.links import iter_page_paths
 from knotica.core.page import parse_page
+from knotica.core.links import iter_scored_page_paths
 from knotica.okf.frontmatter import is_reserved_file
 from knotica.store import LocalFSStore, VaultStore
 
@@ -38,7 +38,7 @@ def build_vault_index(
     assert isinstance(store, LocalFSStore), "build_vault_index requires a LocalFSStore-backed vault"
     index = VaultIndex(bundle_root=str(store.root))
     overrides = overrides or {}
-    for path in iter_page_paths(store):
+    for path in iter_scored_page_paths(store):
         raw = overrides.get(path, store.read_text(path))
         frontmatter, _error, body = parse_page(raw)
         index.body_by_path[path] = body

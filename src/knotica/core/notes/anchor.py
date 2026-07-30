@@ -44,7 +44,7 @@ Phase-1 writers emit only the values in :data:`PHASE_ONE_FIDELITIES`.
 
 import re
 import unicodedata
-from collections.abc import Callable, Mapping
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
 
 from knotica.core.page import parse_page, serialize_frontmatter
@@ -59,6 +59,7 @@ __all__ = [
     "REQUIRED_NOTE_FIELDS",
     "AnchorRecord",
     "NoteDocument",
+    "anchor_of_record",
     "derive_note_id",
     "escape_anchors_heading",
     "parse_note",
@@ -88,6 +89,12 @@ _ANCHORS_HEADING_RE = re.compile(r"^##\s+Anchors\s*$", re.IGNORECASE)
 _HEADING_RE = re.compile(r"^#{1,2}\s")
 #: The leading hashes of a heading line, as escaped by :func:`escape_anchors_heading`.
 _HEADING_HASHES_RE = re.compile(r"#+")
+#: A fenced-code-block delimiter: three or more backticks or tildes, indented by
+#: at most three spaces (CommonMark). The opener may carry an info string; a
+#: closer may not, and must repeat the opener's character at least as many times.
+_FENCE_RE = re.compile(r"^ {0,3}(?P<marker>`{3,}|~{3,})(?P<info>.*)$")
+#: Index of the anchor of record inside :attr:`NoteDocument.anchors`.
+_ANCHOR_OF_RECORD_INDEX = 0
 _BULLET_PREFIX = "- "
 #: The bullet's signature is the backticked fidelity plus the ``pinned@`` token;
 #: the wikilink is optional (its absence is how a page-less anchor is written).
@@ -201,6 +208,15 @@ def serialize_note(document: NoteDocument) -> str:
     whitespace, wikilink suffix) without changing its meaning. The document's
     own ``schema_version`` is emitted, so appending to a newer note never
     re-stamps it as an older one.
+
+    The body is passed through :func:`escape_anchors_heading` here, at the one
+    seam every writer already goes through, rather than in each writer: a
+    ``## Anchors`` line in untrusted prose forges anchors the writer never
+    resolved, and a guarantee that lives in a caller is one a later caller
+    inherits only if its author knows to ask. Round-tripping is unaffected --
+    :func:`parse_note` never leaves an *unfenced* sentinel in ``body`` (it
+    consumes those as section openers) and the escape skips fenced ones, so
+    re-serializing a parsed document is a no-op.
     """
     fields: dict[str, object] = {
         "type": NOTE_TYPE,
@@ -213,7 +229,8 @@ def serialize_note(document: NoteDocument) -> str:
         "status": document.status,
         "tags": list(document.tags),
     }
-    parts = [serialize_frontmatter(fields), "\n", document.body.strip(), "\n"]
+    body = escape_anchors_heading(document.body.strip())
+    parts = [serialize_frontmatter(fields), "\n", body, "\n"]
     if document.anchors:
         parts.append(f"\n{_ANCHORS_HEADING}\n\n")
         parts.append("\n".join(_serialize_anchor(anchor) for anchor in document.anchors))
@@ -224,9 +241,9 @@ def serialize_note(document: NoteDocument) -> str:
 def escape_anchors_heading(body: str) -> str:
     """Neutralize ``## Anchors`` headings in prose about to become a note body.
 
-    A writer serializing text a user (or a model) typed must call this first.
-    :func:`serialize_note` emits the body verbatim above the section it renders
-    itself, so a line the scanner would read back as the sentinel opens a
+    :func:`serialize_note` calls this on every body it writes, so no writer has
+    to remember to -- it emits the body verbatim above the section it renders
+    itself, and a line the scanner would read back as the sentinel opens a
     second anchor region: the file ends up with two ``## Anchors`` sections and
     any bullet-shaped prose below the first is promoted into an
     :class:`AnchorRecord` the writer never created, carrying whatever
@@ -234,17 +251,92 @@ def escape_anchors_heading(body: str) -> str:
     markdown does keeps the line rendering as the words the user wrote while
     making it ordinary prose to :func:`parse_note`.
 
-    Reading is deliberately not the place for this: in a hand-authored file the
-    sentinel is real, and the parser must stay tolerant.
+    Two properties are as load-bearing as the escape itself:
+
+    *Everything else is byte-identical.* Splitting is on ``\\n`` alone -- never
+    ``str.splitlines()``, which also breaks on ``\\x0c``, ``\\x85``, ``\\u2028``
+    and friends and drops a trailing newline, silently rewriting the line
+    structure of prose pasted from a PDF or a JS-serialized source. A note body
+    is the user's words; a filter that only needs to touch one matching line
+    must not rewrite every line. ``\\n``-only splitting is also exactly what
+    :func:`parse_note`'s scanner reads back, so the two cannot disagree.
+
+    *A fenced code block is left alone.* Inside a fence a backslash is not an
+    escape character, so escaping there would show the user the literal
+    ``\\#\\# Anchors`` -- and the reachable case is precisely a note written
+    *about* the anchor format, properly fenced. :func:`parse_note` skips the
+    same regions (:func:`_fenced_line_indices` is shared), so a fenced sentinel
+    is inert on both sides rather than escaped on one and honored on the other.
+
+    Idempotent: an already-escaped line no longer matches the sentinel, so
+    re-capturing text copied back out of a note file does not double-escape.
+
+    Reading is deliberately not the place for this: in a hand-authored file an
+    unfenced sentinel is real, and the parser must stay tolerant.
     """
+    lines = body.split("\n")
+    fenced = _fenced_line_indices(lines)
     return "\n".join(
-        _escape_heading_hashes(line) if _ANCHORS_HEADING_RE.match(line.strip()) else line
-        for line in body.splitlines()
+        _escape_heading_hashes(line)
+        if index not in fenced and _ANCHORS_HEADING_RE.match(line.strip())
+        else line
+        for index, line in enumerate(lines)
     )
 
 
 def _escape_heading_hashes(line: str) -> str:
     return _HEADING_HASHES_RE.sub(lambda match: r"\#" * len(match.group()), line, count=1)
+
+
+def _fenced_line_indices(lines: Sequence[str]) -> frozenset[int]:
+    """Indices of the lines inside a *closed* fenced code block, delimiters included.
+
+    A dangling opener is deliberately *not* a region. Were it one, a note whose
+    body ended mid-fence would swallow the real ``## Anchors`` section that
+    :func:`serialize_note` appends below it, losing every anchor on the next
+    read. Requiring closure means the escape and the parser make the same call
+    about a dangling fence -- both treat it as ordinary prose -- which is the
+    only way the two stay in agreement.
+    """
+    fenced: set[int] = set()
+    opener: tuple[int, str] | None = None
+    for index, line in enumerate(lines):
+        match = _FENCE_RE.match(line)
+        if match is None:
+            continue
+        marker = match.group("marker")
+        if opener is None:
+            opener = (index, marker)
+            continue
+        start, open_marker = opener
+        if _closes_fence(open_marker, marker, match.group("info")):
+            fenced.update(range(start, index + 1))
+            opener = None
+    return frozenset(fenced)
+
+
+def _closes_fence(open_marker: str, marker: str, info: str) -> bool:
+    """Whether a delimiter line closes the fence ``open_marker`` opened."""
+    return marker[0] == open_marker[0] and len(marker) >= len(open_marker) and not info.strip()
+
+
+def anchor_of_record(document: NoteDocument) -> AnchorRecord | None:
+    """The note's *anchor of record*, or ``None`` when it carries no anchors.
+
+    The anchor of record is the **first** anchor, and that is a contract rather
+    than a convenience: capture idempotency fingerprints a note on its body plus
+    this anchor's page and quote (see
+    :func:`~knotica.core.operations.capture_note._find_duplicate`). Any writer
+    that adds anchors to an existing note must therefore **append** -- prepending,
+    reordering, or rewriting index 0 silently stops every previously captured
+    note from matching its own fingerprint, and the next re-capture of unchanged
+    text writes a duplicate file instead of returning the existing one. Routing
+    the read through this function is what makes that dependency findable from
+    the write side; there is no other supported way to ask for it.
+    """
+    if not document.anchors:
+        return None
+    return document.anchors[_ANCHOR_OF_RECORD_INDEX]
 
 
 def derive_note_id(
@@ -304,9 +396,11 @@ def _as_schema_version(value: object) -> int:
 
 
 def _parse_body(body_text: str) -> tuple[str, tuple[AnchorRecord, ...], int]:
+    lines = body_text.split("\n")
+    fenced = _fenced_line_indices(lines)
     scanner = _BodyScanner()
-    for line in body_text.splitlines():
-        scanner.feed(line)
+    for index, line in enumerate(lines):
+        scanner.feed(line, fenced=index in fenced)
     return scanner.finish()
 
 
@@ -326,6 +420,13 @@ class _BodyScanner:
 
     Only the ``## Anchors`` heading lines themselves are discarded -- they are
     structure, not prose, and ``serialize_note`` re-emits exactly one of them.
+
+    A line inside a closed fenced code block is prose unconditionally: a note
+    that quotes the anchor grammar in a fence is showing an example, not
+    declaring an anchor, and ``escape_anchors_heading`` leaves those lines alone
+    for the same reason. The caller supplies the verdict
+    (:func:`_fenced_line_indices`) so that the escape and the scan share one
+    definition of "fenced".
     """
 
     def __init__(self) -> None:
@@ -335,7 +436,11 @@ class _BodyScanner:
         self._in_section = False
         self._block: list[str] | None = None
 
-    def feed(self, line: str) -> None:
+    def feed(self, line: str, *, fenced: bool = False) -> None:
+        if fenced:
+            self._close_block()
+            self.body_lines.append(line)
+            return
         stripped = line.strip()
         if _ANCHORS_HEADING_RE.match(stripped):
             self._close_block()

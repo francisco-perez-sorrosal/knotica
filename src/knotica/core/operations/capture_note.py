@@ -35,7 +35,6 @@ into an anchor the capture did not resolve.
 """
 
 import hashlib
-import re
 from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import UTC, datetime
@@ -49,6 +48,7 @@ from knotica.core.notes.anchor import (
     NOTE_INTENTS,
     AnchorRecord,
     NoteDocument,
+    anchor_of_record,
     derive_note_id,
     escape_anchors_heading,
     parse_note,
@@ -75,12 +75,6 @@ _TIMESTAMP_FORMAT = "%Y-%m-%dT%H:%M:%SZ"
 
 #: Max length of the note-derived commit/log title before truncation.
 _TITLE_MAX_LEN = 72
-
-#: Title used when the note's text collapses to nothing once de-linked.
-_FALLBACK_TITLE = "captured note"
-
-#: Wikilink and embed syntax, as it may appear in a user-authored note body.
-_WIKILINK_RE = re.compile(r"!?\[\[(?P<target>[^\[\]]*)\]\]")
 
 
 @dataclass(frozen=True)
@@ -216,9 +210,11 @@ def _validate(
             f"{', '.join(sorted(NOTE_INTENTS))}.",
         )
     cleaned_tags = tuple(tag.strip() for tag in tags if tag.strip())
-    # Escape here rather than at render time so the fingerprint, the log title
-    # and the file all see one body: an immediate re-capture of the same text
-    # must still match its own stored copy.
+    # `serialize_note` escapes too -- that is the guarantee no writer can
+    # bypass. Escaping *here as well* is not redundant: the fingerprint is
+    # computed from this body, so it must be the same bytes the file will hold
+    # or an immediate re-capture stops matching its own stored copy. The escape
+    # is idempotent, so applying it twice is applying it once.
     return _Request(
         topic=cleaned, body=escape_anchors_heading(body), intent=intent, tags=cleaned_tags
     )
@@ -388,12 +384,18 @@ def _find_duplicate(
 
     A note file that no longer parses cannot be compared, so it is skipped --
     it is the read side's job to report it, not this one's.
+
+    Identity is the note's body plus its *anchor of record*, read through
+    :func:`~knotica.core.notes.anchor.anchor_of_record` -- which is where the
+    constraint that binds this function to every future note writer is stated:
+    anchors may only be appended, because a note whose first anchor changed no
+    longer matches its own fingerprint.
     """
     for path in note_paths:
         document, error = parse_note(store.read_text(path))
         if error is not None or document is None:
             continue
-        anchor = document.anchors[0] if document.anchors else None
+        anchor = anchor_of_record(document)
         recorded = _fingerprint(
             topic,
             document.body,
@@ -406,23 +408,15 @@ def _find_duplicate(
 
 
 def _title(body: str) -> str:
-    """One-line commit/log title derived from the note (de-linked, truncated).
+    """One-line commit/log title derived from the note (collapsed, truncated).
 
-    Wikilink syntax is flattened to its inner text before the title leaves this
-    module. The title is written into the vault-root ``log.md``, whose family is
-    *scored* -- so a `[[page]]` surviving into it would be indexed as a genuine
-    inbound link and quietly de-orphan the page the note merely talked about,
-    moving the eval scalar. The note-family link filter cannot catch that: by
-    then the link's source really is ``log.md``, not the note.
+    Wikilink syntax is *not* handled here. ``VaultTransaction`` flattens it for
+    every operation on the way to the commit subject and the scored
+    ``log.md`` -- see :func:`~knotica.core.transaction.neutralize_wikilinks`.
+    Repeating the flattening here would run the same text through the same
+    filter twice for no added guarantee.
     """
-    collapsed = " ".join(_delink(body).split())
-    if not collapsed:
-        return _FALLBACK_TITLE
+    collapsed = " ".join(body.split())
     if len(collapsed) <= _TITLE_MAX_LEN:
         return collapsed
     return collapsed[: _TITLE_MAX_LEN - 1].rstrip() + "…"
-
-
-def _delink(text: str) -> str:
-    """Replace every ``[[target]]`` / ``![[embed]]`` with its display text."""
-    return _WIKILINK_RE.sub(lambda match: match.group("target").rpartition("|")[2], text)

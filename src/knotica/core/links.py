@@ -26,6 +26,7 @@ import re
 from collections.abc import Iterator
 from dataclasses import dataclass
 
+from knotica.core.vault_layout import SCORED_FAMILIES, family_of
 from knotica.store import VaultStore
 
 __all__ = [
@@ -34,6 +35,7 @@ __all__ = [
     "extract_wikilinks",
     "inbound_links",
     "iter_page_paths",
+    "iter_scored_page_paths",
     "outbound_links",
     "resolve_target",
 ]
@@ -175,6 +177,27 @@ def iter_page_paths(store: VaultStore, directory: str = "") -> Iterator[str]:
             yield from iter_page_paths(store, path)
         except NotADirectoryError:
             continue  # non-markdown file: not a page, nothing to recurse into
+
+
+def iter_scored_page_paths(store: VaultStore, directory: str = "") -> Iterator[str]:
+    """Yield only the pages a scored or knowledge-base-facing surface should see.
+
+    :func:`iter_page_paths` walks *everything*, including the unscored folder
+    families -- today that means ``notes/``, the private marginalia layer. This
+    is the filtered sibling, and it is deliberately declared next to the raw
+    walk so the choice is visible at the point of use.
+
+    Prefer this one. Six separate defects have been traced to a surface calling
+    the unfiltered walk and thereby silently taking notes as its subject: a note
+    reported as a malformed knowledge page, rewritten by a repair, shipped in an
+    export bundle, counted in a lint violation, and so on. The folder layout
+    keeps notes out of these surfaces structurally, but only for code that asks
+    the right question. Reach for :func:`iter_page_paths` when a walk genuinely
+    needs the whole vault -- and say why in a comment when you do.
+    """
+    for path in iter_page_paths(store, directory):
+        if family_of(path) in SCORED_FAMILIES:
+            yield path
 
 
 def _parse_reference(reference: str, line_number: int, context: str) -> WikiLink | None:

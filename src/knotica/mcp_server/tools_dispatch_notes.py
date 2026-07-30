@@ -49,12 +49,29 @@ ToolResult = CallToolResult
 _DISPATCHER = "notes"
 _ACTIONS = ("list", "read")
 
-#: The resolved-anchor buckets Phase 1's resolver can actually produce, weakest
-#: last -- the order is also the precedence used to bucket a multi-anchor note.
-#: ``unanchored`` sits between ``exact`` and ``shifted``: a genuine ``orphaned``
-#: or ``shifted`` anchor on the same note must still surface over a merely
-#: unanchored one, since those are the buckets a person actually needs to act on.
+#: The resolved-anchor buckets Phase 1's resolver can actually produce, ordered
+#: **least severe first**. ``unanchored`` sits between ``exact`` and
+#: ``shifted``: a genuine ``orphaned`` or ``shifted`` anchor on the same note
+#: must still surface over a merely unanchored one, since those are the buckets
+#: a person actually needs to act on.
+#:
+#: **The order is load-bearing, in four places at once**: it is the severity
+#: ladder ``_drift_status`` walks to bucket a multi-anchor note, the membership
+#: filter that decides which per-anchor statuses are bucketable at all, the key
+#: set of ``status_counts``, and the accepted values of the ``status`` filter.
+#: Inserting a bucket re-buckets every note that carries one on either side of
+#: it; appending one makes it the most severe status in the vault. Neither
+#: fails anything by itself, so the two constants below name the ends of the
+#: ladder and a test pins them -- a reordering has to break a test before it can
+#: break a listing.
 _ANCHOR_STATUSES: tuple[str, ...] = ("exact", "unanchored", "shifted", "orphaned")
+
+#: The two ends of :data:`_ANCHOR_STATUSES`, named so the ladder's orientation
+#: is asserted rather than assumed. ``_drift_status`` reports the most severe
+#: bucket a note carries, so the last element is the one a new bucket would
+#: displace.
+_LEAST_SEVERE_ANCHOR_STATUS = "exact"
+_MOST_SEVERE_ANCHOR_STATUS = "orphaned"
 
 #: The synthetic filter value meaning "do not filter on this axis".
 _ALL_FILTER = "all"
@@ -225,7 +242,10 @@ def _note_summary(note: ResolvedNote) -> dict[str, Any]:
 
 
 def _drift_status(note: ResolvedNote) -> str | None:
-    """The note's drift bucket -- as drifted as its weakest bucketable anchor.
+    """The note's drift bucket -- as drifted as its most severe bucketable anchor.
+
+    Walks :data:`_ANCHOR_STATUSES` from the severe end; see that constant for
+    why its order cannot be changed casually.
 
     ``None`` for a note with no bucketable anchors: either it has no anchors
     at all, or every anchor is ``anchor-invalid`` -- a corrupt/hand-forged

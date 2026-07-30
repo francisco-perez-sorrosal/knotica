@@ -31,7 +31,15 @@ from typing import Any
 import pytest
 
 from knotica.core.notes.anchor import AnchorRecord, NoteDocument, serialize_note
+from knotica.core.notes.resolve import Projection
+from knotica.core.notes.store import ResolvedNote
 from knotica.core.status import gather_wiki_status
+from knotica.mcp_server.tools_dispatch_notes import (
+    _ANCHOR_STATUSES,
+    _LEAST_SEVERE_ANCHOR_STATUS,
+    _MOST_SEVERE_ANCHOR_STATUS,
+    _drift_status,
+)
 from knotica.store import LocalFSStore
 from support.dispatch import TOPIC, build_full_server, call_tool, payload_of, tool_schema
 from support.vault import git_head_sha, run_git
@@ -504,3 +512,74 @@ def test_notes_read_surfaces_skipped_anchor_count_for_a_malformed_bullet(
 
     assert body["skipped_anchor_count"] == 1
     assert len(body["anchors"]) == 1, "the one well-formed anchor must still survive"
+
+
+# ---------------------------------------------------------------------------
+# The anchor-status ladder's order is load-bearing, so it is asserted
+#
+# `_ANCHOR_STATUSES` is consumed four ways at once -- membership filter,
+# severity ladder, `status_counts` key set, and accepted `status` filter values
+# -- and only the second of those cares about order. A later rung (a fuzzy
+# match, say) appended to the tuple silently becomes the most severe status in
+# the vault and re-buckets every note that carries one; inserted elsewhere it
+# silently changes which bucket a multi-anchor note reports. Neither breaks
+# anything on its own. These pin the ladder's ends and its behavior so that a
+# reordering fails a test instead of a listing.
+# ---------------------------------------------------------------------------
+
+
+def _note_with_statuses(*statuses: str) -> ResolvedNote:
+    anchor = AnchorRecord(
+        page=f"{TOPIC}/agent-memory.md",
+        heading="",
+        fidelity="span",
+        pinned_at="9f1a3c0",
+        quote="the passage the note was written against",
+    )
+    document = NoteDocument(
+        id="20260730-140000-multi-anchor",
+        topic=TOPIC,
+        intent="reflection",
+        created="2026-07-30T14:00:00Z",
+        updated="2026-07-30T14:00:00Z",
+        status="active",
+        tags=(),
+        body="a note carrying anchors in more than one bucket",
+        anchors=(anchor,) * len(statuses),
+    )
+    return ResolvedNote(
+        document=document,
+        path=f"notes/{TOPIC}/{document.id}.md",
+        resolved_anchors=tuple(
+            (anchor, Projection(status=status, fidelity="topic", span=None)) for status in statuses
+        ),
+    )
+
+
+def test_the_anchor_status_ladder_runs_from_least_to_most_severe() -> None:
+    assert _ANCHOR_STATUSES[0] == _LEAST_SEVERE_ANCHOR_STATUS
+    assert _ANCHOR_STATUSES[-1] == _MOST_SEVERE_ANCHOR_STATUS, (
+        "a status was appended past the severe end of the ladder -- it is now the most "
+        "severe bucket in the vault and every note carrying one has been re-bucketed"
+    )
+    assert _ANCHOR_STATUSES == ("exact", "unanchored", "shifted", "orphaned"), (
+        "the ladder's order is the precedence _drift_status walks; changing it changes "
+        "which bucket every multi-anchor note reports"
+    )
+
+
+@pytest.mark.parametrize(
+    ("statuses", "expected"),
+    [
+        (("exact", "unanchored"), "unanchored"),
+        (("exact", "shifted"), "shifted"),
+        (("unanchored", "shifted"), "shifted"),
+        (("exact", "orphaned"), "orphaned"),
+        (("shifted", "orphaned"), "orphaned"),
+        (("exact",), "exact"),
+    ],
+)
+def test_a_note_reports_the_most_severe_bucket_any_of_its_anchors_is_in(
+    statuses: tuple[str, ...], expected: str
+) -> None:
+    assert _drift_status(_note_with_statuses(*statuses)) == expected

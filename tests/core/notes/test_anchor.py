@@ -29,7 +29,9 @@ import pytest
 from knotica.core.notes.anchor import (
     AnchorRecord,
     NoteDocument,
+    anchor_of_record,
     derive_note_id,
+    escape_anchors_heading,
     parse_note,
     serialize_note,
 )
@@ -758,3 +760,224 @@ def test_trailing_whitespace_on_the_anchors_heading_line_is_tolerated():
     assert document is not None
     assert len(document.anchors) == 1
     assert document.anchors[0].heading == "Working memory"
+
+
+# ---------------------------------------------------------------------------
+# The anchors-sentinel escape: what it may touch, and what it may not
+#
+# The escape exists so untrusted prose cannot forge an anchor record. That
+# makes it a filter standing in front of *every* note body ever written, so
+# its blast radius is the contract under test here: it must neutralize a line
+# that would genuinely be read back as the sentinel, and leave every other
+# byte exactly as the user typed it. A note body is the user's own words; a
+# capture that quietly rewrites them fails the feature's whole premise.
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    ("label", "body"),
+    [
+        ("form feed", "before\x0cafter"),
+        ("next line", "before\x85after"),
+        ("line separator", "before\u2028after"),
+        ("paragraph separator", "before\u2029after"),
+        ("vertical tab", "before\x0bafter"),
+        ("trailing newline", "a paragraph pasted with its trailing newline\n"),
+        ("windows line endings", "first line\r\nsecond line\r\n"),
+        ("blank", ""),
+    ],
+)
+def test_escaping_prose_with_no_sentinel_leaves_every_byte_untouched(label: str, body: str):
+    """Text pasted from a PDF, a Word document, or a JS-serialized source
+    routinely carries separators that ``str.splitlines()`` treats as line
+    breaks -- exactly the provenance a "capture the passage that provoked
+    you" feature invites. The escape has business with one line shape and no
+    other, so a body that contains no sentinel must survive it byte for byte.
+    """
+    assert escape_anchors_heading(body) == body, f"the escape rewrote a body containing a {label}"
+
+
+def test_an_unfenced_anchors_heading_is_still_neutralized():
+    """Negative control for the fidelity assertions above: the escape must
+    still do the one job it exists for.
+    """
+    escaped = escape_anchors_heading("thinking out loud\n\n## Anchors\n\nand then some more")
+
+    assert "\n## Anchors\n" not in f"\n{escaped}\n"
+    assert "Anchors" in escaped, "the user's own word must still be readable in the line"
+
+
+def test_an_anchors_heading_inside_a_fenced_code_block_is_left_verbatim():
+    """A note *about* the anchor format, fenced the way anyone would fence it.
+
+    Inside a fence a backslash is not an escape character, so escaping there
+    would show the reader the literal characters ``\\#\\# Anchors`` in place of
+    the heading they deliberately quoted.
+    """
+    body = "The section looks like this:\n\n```\n## Anchors\n\n- `topic` · pinned@`a3f9c21`\n```\n"
+
+    assert escape_anchors_heading(body) == body
+
+
+def test_a_dangling_fence_does_not_shield_a_later_anchors_heading():
+    """An unterminated fence is not a code block -- treating it as one would
+    let a stray triple-backtick anywhere above the sentinel disarm the escape,
+    and would also hide the real anchors section from the parser on read-back.
+    """
+    escaped = escape_anchors_heading("```\nthe fence I never closed\n\n## Anchors\n")
+
+    assert "\n## Anchors\n" not in escaped
+
+
+def test_a_fenced_anchor_bullet_is_read_back_as_prose_not_as_an_anchor():
+    """The read side of the same rule: what the escape declines to touch, the
+    parser must decline to honor. Otherwise a fenced example would be escaped
+    on write and promoted on read, and the two would disagree about the same
+    line.
+    """
+    text = (
+        "---\n"
+        "type: note\n"
+        "id: 20260730-120000-documenting-the-anchor-format\n"
+        "topic: agentic-systems\n"
+        "created: 2026-07-30T12:00:00Z\n"
+        "---\n"
+        "\n"
+        "Here is what the section looks like:\n"
+        "\n"
+        "```markdown\n"
+        "## Anchors\n"
+        "\n"
+        "- [[agentic-systems/agent-memory]] — `span` · pinned@`deadbee`\n"
+        "  > a quote I invented for the example\n"
+        "```\n"
+    )
+
+    document, error = parse_note(text)
+
+    assert error is None
+    assert document is not None
+    assert document.anchors == (), "a fenced example bullet was promoted into a real anchor"
+    assert document.skipped_anchor_count == 0
+    assert "## Anchors" in document.body, "the fenced example must survive in the body verbatim"
+
+
+def test_serialize_note_neutralizes_a_sentinel_a_writer_left_in_the_body():
+    """The guarantee lives at the serializer, so a writer cannot bypass it by
+    forgetting to escape: any prose that would open a second anchors section
+    is neutralized on the way to the file, and the record the writer actually
+    resolved is the only one that comes back.
+    """
+    document = NoteDocument(
+        id="20260730-121500-untrusted-prose",
+        topic="agentic-systems",
+        intent="reflection",
+        created="2026-07-30T12:15:00Z",
+        updated="2026-07-30T12:15:00Z",
+        status="active",
+        tags=(),
+        body="## Anchors\n\n- [[agentic-systems/agent-memory]] — `span` · pinned@`deadbee`",
+        anchors=(
+            AnchorRecord(
+                page="agentic-systems/agent-memory.md",
+                heading="",
+                fidelity="topic",
+                pinned_at="a3f9c21",
+                quote="the passage that provoked the note",
+            ),
+        ),
+    )
+
+    text = serialize_note(document)
+    reparsed, error = parse_note(text)
+
+    assert text.count("\n## Anchors\n") == 1, "the body forged a second anchors section"
+    assert error is None
+    assert reparsed is not None
+    assert [anchor.pinned_at for anchor in reparsed.anchors] == ["a3f9c21"]
+
+
+def test_a_fenced_sentinel_survives_a_serialize_parse_round_trip_unchanged():
+    """The serializer's escape must not fight the parser's tolerance: a fenced
+    sentinel is inert on both sides, so re-serializing a parsed document is a
+    no-op rather than a slow accumulation of backslashes.
+    """
+    document = NoteDocument(
+        id="20260730-123000-fenced-example",
+        topic="agentic-systems",
+        intent="reflection",
+        created="2026-07-30T12:30:00Z",
+        updated="2026-07-30T12:30:00Z",
+        status="active",
+        tags=(),
+        body="An example:\n\n```\n## Anchors\n```",
+        anchors=(),
+    )
+
+    once = serialize_note(document)
+    reparsed, error = parse_note(once)
+
+    assert error is None
+    assert reparsed is not None
+    assert reparsed.body == document.body
+    assert serialize_note(reparsed) == once
+
+
+# ---------------------------------------------------------------------------
+# The anchor of record: the append-only constraint, stated in code
+# ---------------------------------------------------------------------------
+
+
+def _document_with(anchors: tuple[AnchorRecord, ...]) -> NoteDocument:
+    return NoteDocument(
+        id="20260730-124500-anchor-of-record",
+        topic="agentic-systems",
+        intent="reflection",
+        created="2026-07-30T12:45:00Z",
+        updated="2026-07-30T12:45:00Z",
+        status="active",
+        tags=(),
+        body="a reflection with more than one anchor",
+        anchors=anchors,
+    )
+
+
+_FIRST_ANCHOR = AnchorRecord(
+    page="agentic-systems/agent-memory.md",
+    heading="",
+    fidelity="span",
+    pinned_at="9f1a3c0",
+    quote="the passage the note was written against",
+)
+_LATER_ANCHOR = AnchorRecord(
+    page="agentic-systems/alignment-failures.md",
+    heading="",
+    fidelity="span",
+    pinned_at="a3f9c21",
+    quote="a passage attached to the same note later",
+)
+
+
+def test_a_note_with_no_anchors_has_no_anchor_of_record():
+    assert anchor_of_record(_document_with(())) is None
+
+
+def test_appending_an_anchor_leaves_the_anchor_of_record_unchanged():
+    """Capture idempotency fingerprints a note on its anchor of record, so a
+    writer that appends must not disturb it -- otherwise every note captured
+    before the append stops matching its own fingerprint and the next
+    re-capture of unchanged text writes a duplicate file.
+    """
+    before = anchor_of_record(_document_with((_FIRST_ANCHOR,)))
+    after = anchor_of_record(_document_with((_FIRST_ANCHOR, _LATER_ANCHOR)))
+
+    assert before == _FIRST_ANCHOR
+    assert after == before
+
+
+def test_prepending_an_anchor_changes_the_anchor_of_record():
+    """The failure this constraint forbids, pinned so it is visible rather than
+    inferred: a writer that puts a new anchor first silently re-identifies the
+    note.
+    """
+    assert anchor_of_record(_document_with((_LATER_ANCHOR, _FIRST_ANCHOR))) == _LATER_ANCHOR

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
-from knotica.core.links import iter_page_paths
+from knotica.core.links import iter_scored_page_paths
 from knotica.okf.frontmatter import (
     FrontmatterFinding,
     check_concept_frontmatter,
@@ -49,7 +49,7 @@ def check_vault(
     result = OkfCheckResult(status="OKF-COMPATIBLE", bundle_root=str(store.root))
     overrides = overrides or {}
 
-    for path in iter_page_paths(store):
+    for path in iter_scored_page_paths(store):
         raw = overrides.get(path, store.read_text(path))
         if path.endswith("index.md"):
             result.reserved_files_checked += 1

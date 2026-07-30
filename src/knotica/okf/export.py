@@ -7,11 +7,11 @@ from dataclasses import dataclass, field
 from pathlib import Path, PurePosixPath
 from typing import Literal
 
-from knotica.core.links import iter_page_paths
 from knotica.core.page import parse_page, serialize_frontmatter
 from knotica.okf.constants import IMAGE_EXTENSIONS
 from knotica.okf.datetime_fmt import now_rfc3339
 from knotica.okf.check import check_vault
+from knotica.core.links import iter_scored_page_paths
 from knotica.okf.frontmatter import (
     is_concept_file,
     is_reserved_file,
@@ -79,7 +79,7 @@ def export_bundle(store: VaultStore, options: ExportOptions) -> ExportResult:
         output_path=str(output),
     )
 
-    for path in sorted(iter_page_paths(store)):
+    for path in sorted(iter_scored_page_paths(store)):
         raw = store.read_text(path)
         dest = output / path
         dest.parent.mkdir(parents=True, exist_ok=True)

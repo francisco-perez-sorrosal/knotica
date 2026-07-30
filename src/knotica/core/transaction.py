@@ -37,6 +37,16 @@ Invariants (each is load-bearing; the module structure makes them evident):
   retrying an operation after a transport failure never dirties the audit log.
   A declared log re-render (:meth:`VaultTransaction.rewrite_log`) is itself an
   effective mutation, so it makes the transaction effective on its own.
+* **A title can never forge a wikilink.** The ``title`` slot is the one
+  transaction input made of free, caller-supplied prose, and it lands in two
+  shared places: the commit subject and the vault-root ``log.md`` entry.
+  ``log.md``'s folder family is *scored*, so a ``[[page]]`` surviving into a
+  title is indexed as a genuine inbound link and quietly de-orphans the page
+  the caller merely mentioned -- dropping a ``PAGE_ORPHANED`` finding and
+  moving the ``lint_violations`` leg of the eval scalar, silently and
+  permanently under a ratcheting baseline. Neutralizing here rather than in
+  each operation is what makes the guarantee total: every mutating operation,
+  present and future, reaches the log through this one constructor.
 * **Redaction is always loud.** Content passes through
   :func:`~knotica.core.scrub.scrub` at declaration time; every redaction is
   reported on the result (with spans located in the caller's original text),
@@ -56,6 +66,7 @@ failures raise ``KnoticaError(GIT_ERROR)``; any other exception propagates
 unchanged after the rollback has restored the transaction's own paths.
 """
 
+import re
 from collections.abc import Iterator, Sequence
 from contextlib import AbstractContextManager, contextmanager
 from dataclasses import dataclass
@@ -80,6 +91,44 @@ from knotica.store import VaultStore
 
 #: Vault-relative path of the operation log the transaction appends to.
 LOG_PATH = "log.md"
+
+#: Wikilink and embed syntax, as it may appear in a caller-supplied title.
+_WIKILINK_RE = re.compile(r"!?\[\[(?P<target>[^\[\]]*)\]\]")
+
+#: Wikilink brackets left over once every whole link has been flattened -- the
+#: half of a link a caller's own truncation cut through. Removed rather than
+#: kept: an unclosed ``[[`` is not inert, because ``okf.log_fmt``'s path scanner
+#: is happy to close it against the ``([[<written path>]])`` group the log
+#: renders after every title, reading a fabricated path out of the pair.
+_RESIDUAL_WIKILINK_BRACKETS_RE = re.compile(r"!?\[\[|\]\]")
+
+#: Stand-in for a title that was nothing but wikilink syntax. Flattening such a
+#: title leaves an empty slot, which the frozen grammar refuses -- and refusing
+#: the whole operation over the shape of its title would be a worse answer than
+#: logging it under a placeholder.
+_UNTITLED = "untitled"
+
+
+def neutralize_wikilinks(title: str) -> str:
+    """Flatten every ``[[target]]`` / ``![[embed]]`` in ``title`` to its display text.
+
+    ``[[a|b]]`` becomes ``b`` (the alias is what a reader sees), ``[[a]]`` and
+    ``![[a]]`` become ``a``. Any bracket left over -- the half of a link a
+    caller's own length truncation cut through -- is then dropped, so the
+    postcondition is total: a title carries no wikilink syntax at all. The
+    result is prose: it still says what the caller said, but no link-extracting
+    reader -- ``core.lint``'s vault link map, ``okf.log_fmt``'s path scanner,
+    Obsidian -- can mistake any part of it for an edge in the wiki graph. See
+    the module docstring for why that matters.
+
+    A title that is blank to begin with is returned untouched, so the commit
+    grammar still reports the empty slot rather than having it papered over.
+    """
+    if not title.strip():
+        return title
+    flattened = _WIKILINK_RE.sub(lambda match: match.group("target").rpartition("|")[2], title)
+    flattened = _RESIDUAL_WIKILINK_BRACKETS_RE.sub("", flattened)
+    return flattened if flattened.strip() else _UNTITLED
 
 
 @dataclass(frozen=True)
@@ -161,7 +210,10 @@ class VaultTransaction:
         op: The operation name for the log entry and commit subject
             (lowercase letters/underscores, e.g. ``"write_page"``).
         topic: The topic slot of the log entry and commit subject.
-        title: The human-readable title slot.
+        title: The human-readable title slot. Free caller prose, so wikilink
+            syntax in it is flattened to display text before it reaches either
+            the commit subject or the log (:func:`neutralize_wikilinks`);
+            callers do not de-link it themselves.
         lock_timeout: Maximum seconds to wait for the vault lock before
             failing with the retryable lock-busy error.
         work_dir: When set, redirects commit and rollback to a git worktree
@@ -203,12 +255,14 @@ class VaultTransaction:
                 "silently collapse the lock domain and the commit target"
             )
         self._vcs = VaultVcs(work_dir) if work_dir is not None else canonical_vcs
+        # Neutralize before rendering: the subject and the log entry must carry
+        # the same title, and neither may carry live wikilink syntax.
+        self._title = neutralize_wikilinks(title)
         # Rendering the subject now validates op/topic/title against the
         # frozen grammar before any lock is taken or byte is written.
-        self._commit_subject = format_commit_subject(op, topic, title)
+        self._commit_subject = format_commit_subject(op, topic, self._title)
         self._op = op
         self._topic = topic
-        self._title = title
         self._lock_timeout = lock_timeout
         self._writes: dict[str, str] = {}
         self._log_rewrite: str | None = None
