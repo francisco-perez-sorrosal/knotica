@@ -562,3 +562,73 @@ def test_promote_target_gap_never_leaks_the_notes_body_and_carries_the_path_only
         assert _note_path(note_id) not in subject, (
             "the note pointer belongs only in reported_reason, never in a commit subject"
         )
+
+
+def test_promoting_to_trainset_without_a_question_is_rejected(template_vault: Path):
+    """An eval example with no question is not an eval example.
+
+    The error grammar in the interface design names this case explicitly, but
+    nothing under ``src/`` enforced it: a promotion with the schema defaults for
+    every optional argument appended ``{"query": "", "answer": ""}`` to the
+    trainset and committed it.
+    """
+    note_id = "20260730-100600-promote-no-question"
+    page = f"{TOPIC}/promote-no-question.md"
+    _seed_page(template_vault, page, "# A\n\na live grounding passage.\n", "test: seed page")
+    _seed_note(
+        template_vault,
+        note_id,
+        (_pinned(page, "a live grounding passage."),),
+        intent="reflection",
+    )
+    commits_before = git_commit_count(template_vault)
+
+    result = _promote(template_vault, TOPIC, note_id, "trainset", question="   ", answer="No.")
+
+    assert _error_code(result) == "INVALID_ARGUMENT"
+    assert "question" in _error_message(result)
+    assert _read_qa_records(template_vault) == [], "a rejected promotion must append nothing"
+    assert git_commit_count(template_vault) == commits_before, (
+        "a rejected promotion makes no commit"
+    )
+
+
+def test_promoting_to_trainset_without_an_answer_is_rejected(template_vault: Path):
+    """A trainset record whose answer is empty but whose verdict says ``good``
+    asserts that an empty string was a good answer -- it silently poisons the
+    substrate the eval instrument trains on."""
+    note_id = "20260730-100700-promote-no-answer"
+    page = f"{TOPIC}/promote-no-answer.md"
+    _seed_page(template_vault, page, "# A\n\nanother live grounding passage.\n", "test: seed page")
+    _seed_note(
+        template_vault,
+        note_id,
+        (_pinned(page, "another live grounding passage."),),
+        intent="question",
+    )
+    commits_before = git_commit_count(template_vault)
+
+    result = _promote(
+        template_vault, TOPIC, note_id, "trainset", question="Does this ground?", answer=""
+    )
+
+    assert _error_code(result) == "INVALID_ARGUMENT"
+    assert "answer" in _error_message(result)
+    assert _read_qa_records(template_vault) == []
+    assert git_commit_count(template_vault) == commits_before
+
+
+def test_promoting_to_gap_without_a_question_is_rejected(template_vault: Path):
+    """The gap arm reaches an outbound discovery query, so an empty question
+    there is worse than a useless record."""
+    note_id = "20260730-100800-gap-no-question"
+    page = f"{TOPIC}/gap-no-question.md"
+    _seed_page(template_vault, page, "# A\n\na disputed passage.\n", "test: seed page")
+    _seed_note(template_vault, note_id, (_pinned(page, "a disputed passage."),), intent="dispute")
+    commits_before = git_commit_count(template_vault)
+
+    result = _promote(template_vault, TOPIC, note_id, "gap", question="")
+
+    assert _error_code(result) == "INVALID_ARGUMENT"
+    assert "question" in _error_message(result)
+    assert git_commit_count(template_vault) == commits_before

@@ -37,7 +37,12 @@ from knotica.core.errors import ErrorCode, KnoticaError
 from knotica.core.notes.anchor import AnchorRecord, NoteDocument, live_anchors
 from knotica.core.notes.resolve import Projection
 from knotica.core.notes.store import NotesListing, ResolvedNote, list_notes
-from knotica.core.operations.promote_note import promote_note
+from knotica.core.operations.promote_note import (
+    GAP_ELIGIBLE_INTENTS,
+    gap_intent_message,
+    no_live_pages_message,
+    promote_note,
+)
 from knotica.core.operations.reanchor_note import archive, detach, reanchor
 from knotica.core.vcs import VaultVcs
 from knotica.mcp_server.tools_dispatch_notes_common import _drift_live_quote, _validate_mode
@@ -76,9 +81,6 @@ _DEFAULT_VERDICT = "good"
 #: `intent` already carries this value -- the same enum value `promote
 #: target=gap`'s intent gate and `notes action=list`'s `intent` filter use.
 _QUESTION_INTENT = "question"
-
-#: Mirrors `promote_note._GAP_ELIGIBLE_INTENTS` exactly.
-_GAP_ELIGIBLE_INTENTS = frozenset({"dispute", "gap", "question"})
 
 _GOLDEN_DEFERRED_MESSAGE = (
     "promoting to the held-out (golden) set is deferred: trainset and golden must "
@@ -294,15 +296,15 @@ def _promote_preview(
     )
     resolved_question = _default_question(note.document, question)
     pages_used = _grounding_pages(note.document)
-    if target == _TARGET_GAP and note.document.intent not in _GAP_ELIGIBLE_INTENTS:
+    if target == _TARGET_GAP and note.document.intent not in GAP_ELIGIBLE_INTENTS:
         raise KnoticaError(
             ErrorCode.INVALID_ARGUMENT,
-            _gap_intent_message(note.document.intent),
+            gap_intent_message(note.document.intent),
             fix=_GAP_INTENT_FIX,
         )
     if target == _TARGET_TRAINSET and not pages_used:
         raise KnoticaError(
-            ErrorCode.INVALID_ARGUMENT, _no_live_pages_message(note_id), fix=_NO_LIVE_PAGES_FIX
+            ErrorCode.INVALID_ARGUMENT, no_live_pages_message(note_id), fix=_NO_LIVE_PAGES_FIX
         )
     return _decision_envelope(
         action=_PROMOTE_ACTION,
@@ -568,22 +570,6 @@ def _validate_verdict(verdict: str) -> str:
             fix=f"Pass verdict as one of: {', '.join(_PROMOTE_VERDICTS)}.",
         )
     return cleaned
-
-
-def _gap_intent_message(intent: str) -> str:
-    """Mirrors ``promote_note._promote_to_gap``'s intent-gate message exactly."""
-    return (
-        "filing a gap needs a note whose intent is dispute, gap, or question; "
-        f"this one is a {intent}"
-    )
-
-
-def _no_live_pages_message(note_id: str) -> str:
-    """Mirrors ``promote_note._promote_to_trainset``'s no-live-pages message exactly."""
-    return (
-        f"note {note_id!r} has no live anchored page to ground the question -- "
-        "an eval question must be answerable from the knowledge base."
-    )
 
 
 def _raise_if_error(result: dict[str, Any]) -> None:

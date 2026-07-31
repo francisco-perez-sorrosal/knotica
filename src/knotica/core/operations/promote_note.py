@@ -45,15 +45,19 @@ from knotica.core.notes.anchor import NoteDocument, live_anchors, parse_note
 from knotica.core.operations.curate_example import curate_example
 from knotica.store import VaultStore
 
-__all__ = ["promote_note"]
+__all__ = ["GAP_ELIGIBLE_INTENTS", "gap_intent_message", "no_live_pages_message", "promote_note"]
 
 _TARGET_TRAINSET = "trainset"
 _TARGET_GAP = "gap"
 _TARGET_GOLDEN = "golden"
 _KNOWN_TARGETS = (_TARGET_TRAINSET, _TARGET_GAP, _TARGET_GOLDEN)
 
-#: Intents that opt a note into gap filing (D2) -- a plain ``reflection`` never does.
-_GAP_ELIGIBLE_INTENTS = frozenset({"dispute", "gap", "question"})
+#: Intents that opt a note into gap filing (D2) -- a plain ``reflection`` never
+#: does. Public because the dispatcher gates on the same policy: it used to
+#: redeclare this set and its message under a comment reading "Mirrors
+#: promote_note.GAP_ELIGIBLE_INTENTS exactly", which is a policy kept in sync
+#: by convention -- the failure mode `vault_layout.py` exists to retire.
+GAP_ELIGIBLE_INTENTS = frozenset({"dispute", "gap", "question"})
 
 _NOTES_DIRECTORY_TEMPLATE = "notes/{topic}"
 _MARKDOWN_SUFFIX = ".md"
@@ -72,6 +76,33 @@ _GOLDEN_DEFERRED_FIX = (
     "Promote to the training set instead: `notes action=promote target=trainset`. "
     "Golden promotion runs through `golden_review`, not this action."
 )
+
+# INTERFACE_DESIGN section 8's "Promote a note with no question to ask" row,
+# copied verbatim -- the error grammar is documented as the executable
+# interface. It was specified there and enforced nowhere: the gap arm rejected
+# an empty question inside `report_gap`, but the trainset arm appended
+# `{"query": "", "answer": ""}` and committed it.
+_NO_QUESTION_MESSAGE = "this note records a reflection, not a question the wiki should answer"
+_NO_QUESTION_FIX = (
+    "Ask the user for the question the wiki should answer, then call "
+    "`notes action=promote` again with it."
+)
+
+
+def gap_intent_message(intent: str) -> str:
+    """The intent-gate rejection text -- one declaration, two call sites."""
+    return (
+        "filing a gap needs a note whose intent is dispute, gap, or question; "
+        f"this one is a {intent}"
+    )
+
+
+def no_live_pages_message(note_id: str) -> str:
+    """The no-grounding-page rejection text -- one declaration, two call sites."""
+    return (
+        f"note {note_id!r} has no live anchored page to ground the question -- "
+        "an eval question must be answerable from the knowledge base."
+    )
 
 
 def promote_note(
@@ -110,6 +141,9 @@ def promote_note(
             f"promote target must be one of trainset, gap, golden; got {target!r}.",
         )
 
+    if not question.strip():
+        return err(ErrorCode.INVALID_ARGUMENT, _NO_QUESTION_MESSAGE, fix=_NO_QUESTION_FIX)
+
     loaded = _load_note(store, topic, note_id)
     if not isinstance(loaded, tuple):
         return loaded
@@ -147,11 +181,21 @@ def _promote_to_trainset(
     verdict: str,
 ) -> dict[str, object]:
     """Append one curated example, reusing ``curate_example`` -- no re-implementation."""
+    if not answer.strip():
+        return err(
+            ErrorCode.INVALID_ARGUMENT,
+            "a trainset example needs the grounded answer as well as the question -- "
+            f"an empty answer recorded with verdict {verdict!r} asserts that nothing "
+            "was a good answer, which silently degrades the training substrate.",
+            fix=(
+                "Ask the user for the answer the wiki gave, cited from the anchored pages, "
+                "then call `notes action=promote` again with it."
+            ),
+        )
     if not pages_used:
         return err(
             ErrorCode.INVALID_ARGUMENT,
-            f"note {note_id!r} has no live anchored page to ground the question -- "
-            "an eval question must be answerable from the knowledge base.",
+            no_live_pages_message(note_id),
             fix="Anchor the note to a live KB page first (`notes action=reanchor`), then promote again.",
         )
     return curate_example(store, vault_root, topic, question, pages_used, answer, verdict)
@@ -168,11 +212,10 @@ def _promote_to_gap(
     question: str,
 ) -> dict[str, object]:
     """File one reported gap, reusing ``report_gap`` -- no re-implementation."""
-    if document.intent not in _GAP_ELIGIBLE_INTENTS:
+    if document.intent not in GAP_ELIGIBLE_INTENTS:
         return err(
             ErrorCode.INVALID_ARGUMENT,
-            "filing a gap needs a note whose intent is dispute, gap, or question; "
-            f"this one is a {document.intent}",
+            gap_intent_message(document.intent),
             fix=(
                 "Ask the user whether the wiki is actually wrong. If it is, they can change "
                 "the note's intent in Obsidian, or file it directly with `gap_report`."
