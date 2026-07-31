@@ -34,6 +34,7 @@ from mcp.types import CallToolResult
 
 from knotica.core.errors import ErrorCode, KnoticaError
 from knotica.core.notes.store import ResolvedNote, read_note
+from knotica.core.notes_config import resolve_notes_config
 from knotica.core.operations.capture_note import capture_note
 from knotica.core.vcs import VaultVcs
 from knotica.mcp_server.vault_ctx import with_resolved_vault
@@ -47,7 +48,10 @@ _CAPTURE_DESCRIPTION = (
     "Save one personal note (marginalia) against a topic, anchored to the KB "
     "passage that provoked it. Pass the user's words VERBATIM as `note` -- never "
     "paraphrase, summarize, or improve them. Pass the passage you displayed as "
-    "`quote`, copied exactly from your own output, and the pages you actually "
+    "`quote`, copied exactly from your own output -- and prefer ONE COMPLETE "
+    "SENTENCE: recovery works on any shape, but a whole sentence is the unit a "
+    "later rewrite is least likely to dissolve, so it survives best. Pass the "
+    "pages you actually "
     "synthesized it from as `pages`; the server verifies that claim against the "
     "vault and pins the strongest anchor it can prove -- span, page, or topic. "
     "The note is always saved: a weak or unprovable anchor degrades the pin and "
@@ -149,16 +153,26 @@ def _capture_payload(
     path = str(result["path"])
     note_id = str(result["note_id"])
     cleaned_topic = PurePath(path).parent.name
-    resolved = read_note(store, vcs, cleaned_topic, note_id)
+    notes_config = resolve_notes_config()
+    resolved = read_note(
+        store,
+        vcs,
+        cleaned_topic,
+        note_id,
+        guess_threshold=notes_config.guess_threshold,
+        complete_orphan_threshold=notes_config.complete_orphan_threshold,
+    )
     payload: dict[str, Any] = {
         "topic": cleaned_topic,
         "note_id": note_id,
         "path": path,
         "intent": resolved.document.intent if resolved is not None else intent,
         "anchors": render_anchors(resolved),
-        # Phase 1 pins at most one anchor and the capture path returns no
-        # ranked runners-up, so there is never a refinement to offer yet.
-        "alternatives": [],
+        # `capture_note` already resolved the multi-page-match ambiguity into
+        # `{page, heading}` mappings against the text it matched against --
+        # passed through unchanged rather than re-derived here, which would
+        # mean re-reading pages against a HEAD that may have moved.
+        "alternatives": result.get("alternatives", []),
         "placement": _placement(resolved, intent),
         "written": True,
         "duplicate": bool(result["duplicate"]),

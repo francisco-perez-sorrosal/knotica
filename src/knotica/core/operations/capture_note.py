@@ -35,6 +35,7 @@ into an anchor the capture did not resolve.
 """
 
 import hashlib
+import re
 from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import UTC, datetime
@@ -76,19 +77,25 @@ _TIMESTAMP_FORMAT = "%Y-%m-%dT%H:%M:%SZ"
 #: Max length of the note-derived commit/log title before truncation.
 _TITLE_MAX_LEN = 72
 
+#: A heading line at any level, for locating the section a quote sits in.
+_HEADING_LINE_RE = re.compile(r"^#{1,6}[ \t]+.*$", re.MULTILINE)
+
 
 @dataclass(frozen=True)
 class _AnchorPlan:
     """What the capture could honestly say about where the note points.
 
     ``degradation`` is the human-readable reason the anchor is weaker than a
-    pinned span, or ``None`` when nothing was lost.
+    pinned span, or ``None`` when nothing was lost. ``alternatives`` is only
+    ever non-empty for the multi-page-match ambiguity: one ``{page, heading}``
+    mapping per claimed page the quote matched, in claimed order.
     """
 
     page: str
     fidelity: str
     start: int | None
     degradation: str | None
+    alternatives: tuple[dict[str, str], ...]
 
 
 @dataclass(frozen=True)
@@ -128,12 +135,15 @@ def capture_note(
         tags: Free-form labels recorded in the note's frontmatter.
 
     Returns:
-        A success envelope ``{note_id, path, fidelity, duplicate, commit}`` --
-        carrying an ``ANCHOR_DEGRADED`` warning when the anchor could not be
-        pinned as claimed -- or a typed failure envelope for the three
-        non-anchor errors. ``commit`` is the vault ``HEAD`` the note is durable
-        at: the capture's own commit, or the head the duplicate was matched
-        against.
+        A success envelope ``{note_id, path, fidelity, duplicate, commit,
+        alternatives}`` -- carrying an ``ANCHOR_DEGRADED`` warning when the
+        anchor could not be pinned as claimed -- or a typed failure envelope
+        for the three non-anchor errors. ``commit`` is the vault ``HEAD`` the
+        note is durable at: the capture's own commit, or the head the
+        duplicate was matched against. ``alternatives`` is a ``{page,
+        heading}`` mapping per claimed page the quote matched, in claimed
+        order -- populated only for the genuine multi-page-match ambiguity,
+        empty otherwise, and never carried on the duplicate envelope.
     """
     request = _validate(store, topic, note, intent, tags)
     if not isinstance(request, _Request):
@@ -180,6 +190,7 @@ def capture_note(
         "fidelity": plan.fidelity,
         "duplicate": False,
         "commit": txn.result.commit_sha,
+        "alternatives": list(plan.alternatives),
     }
     return ok(pointer, warnings=warnings)
 
@@ -261,7 +272,9 @@ def _render(
 def _plan_anchor(store: VaultStore, quote: str, pages: tuple[str, ...]) -> _AnchorPlan:
     """Decide what the capture can honestly pin, given what the caller claimed."""
     if not pages:
-        return _AnchorPlan(page="", fidelity=_TOPIC_FIDELITY, start=None, degradation=None)
+        return _AnchorPlan(
+            page="", fidelity=_TOPIC_FIDELITY, start=None, degradation=None, alternatives=()
+        )
     readable = _readable_pages(store, pages)
     if not readable:
         return _AnchorPlan(
@@ -273,12 +286,17 @@ def _plan_anchor(store: VaultStore, quote: str, pages: tuple[str, ...]) -> _Anch
                 f"({', '.join(repr(page) for page in pages)}) -- each one is missing, is not "
                 "a file, or lies outside the vault -- so the note is anchored to the topic only."
             ),
+            alternatives=(),
         )
     if not quote:
         # Naming a page the server read is a true statement even with no
         # passage to quote; degrading it would discard caller input.
         return _AnchorPlan(
-            page=readable[0][0], fidelity=_PAGE_FIDELITY, start=None, degradation=None
+            page=readable[0][0],
+            fidelity=_PAGE_FIDELITY,
+            start=None,
+            degradation=None,
+            alternatives=(),
         )
 
     matched = [(page, text) for page, text in readable if quote in text]
@@ -289,6 +307,7 @@ def _plan_anchor(store: VaultStore, quote: str, pages: tuple[str, ...]) -> _Anch
             fidelity=_SPAN_FIDELITY,
             start=_disambiguator(text, quote),
             degradation=None,
+            alternatives=(),
         )
     if matched:
         return _AnchorPlan(
@@ -300,6 +319,9 @@ def _plan_anchor(store: VaultStore, quote: str, pages: tuple[str, ...]) -> _Anch
                 f"({', '.join(page for page, _ in matched)}); pinning one of them would be a "
                 "guess, so the note is anchored to the topic only."
             ),
+            alternatives=tuple(
+                {"page": page, "heading": _enclosing_heading(text, quote)} for page, text in matched
+            ),
         )
     return _AnchorPlan(
         page=readable[0][0],
@@ -309,7 +331,27 @@ def _plan_anchor(store: VaultStore, quote: str, pages: tuple[str, ...]) -> _Anch
             f"The quote was not found on any claimed page, so the note is anchored to "
             f"'{readable[0][0]}' at page level rather than to a span within it."
         ),
+        alternatives=(),
     )
+
+
+def _enclosing_heading(text: str, quote: str) -> str:
+    """The nearest heading line at or above the quote's first occurrence in ``text``.
+
+    Empty string when the quote sits above every heading, ``text`` has none, or
+    the quote is somehow absent -- matching every other heading field in this
+    module's wire shapes, never ``None``. Derived from the same ``text`` the
+    match was already found in, so this costs no extra page read.
+    """
+    offset = text.find(quote)
+    if offset == -1:
+        return ""
+    enclosing = ""
+    for match in _HEADING_LINE_RE.finditer(text):
+        if match.start() > offset:
+            break
+        enclosing = match.group(0).lstrip("#").strip()
+    return enclosing
 
 
 def _readable_pages(store: VaultStore, pages: tuple[str, ...]) -> list[tuple[str, str]]:

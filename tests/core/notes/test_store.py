@@ -18,14 +18,21 @@ load-bearing and are what these tests are built to catch a regression in:
   against one commit keeps resolving correctly after the page it anchors
   moves on, purely by re-running the resolution ladder against HEAD -- no
   stored placement is ever updated.
+- **Reading one note costs one note.** ``read_note`` derives its path
+  directly from ``note_id`` (the frozen Phase 1 contract: filename stem *is*
+  frontmatter ``id``, files are never renamed) rather than scanning and
+  resolving every note in the topic just to return one of them. A ``note_id``
+  arriving unvalidated from the MCP boundary must never turn that direct path
+  construction into a read outside ``notes/<topic>/``.
 """
 
 from pathlib import Path
 
 import pytest
 from knotica.core.notes.anchor import AnchorRecord, NoteDocument, serialize_note
+from knotica.core.notes_config import DEFAULT_COMPLETE_ORPHAN_THRESHOLD, DEFAULT_GUESS_THRESHOLD
 from knotica.core.vcs import VaultVcs
-from knotica.store import LocalFSStore
+from knotica.store import LocalFSStore, VaultStore
 from support.vault import git_commit_count, git_head_sha, git_status_porcelain, run_git
 
 TOPIC = "agentic-systems"
@@ -102,7 +109,13 @@ def test_listing_a_topic_with_no_notes_directory_at_all_returns_an_empty_listing
     store = LocalFSStore(template_vault)
     vcs = VaultVcs(template_vault)
 
-    listing = list_notes(store, vcs, TOPIC)
+    listing = list_notes(
+        store,
+        vcs,
+        TOPIC,
+        guess_threshold=DEFAULT_GUESS_THRESHOLD,
+        complete_orphan_threshold=DEFAULT_COMPLETE_ORPHAN_THRESHOLD,
+    )
 
     assert listing.notes == ()
     assert listing.skipped_malformed == 0
@@ -117,7 +130,13 @@ def test_listing_an_existing_but_empty_notes_directory_returns_an_empty_listing(
     store = LocalFSStore(template_vault)
     vcs = VaultVcs(template_vault)
 
-    listing = list_notes(store, vcs, TOPIC)
+    listing = list_notes(
+        store,
+        vcs,
+        TOPIC,
+        guess_threshold=DEFAULT_GUESS_THRESHOLD,
+        complete_orphan_threshold=DEFAULT_COMPLETE_ORPHAN_THRESHOLD,
+    )
 
     assert listing.notes == ()
     assert listing.skipped_malformed == 0
@@ -160,7 +179,13 @@ def test_listing_well_formed_notes_returns_each_with_its_resolved_projection(
     store = LocalFSStore(template_vault)
     vcs = VaultVcs(template_vault)
 
-    listing = list_notes(store, vcs, TOPIC)
+    listing = list_notes(
+        store,
+        vcs,
+        TOPIC,
+        guess_threshold=DEFAULT_GUESS_THRESHOLD,
+        complete_orphan_threshold=DEFAULT_COMPLETE_ORPHAN_THRESHOLD,
+    )
 
     assert listing.skipped_malformed == 0
     ids = {resolved.document.id for resolved in listing.notes}
@@ -194,7 +219,14 @@ def test_read_note_returns_the_matching_note_by_id(template_vault: Path):
     store = LocalFSStore(template_vault)
     vcs = VaultVcs(template_vault)
 
-    resolved = read_note(store, vcs, TOPIC, "20260101-090000-findable-note")
+    resolved = read_note(
+        store,
+        vcs,
+        TOPIC,
+        "20260101-090000-findable-note",
+        guess_threshold=DEFAULT_GUESS_THRESHOLD,
+        complete_orphan_threshold=DEFAULT_COMPLETE_ORPHAN_THRESHOLD,
+    )
 
     assert resolved is not None
     assert resolved.document.id == "20260101-090000-findable-note"
@@ -206,7 +238,14 @@ def test_read_note_returns_none_for_an_id_that_does_not_exist(template_vault: Pa
     store = LocalFSStore(template_vault)
     vcs = VaultVcs(template_vault)
 
-    resolved = read_note(store, vcs, TOPIC, "20260101-090000-never-captured")
+    resolved = read_note(
+        store,
+        vcs,
+        TOPIC,
+        "20260101-090000-never-captured",
+        guess_threshold=DEFAULT_GUESS_THRESHOLD,
+        complete_orphan_threshold=DEFAULT_COMPLETE_ORPHAN_THRESHOLD,
+    )
 
     assert resolved is None
 
@@ -232,7 +271,13 @@ def test_a_note_file_missing_required_frontmatter_is_excluded_and_counted(
     store = LocalFSStore(template_vault)
     vcs = VaultVcs(template_vault)
 
-    listing = list_notes(store, vcs, TOPIC)
+    listing = list_notes(
+        store,
+        vcs,
+        TOPIC,
+        guess_threshold=DEFAULT_GUESS_THRESHOLD,
+        complete_orphan_threshold=DEFAULT_COMPLETE_ORPHAN_THRESHOLD,
+    )
 
     assert listing.skipped_malformed == 1
     ids = {resolved.document.id for resolved in listing.notes}
@@ -272,7 +317,13 @@ def test_a_note_with_one_malformed_anchor_bullet_still_lists_its_readable_anchor
     store = LocalFSStore(template_vault)
     vcs = VaultVcs(template_vault)
 
-    listing = list_notes(store, vcs, TOPIC)
+    listing = list_notes(
+        store,
+        vcs,
+        TOPIC,
+        guess_threshold=DEFAULT_GUESS_THRESHOLD,
+        complete_orphan_threshold=DEFAULT_COMPLETE_ORPHAN_THRESHOLD,
+    )
 
     assert listing.skipped_malformed == 0
     resolved = next(
@@ -308,7 +359,14 @@ def test_filtering_by_anchored_page_returns_only_notes_that_anchor_it(template_v
     store = LocalFSStore(template_vault)
     vcs = VaultVcs(template_vault)
 
-    listing = list_notes(store, vcs, TOPIC, anchored_page=f"{TOPIC}/page-a.md")
+    listing = list_notes(
+        store,
+        vcs,
+        TOPIC,
+        guess_threshold=DEFAULT_GUESS_THRESHOLD,
+        complete_orphan_threshold=DEFAULT_COMPLETE_ORPHAN_THRESHOLD,
+        anchored_page=f"{TOPIC}/page-a.md",
+    )
 
     ids = {resolved.document.id for resolved in listing.notes}
     assert ids == {"20260101-090000-anchors-page-a", "20260101-093000-also-anchors-page-a"}
@@ -352,7 +410,13 @@ def test_a_note_captured_then_the_page_edited_around_it_reports_shifted_with_no_
     vcs = VaultVcs(template_vault)
     commits_before = git_commit_count(template_vault)
 
-    listing = list_notes(store, vcs, TOPIC)
+    listing = list_notes(
+        store,
+        vcs,
+        TOPIC,
+        guess_threshold=DEFAULT_GUESS_THRESHOLD,
+        complete_orphan_threshold=DEFAULT_COMPLETE_ORPHAN_THRESHOLD,
+    )
 
     commits_after = git_commit_count(template_vault)
     assert commits_after == commits_before, "reading notes must never create a commit"
@@ -398,7 +462,13 @@ def test_an_anchor_the_quote_never_matched_even_historically_resolves_anchor_inv
     store = LocalFSStore(template_vault)
     vcs = VaultVcs(template_vault)
 
-    listing = list_notes(store, vcs, TOPIC)
+    listing = list_notes(
+        store,
+        vcs,
+        TOPIC,
+        guess_threshold=DEFAULT_GUESS_THRESHOLD,
+        complete_orphan_threshold=DEFAULT_COMPLETE_ORPHAN_THRESHOLD,
+    )
 
     resolved = next(r for r in listing.notes if r.document.id == "20260101-090000-forged-anchor")
     _, projection = resolved.resolved_anchors[0]
@@ -439,7 +509,13 @@ def test_listing_notes_never_acquires_the_vault_lock(
     store = LocalFSStore(template_vault)
     vcs = VaultVcs(template_vault)
 
-    list_notes(store, vcs, TOPIC)
+    list_notes(
+        store,
+        vcs,
+        TOPIC,
+        guess_threshold=DEFAULT_GUESS_THRESHOLD,
+        complete_orphan_threshold=DEFAULT_COMPLETE_ORPHAN_THRESHOLD,
+    )
 
 
 def test_listing_and_reading_notes_leaves_the_working_tree_and_history_untouched(
@@ -466,8 +542,347 @@ def test_listing_and_reading_notes_leaves_the_working_tree_and_history_untouched
     vcs = VaultVcs(template_vault)
     commits_before = git_commit_count(template_vault)
 
-    list_notes(store, vcs, TOPIC)
-    read_note(store, vcs, TOPIC, "20260101-090000-a-note")
+    list_notes(
+        store,
+        vcs,
+        TOPIC,
+        guess_threshold=DEFAULT_GUESS_THRESHOLD,
+        complete_orphan_threshold=DEFAULT_COMPLETE_ORPHAN_THRESHOLD,
+    )
+    read_note(
+        store,
+        vcs,
+        TOPIC,
+        "20260101-090000-a-note",
+        guess_threshold=DEFAULT_GUESS_THRESHOLD,
+        complete_orphan_threshold=DEFAULT_COMPLETE_ORPHAN_THRESHOLD,
+    )
 
     assert git_commit_count(template_vault) == commits_before
     assert git_status_porcelain(template_vault) == ""
+
+
+# ---------------------------------------------------------------------------
+# read_note is a single-file lookup, not list_notes-in-disguise
+# ---------------------------------------------------------------------------
+#
+# ``read_note`` used to delegate entirely to ``list_notes`` -- reading one
+# note paid for every note in the topic, each anchor resolution included (a
+# ``git show`` via ``vcs.read_file_at``). The frozen Phase 1 contract makes
+# the path derivable without a scan: note files live at
+# ``notes/<topic>/<YYYYMMDD-HHMMSS>-<slug>.md``, frontmatter ``id`` *is* the
+# filename stem, and files are never renamed (``capture_note`` guarantees
+# it). These tests pin the fixed cost, the path-traversal guard the derived
+# path needs (today's scan is safe only by accident -- it never uses
+# ``note_id`` to build a path at all), and the "path is the address" choice:
+# the file found at the derived path is trusted as-is, its frontmatter
+# ``id`` is never cross-checked against the ``note_id`` that located it.
+
+
+class _CountingStore:
+    """Wraps a real ``VaultStore`` and records every ``read_text`` call.
+
+    A spy, not a fake: every method delegates to ``delegate`` unchanged --
+    including exceptions -- so behaviour is identical to the real store.
+    Only ``read_text`` calls are additionally recorded, by path, in call
+    order.
+    """
+
+    def __init__(self, delegate: VaultStore) -> None:
+        self._delegate = delegate
+        self.read_text_paths: list[str] = []
+
+    @property
+    def read_text_calls(self) -> int:
+        return len(self.read_text_paths)
+
+    def read_text(self, path: str) -> str:
+        self.read_text_paths.append(str(path))
+        return self._delegate.read_text(path)
+
+    def write_text_atomic(self, path: str, content: str) -> None:
+        self._delegate.write_text_atomic(path, content)
+
+    def exists(self, path: str) -> bool:
+        return self._delegate.exists(path)
+
+    def list_dir(self, path: str = "") -> list[str]:
+        return self._delegate.list_dir(path)
+
+    def delete(self, path: str) -> None:
+        self._delegate.delete(path)
+
+
+class _CountingVcs(VaultVcs):
+    """A ``VaultVcs`` that counts ``read_file_at`` calls -- the ``git show`` cost."""
+
+    def __init__(self, root: Path) -> None:
+        super().__init__(root)
+        self.read_file_at_calls = 0
+
+    def read_file_at(self, ref: str, path: str) -> str | None:
+        self.read_file_at_calls += 1
+        return super().read_file_at(ref, path)
+
+
+def test_reading_one_note_does_not_pay_for_every_other_note_in_the_topic(
+    template_vault: Path,
+):
+    """``read_note``'s cost must be bounded by the ONE note it returns -- its
+    own file, its own anchor -- never by how many sibling notes share the
+    topic. This is the test that would have caught ``read_note`` delegating
+    to ``list_notes`` (which enumerates and resolves every note, each anchor
+    resolution costing a ``git show``, just to return one of them), and is
+    the one that must not be weakened later.
+    """
+    from knotica.core.notes.store import read_note
+
+    quote = "the target note's own anchored sentence sits here"
+    page_sha = _write_and_commit_page(
+        template_vault,
+        f"{TOPIC}/notes-target.md",
+        f"# Notes target\n\n{quote}.\n",
+        "test: seed notes-target page",
+    )
+    target_id = "20260101-090000-target-note"
+    _write_note(
+        template_vault,
+        target_id,
+        _note(target_id, anchors=(_anchor(pinned_at=page_sha, quote=quote),)),
+    )
+    for index in range(9):
+        sibling_id = f"20260101-0915{index:02d}-sibling-note"
+        _write_note(
+            template_vault,
+            sibling_id,
+            _note(
+                sibling_id,
+                anchors=(_anchor(pinned_at=page_sha, quote=f"a quote sibling {index} never had"),),
+            ),
+        )
+    _commit_all(template_vault, "test: capture the target note plus nine siblings")
+    store = _CountingStore(LocalFSStore(template_vault))
+    vcs = _CountingVcs(template_vault)
+
+    resolved = read_note(
+        store,
+        vcs,
+        TOPIC,
+        target_id,
+        guess_threshold=DEFAULT_GUESS_THRESHOLD,
+        complete_orphan_threshold=DEFAULT_COMPLETE_ORPHAN_THRESHOLD,
+    )
+
+    assert resolved is not None
+    assert resolved.document.id == target_id
+    # The target note owns exactly one anchor: one read for the note file
+    # itself, one read for that anchor's live page text. The nine siblings --
+    # and their own nine anchors -- must contribute nothing to this count.
+    assert store.read_text_calls == 2, (
+        f"read_note touched {store.read_text_calls} files for a one-anchor note "
+        f"among ten -- it is still paying for the other nine: {store.read_text_paths}"
+    )
+    # Exactly one anchor to resolve means exactly one git show, regardless of
+    # how many anchors the nine siblings carry between them.
+    assert vcs.read_file_at_calls == 1, (
+        f"read_note resolved {vcs.read_file_at_calls} anchors' history for a "
+        "note that owns exactly one anchor"
+    )
+
+
+@pytest.mark.parametrize(
+    "hostile_note_id",
+    [
+        "../../../etc/passwd",
+        "..",
+        "a/b",
+        "/etc/passwd",
+        "",
+    ],
+    ids=[
+        "many-dotdot-traversal",
+        "bare-dotdot",
+        "nested-path-segment",
+        "absolute-path",
+        "empty-id",
+    ],
+)
+def test_a_hostile_note_id_is_rejected_without_reading_any_file(
+    template_vault: Path, hostile_note_id: str
+):
+    """``note_id`` arrives from the MCP boundary unvalidated. Deriving the
+    path directly (``notes/<topic>/<note_id>.md``) removes the accidental
+    immunity the old ``list_notes``-based scan had -- it never used
+    ``note_id`` to build a path, so a hostile value could only ever fail to
+    match. The fixed lookup must reject a shape that cannot be a real note id
+    -- containing a path separator, escaping upward, absolute, or empty --
+    before any file is touched: the outcome is the existing not-found
+    ``None``, never an exception and never a read.
+
+    A real note is seeded first so a scan-shaped implementation (the one
+    this test guards against) has something to read on its way to finding no
+    match -- an empty topic would let that regression pass by accident.
+    """
+    from knotica.core.notes.store import read_note
+
+    page_sha = _write_and_commit_page(
+        template_vault,
+        f"{TOPIC}/notes-target.md",
+        "# Notes target\n\nAn unremarkable sentence.\n",
+        "test: seed notes-target page",
+    )
+    _write_note(
+        template_vault,
+        "20260101-090000-real-note",
+        _note(
+            "20260101-090000-real-note",
+            anchors=(_anchor(pinned_at=page_sha, quote="An unremarkable sentence."),),
+        ),
+    )
+    _commit_all(template_vault, "test: capture one real note")
+    store = _CountingStore(LocalFSStore(template_vault))
+    vcs = _CountingVcs(template_vault)
+
+    resolved = read_note(
+        store,
+        vcs,
+        TOPIC,
+        hostile_note_id,
+        guess_threshold=DEFAULT_GUESS_THRESHOLD,
+        complete_orphan_threshold=DEFAULT_COMPLETE_ORPHAN_THRESHOLD,
+    )
+
+    assert resolved is None
+    assert store.read_text_calls == 0, (
+        f"a hostile note_id must be rejected before any file is read, not "
+        f"discovered by attempting one: {store.read_text_paths}"
+    )
+    assert vcs.read_file_at_calls == 0
+
+
+def test_read_note_returns_the_file_at_the_derived_path_even_when_its_frontmatter_id_disagrees(
+    template_vault: Path,
+):
+    """The path IS the identity: ``read_note(topic, stem)`` reads
+    ``notes/<topic>/<stem>.md`` and returns whatever parses there -- it does
+    not verify ``document.id == note_id``. The frozen contract guarantees the
+    two agree at capture time and that files are never renamed, so the path
+    alone is a sufficient address. A strict-verify design would make a
+    hand-renamed note unreachable by *both* its old id (the file is gone) and
+    its new stem (the frontmatter still disagrees) -- strictly worse than
+    trusting the path.
+    """
+    from knotica.core.notes.store import read_note
+
+    page_sha = _write_and_commit_page(
+        template_vault,
+        f"{TOPIC}/notes-target.md",
+        "# Notes target\n\nAn unremarkable sentence.\n",
+        "test: seed notes-target page",
+    )
+    stem = "20260101-090000-the-actual-filename"
+    mismatched_document = _note(
+        "20260101-080000-a-stale-frontmatter-id",  # deliberately != stem
+        anchors=(_anchor(pinned_at=page_sha, quote="An unremarkable sentence."),),
+    )
+    _write_note(template_vault, stem, mismatched_document)
+    _commit_all(
+        template_vault, "test: capture a note whose frontmatter id disagrees with its filename"
+    )
+    store = LocalFSStore(template_vault)
+    vcs = VaultVcs(template_vault)
+
+    resolved = read_note(
+        store,
+        vcs,
+        TOPIC,
+        stem,
+        guess_threshold=DEFAULT_GUESS_THRESHOLD,
+        complete_orphan_threshold=DEFAULT_COMPLETE_ORPHAN_THRESHOLD,
+    )
+
+    assert resolved is not None
+    assert resolved.path == f"notes/{TOPIC}/{stem}.md"
+    assert resolved.document.id == "20260101-080000-a-stale-frontmatter-id"
+
+
+def test_read_note_returns_none_when_the_file_at_the_derived_path_is_malformed(
+    template_vault: Path,
+):
+    """A malformed note file is data, not an exception, along the single-file
+    lookup too: ``read_note`` must not raise when ``parse_note`` reports an
+    error for the file living at ``notes/<topic>/<note_id>.md`` -- ``None``
+    still covers both missing and malformed.
+    """
+    from knotica.core.notes.store import read_note
+
+    note_id = "20260101-091500-malformed-note"
+    _write_raw_note(
+        template_vault,
+        TOPIC,
+        note_id,
+        f"---\ntype: note\nid: {note_id}\n---\n\nNo topic, no created.\n",
+    )
+    _commit_all(template_vault, "test: capture a malformed note at a known path")
+    store = LocalFSStore(template_vault)
+    vcs = VaultVcs(template_vault)
+
+    resolved = read_note(
+        store,
+        vcs,
+        TOPIC,
+        note_id,
+        guess_threshold=DEFAULT_GUESS_THRESHOLD,
+        complete_orphan_threshold=DEFAULT_COMPLETE_ORPHAN_THRESHOLD,
+    )
+
+    assert resolved is None
+
+
+def test_read_note_matches_the_corresponding_entry_from_list_notes(template_vault: Path):
+    """The single-file lookup must produce a result identical to the matching
+    entry a full-topic enumeration would have returned: same document, same
+    path, same resolved anchors. The optimization changes how many files get
+    touched to produce the answer, never what the answer is.
+    """
+    from knotica.core.notes.store import list_notes, read_note
+
+    quote = "the metric quietly became the target"
+    page_sha = _write_and_commit_page(
+        template_vault,
+        f"{TOPIC}/notes-target.md",
+        f"# Notes target\n\n{quote} once optimization pressure was applied.\n",
+        "test: seed notes-target page",
+    )
+    note_id = "20260101-090000-parity-check-note"
+    _write_note(
+        template_vault,
+        note_id,
+        _note(note_id, anchors=(_anchor(pinned_at=page_sha, quote=quote),)),
+    )
+    _commit_all(template_vault, "test: capture the parity-check note")
+    store = LocalFSStore(template_vault)
+    vcs = VaultVcs(template_vault)
+
+    listing = list_notes(
+        store,
+        vcs,
+        TOPIC,
+        guess_threshold=DEFAULT_GUESS_THRESHOLD,
+        complete_orphan_threshold=DEFAULT_COMPLETE_ORPHAN_THRESHOLD,
+    )
+    expected = next(r for r in listing.notes if r.document.id == note_id)
+
+    actual = read_note(
+        store,
+        vcs,
+        TOPIC,
+        note_id,
+        guess_threshold=DEFAULT_GUESS_THRESHOLD,
+        complete_orphan_threshold=DEFAULT_COMPLETE_ORPHAN_THRESHOLD,
+    )
+
+    assert actual is not None
+    assert actual.document == expected.document
+    assert actual.path == expected.path
+    assert actual.resolved_anchors == expected.resolved_anchors

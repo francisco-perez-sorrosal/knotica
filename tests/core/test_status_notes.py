@@ -1,11 +1,17 @@
 """Behavioral contract for the ``notes`` summary on ``gather_wiki_status``.
 
-Phase 1 teaches ``wiki_status`` how many notes exist and how many of them are
+``wiki_status`` teaches how many notes exist and how many of them are
 *drifted* -- worth a human's attention because the wiki moved on without them.
 
-**Drifted counts ``orphaned`` only.** This is a deliberate narrowing, not an
-oversight, and the reasoning is the load-bearing part of this file:
+**Drifted counts ``fuzzy`` and ``orphaned``.** This is a deliberate set, not
+an accident of whatever the resolver happens to produce, and the reasoning is
+the load-bearing part of this file:
 
+- ``fuzzy`` is drift. The resolver could not find the quote verbatim
+  anywhere -- it found a *paraphrase* that scores well enough to trust, but
+  the recorded quote and the live passage are no longer the same text. That
+  is exactly the kind of change a human should be told about, even though the
+  resolver managed to keep the anchor placed.
 - ``shifted`` is not drift. The anchor re-resolved itself at a new offset in
   the same page -- the resolution ladder healed it automatically and there is
   nothing left for a human to do. Counting a self-healed anchor as "drifted"
@@ -20,10 +26,9 @@ oversight, and the reasoning is the load-bearing part of this file:
   eventually, but folding it into this number would conflate two different
   failure classes behind one badge.
 
-A future resolver rung (e.g. Phase 2's fuzzy matching) may widen the set of
-statuses this counts as drift -- but the *principle* stays the same:
-drifted means "the resolver could not place this anchor and nothing healed
-it," not "this anchor's status differs from ``exact``."
+The principle: drifted means "the resolver could not place this anchor
+exactly and nothing healed it verbatim," not "this anchor's status differs
+from ``exact``."
 """
 
 from pathlib import Path
@@ -245,6 +250,60 @@ def test_a_mix_of_exact_shifted_unanchored_and_orphaned_counts_only_the_orphaned
         "only the genuinely orphaned note counts as drifted -- the exact note is "
         "untouched, the shifted note self-healed at a new offset, and the "
         "unanchored note never pointed at anything to lose"
+    )
+
+
+# ---------------------------------------------------------------------------
+# Fuzzy: the resolver kept the anchor placed, but only via a paraphrase --
+# that is still drift a human should be told about.
+# ---------------------------------------------------------------------------
+
+
+def test_a_fuzzy_anchored_note_counts_as_drifted(template_vault: Path):
+    """A paraphrased passage that still scores at or above ``guess_threshold``
+    heals to ``fuzzy``, not ``orphaned`` -- but unlike a self-healed
+    ``shifted`` anchor, the *text itself* changed, so it must count toward
+    ``drifted`` exactly like an ``orphaned`` anchor does.
+
+    The reworded passage below is deliberately a near-verbatim paraphrase (one
+    word's case flips) so its real similarity score clears the default
+    ``guess_threshold`` (0.75) with a wide margin -- this pins the *counting*
+    contract, not the scoring calibration, so the fixture is built to make the
+    fuzzy classification itself uncontroversial.
+    """
+    quote = "the mechanism that makes this claim true"
+    page_relpath = f"{TOPIC}/fuzzy-target.md"
+    original_page = (
+        "# Fuzzy target\n\n"
+        "An introductory sentence sits here for structure.\n\n"
+        f"{quote}.\n\n"
+        "A closing sentence rounds things out.\n"
+    )
+    page_sha = _write_and_commit_page(
+        template_vault, page_relpath, original_page, "test: seed fuzzy-target page"
+    )
+    _write_note(
+        template_vault,
+        TOPIC,
+        "20260101-093000-fuzzy-note",
+        _note(
+            "20260101-093000-fuzzy-note",
+            anchors=(_anchor(page=page_relpath, pinned_at=page_sha, quote=quote),),
+        ),
+    )
+    _commit_all(template_vault, "test: capture the note that will fuzzy-drift")
+
+    paraphrase = "The mechanism that makes this claim true"
+    reworded_page = original_page.replace(quote, paraphrase)
+    assert quote not in reworded_page, "fixture must not leave the verbatim quote behind"
+    (template_vault / page_relpath).write_text(reworded_page, encoding="utf-8")
+    _commit_all(template_vault, "test: reword the fuzzy-target passage")
+
+    payload = _summary(template_vault)
+
+    assert payload["totals"]["notes"] == {"total": 1, "drifted": 1}, (
+        "a fuzzy anchor is still drift the resolver could not place verbatim -- "
+        "it must count toward `drifted`, not just `orphaned`"
     )
 
 

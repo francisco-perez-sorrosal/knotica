@@ -18,6 +18,7 @@ affected_files:
   - src/knotica/core/notes_config.py
   - src/knotica/core/loop.py
 affected_reqs: [REQ-01, REQ-02, REQ-03, REQ-04, REQ-05, REQ-06, REQ-10, REQ-12]
+re_affirmed_by: [dec-061, dec-062]
 dissent: Declining block-ID injection accepts an estimated 8-20% hard-orphan rate per major rewrite instead of 2-6%; if the loop turns out to preserve `^id` tokens reliably and injection costs the eval scalar nothing, this design leaves a large, cheap durability win unclaimed for a whole release.
 ---
 

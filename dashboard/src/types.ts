@@ -868,10 +868,12 @@ export type AnchorFidelity = "span" | "page" | "topic";
 
 /**
  * A note's resolved-anchor bucket — the filterable, countable set. `unanchored`
- * is not drift: the anchor never pointed at a page. `orphaned` is drift: what it
- * pointed at is gone. There is no `fuzzy` rung yet, so none is declared.
+ * is not drift: the anchor never pointed at a page. `shifted` is not drift: the
+ * anchor healed itself at a new offset with the verbatim text intact. `fuzzy`
+ * and `orphaned` are drift: `fuzzy` found only a paraphrase, `orphaned` found
+ * nothing at all.
  */
-export type AnchorStatus = "exact" | "unanchored" | "shifted" | "orphaned";
+export type AnchorStatus = "exact" | "unanchored" | "shifted" | "fuzzy" | "orphaned";
 export type AnchorStatusFilter = AnchorStatus | "all";
 
 /**
@@ -914,6 +916,8 @@ export interface NoteRecord {
   /** The note's text. */
   note: string;
   anchors: NoteAnchor[];
+  /** Anchor bullets the grammar could not parse -- data, not corruption. */
+  skipped_anchor_count: number;
 }
 
 /** `notes action=read` — one note in full, with its owning topic echoed back. */
@@ -941,3 +945,157 @@ export interface NotesStatusSummary {
   total: number;
   drifted: number;
 }
+
+// ---------------------------------------------------------------------------
+// Personal notes -- the drift review queue and the four mutating actions
+// (``reanchor``/``detach``/``promote``/``archive``). The read-only shapes
+// above (``NoteAnchor``, ``NoteRecord``, ``NotesListResult``) are shared.
+// ---------------------------------------------------------------------------
+
+/**
+ * ``notes action=drift``'s candidate placement -- unlike ``note_capture``'s
+ * own ``alternatives`` (a different, unrelated shape: ``{page, heading}``,
+ * no ``overlap``, because nothing was scored there), this one carries an
+ * ``overlap`` **when one was measured**. It is `null` for a structural
+ * guess: the enclosing heading survived, so the section is a real placement,
+ * but no passage-level similarity was computed. Render the null case as
+ * prose, never as `0%` and never as a percentage.
+ */
+export interface NoteDriftAlternative {
+  page: string;
+  heading: string;
+  overlap: number | null;
+}
+
+/**
+ * ``notes action=drift``'s per-item detail. ``overlap`` is `null` whenever
+ * the resolver had no measurement to report -- ``anchor-invalid`` (no
+ * candidate search ever ran), a deleted-page orphan (no page left to
+ * search), and the case that matters most: a **surviving heading whose
+ * passage shares no vocabulary with the page at all**, where the ladder
+ * supplies `guess_threshold - CLAMP_EPSILON` internally to satisfy its own
+ * nullability invariant. That value is a *ceiling*, so surfacing it as a
+ * survival percentage showed a deleted passage as the most confident item in
+ * the queue. Distinguish "0% survived" from "nothing was comparable".
+ * ``rewritten_at``/``rewritten_by`` are always strings, `""` (never omitted,
+ * never null) when there is no rewrite to attribute -- every
+ * ``anchor-invalid`` item is in that shape, since nothing about the page
+ * caused its corruption.
+ */
+export interface NoteDrift {
+  anchor_index: number;
+  /** Always populated, orphans included -- the historical text is never withheld. */
+  pinned_quote: string;
+  /** The current text at the resolved placement; "" when nothing is confidently placed. */
+  live_quote: string;
+  overlap: number | null;
+  alternatives: NoteDriftAlternative[];
+  rewritten_at: string;
+  rewritten_by: string;
+}
+
+/** One review-queue member: the note it belongs to, plus that anchor's drift detail. */
+export interface NoteDriftItem {
+  note: NoteRecord;
+  drift: NoteDrift;
+}
+
+/**
+ * ``notes action=drift`` -- the review queue: every anchor resolving
+ * ``fuzzy``, ``orphaned``, or ``anchor-invalid``. ``total_count`` is
+ * ``items.length``, the whole queue including ``anchor-invalid``, so
+ * pagination stays one contract with ``items``; ``invalid_count`` is a
+ * breakdown of how many of those are ``anchor-invalid``, not a disjoint
+ * bucket. Deliberately unlike ``NotesStatusSummary.drifted`` (``fuzzy +
+ * orphaned`` only, from ``wiki_status``) -- the queue header and that badge
+ * disagree by design, not by bug.
+ */
+export interface NotesDriftResult {
+  topic: string;
+  items: NoteDriftItem[];
+  next_cursor: string;
+  has_more: boolean;
+  total_count: number;
+  invalid_count: number;
+}
+
+export type NoteAction = "reanchor" | "detach" | "promote" | "archive";
+
+/**
+ * The uniform ``mode=dry-run`` preview every ``notes`` mutating action
+ * returns -- the same decision-envelope shape ``suggestions_review`` renders.
+ */
+export interface NoteDecisionEnvelope {
+  mode: "dry-run";
+  topic: string;
+  note_id: string;
+  action: NoteAction;
+  decision_id: string;
+  summary: string;
+  context: Record<string, unknown>;
+  options: Array<{ action: string; preview: string; reversible: boolean }>;
+  provenance: Record<string, unknown>;
+  reason_required: boolean;
+}
+
+/** ``notes action=reanchor|detach``'s ``mode=apply`` result -- both append one anchor record. */
+export interface NoteAnchorActionResult {
+  mode: "apply";
+  topic: string;
+  action: "reanchor" | "detach";
+  committed: boolean;
+  note_id: string;
+  path: string;
+  anchor_index: number;
+  /** Opaque, forward-compatible -- "reanchored" or "detached" today. */
+  kind: string;
+  commit: string;
+}
+
+/** ``notes action=archive``'s ``mode=apply`` result -- frontmatter-only, touches no anchor. */
+export interface NoteArchiveActionResult {
+  mode: "apply";
+  topic: string;
+  action: "archive";
+  committed: boolean;
+  note_id: string;
+  path: string;
+  status: string;
+  /** False when this call changed nothing -- see ``duplicate``. */
+  written: boolean;
+  /** True when the note was already archived; mirrors ``capture``'s own vocabulary. */
+  duplicate: boolean;
+  commit: string;
+}
+
+/** ``promote target=trainset``'s ``mode=apply`` result -- delegates to ``curate_example``. */
+export interface NotePromoteTrainsetResult {
+  mode: "apply";
+  topic: string;
+  action: "promote";
+  committed: boolean;
+  path: string;
+  example_count: number;
+  appended: boolean;
+}
+
+/** ``notes action=promote target=gap``'s ``mode=apply`` result -- delegates to ``report_gap``. */
+export interface NotePromoteGapResult {
+  mode: "apply";
+  topic: string;
+  action: "promote";
+  committed: boolean;
+  gap_id: string;
+  qa_id: string;
+  question: string;
+  fault_class: string;
+  status: string;
+  origin: GapOrigin;
+  reference_pages: string[];
+  written: boolean;
+}
+
+/** The two ``target``s the dashboard offers; ``golden`` always rejects tool-side (dec-059). */
+export type PromoteTarget = "trainset" | "gap";
+
+export type NotePromoteActionResult = NotePromoteTrainsetResult | NotePromoteGapResult;

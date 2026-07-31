@@ -5,7 +5,7 @@ markdown file whose frontmatter names it a ``note`` and whose body may carry an
 ``## Anchors`` section -- one markdown bullet per anchor of record, each followed
 by the verbatim quote it pins::
 
-    - [[<vault-path>[#<Heading>]]] — `<fidelity>` · pinned@`<sha>`[ · at=<int>]
+    - [[<vault-path>[#<Heading>]]] — `<fidelity>` · pinned@`<sha>`[ · at=<int>][ · <kind>]
       > <quote>
 
 The wikilink and the quote line are each independently optional; the backticked
@@ -16,7 +16,7 @@ carrying neither is not an anchor at all. A link-less bullet is how a page-less
     - `topic` · pinned@`a3f9c21`
       > the passage the user was reacting to, preserved verbatim
 
-Three properties are load-bearing and deliberate:
+Four properties are load-bearing and deliberate:
 
 *Reading never raises on content.* A file a human typed by hand in Obsidian is
 the fourth capture surface, so the parser is tolerant by construction: irregular
@@ -40,6 +40,16 @@ name a fidelity this reader has never heard of, and losing it on a rewrite would
 silently downgrade the anchor. ``schema_version`` is carried on the document for
 the same reason -- a read/append cycle must not re-stamp a newer note as v1.
 Phase-1 writers emit only the values in :data:`PHASE_ONE_FIDELITIES`.
+
+*Corrections are appended, never in place.* An anchor is never rewritten once
+written: a human-accepted re-anchor or a detach appends a new record and
+leaves every earlier one's bytes untouched. ``kind`` -- ``"pinned"`` by
+omission, so every note already on disk keeps parsing unchanged -- names what
+an appended record represents, and is an opaque string like ``fidelity``,
+never a closed enum. The *effective* anchor a reader should currently trust
+is therefore a position in the history, not a stored flag on any one record
+-- see :func:`effective_anchor`, the deliberately separate counterpart to
+:func:`anchor_of_record`, which never moves.
 """
 
 import re
@@ -61,7 +71,9 @@ __all__ = [
     "NoteDocument",
     "anchor_of_record",
     "derive_note_id",
+    "effective_anchor",
     "escape_anchors_heading",
+    "live_anchors",
     "parse_note",
     "serialize_note",
 ]
@@ -96,13 +108,22 @@ _FENCE_RE = re.compile(r"^ {0,3}(?P<marker>`{3,}|~{3,})(?P<info>.*)$")
 #: Index of the anchor of record inside :attr:`NoteDocument.anchors`.
 _ANCHOR_OF_RECORD_INDEX = 0
 _BULLET_PREFIX = "- "
+#: An anchor's ``kind`` by omission -- a bullet with no trailing kind token.
+#: Every Phase-1 note on disk therefore keeps parsing unchanged.
+_PINNED_KIND = "pinned"
+#: The terminal ``kind``: once a note's newest anchor is detached, there is no
+#: effective anchor left to resolve (see :func:`effective_anchor`).
+_DETACHED_KIND = "detached"
 #: The bullet's signature is the backticked fidelity plus the ``pinned@`` token;
 #: the wikilink is optional (its absence is how a page-less anchor is written).
+#: ``at=`` and the trailing ``kind`` token are each independently optional and
+#: neither requires the other -- a kind-only bullet (no ``at=``) is valid.
 _ANCHOR_LINE_RE = re.compile(
     r"^-\s+(?:\[\[(?P<target>[^\[\]]+)\]\]\s*—\s*)?"
     r"`(?P<fidelity>[^`]+)`"
     r"\s*·\s*pinned@`(?P<sha>[^`]+)`"
     r"(?:\s*·\s*at=(?P<start>\d+))?"
+    r"(?:\s*·\s*(?P<kind>[\w-]+))?"
     r"\s*$"
 )
 _TIMESTAMP_RE = re.compile(
@@ -126,7 +147,11 @@ class AnchorRecord:
     serializer strips it back off). ``heading`` is the empty string when the
     bullet named no ``#Heading``. ``start`` is the optional offset
     disambiguator, present only when the quote occurs more than once in the
-    pinned blob.
+    pinned blob. ``kind`` is ``"pinned"`` by omission -- an anchor that has
+    never been superseded serializes with no trailing kind token at all -- and
+    is otherwise an opaque string (``"reanchored"``, ``"kept"``, ``"detached"``,
+    ...), never a closed enum: a later knotica generation may write a kind this
+    reader has never heard of, and it must round-trip regardless.
     """
 
     page: str
@@ -135,6 +160,7 @@ class AnchorRecord:
     pinned_at: str
     quote: str
     start: int | None = None
+    kind: str = _PINNED_KIND
 
 
 @dataclass(frozen=True)
@@ -339,6 +365,94 @@ def anchor_of_record(document: NoteDocument) -> AnchorRecord | None:
     return document.anchors[_ANCHOR_OF_RECORD_INDEX]
 
 
+def effective_anchor(document: NoteDocument) -> AnchorRecord | None:
+    """The note's newest pin, regardless of which page it points at.
+
+    Unlike :func:`anchor_of_record` (always index 0, immutable, never asked to
+    move), this is a different question -- which correction is newest --
+    answered by position rather than a stored flag: the last entry in
+    :attr:`NoteDocument.anchors`. ``kind="detached"`` is terminal -- once the
+    newest entry says the note no longer points anywhere, this returns
+    ``None``, even though the anchor of record and the rest of the history
+    stay fully intact.
+
+    **This is not a liveness primitive.** A note may carry more than one
+    independent anchor, each resolved on its own page; supersession and
+    detachment are per distinct page, not per note (see :func:`live_anchors`).
+    Detaching one page's anchor does not make the note's *other* pages stop
+    resolving, but that is exactly what asking this function "is the note
+    still anchored?" would wrongly imply. Use :func:`live_anchors` for any
+    liveness decision -- which anchors currently resolve, which index is a
+    valid target for a correction, what pages a promoted question may cite.
+    """
+    if not document.anchors:
+        return None
+    newest = document.anchors[-1]
+    if newest.kind == _DETACHED_KIND:
+        return None
+    return newest
+
+
+def live_anchors(document: NoteDocument) -> tuple[AnchorRecord, ...]:
+    """The currently-live anchors, one per distinct supersession group, in document order.
+
+    Supersession and detachment are per distinct **group**, not per note --
+    grouped by :func:`_supersession_key`, not by raw ``page``. For each group
+    the note has ever anchored, only the newest record for that group matters,
+    and it is live unless its own ``kind`` is ``"detached"``. Detaching a
+    group's chain does not blacklist it -- a later record in the same group,
+    appended after the detach, is live again, exactly like any other
+    correction.
+
+    Grouping by raw ``page`` alone is wrong: ``page=""`` is itself a valid
+    key, so every page-less (topic-fidelity) anchor a note carries would
+    collapse into one shared bucket and only the newest would survive -- a
+    hand-authored note with two independent, unrelated topic-fidelity
+    reflections would have its first wrongly reported superseded, even though
+    neither anchor ever touched the other. See :func:`_supersession_key` for
+    the asymmetric key that avoids this.
+
+    This is the liveness primitive :func:`effective_anchor` is not: it is what
+    ``reanchor``/``detach`` target validation and the promote bridge's
+    ``pages_used`` derivation must read, since a note-scoped "is there any
+    live anchor" is the wrong question the moment a note carries more than one
+    independent page.
+    """
+    latest_index_by_key: dict[tuple[str, str], int] = {}
+    for index, anchor in enumerate(document.anchors):
+        latest_index_by_key[_supersession_key(anchor)] = index
+    live_indices = sorted(
+        index
+        for index in latest_index_by_key.values()
+        if document.anchors[index].kind != _DETACHED_KIND
+    )
+    return tuple(document.anchors[index] for index in live_indices)
+
+
+def _supersession_key(anchor: AnchorRecord) -> tuple[str, str]:
+    """The grouping key two anchors must share to supersede one another.
+
+    A real page's key is the page **alone** (``(page, "")``): a re-anchor
+    supersedes regardless of how the quote changed -- that is the whole point
+    of re-anchoring. A page-less anchor has no page to key on, so it falls
+    back to its quote (``("", quote)``): two independent page-less
+    reflections point at different things and must not collapse into one
+    chain, but a detach record -- which always copies its target's quote,
+    the only way to name a page-less target at all -- still lands in the same
+    group and terminates exactly that chain. Two page-less anchors sharing an
+    identical quote (or both empty) are genuinely indistinguishable, and
+    collapsing them to the newest is correct.
+
+    The asymmetry is deliberate, not an oversight: switching every anchor
+    (not just page-less ones) to a uniform ``(page, quote)`` key would fix the
+    page-less collapse but simultaneously break re-anchoring, since a real
+    page's supersession would then depend on the quote staying the same.
+    """
+    if anchor.page:
+        return (anchor.page, "")
+    return ("", anchor.quote)
+
+
 def derive_note_id(
     text: str,
     created_at: str,
@@ -492,6 +606,7 @@ def _parse_anchor_block(block: list[str]) -> AnchorRecord | None:
         return None
     page, heading = _split_wikilink_target(match.group("target") or "")
     start = match.group("start")
+    kind = match.group("kind")
     return AnchorRecord(
         page=page,
         heading=heading,
@@ -499,6 +614,7 @@ def _parse_anchor_block(block: list[str]) -> AnchorRecord | None:
         pinned_at=match.group("sha").strip(),
         quote=_first_quote(block[1:]),
         start=int(start) if start is not None else None,
+        kind=kind.strip() if kind is not None else _PINNED_KIND,
     )
 
 
@@ -536,6 +652,8 @@ def _serialize_anchor(anchor: AnchorRecord) -> str:
     bullet += f" `{anchor.fidelity}` · pinned@`{anchor.pinned_at}`"
     if anchor.start is not None:
         bullet += f" · at={anchor.start}"
+    if anchor.kind != _PINNED_KIND:
+        bullet += f" · {anchor.kind}"
     if not anchor.quote:
         return bullet
     return f"{bullet}\n  > {anchor.quote}"

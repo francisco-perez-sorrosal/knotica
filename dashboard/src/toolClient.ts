@@ -29,14 +29,20 @@ import type {
   LoopSetBaselineResult,
   BaselineProbeResult,
   MetricsWindow,
+  NoteAnchorActionResult,
+  NoteArchiveActionResult,
+  NoteDecisionEnvelope,
   NoteIntentFilter,
+  NotePromoteActionResult,
   NoteReadResult,
+  NotesDriftResult,
   NotesListResult,
   AnchorStatusFilter,
   OkfCheckResult,
   OkfRepairResult,
   QueryAnswer,
   PromptDiffResult,
+  PromoteTarget,
   SuggestionAction,
   SuggestionsReadResult,
   SuggestionsStatusFilter,
@@ -176,6 +182,42 @@ export interface ToolClient {
     vault?: string,
   ): Promise<NotesListResult>;
   notesRead(topic: string, noteId: string, vault?: string): Promise<NoteReadResult>;
+  notesDrift(
+    topic: string,
+    cursor?: string,
+    limit?: number,
+    vault?: string,
+  ): Promise<NotesDriftResult>;
+  notesReanchor(
+    topic: string,
+    noteId: string,
+    anchorIndex: number,
+    mode: "dry-run" | "apply",
+    page?: string,
+    quote?: string,
+    vault?: string,
+  ): Promise<NoteDecisionEnvelope | NoteAnchorActionResult>;
+  notesDetach(
+    topic: string,
+    noteId: string,
+    anchorIndex: number,
+    mode: "dry-run" | "apply",
+    vault?: string,
+  ): Promise<NoteDecisionEnvelope | NoteAnchorActionResult>;
+  notesPromote(
+    topic: string,
+    noteId: string,
+    target: PromoteTarget,
+    mode: "dry-run" | "apply",
+    fields?: { question?: string; answer?: string; verdict?: "good" | "bad" },
+    vault?: string,
+  ): Promise<NoteDecisionEnvelope | NotePromoteActionResult>;
+  notesArchive(
+    topic: string,
+    noteId: string,
+    mode: "dry-run" | "apply",
+    vault?: string,
+  ): Promise<NoteDecisionEnvelope | NoteArchiveActionResult>;
   vaultUse(name: string): Promise<Record<string, unknown>>;
   vaultCreate(
     name: string,
@@ -483,6 +525,78 @@ abstract class BaseToolClient implements ToolClient {
 
   notesRead(topic: string, noteId: string, vault = ""): Promise<NoteReadResult> {
     return this.call("notes", { action: "read", topic, note_id: noteId, vault });
+  }
+
+  notesDrift(topic: string, cursor = "", limit = 20, vault = ""): Promise<NotesDriftResult> {
+    return this.call("notes", { action: "drift", topic, cursor, limit, vault });
+  }
+
+  notesReanchor(
+    topic: string,
+    noteId: string,
+    anchorIndex: number,
+    mode: "dry-run" | "apply" = "dry-run",
+    page = "",
+    quote = "",
+    vault = "",
+  ): Promise<NoteDecisionEnvelope | NoteAnchorActionResult> {
+    return this.call("notes", {
+      action: "reanchor",
+      topic,
+      note_id: noteId,
+      anchor: anchorIndex,
+      mode,
+      page,
+      quote,
+      vault,
+    });
+  }
+
+  notesDetach(
+    topic: string,
+    noteId: string,
+    anchorIndex: number,
+    mode: "dry-run" | "apply" = "dry-run",
+    vault = "",
+  ): Promise<NoteDecisionEnvelope | NoteAnchorActionResult> {
+    return this.call("notes", {
+      action: "detach",
+      topic,
+      note_id: noteId,
+      anchor: anchorIndex,
+      mode,
+      vault,
+    });
+  }
+
+  notesPromote(
+    topic: string,
+    noteId: string,
+    target: PromoteTarget,
+    mode: "dry-run" | "apply" = "dry-run",
+    fields: { question?: string; answer?: string; verdict?: "good" | "bad" } = {},
+    vault = "",
+  ): Promise<NoteDecisionEnvelope | NotePromoteActionResult> {
+    return this.call("notes", {
+      action: "promote",
+      topic,
+      note_id: noteId,
+      target,
+      mode,
+      question: fields.question ?? "",
+      answer: fields.answer ?? "",
+      verdict: fields.verdict ?? "good",
+      vault,
+    });
+  }
+
+  notesArchive(
+    topic: string,
+    noteId: string,
+    mode: "dry-run" | "apply" = "dry-run",
+    vault = "",
+  ): Promise<NoteDecisionEnvelope | NoteArchiveActionResult> {
+    return this.call("notes", { action: "archive", topic, note_id: noteId, mode, vault });
   }
 
   vaultUse(name: string): Promise<Record<string, unknown>> {

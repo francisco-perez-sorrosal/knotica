@@ -20,7 +20,15 @@ bullet grammar, filename/id derivation), not from any implementation:
   ``(value, error)`` contract; every other field defaults per the grammar;
 - a fidelity value from a later grammar generation is carried through as an
   opaque string rather than rejected, so a note written by a newer knotica
-  version does not break an older reader.
+  version does not break an older reader;
+- a corrected anchor is appended, never overwriting the one it corrects, and
+  the new entry's ``kind`` records what kind of correction it is (opaque
+  string, like ``fidelity``, never a closed enum); a bullet carrying no
+  ``kind`` token at all means ``kind == "pinned"``, so every note file already
+  on disk keeps parsing unchanged; the *effective* anchor a reader should
+  currently trust is the newest entry -- a different question from the
+  immutable anchor of record used for capture's idempotency fingerprint, and
+  the two diverge the moment a second anchor exists.
 """
 
 from pathlib import Path
@@ -981,3 +989,546 @@ def test_prepending_an_anchor_changes_the_anchor_of_record():
     note.
     """
     assert anchor_of_record(_document_with((_LATER_ANCHOR, _FIRST_ANCHOR))) == _LATER_ANCHOR
+
+
+# ---------------------------------------------------------------------------
+# Append-only supersession: the `kind` field and the effective-vs-record anchor
+#
+# A correction never touches the anchor it corrects -- it appends a new one and
+# records, on the *new* entry, what kind of correction it is. `kind` is the
+# only field this schema extension adds to `AnchorRecord`. `superseded_by`
+# (named on the read-side `NoteAnchor` payload in INTERFACE_DESIGN.md) is
+# derived from position and kind when that payload is built, never stored
+# here -- storing it would mean mutating an earlier, supposedly-immutable
+# anchor the instant a later one supersedes it, which is exactly the
+# invariant this whole schema exists to protect.
+# ---------------------------------------------------------------------------
+
+
+def test_pinned_kind_is_written_by_omission_not_as_an_explicit_trailing_token():
+    """The highest-value guarantee here: an anchor that has never been
+    superseded must gain no rendering noise from this schema extension. A
+    ``kind == "pinned"`` anchor serializes with no trailing kind token at all,
+    so every note file already on disk round-trips byte-identically with no
+    migration.
+    """
+    anchor = _anchor(kind="pinned")
+    document = _note(anchors=(anchor,))
+
+    text = serialize_note(document)
+    bullet_line = text.split("## Anchors", 1)[1].strip().splitlines()[0]
+
+    assert bullet_line == (
+        "- [[agentic-systems/agent-memory#Working memory]] — `span` · pinned@`9f1a3c0`"
+    ), "a 'pinned' anchor must serialize exactly like Phase 1, with no trailing kind token"
+
+
+def test_a_non_pinned_kind_is_written_as_a_trailing_token_after_at():
+    """The mirror case: once an anchor has been superseded or detached, its
+    ``kind`` is no longer the implicit default and must be visible in the
+    rendering, ordered after the ``at=`` disambiguator.
+    """
+    anchor = _anchor(kind="reanchored", start=118)
+    document = _note(anchors=(anchor,))
+
+    text = serialize_note(document)
+    bullet_line = text.split("## Anchors", 1)[1].strip().splitlines()[0]
+
+    assert bullet_line == (
+        "- [[agentic-systems/agent-memory#Working memory]] — `span` · "
+        "pinned@`9f1a3c0` · at=118 · reanchored"
+    )
+
+
+def test_a_phase_one_bullet_with_no_kind_token_parses_as_pinned():
+    """Backward compatibility, stated as directly as possible: a note file
+    written before ``kind`` existed carries no kind token at all, and it must
+    read back as a ``pinned`` anchor -- not an anchor with no kind, and not a
+    skipped bullet. No migration, no rewrite, no special-casing by the reader.
+    """
+    document, error = parse_note(_read_fixture("clean_note.md"))
+
+    assert error is None
+    assert document is not None
+    assert document.anchors[0].kind == "pinned"
+
+
+def test_an_anchor_bullet_with_both_at_and_a_kind_token_parses_both():
+    text = (
+        "---\n"
+        "type: note\n"
+        "id: 20260730-094500-at-and-kind-together\n"
+        "topic: agentic-systems\n"
+        "created: 2026-07-30T09:45:00Z\n"
+        "---\n"
+        "\n"
+        "## Anchors\n"
+        "\n"
+        "- [[agentic-systems/agent-memory#Working memory]] — `span` · "
+        "pinned@`a3f9c21` · at=118 · reanchored\n"
+        "  > the corrected passage after a human accepted the re-anchor\n"
+    )
+
+    document, error = parse_note(text)
+
+    assert error is None
+    assert document is not None
+    assert len(document.anchors) == 1
+    anchor = document.anchors[0]
+    assert anchor.start == 118
+    assert anchor.kind == "reanchored"
+
+
+@pytest.mark.parametrize(
+    "kind", ["pinned", "reanchored", "kept", "detached", "promoted-experimental"]
+)
+def test_serialize_then_parse_round_trips_an_anchor_of_any_kind(kind):
+    """``kind`` is an opaque string, not a closed enum -- a value this reader
+    has never heard of (the parametrized ``"promoted-experimental"`` case)
+    must round-trip exactly like a known one, mirroring ``fidelity``'s
+    existing opaque-string treatment.
+    """
+    original = _note(anchors=(_anchor(kind=kind),), skipped_anchor_count=0)
+
+    reparsed, error = parse_note(serialize_note(original))
+
+    assert error is None
+    assert reparsed == original
+
+
+def test_forward_generation_kind_value_is_carried_through_as_an_opaque_string():
+    """A2, parser side: a note written by a later knotica generation may carry
+    a kind value this reader has never heard of. Losing it on a rewrite would
+    silently misrepresent the anchor's supersession history, so it must be
+    carried through unchanged -- mirroring the existing fidelity tolerance
+    test above, but for ``kind``.
+    """
+    text = (
+        "---\n"
+        "type: note\n"
+        "id: 20260730-100000-written-by-a-newer-knotica-kind\n"
+        "topic: agentic-systems\n"
+        "created: 2026-07-30T10:00:00Z\n"
+        "---\n"
+        "\n"
+        "## Anchors\n"
+        "\n"
+        "- [[agentic-systems/agent-memory#Working memory]] — `span` · "
+        "pinned@`9f1a3c0` · promoted-experimental\n"
+        "  > a future-generation kind value this reader has never heard of\n"
+    )
+
+    document, error = parse_note(text)
+
+    assert error is None
+    assert document is not None
+    assert len(document.anchors) == 1
+    assert document.anchors[0].kind == "promoted-experimental"
+
+    reparsed, reparse_error = parse_note(serialize_note(document))
+
+    assert reparse_error is None
+    assert reparsed is not None
+    assert reparsed.anchors[0].kind == "promoted-experimental"
+
+
+def test_a_bullet_with_a_malformed_trailing_kind_segment_is_skipped_not_raised():
+    """A trailing segment that is not a bare kind token breaks the bullet's
+    grammar entirely, the same way every other malformed-signature case above
+    does: the bullet is counted and skipped, never raised, and a valid
+    sibling anchor still survives.
+    """
+    text = (
+        "---\n"
+        "type: note\n"
+        "id: 20260730-101500-malformed-kind-token\n"
+        "topic: agentic-systems\n"
+        "created: 2026-07-30T10:15:00Z\n"
+        "---\n"
+        "\n"
+        "## Anchors\n"
+        "\n"
+        "- [[agentic-systems/agent-memory#Working memory]] — `span` · "
+        "pinned@`9f1a3c0` · not a single kind token\n"
+        "  > this bullet's trailing segment is not a bare kind word\n"
+        "\n"
+        "- [[agentic-systems/alignment-failures#Reward hacking]] — `span` · "
+        "pinned@`a3f9c21`\n"
+        "  > the valid sibling anchor must still survive\n"
+    )
+
+    document, error = parse_note(text)
+
+    assert error is None
+    assert document is not None
+    assert document.skipped_anchor_count == 1
+    assert len(document.anchors) == 1
+    assert document.anchors[0].heading == "Reward hacking"
+
+
+def test_anchor_record_gains_kind_but_never_stores_superseded_by():
+    """``kind`` is the only new field this schema extension adds to the
+    on-disk record. ``superseded_by`` -- named on INTERFACE_DESIGN.md's
+    read-side ``NoteAnchor`` payload -- is derived from position and kind
+    when that payload is built; storing it here would mean mutating an
+    earlier, supposedly-immutable anchor the instant a later one supersedes
+    it, which breaks append-only outright. The second assertion is a forward
+    guard: it already holds today and is written to fail the moment a future
+    change adds ``superseded_by`` as a stored field on ``AnchorRecord``.
+    """
+    import dataclasses
+
+    field_names = {field.name for field in dataclasses.fields(AnchorRecord)}
+
+    assert "kind" in field_names
+    assert "superseded_by" not in field_names
+
+
+def test_effective_anchor_is_the_newest_entry_not_the_anchor_of_record():
+    """The anchor of record never moves (see the tests above); the
+    *effective* anchor -- the one currently governing where the note points
+    -- is a different question, answered by a different accessor: whichever
+    entry was appended most recently. A caller asking "where does this note
+    point right now" must not be answered with index 0 once a second anchor
+    exists.
+    """
+    from knotica.core.notes.anchor import effective_anchor
+
+    document = _document_with((_FIRST_ANCHOR, _LATER_ANCHOR))
+
+    assert anchor_of_record(document) == _FIRST_ANCHOR
+    assert effective_anchor(document) == _LATER_ANCHOR
+    assert effective_anchor(document) != anchor_of_record(document)
+
+
+def test_effective_anchor_is_none_when_the_only_anchor_history_ends_in_detached():
+    """``detached`` is terminal: once the newest record in a note's history
+    says the note is no longer about that passage, there is no effective
+    *live* anchor left to resolve -- even though the record trail, and the
+    anchor of record, are both fully intact.
+    """
+    from knotica.core.notes.anchor import effective_anchor
+
+    detached = _anchor(kind="detached")
+    document = _document_with((_FIRST_ANCHOR, detached))
+
+    assert anchor_of_record(document) == _FIRST_ANCHOR
+    assert effective_anchor(document) is None
+
+
+def test_a_pinned_reanchored_detached_history_round_trips_in_document_order():
+    """A note's supersession history is a sequence, and sequence is exactly
+    what append-only means to preserve: three anchors, three different
+    kinds, added in this order, must come back in this order with every
+    field intact.
+    """
+    pinned = _anchor(
+        pinned_at="9f1a3c0",
+        quote="the original passage the note was written against",
+        kind="pinned",
+    )
+    reanchored = _anchor(
+        pinned_at="c81f770",
+        quote="the corrected passage after a human accepted the re-anchor",
+        kind="reanchored",
+    )
+    detached = _anchor(pinned_at="ff00112", quote="", kind="detached")
+    original = _note(anchors=(pinned, reanchored, detached), skipped_anchor_count=0)
+
+    reparsed, error = parse_note(serialize_note(original))
+
+    assert error is None
+    assert reparsed is not None
+    assert reparsed.anchors == (pinned, reanchored, detached)
+    assert [anchor.kind for anchor in reparsed.anchors] == ["pinned", "reanchored", "detached"]
+
+
+# ---------------------------------------------------------------------------
+# live_anchors: liveness is per distinct page, not per note
+#
+# `effective_anchor` answers "what is this note's newest anchor, regardless
+# of which page it points at" -- a different question from "which of this
+# note's anchors are currently live". Supersession and detachment are per
+# distinct `page`: for each page a note has ever anchored, the newest record
+# for *that* page wins, and only a `detached` record terminates *that page's*
+# own chain. `live_anchors` is the accessor for the second question, and
+# neither it nor `effective_anchor` may be used to answer the other's.
+# ---------------------------------------------------------------------------
+
+
+def test_live_anchors_survives_detachment_of_a_different_pages_anchor():
+    """The bug this correction exists for: detaching page A's anchor must not
+    suppress page B's, which this note also carries and which the detach
+    never touched.
+    """
+    from knotica.core.notes.anchor import live_anchors
+
+    page_a = _anchor(page="agentic-systems/agent-memory.md", pinned_at="9f1a3c0")
+    page_b = _anchor(page="agentic-systems/alignment-failures.md", pinned_at="a3f9c21")
+    page_a_detached = _anchor(
+        page="agentic-systems/agent-memory.md", pinned_at="ff00112", kind="detached"
+    )
+    document = _document_with((page_a, page_b, page_a_detached))
+
+    assert live_anchors(document) == (page_b,)
+
+
+def test_live_anchors_keeps_only_the_newest_record_for_a_twice_reanchored_page():
+    """A page reanchored once still has exactly one live anchor -- the
+    correction, not the anchor it corrected.
+    """
+    from knotica.core.notes.anchor import live_anchors
+
+    page = "agentic-systems/agent-memory.md"
+    first = _anchor(page=page, pinned_at="9f1a3c0", kind="pinned")
+    second = _anchor(page=page, pinned_at="a3f9c21", kind="reanchored")
+    document = _document_with((first, second))
+
+    assert live_anchors(document) == (second,)
+
+
+def test_live_anchors_treats_a_new_pin_on_a_previously_detached_page_as_live_again():
+    """Detachment terminates a chain -- it does not blacklist the page. A
+    later record for the same page, appended after the detach, is live again.
+    """
+    from knotica.core.notes.anchor import live_anchors
+
+    page = "agentic-systems/agent-memory.md"
+    pinned = _anchor(page=page, pinned_at="9f1a3c0", kind="pinned")
+    detached = _anchor(page=page, pinned_at="a3f9c21", kind="detached")
+    repinned = _anchor(page=page, pinned_at="c81f770", kind="pinned")
+    document = _document_with((pinned, detached, repinned))
+
+    assert live_anchors(document) == (repinned,)
+
+
+def test_live_anchors_orders_surviving_anchors_by_their_own_position_in_the_document():
+    """Distinguishes two plausible-but-wrong orderings -- grouping by the page
+    a reader first saw, or sorting by page name -- both of which would put
+    page A's entry before page B's here. The correct order follows each
+    *surviving* record's own position in the append-only history: page A's
+    correction was appended after page B's only anchor, so it comes second.
+    """
+    from knotica.core.notes.anchor import live_anchors
+
+    page_a = _anchor(page="agentic-systems/agent-memory.md", pinned_at="9f1a3c0")
+    page_b = _anchor(page="agentic-systems/alignment-failures.md", pinned_at="a3f9c21")
+    page_a_reanchored = _anchor(
+        page="agentic-systems/agent-memory.md", pinned_at="c81f770", kind="reanchored"
+    )
+    document = _document_with((page_a, page_b, page_a_reanchored))
+
+    assert live_anchors(document) == (page_b, page_a_reanchored)
+
+
+def test_live_anchors_of_a_note_with_no_anchor_history_is_empty():
+    from knotica.core.notes.anchor import live_anchors
+
+    assert live_anchors(_document_with(())) == ()
+
+
+def test_effective_anchor_keeps_its_note_scoped_meaning_even_as_live_anchors_diverges():
+    """`effective_anchor` is not a liveness primitive -- it answers a
+    different question than `live_anchors`: the note's newest pin regardless
+    of page, not which pages currently resolve -- and the two must not be
+    allowed to silently converge in a future change. This is the exact
+    scenario this correction addresses: page A's anchor is detached while
+    page B's stays live, so the two accessors now disagree on purpose.
+    """
+    from knotica.core.notes.anchor import effective_anchor, live_anchors
+
+    page_a = _anchor(page="agentic-systems/agent-memory.md", pinned_at="9f1a3c0")
+    page_b = _anchor(page="agentic-systems/alignment-failures.md", pinned_at="a3f9c21")
+    page_a_detached = _anchor(
+        page="agentic-systems/agent-memory.md", pinned_at="ff00112", kind="detached"
+    )
+    document = _document_with((page_a, page_b, page_a_detached))
+
+    assert effective_anchor(document) is None, (
+        "effective_anchor answers 'the note's newest entry, note-scoped' -- the newest entry "
+        "here is the detach, so returning None is its documented behaviour, not a bug"
+    )
+    assert live_anchors(document) == (page_b,), (
+        "live_anchors answers the different, per-page question -- page B was never touched"
+    )
+
+
+# ---------------------------------------------------------------------------
+# live_anchors: page-less anchors must not share a supersession group
+#
+# `page=""` is how a topic-fidelity anchor is written -- the fourth capture
+# surface's degraded case, and the only anchor shape a hand-authored note can
+# carry with no verifiable page at all. Grouping strictly by `page` treats
+# `""` as one shared key like any other, so every page-less anchor a note
+# carries collapses into a single bucket and only the newest survives -- a
+# hand-authored note with two independent, unrelated topic-fidelity
+# reflections has its first wrongly reported superseded, even though neither
+# anchor ever touched the other. The supersession key is the page when the
+# page is non-empty, and `("", quote)` otherwise: two page-less reflections
+# with different quotes point at different things and must both stay live; a
+# detach record (which always copies its target's quote) still lands in the
+# same group and terminates exactly that chain.
+# ---------------------------------------------------------------------------
+
+
+def test_live_anchors_keeps_two_independent_page_less_anchors_with_different_quotes_both_live():
+    """The bug this correction exists for, reproduced directly: two page-less
+    (topic-fidelity) reflections that never touched each other must both
+    survive. Grouping by raw `page` alone would collapse them into one
+    bucket and drop the first as wrongly 'superseded'.
+    """
+    from knotica.core.notes.anchor import live_anchors
+
+    first = _anchor(
+        page="",
+        heading="",
+        fidelity="topic",
+        pinned_at="9f1a3c0",
+        quote="the first passage the user reacted to",
+    )
+    second = _anchor(
+        page="",
+        heading="",
+        fidelity="topic",
+        pinned_at="a3f9c21",
+        quote="a completely unrelated second passage",
+    )
+    document = _document_with((first, second))
+
+    assert live_anchors(document) == (first, second)
+
+
+def test_live_anchors_collapses_two_page_less_anchors_sharing_the_same_quote_to_the_newest():
+    """Two page-less anchors carrying the *same* quote are genuinely
+    indistinguishable -- collapsing them to the newest is correct, not a bug.
+    """
+    from knotica.core.notes.anchor import live_anchors
+
+    quote = "an identical passage typed twice, or reacted to twice"
+    first = _anchor(page="", heading="", fidelity="topic", pinned_at="9f1a3c0", quote=quote)
+    second = _anchor(page="", heading="", fidelity="topic", pinned_at="a3f9c21", quote=quote)
+    document = _document_with((first, second))
+
+    assert live_anchors(document) == (second,)
+
+
+def test_live_anchors_collapses_two_page_less_anchors_with_both_empty_quotes_to_the_newest():
+    """Two page-less anchors that *also* supplied no quote carry no
+    distinguishing information at all -- collapsing to the newest is correct.
+    """
+    from knotica.core.notes.anchor import live_anchors
+
+    first = _anchor(page="", heading="", fidelity="topic", pinned_at="9f1a3c0", quote="")
+    second = _anchor(page="", heading="", fidelity="topic", pinned_at="a3f9c21", quote="")
+    document = _document_with((first, second))
+
+    assert live_anchors(document) == (second,)
+
+
+def test_live_anchors_a_detach_record_only_terminates_the_page_less_chain_it_copies_the_quote_of():
+    """A detach record for a page-less anchor copies its target's quote (the
+    only way to name a page-less target at all), so it lands in the same
+    `("", quote)` group and terminates exactly that chain -- an independent
+    page-less sibling with a different quote is untouched.
+    """
+    from knotica.core.notes.anchor import live_anchors
+
+    targeted = _anchor(
+        page="",
+        heading="",
+        fidelity="topic",
+        pinned_at="9f1a3c0",
+        quote="the passage the first reflection reacted to",
+    )
+    sibling = _anchor(
+        page="",
+        heading="",
+        fidelity="topic",
+        pinned_at="bbb2222",
+        quote="an unrelated second passage, never detached",
+    )
+    detach_record = _anchor(
+        page="",
+        heading="",
+        fidelity="topic",
+        pinned_at="ccc3333",
+        kind="detached",
+        quote="the passage the first reflection reacted to",
+    )
+    document = _document_with((targeted, sibling, detach_record))
+
+    assert live_anchors(document) == (sibling,)
+
+
+def test_live_anchors_still_supersedes_a_real_page_anchor_even_when_the_reanchor_changes_the_quote():
+    """Guards the deliberate asymmetry: for a *real* page the supersession
+    key is the page alone, so a re-anchor supersedes regardless of how the
+    quote changed -- that is the whole point of re-anchoring. A fix that
+    switched every anchor (not just page-less ones) to a `(page, quote)` key
+    would wrongly keep both of these live.
+    """
+    from knotica.core.notes.anchor import live_anchors
+
+    page = "agentic-systems/agent-memory.md"
+    original = _anchor(page=page, pinned_at="9f1a3c0", kind="pinned", quote="the original passage")
+    reanchored = _anchor(
+        page=page,
+        pinned_at="a3f9c21",
+        kind="reanchored",
+        quote="a completely different, corrected passage",
+    )
+    document = _document_with((original, reanchored))
+
+    assert live_anchors(document) == (reanchored,)
+
+
+def test_live_anchors_keeps_a_real_page_anchor_and_a_page_less_anchor_independent_on_one_note():
+    from knotica.core.notes.anchor import live_anchors
+
+    page_anchor = _anchor(
+        page="agentic-systems/agent-memory.md",
+        pinned_at="9f1a3c0",
+        quote="a passage on a real page",
+    )
+    topic_anchor = _anchor(
+        page="",
+        heading="",
+        fidelity="topic",
+        pinned_at="a3f9c21",
+        quote="an independent page-less reflection",
+    )
+    document = _document_with((page_anchor, topic_anchor))
+
+    assert live_anchors(document) == (page_anchor, topic_anchor)
+
+
+def test_live_anchors_orders_page_less_survivors_by_document_position_among_mixed_anchors():
+    """The document-order guarantee already proven for real pages above must
+    hold identically once page-less anchors enter the mix -- survivors come
+    back in their own position in the append-only history, not grouped by
+    page-vs-page-less or by which quote they carry.
+    """
+    from knotica.core.notes.anchor import live_anchors
+
+    topic_first = _anchor(
+        page="",
+        heading="",
+        fidelity="topic",
+        pinned_at="9f1a3c0",
+        quote="a page-less reflection written first",
+    )
+    page_anchor = _anchor(
+        page="agentic-systems/agent-memory.md",
+        pinned_at="a3f9c21",
+        quote="a passage on a real page",
+    )
+    topic_second = _anchor(
+        page="",
+        heading="",
+        fidelity="topic",
+        pinned_at="c81f770",
+        quote="a second, independent page-less reflection",
+    )
+    document = _document_with((topic_first, page_anchor, topic_second))
+
+    assert live_anchors(document) == (topic_first, page_anchor, topic_second)

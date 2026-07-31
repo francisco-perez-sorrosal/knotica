@@ -293,8 +293,19 @@ without re-reasoning over `fidelity` × `status` × heading presence. Handing it
 removes the chance of it inventing a wrong location and removes the tokens it would spend
 formatting one. It costs the server a small string table. Worth it.
 
-**`alternatives`** is populated only on ambiguity — a list of `{page, heading, quote}` the agent
-can offer as a one-word refinement *after* the note is already safe.
+**`alternatives`** is populated only on ambiguity — a list of `{page, heading}` the agent can offer
+as a one-word refinement *after* the note is already safe.
+
+> **Corrected 2026-07-30, during Phase 2 implementation.** This paragraph said `{page, heading,
+> quote}`, contradicting its own example below. The example is right: the quote is *identical* on
+> every alternative — that is precisely what makes them ambiguous — so a per-entry copy is pure
+> redundancy. There is deliberately no `overlap` either, unlike the drift queue's alternatives:
+> every candidate here matched the quote **verbatim**, so nothing was scored, and an `overlap: 1.0`
+> would invite a consumer to sort or threshold on a comparison that never ran.
+>
+> The example's `"status": "fuzzy"` on a `"fidelity": "topic"` anchor is also wrong and predates
+> the shipped status vocabulary. An anchor that never pointed at a page is **`unanchored`**;
+> `fuzzy` means a scored span match against a real page, and cannot co-occur with `topic` fidelity.
 
 ### Degraded example (ambiguous match)
 
@@ -949,6 +960,27 @@ just Goodhart with extra steps. we never test the case where the metric IS the g
 - [[2026-06-02-goodhart-in-evals]]
 ```
 
+> **Corrected 2026-07-30, during Phase 2 implementation.** The anchor-bullet examples in this
+> section are **stale** and must not be built from. They show an on-disk `` `exact` ``/
+> `` `superseded` `` *status* token, `~~strikethrough~~` rendering, a `reanchored@` token variant,
+> and a standalone `**detached**` bullet — none of which the shipped grammar accepts, and three of
+> which are incompatible with decisions this document's own architecture rests on.
+>
+> The status token persists a projection, which `dec-058` makes derived-and-never-persisted (Phase
+> 1's parser never accepted it). Strikethrough and a `superseded` token require **rewriting an
+> earlier bullet**, which AC-09 forbids in terms — the anchor of record is never modified. A
+> `reanchored@` token breaks the signature rule that a bullet is an anchor iff it carries
+> backticked fidelity *plus* `pinned@<sha>`, which is what lets an older reader survive a
+> later-generation file. And the `**detached**` bullet carries neither, so the shipped parser would
+> skip it into `skipped_anchor_count` — silently losing the very record it exists to write.
+>
+> The binding grammar is a single bullet shape with an optional trailing `kind` token, where an
+> absent token means `pinned` so every existing note parses unmigrated, and supersession is
+> **derived** from document order rather than stored. Frontmatter `anchor_status`/`anchor_fidelity`
+> are likewise not implemented — they would cache a projection that goes stale the moment the KB
+> changes. The *intent* of this section stands unchanged: the anchor list is an append-only
+> history, readable in plain Obsidian, and nothing is ever deleted.
+
 **The anchor list is a history, not a field.** After a drift review that re-pinned once and then
 detached, the same section reads:
 
@@ -1287,8 +1319,8 @@ definition so the next low-friction surface does not have to relitigate it.
 
 | Fragment | id | Decision |
 |---|---|---|
-| `.ai-state/decisions/drafts/20260729-1219-fperez-main-notes-tool-decomposition.md` | `dec-057` | One flat `note_capture` + one `notes` dispatcher |
-| `.ai-state/decisions/drafts/20260729-1219-fperez-main-notes-no-fifth-protocol-operation.md` | `dec-056` | No fifth `read_protocol` operation |
+| `.ai-state/decisions/057-notes-tool-decomposition.md` | `dec-057` | One flat `note_capture` + one `notes` dispatcher |
+| `.ai-state/decisions/056-notes-no-fifth-protocol-operation.md` | `dec-056` | No fifth `read_protocol` operation |
 
 Both need a `LEARNINGS.md ### Decisions Made` entry when the pipeline reaches that stage.
 

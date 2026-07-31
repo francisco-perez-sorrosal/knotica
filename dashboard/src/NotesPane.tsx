@@ -1,11 +1,19 @@
 import { useEffect, useState } from "preact/hooks";
 
+import { NotePromoteDialog } from "./NotePromoteDialog";
+import {
+  ActionConfirm,
+  ANCHOR_TREATMENT,
+  INTENT_TREATMENT,
+  NotesDriftView,
+  pageLabel,
+} from "./NotesDriftView";
 import type { ToolClient } from "./toolClient";
 import type {
   AnchorProjectionStatus,
   AnchorStatusFilter,
   NoteAnchor,
-  NoteIntent,
+  NoteDecisionEnvelope,
   NoteIntentFilter,
   NoteRecord,
   NotesListResult,
@@ -26,61 +34,37 @@ const ANCHOR_FILTERS: Array<{ value: AnchorStatusFilter; label: string }> = [
   { value: "exact", label: "exact" },
   { value: "unanchored", label: "unanchored" },
   { value: "shifted", label: "shifted" },
+  { value: "fuzzy", label: "fuzzy" },
   { value: "orphaned", label: "orphaned" },
 ];
 
-/** Intent -> (shape glyph, tone class) — shape + label, never color alone (WCAG 1.4.1). */
-const INTENT_TREATMENT: Record<NoteIntent, { glyph: string; tone: string }> = {
-  reflection: { glyph: "✎", tone: "" },
-  dispute: { glyph: "⚑", tone: "warn" },
-  gap: { glyph: "◆", tone: "warn" },
-  question: { glyph: "?", tone: "" },
+/** ``notes action=drift``'s queue membership -- mirrors the server's own
+ * `_QUEUE_MEMBER_STATUSES` (fuzzy ∪ orphaned ∪ anchor-invalid). Used here to
+ * decide whether an anchor row should point at the drift queue instead of
+ * offering a blind mutation with no comparison context. */
+const QUEUE_ELIGIBLE_STATUSES = new Set<AnchorProjectionStatus>([
+  "fuzzy",
+  "orphaned",
+  "anchor-invalid",
+]);
+
+const ARCHIVED_STATUS = "archived";
+
+type PendingCardAction = {
+  key: string;
+  kind: "archive" | "detach" | "reanchor";
+  noteId: string;
+  anchorIndex: number | null;
+  envelope: NoteDecisionEnvelope;
 };
 
-/**
- * Anchor status -> (glyph, tone, label, one-line meaning).
- *
- * `unanchored` and `orphaned` look alike and mean opposites, so they are pulled
- * apart deliberately: `unanchored` is the ordinary outcome of a note filed
- * against the topic — neutral tone, no warning glyph, nothing to act on.
- * `orphaned` means the wiki moved out from under a pin the note *did* make, and
- * is the only bucket that earns the bad tone.
- */
-const ANCHOR_TREATMENT: Record<
-  AnchorProjectionStatus,
-  { glyph: string; tone: string; label: string; meaning: string }
-> = {
-  exact: {
-    glyph: "●",
-    tone: "ok",
-    label: "exact",
-    meaning: "the pinned passage is still there, word for word.",
-  },
-  unanchored: {
-    glyph: "○",
-    tone: "",
-    label: "unanchored",
-    meaning: "filed against the topic, never pinned to a page — normal, nothing to fix.",
-  },
-  shifted: {
-    glyph: "◐",
-    tone: "warn",
-    label: "shifted",
-    meaning: "the passage moved or was reworded, but survives.",
-  },
-  orphaned: {
-    glyph: "⌫",
-    tone: "bad",
-    label: "orphaned",
-    meaning: "the passage this pointed at is gone from the page.",
-  },
-  "anchor-invalid": {
-    glyph: "⌫",
-    tone: "bad",
-    label: "unresolvable",
-    meaning: "this anchor never located a page — the record itself is unusable.",
-  },
-};
+function cardActionKey(
+  kind: PendingCardAction["kind"],
+  noteId: string,
+  anchorIndex: number | null,
+): string {
+  return `${kind}:${noteId}:${anchorIndex ?? "note"}`;
+}
 
 export function NotesPane({
   client,
@@ -91,12 +75,16 @@ export function NotesPane({
   topic: string;
   vault: string;
 }) {
+  const [view, setView] = useState<"browse" | "drift">("browse");
   const [intent, setIntent] = useState<NoteIntentFilter>("all");
   const [anchorStatus, setAnchorStatus] = useState<AnchorStatusFilter>("all");
   const [result, setResult] = useState<NotesListResult | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [recheckingId, setRecheckingId] = useState<string | null>(null);
+  const [pending, setPending] = useState<PendingCardAction | null>(null);
+  const [actionBusy, setActionBusy] = useState<string | null>(null);
+  const [promoteNoteId, setPromoteNoteId] = useState<string | null>(null);
 
   async function load(cursor = "", append = false) {
     if (!client || !topic) return;
@@ -141,16 +129,121 @@ export function NotesPane({
     }
   }
 
+  async function previewArchive(note: NoteRecord) {
+    if (!client || actionBusy) return;
+    const key = cardActionKey("archive", note.note_id, null);
+    setActionBusy(key);
+    setError(null);
+    try {
+      const envelope = await client.notesArchive(topic, note.note_id, "dry-run", vault);
+      if (envelope.mode !== "dry-run") return;
+      setPending({ key, kind: "archive", noteId: note.note_id, anchorIndex: null, envelope });
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : String(cause));
+    } finally {
+      setActionBusy(null);
+    }
+  }
+
+  async function previewDetach(note: NoteRecord, anchorIndex: number) {
+    if (!client || actionBusy) return;
+    const key = cardActionKey("detach", note.note_id, anchorIndex);
+    setActionBusy(key);
+    setError(null);
+    try {
+      const envelope = await client.notesDetach(topic, note.note_id, anchorIndex, "dry-run", vault);
+      if (envelope.mode !== "dry-run") return;
+      setPending({ key, kind: "detach", noteId: note.note_id, anchorIndex, envelope });
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : String(cause));
+    } finally {
+      setActionBusy(null);
+    }
+  }
+
+  async function previewReanchorHere(note: NoteRecord, anchorIndex: number) {
+    if (!client || actionBusy) return;
+    const key = cardActionKey("reanchor", note.note_id, anchorIndex);
+    setActionBusy(key);
+    setError(null);
+    try {
+      const envelope = await client.notesReanchor(
+        topic,
+        note.note_id,
+        anchorIndex,
+        "dry-run",
+        "",
+        "",
+        vault,
+      );
+      if (envelope.mode !== "dry-run") return;
+      setPending({ key, kind: "reanchor", noteId: note.note_id, anchorIndex, envelope });
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : String(cause));
+    } finally {
+      setActionBusy(null);
+    }
+  }
+
+  async function applyPending() {
+    if (!client || !pending) return;
+    setActionBusy(pending.key);
+    setError(null);
+    try {
+      if (pending.kind === "archive") {
+        await client.notesArchive(topic, pending.noteId, "apply", vault);
+      } else if (pending.kind === "detach") {
+        await client.notesDetach(topic, pending.noteId, pending.anchorIndex ?? 0, "apply", vault);
+      } else {
+        await client.notesReanchor(
+          topic,
+          pending.noteId,
+          pending.anchorIndex ?? 0,
+          "apply",
+          "",
+          "",
+          vault,
+        );
+      }
+      setPending(null);
+      await load();
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : String(cause));
+    } finally {
+      setActionBusy(null);
+    }
+  }
+
+  if (view === "drift") {
+    return (
+      <NotesDriftView
+        client={client}
+        topic={topic}
+        vault={vault}
+        onBack={() => {
+          setView("browse");
+          void load();
+        }}
+      />
+    );
+  }
+
   const notes = result?.notes ?? [];
   const intentCounts = result?.intent_counts;
   const statusCounts = result?.status_counts;
   const topicTotal = intentCounts
     ? Object.values(intentCounts).reduce((sum, count) => sum + count, 0)
     : 0;
-  // Drifted counts `orphaned` only -- `shifted` self-healed and needs no
-  // attention. Mirrors core/status.py's totals.notes.drifted so the pane
-  // header and the wiki_status-fed tab badge never contradict each other.
-  const driftedTotal = statusCounts ? statusCounts.orphaned : 0;
+  // Drifted counts `fuzzy` + `orphaned`: both mean the KB moved under a note.
+  // `shifted` self-healed (the passage survives word for word) and `unanchored`
+  // never pointed at a page, so neither is drift. Must stay byte-identical in
+  // meaning to core/status.py's _DRIFTED_ANCHOR_STATUSES -- this header and the
+  // wiki_status-fed tab badge render the same number from different sources, so
+  // a divergence here is a visible on-screen contradiction, not a rounding
+  // difference. `anchor-invalid` is deliberately absent: it is corruption, not
+  // drift, and belongs on the review surface rendered distinctly.
+  const driftedTotal = statusCounts ? statusCounts.fuzzy + statusCounts.orphaned : 0;
+  const promoteNote = promoteNoteId ? notes.find((note) => note.note_id === promoteNoteId) : null;
 
   return (
     <section class="panel notes-panel" aria-label="Personal notes">
@@ -165,10 +258,16 @@ export function NotesPane({
         <div class="notes-header-counts">
           <span class="health-chip">{topicTotal} notes</span>
           {driftedTotal > 0 ? (
-            <span class="health-chip warn" title="Notes whose anchor pointed at a passage the page no longer has">
+            <span
+              class="health-chip warn"
+              title="Notes whose anchor pointed at a passage the page no longer has"
+            >
               <span aria-hidden="true">⚠</span> {driftedTotal} drifted
             </span>
           ) : null}
+          <button type="button" class="ghost" onClick={() => setView("drift")}>
+            Review drift →
+          </button>
           <button type="button" class="ghost" onClick={() => void load()} disabled={loading}>
             {loading ? "…" : "⟳"}
           </button>
@@ -233,6 +332,15 @@ export function NotesPane({
               rechecking={recheckingId === note.note_id}
               anyRechecking={recheckingId !== null}
               onRecheck={() => void recheck(note.note_id)}
+              pending={pending && pending.noteId === note.note_id ? pending : null}
+              anyActionBusy={actionBusy !== null}
+              onArchive={() => void previewArchive(note)}
+              onPromote={() => setPromoteNoteId(note.note_id)}
+              onDetach={(anchorIndex) => void previewDetach(note, anchorIndex)}
+              onReanchor={(anchorIndex) => void previewReanchorHere(note, anchorIndex)}
+              onOpenDrift={() => setView("drift")}
+              onConfirmPending={() => void applyPending()}
+              onCancelPending={() => setPending(null)}
             />
           ))}
         </ul>
@@ -247,6 +355,20 @@ export function NotesPane({
         >
           {loading ? "Loading…" : "Load more"}
         </button>
+      ) : null}
+
+      {promoteNote ? (
+        <NotePromoteDialog
+          client={client}
+          topic={topic}
+          vault={vault}
+          note={promoteNote}
+          onClose={() => setPromoteNoteId(null)}
+          onPromoted={() => {
+            setPromoteNoteId(null);
+            void load();
+          }}
+        />
       ) : null}
     </section>
   );
@@ -283,13 +405,34 @@ function NoteCard({
   rechecking,
   anyRechecking,
   onRecheck,
+  pending,
+  anyActionBusy,
+  onArchive,
+  onPromote,
+  onDetach,
+  onReanchor,
+  onOpenDrift,
+  onConfirmPending,
+  onCancelPending,
 }: {
   note: NoteRecord;
   rechecking: boolean;
   anyRechecking: boolean;
   onRecheck: () => void;
+  pending: PendingCardAction | null;
+  anyActionBusy: boolean;
+  onArchive: () => void;
+  onPromote: () => void;
+  onDetach: (anchorIndex: number) => void;
+  onReanchor: (anchorIndex: number) => void;
+  onOpenDrift: () => void;
+  onConfirmPending: () => void;
+  onCancelPending: () => void;
 }) {
   const intent = INTENT_TREATMENT[note.intent];
+  const archived = note.note_status === ARCHIVED_STATUS;
+  const cardPending = pending && pending.anchorIndex === null ? pending : null;
+
   return (
     <li class="notes-card">
       <div class="notes-card-head">
@@ -316,10 +459,30 @@ function NoteCard({
       ) : (
         <ul class="notes-anchors">
           {note.anchors.map((anchor) => (
-            <AnchorRow key={anchor.index} anchor={anchor} />
+            <AnchorRow
+              key={anchor.index}
+              anchor={anchor}
+              pending={pending && pending.anchorIndex === anchor.index ? pending : null}
+              anyActionBusy={anyActionBusy}
+              onDetach={() => onDetach(anchor.index)}
+              onReanchor={() => onReanchor(anchor.index)}
+              onOpenDrift={onOpenDrift}
+              onConfirmPending={onConfirmPending}
+              onCancelPending={onCancelPending}
+            />
           ))}
         </ul>
       )}
+
+      {cardPending ? (
+        <ActionConfirm
+          envelope={cardPending.envelope}
+          busy={anyActionBusy}
+          applyLabel="Confirm archive"
+          onConfirm={onConfirmPending}
+          onCancel={onCancelPending}
+        />
+      ) : null}
 
       <div class="notes-card-actions">
         <span class="muted notes-path" title="Vault-relative path — open it in Obsidian yourself">
@@ -334,6 +497,16 @@ function NoteCard({
         >
           {rechecking ? "…" : "⟳ recheck anchors"}
         </button>
+        <button type="button" class="ghost" disabled={anyActionBusy} onClick={onPromote}>
+          Promote…
+        </button>
+        {archived ? (
+          <span class="muted notes-archived-badge">archived</span>
+        ) : (
+          <button type="button" class="ghost" disabled={anyActionBusy} onClick={onArchive}>
+            Archive
+          </button>
+        )}
       </div>
     </li>
   );
@@ -350,9 +523,34 @@ function NoteStatusBadge({ status }: { status: NoteRecord["status"] }) {
   );
 }
 
-function AnchorRow({ anchor }: { anchor: NoteAnchor }) {
+function AnchorRow({
+  anchor,
+  pending,
+  anyActionBusy,
+  onDetach,
+  onReanchor,
+  onOpenDrift,
+  onConfirmPending,
+  onCancelPending,
+}: {
+  anchor: NoteAnchor;
+  pending: PendingCardAction | null;
+  anyActionBusy: boolean;
+  onDetach: () => void;
+  onReanchor: () => void;
+  onOpenDrift: () => void;
+  onConfirmPending: () => void;
+  onCancelPending: () => void;
+}) {
   const treatment = ANCHOR_TREATMENT[anchor.status];
   const page = pageLabel(anchor.page);
+  // A blind "accept the current match" only means something when a resolved
+  // position actually exists and differs from the pin -- `shifted`/`fuzzy`.
+  // `orphaned`/`anchor-invalid` have no resolved position to accept, and
+  // `exact`/`unanchored` have nothing to correct.
+  const canReanchorHere = anchor.status === "shifted" || anchor.status === "fuzzy";
+  const needsReview = QUEUE_ELIGIBLE_STATUSES.has(anchor.status);
+
   return (
     <li class="notes-anchor">
       <p class="notes-anchor-target">
@@ -375,13 +573,33 @@ function AnchorRow({ anchor }: { anchor: NoteAnchor }) {
         {treatment.meaning}
         {anchor.pinned_at ? <> pinned@{anchor.pinned_at}</> : null}
       </p>
+
+      {pending ? (
+        <ActionConfirm
+          envelope={pending.envelope}
+          busy={anyActionBusy}
+          applyLabel={pending.kind === "reanchor" ? "Confirm re-anchor" : "Confirm detach"}
+          onConfirm={onConfirmPending}
+          onCancel={onCancelPending}
+        />
+      ) : (
+        <div class="notes-anchor-actions">
+          {canReanchorHere ? (
+            <button type="button" class="ghost" disabled={anyActionBusy} onClick={onReanchor}>
+              Re-anchor
+            </button>
+          ) : null}
+          {needsReview ? (
+            <button type="button" class="ghost" disabled={anyActionBusy} onClick={onOpenDrift}>
+              Review drift →
+            </button>
+          ) : null}
+          <button type="button" class="ghost" disabled={anyActionBusy} onClick={onDetach}>
+            Detach
+          </button>
+        </div>
+      )}
     </li>
   );
 }
 
-/** The page's bare stem — what a person would call it out loud. */
-function pageLabel(page: string): string {
-  if (!page) return "";
-  const file = page.split("/").pop() ?? page;
-  return file.endsWith(".md") ? file.slice(0, -".md".length) : file;
-}

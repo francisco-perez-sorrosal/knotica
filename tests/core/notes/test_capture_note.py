@@ -476,6 +476,156 @@ def test_when_none_of_several_claimed_pages_exist_the_capture_pins_at_topic_fide
 
 
 # ---------------------------------------------------------------------------
+# Structured alternatives: `_plan_anchor`'s multi-page-match branch already
+# knows exactly which claimed pages matched -- today that knowledge is spent
+# on building the prose degradation warning and then discarded. These pin
+# that it also survives on the envelope as data, and *only* for the genuine
+# ambiguity: several claimed pages matching the quote verbatim. Every other
+# degraded path (one match, no match, no readable page, no quote) must keep
+# reporting no alternatives -- a later change over-populating those paths is
+# exactly what these guard against.
+# ---------------------------------------------------------------------------
+
+
+def _alternatives(result: Mapping[str, object]) -> list[Mapping[str, object]]:
+    """The capture envelope's structured runners-up, as `{page, heading}` mappings.
+
+    Deliberately not bare page strings: the operation matched the quote against
+    page text it already held, so the enclosing heading is derived from that same
+    text. Enriching at the tool boundary instead would re-read the page against a
+    HEAD that may have moved since the capture commit.
+    """
+    alternatives = result.get("alternatives", [])
+    assert isinstance(alternatives, (list, tuple)), (
+        f"alternatives must be a sequence, got {alternatives!r}"
+    )
+    for entry in alternatives:
+        assert isinstance(entry, Mapping), f"each alternative must be a mapping, got {entry!r}"
+    return [entry for entry in alternatives]
+
+
+def test_a_quote_matched_in_several_claimed_pages_surfaces_them_as_alternatives(
+    template_vault: Path,
+):
+    quote = "the reward signal and the intended goal quietly diverge"
+    page_a = f"{TOPIC}/multi-match-a.md"
+    page_b = f"{TOPIC}/multi-match-b.md"
+    page_c = f"{TOPIC}/multi-match-c.md"
+    _seed_page(template_vault, page_a, f"# Match A\n\n{quote}.\n", "test: seed multi-match A")
+    _seed_page(
+        template_vault, page_b, "# No Match B\n\nUnrelated text.\n", "test: seed multi-match B"
+    )
+    _seed_page(template_vault, page_c, f"# Match C\n\n{quote}.\n", "test: seed multi-match C")
+
+    result = _success(
+        _capture(
+            template_vault,
+            TOPIC,
+            "this reward signal argument keeps recurring",
+            quote=quote,
+            pages=[page_a, page_b, page_c],
+        )
+    )
+
+    assert "ANCHOR_DEGRADED" in _warning_codes(result), (
+        "the existing prose degradation warning must survive unchanged alongside the new data"
+    )
+    assert [entry["page"] for entry in _alternatives(result)] == [page_a, page_c], (
+        "the non-matching middle page must be excluded and the claimed order preserved"
+    )
+    assert all("heading" in entry for entry in _alternatives(result)), (
+        "the operation emits the full {page, heading} shape rather than bare paths: it matched "
+        "the quote against page text it already holds, so the heading comes from that same text "
+        "-- re-reading the page at the tool boundary would spend I/O against a HEAD that may "
+        "have moved since the capture commit"
+    )
+    document = _read_captured_note(template_vault, result["path"])
+    assert document.anchors[0].fidelity == "topic", (
+        "structured alternatives ride alongside the existing topic-fidelity degradation -- "
+        "they do not replace it"
+    )
+
+
+def test_a_single_matched_page_among_several_claimed_returns_no_alternatives(
+    template_vault: Path,
+):
+    quote = "an argument that only lives on one of the candidate pages"
+    page_a = f"{TOPIC}/single-match-alt-a.md"
+    page_b = f"{TOPIC}/single-match-alt-b.md"
+    _seed_page(template_vault, page_a, f"# Single Match A\n\n{quote}.\n", "test: seed A")
+    _seed_page(template_vault, page_b, "# Single Match B\n\nUnrelated text.\n", "test: seed B")
+
+    result = _success(
+        _capture(
+            template_vault,
+            TOPIC,
+            "not ambiguous, just one real match",
+            quote=quote,
+            pages=[page_a, page_b],
+        )
+    )
+
+    assert _alternatives(result) == [], "exactly one match is the happy path, not an ambiguity"
+
+
+def test_no_claimed_page_matching_the_quote_returns_no_alternatives(template_vault: Path):
+    quote = "a passage that appears on none of the claimed pages"
+    page_a = f"{TOPIC}/no-match-alt-a.md"
+    page_b = f"{TOPIC}/no-match-alt-b.md"
+    _seed_page(template_vault, page_a, "# No Match Alt A\n\nUnrelated.\n", "test: seed A")
+    _seed_page(template_vault, page_b, "# No Match Alt B\n\nAlso unrelated.\n", "test: seed B")
+
+    result = _success(
+        _capture(
+            template_vault,
+            TOPIC,
+            "provenance claimed but unverifiable anywhere",
+            quote=quote,
+            pages=[page_a, page_b],
+        )
+    )
+
+    assert _alternatives(result) == [], (
+        "a page-level degradation (nothing matched) is not the multi-match ambiguity"
+    )
+
+
+def test_no_readable_claimed_page_returns_no_alternatives(template_vault: Path):
+    result = _success(
+        _capture(
+            template_vault,
+            TOPIC,
+            "every claimed page turns out to be missing",
+            quote="does not matter, no page exists to check it against",
+            pages=[f"{TOPIC}/missing-alt-a.md", f"{TOPIC}/missing-alt-b.md"],
+        )
+    )
+
+    assert _alternatives(result) == [], "nothing was readable, so there is nothing to offer"
+
+
+def test_no_quote_supplied_returns_no_alternatives_even_with_several_claimed_pages(
+    template_vault: Path,
+):
+    page_a = f"{TOPIC}/no-quote-alt-a.md"
+    page_b = f"{TOPIC}/no-quote-alt-b.md"
+    _seed_page(template_vault, page_a, "# No Quote Alt A\n\nSome text.\n", "test: seed A")
+    _seed_page(template_vault, page_b, "# No Quote Alt B\n\nSome other text.\n", "test: seed B")
+
+    result = _success(
+        _capture(
+            template_vault,
+            TOPIC,
+            "a reflection with no specific passage",
+            quote="",
+            pages=[page_a, page_b],
+        )
+    )
+
+    assert _alternatives(result) == [], "no quote means nothing could ever have matched"
+
+
+# ---------------------------------------------------------------------------
 # Unusable page paths: `pages` is the model's provenance guess arriving straight
 # off the wire, so a directory name, an empty string, or a path escaping the
 # vault is ordinary input -- not adversarial. None of it may raise, and none of

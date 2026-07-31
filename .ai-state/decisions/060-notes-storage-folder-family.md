@@ -97,6 +97,21 @@ Verified additionally, and not covered by either research pass: `lint._vault_lin
 
 ## Disconfirmation
 
+> **Amended 2026-07-31, after Phase 2 verification.** Two of this decision's stated counts did not
+> survive measurement, and one of its claims is now false. The counts are **three** declaration
+> moves, **ten** predicate uses and **nine** sources-specific literals left in place — not the
+> four/three/eight recorded above: `lint._SOURCES_DIR` never became an import, and `core/links.py`
+> gained a predicate without appearing in `affected_files`. More consequentially, the claim that
+> "the codebase ends with **fewer** literal declarations than it started with" is **not true for
+> the `notes/` family**: `_NOTES_DIRECTORY_TEMPLATE = "notes/{topic}"` is declared four times
+> (`notes/store.py`, `capture_note.py`, and — added in Phase 2 — `reanchor_note.py` and
+> `promote_note.py`), while `NOTES_DIR` in `vault_layout.py` has **zero** consumers outside its own
+> module. The exact duplication failure mode this decision exists to retire has been re-created for
+> the new family and then doubled. No behaviour is wrong today; the risk is the silent divergence
+> named in § Context. `RESERVED_TOP_LEVEL_NAMES` itself remains genuinely single-declaration, so
+> AC-14 is unaffected. Not fixed in the Phase 2 verification pass — recorded here so the next
+> reader is not misled by the summary line.
+
 **Falsifier.** Two observations would make this wrong:
 1. A scoring surface is found (or added) that walks the whole vault rather than a topic subtree, as `_vault_link_map` already does. Every such surface converts "exclusion by omission" back into "exclusion by filter" and erodes the entire cost argument for the root layout. If several exist, Option B's cheapness wins because the structural guarantee was never real.
 2. Users predominantly want notes to travel with their topic — renamed, archived or exported alongside it. Then the nested layout is the correct ontology and the root layout is an eval-integrity workaround wearing an ontology costume.
