@@ -12,14 +12,13 @@ and quietly ignored -- an action that appears to work and does nothing is worse
 than one that says it does not exist.
 
 ``status`` is a note's resolved-anchor bucket, derived from the resolved
-projections of its anchors: a note is as drifted as its weakest anchor. Phase
-1's resolver ladder produces ``exact``, ``shifted``, ``orphaned``, and
-``unanchored`` -- there is no fuzzy rung yet, so no ``fuzzy`` key is invented
-to stand in for a capability that does not exist. ``unanchored`` is not drift
--- it means the anchor never pointed at a page at all (no quote, an unreadable
-claimed page, or a quote matched on several claimed pages), never that
-something the anchor once pointed at is now gone -- but it is still a real
-bucket a caller can filter and count on.
+projections of its anchors: a note is as drifted as its weakest anchor. The
+resolver ladder produces ``exact``, ``shifted``, ``fuzzy``, ``orphaned``, and
+``unanchored``. ``unanchored`` is not drift -- it means the anchor never
+pointed at a page at all (no quote, an unreadable claimed page, or a quote
+matched on several claimed pages), never that something the anchor once
+pointed at is now gone -- but it is still a real bucket a caller can filter
+and count on.
 """
 
 from __future__ import annotations
@@ -50,11 +49,22 @@ ToolResult = CallToolResult
 _DISPATCHER = "notes"
 _ACTIONS = ("list", "read")
 
-#: The resolved-anchor buckets Phase 1's resolver can actually produce, ordered
+#: The resolved-anchor buckets the resolver can actually produce, ordered
 #: **least severe first**. ``unanchored`` sits between ``exact`` and
-#: ``shifted``: a genuine ``orphaned`` or ``shifted`` anchor on the same note
-#: must still surface over a merely unanchored one, since those are the buckets
-#: a person actually needs to act on.
+#: ``shifted``: a genuine ``orphaned``, ``fuzzy``, or ``shifted`` anchor on the
+#: same note must still surface over a merely unanchored one, since those are
+#: the buckets a person actually needs to act on. ``fuzzy`` sits between
+#: ``shifted`` and ``orphaned``: the resolver kept the anchor placed, but only
+#: via a paraphrase rather than the verbatim text, so it is more severe than a
+#: self-healed ``shifted`` anchor but less severe than losing the passage
+#: outright.
+#:
+#: ``anchor-invalid`` is deliberately **not** a member of this tuple. It is a
+#: data-integrity outcome -- the quote is absent from the anchor's own
+#: historical blob, meaning a corrupt or hand-forged record -- not a drift
+#: outcome the resolver measured against the live vault. Bucketing it here
+#: would report corruption as the vault's most severe drift; it is surfaced
+#: through its own count instead (see :func:`_drift_status`).
 #:
 #: **The order is load-bearing, in four places at once**: it is the severity
 #: ladder ``_drift_status`` walks to bucket a multi-anchor note, the membership
@@ -65,7 +75,7 @@ _ACTIONS = ("list", "read")
 #: fails anything by itself, so the two constants below name the ends of the
 #: ladder and a test pins them -- a reordering has to break a test before it can
 #: break a listing.
-_ANCHOR_STATUSES: tuple[str, ...] = ("exact", "unanchored", "shifted", "orphaned")
+_ANCHOR_STATUSES: tuple[str, ...] = ("exact", "unanchored", "shifted", "fuzzy", "orphaned")
 
 #: The two ends of :data:`_ANCHOR_STATUSES`, named so the ladder's orientation
 #: is asserted rather than assumed. ``_drift_status`` reports the most severe
@@ -98,7 +108,7 @@ _NOTES_DISPATCH_DESCRIPTION = (
     'recall path ("what did I note about this?"): notes live outside the wiki '
     "corpus, so `search` will never find them. Filter `list` by `intent` "
     "(reflection|dispute|gap|question|all) and by resolved anchor `status` "
-    "(exact|shifted|orphaned|unanchored|all), and paginate with the opaque cursor from a "
+    "(exact|shifted|fuzzy|orphaned|unanchored|all), and paginate with the opaque cursor from a "
     "prior next_cursor (default 20, max 50 per page); the response carries "
     "intent_counts and status_counts for the whole topic. `action=read` returns "
     "one note in full -- its text and every anchor with the page, the passage "
@@ -259,10 +269,10 @@ def _drift_status(note: ResolvedNote) -> str | None:
     at all, or every anchor is ``anchor-invalid`` -- a corrupt/hand-forged
     record, not an anchor-resolution outcome. ``anchor-invalid`` is never
     folded into ``orphaned`` here: ``core/status.py`` counts ``drifted`` as
-    ``orphaned`` only, and folding would inflate that count with a
-    data-integrity problem rather than a "the wiki moved on" one. The
-    per-anchor status still surfaces ``anchor-invalid`` verbatim via
-    ``render_anchors`` -- only the note-level bucket excludes it.
+    ``fuzzy`` plus ``orphaned``, and folding ``anchor-invalid`` in would
+    inflate that count with a data-integrity problem rather than a "the wiki
+    moved on" one. The per-anchor status still surfaces ``anchor-invalid``
+    verbatim via ``render_anchors`` -- only the note-level bucket excludes it.
     """
     statuses = {
         projection.status

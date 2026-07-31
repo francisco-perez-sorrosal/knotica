@@ -17,9 +17,9 @@ Phase 1 scope, pinned here:
   phase. The other five actions from the full design (`drift`, `reanchor`,
   `detach`, `promote`, `archive`) are Phase 2 and must be rejected with
   `INVALID_ARGUMENT` rather than silently accepted or no-op'd.
-- `notes action=list`'s `status_counts` carries only the statuses Phase 1's
-  resolver actually produces (`exact`, `shifted`, `orphaned`, `unanchored`) --
-  no `fuzzy` key, which is a Phase 2 capability.
+- `notes action=list`'s `status_counts` carries every status the resolver can
+  produce, including Phase 2's `fuzzy` rung (`exact`, `unanchored`, `shifted`,
+  `fuzzy`, `orphaned`) -- and the `status` filter accepts the same set.
 """
 
 from __future__ import annotations
@@ -39,6 +39,7 @@ from knotica.mcp_server.tools_dispatch_notes import (
     _LEAST_SEVERE_ANCHOR_STATUS,
     _MOST_SEVERE_ANCHOR_STATUS,
     _drift_status,
+    _status_counts,
 )
 from knotica.store import LocalFSStore
 from support.dispatch import TOPIC, build_full_server, call_tool, payload_of, tool_schema
@@ -223,7 +224,7 @@ def test_notes_dispatcher_rejects_phase_two_actions_as_invalid_argument(
 # ---------------------------------------------------------------------------
 
 
-def test_notes_list_defaults_to_empty_with_status_counts_and_no_fuzzy_key(
+def test_notes_list_defaults_to_empty_with_status_counts_including_fuzzy_key(
     vault_config: Path, template_vault: Path
 ) -> None:
     del template_vault
@@ -234,11 +235,31 @@ def test_notes_list_defaults_to_empty_with_status_counts_and_no_fuzzy_key(
     assert body["total_count"] == 0
     assert body["has_more"] is False
     assert body["next_cursor"] == ""
-    assert set(body["status_counts"]) == {"exact", "shifted", "orphaned", "unanchored"}, (
-        "Phase 1's resolver never produces 'fuzzy' (that ladder rung is Phase 2); "
-        f"got keys {sorted(body['status_counts'])}"
+    assert set(body["status_counts"]) == {"exact", "shifted", "fuzzy", "orphaned", "unanchored"}, (
+        "the resolver's fuzzy rung must have a bucket in status_counts even when "
+        f"nothing has been captured yet -- got keys {sorted(body['status_counts'])}"
     )
     assert set(body["intent_counts"]) == {"reflection", "dispute", "gap", "question", "other"}
+
+
+def test_notes_list_status_filter_accepts_fuzzy(vault_config: Path, template_vault: Path) -> None:
+    """The wire-level `status` filter must accept `fuzzy` -- Phase 1's argument
+    validation rejected it as an unrecognized value, which is now wrong."""
+    del template_vault
+    server = build_full_server()
+    body = assert_success(notes_call(server, "list", topic=TOPIC, status="fuzzy"))
+    assert body["status_filter"] == "fuzzy"
+
+
+def test_notes_list_status_filter_rejects_an_unknown_value(
+    vault_config: Path, template_vault: Path
+) -> None:
+    """A status the resolver has never produced must still fail loudly, with
+    the same typed shape `fuzzy`'s addition did not disturb."""
+    del template_vault
+    server = build_full_server()
+    err = error_of(notes_call(server, "list", topic=TOPIC, status="bogus"))
+    assert_error_shape(err, "INVALID_ARGUMENT")
 
 
 def test_notes_list_status_filter_accepts_unanchored_and_counts_a_quote_less_capture(
@@ -566,9 +587,10 @@ def test_the_anchor_status_ladder_runs_from_least_to_most_severe() -> None:
         "a status was appended past the severe end of the ladder -- it is now the most "
         "severe bucket in the vault and every note carrying one has been re-bucketed"
     )
-    assert _ANCHOR_STATUSES == ("exact", "unanchored", "shifted", "orphaned"), (
+    assert _ANCHOR_STATUSES == ("exact", "unanchored", "shifted", "fuzzy", "orphaned"), (
         "the ladder's order is the precedence _drift_status walks; changing it changes "
-        "which bucket every multi-anchor note reports"
+        "which bucket every multi-anchor note reports -- fuzzy belongs between shifted "
+        "and orphaned, not at either end"
     )
 
 
@@ -581,9 +603,41 @@ def test_the_anchor_status_ladder_runs_from_least_to_most_severe() -> None:
         (("exact", "orphaned"), "orphaned"),
         (("shifted", "orphaned"), "orphaned"),
         (("exact",), "exact"),
+        (("shifted", "fuzzy"), "fuzzy"),
+        (
+            ("fuzzy", "orphaned"),
+            "orphaned",
+        ),  # the appended-not-inserted canary: if `fuzzy` were appended past
+        # `orphaned` instead of inserted before it, this note would report
+        # `fuzzy` here instead of `orphaned`, failing this case specifically.
     ],
 )
 def test_a_note_reports_the_most_severe_bucket_any_of_its_anchors_is_in(
     statuses: tuple[str, ...], expected: str
 ) -> None:
     assert _drift_status(_note_with_statuses(*statuses)) == expected
+
+
+def test_status_counts_gains_a_fuzzy_key_and_sums_across_the_bucketable_statuses() -> None:
+    """``status_counts`` must carry a ``fuzzy`` bucket and never double-count or
+    drop a note -- each note contributes to exactly one bucket, so the counts
+    must sum to the number of bucketable notes."""
+    notes = (
+        _note_with_statuses("exact"),
+        _note_with_statuses("fuzzy"),
+        _note_with_statuses("fuzzy"),
+        _note_with_statuses("orphaned"),
+    )
+
+    counts = _status_counts(notes)
+
+    assert set(counts) == set(_ANCHOR_STATUSES), (
+        f"status_counts must have exactly one key per ladder status, got {sorted(counts)}"
+    )
+    assert counts["fuzzy"] == 2
+    assert counts["exact"] == 1
+    assert counts["orphaned"] == 1
+    assert sum(counts.values()) == len(notes), (
+        "every note above carries exactly one bucketable status -- the counts must "
+        "sum to the note count, neither double-counting nor dropping one"
+    )

@@ -26,6 +26,7 @@ const ANCHOR_FILTERS: Array<{ value: AnchorStatusFilter; label: string }> = [
   { value: "exact", label: "exact" },
   { value: "unanchored", label: "unanchored" },
   { value: "shifted", label: "shifted" },
+  { value: "fuzzy", label: "fuzzy" },
   { value: "orphaned", label: "orphaned" },
 ];
 
@@ -68,14 +69,33 @@ const ANCHOR_TREATMENT: Record<
     label: "shifted",
     meaning: "the passage moved or was reworded, but survives.",
   },
+  // `◔` not `○`: the glyphs read as a fill-level continuum of how much of the
+  // pinned passage survives -- ● exact, ◐ shifted, ◔ fuzzy, ⌫ orphaned -- with
+  // the empty `○` reserved for `unanchored`, which never had an anchor to lose.
+  // Sharing `○` with `unanchored` collided a "needs review" status with a
+  // "normal, nothing to fix" one, the two furthest apart in actionability.
+  fuzzy: {
+    glyph: "◔",
+    tone: "warn",
+    label: "fuzzy",
+    meaning: "a similar passage was found but it is not an exact match.",
+  },
   orphaned: {
     glyph: "⌫",
     tone: "bad",
     label: "orphaned",
     meaning: "the passage this pointed at is gone from the page.",
   },
+  // `⊘` sits deliberately outside the ●◐◔⌫○ fill-continuum: those grade *how
+  // much of the pinned passage survives*, and this status is not a point on
+  // that scale at all -- the record never located its own quote in the blob it
+  // was pinned against, so it is corruption, not loss. Sharing `⌫` with
+  // `orphaned` read it as the worst case of drift, which is precisely the
+  // conflation the status vocabulary exists to prevent: an orphan means the
+  // wiki moved on, an invalid anchor means the note file is damaged, and they
+  // want opposite responses from the reader.
   "anchor-invalid": {
-    glyph: "⌫",
+    glyph: "⊘",
     tone: "bad",
     label: "unresolvable",
     meaning: "this anchor never located a page — the record itself is unusable.",
@@ -147,10 +167,15 @@ export function NotesPane({
   const topicTotal = intentCounts
     ? Object.values(intentCounts).reduce((sum, count) => sum + count, 0)
     : 0;
-  // Drifted counts `orphaned` only -- `shifted` self-healed and needs no
-  // attention. Mirrors core/status.py's totals.notes.drifted so the pane
-  // header and the wiki_status-fed tab badge never contradict each other.
-  const driftedTotal = statusCounts ? statusCounts.orphaned : 0;
+  // Drifted counts `fuzzy` + `orphaned`: both mean the KB moved under a note.
+  // `shifted` self-healed (the passage survives word for word) and `unanchored`
+  // never pointed at a page, so neither is drift. Must stay byte-identical in
+  // meaning to core/status.py's _DRIFTED_ANCHOR_STATUSES -- this header and the
+  // wiki_status-fed tab badge render the same number from different sources, so
+  // a divergence here is a visible on-screen contradiction, not a rounding
+  // difference. `anchor-invalid` is deliberately absent: it is corruption, not
+  // drift, and belongs on the review surface rendered distinctly.
+  const driftedTotal = statusCounts ? statusCounts.fuzzy + statusCounts.orphaned : 0;
 
   return (
     <section class="panel notes-panel" aria-label="Personal notes">

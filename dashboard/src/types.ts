@@ -868,10 +868,12 @@ export type AnchorFidelity = "span" | "page" | "topic";
 
 /**
  * A note's resolved-anchor bucket — the filterable, countable set. `unanchored`
- * is not drift: the anchor never pointed at a page. `orphaned` is drift: what it
- * pointed at is gone. There is no `fuzzy` rung yet, so none is declared.
+ * is not drift: the anchor never pointed at a page. `shifted` is not drift: the
+ * anchor healed itself at a new offset with the verbatim text intact. `fuzzy`
+ * and `orphaned` are drift: `fuzzy` found only a paraphrase, `orphaned` found
+ * nothing at all.
  */
-export type AnchorStatus = "exact" | "unanchored" | "shifted" | "orphaned";
+export type AnchorStatus = "exact" | "unanchored" | "shifted" | "fuzzy" | "orphaned";
 export type AnchorStatusFilter = AnchorStatus | "all";
 
 /**
