@@ -49,7 +49,8 @@ _DIRECT_MUTATING_TOOLS = (
 
 #: Dispatcher tools that expose at least one mutating action. ``arena`` is
 #: deliberately excluded: both of its actions (status, history) are
-#: read-only, so it has nothing to guard against.
+#: read-only, so it has nothing to guard against. ``notes`` joins this set
+#: now that ``reanchor``/``detach`` mutate the vault.
 _MUTATING_DISPATCHERS = (
     "loop",
     "branches",
@@ -57,17 +58,18 @@ _MUTATING_DISPATCHERS = (
     "datasets",
     "golden",
     "vault_health",
+    "notes",
 )
 
 _MUTATING_TOOLS = _DIRECT_MUTATING_TOOLS + _MUTATING_DISPATCHERS
 
 #: Read-only tools that must NOT carry the mutation-confirmation guard --
 #: a negative control proving the guard is scoped to tools that actually
-#: mutate, not pasted onto every description regardless of effect.
-#: ``notes`` joins ``arena`` here for the same reason: in this phase both
-#: dispatchers expose zero mutating actions (``notes`` registers only
-#: ``list``/``read``), so neither has anything to guard against.
-_READ_ONLY_CONTROLS = ("query", "wiki_status", "suggestions_read", "arena", "notes")
+#: mutate, not pasted onto every description regardless of effect. ``arena``
+#: is the sole dispatcher here: both of its actions (status, history) are
+#: read-only, so it has nothing to guard against. ``notes`` moved out of this
+#: set into ``_MUTATING_DISPATCHERS`` once ``reanchor``/``detach`` landed.
+_READ_ONLY_CONTROLS = ("query", "wiki_status", "suggestions_read", "arena")
 
 
 @pytest.fixture(scope="module")

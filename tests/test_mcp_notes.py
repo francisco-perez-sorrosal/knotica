@@ -31,10 +31,18 @@ from typing import Any
 
 import pytest
 
-from knotica.core.notes.anchor import AnchorRecord, NoteDocument, serialize_note
+from knotica.core.notes.anchor import (
+    AnchorRecord,
+    NoteDocument,
+    effective_anchor,
+    parse_note,
+    serialize_note,
+)
 from knotica.core.notes.resolve import Projection
 from knotica.core.notes.store import ResolvedNote
+from knotica.core.operations.reanchor_note import detach as core_detach
 from knotica.core.status import gather_wiki_status
+from knotica.core.vcs import VaultVcs
 from knotica.mcp_server.tools_dispatch_notes import (
     _ANCHOR_STATUSES,
     _LEAST_SEVERE_ANCHOR_STATUS,
@@ -45,18 +53,27 @@ from knotica.mcp_server.tools_dispatch_notes import (
 from knotica.mcp_server.tools_dispatch_notes_actions import _NOTES_SORT
 from knotica.search.cursor import decode_cursor
 from knotica.store import LocalFSStore
-from support.dispatch import TOPIC, build_full_server, call_tool, payload_of, tool_schema
+from support.dispatch import (
+    TOPIC,
+    build_full_server,
+    call_tool,
+    list_tools,
+    payload_of,
+    tool_schema,
+)
 from support.vault import git_commit_count, git_head_sha, run_git
 
-#: The Phase 1 error-code subset for the notes surface. `ANCHOR_DEGRADED` is
+#: The error-code subset the notes surface can produce. `ANCHOR_DEGRADED` is
 #: warning-only (never the sole content of a failure envelope) but is listed
-#: here for completeness of the grammar this file exercises.
+#: here for completeness of the grammar this file exercises. `PAGE_NOT_FOUND`
+#: joins now that `reanchor` can target a page that no longer exists.
 ERROR_CODES = frozenset(
     {
         "ANCHOR_DEGRADED",
         "NOTE_NOT_FOUND",
         "TOPIC_NOT_FOUND",
         "INVALID_ARGUMENT",
+        "PAGE_NOT_FOUND",
         "LOCK_BUSY",
         "GIT_ERROR",
     }
@@ -65,10 +82,12 @@ ERROR_CODES = frozenset(
 #: `<YYYYMMDD-HHMMSS>-<slug>`, slug optional (empty note text has none).
 NOTE_ID_RE = re.compile(r"^\d{8}-\d{6}(-[a-z0-9]+)*$")
 
-#: The remaining four actions the full design names that this phase must not
-#: yet accept. `drift` was wired (see the `notes action=drift` section below)
-#: and dropped from this tuple -- it now succeeds instead of rejecting.
-PHASE_TWO_ACTIONS = ("reanchor", "detach", "promote", "archive")
+#: The remaining two actions the full design names that this phase must not
+#: yet accept. `drift`, `reanchor`, and `detach` were wired (see the
+#: `notes action=drift` and `notes action=reanchor|detach` sections below)
+#: and dropped from this tuple -- each now succeeds instead of rejecting.
+#: `promote`/`archive` stay here until their own turn.
+PHASE_TWO_ACTIONS = ("promote", "archive")
 
 
 # ---------------------------------------------------------------------------
@@ -1163,3 +1182,571 @@ def test_drift_never_writes_or_commits(vault_config: Path, template_vault: Path)
 
     assert git_head_sha(template_vault) == before_sha, "drift must never commit"
     assert git_commit_count(template_vault) == before_count
+
+
+# ---------------------------------------------------------------------------
+# notes action=reanchor|detach -- dry-run/apply mode pair, mirroring
+# `suggestions_review`'s pattern exactly: `mode=dry-run` (the schema default)
+# previews the transition without writing and returns a decision envelope
+# (`decision_id`, `summary`, `context`, `options`, `provenance`,
+# `reason_required`); `mode=apply` performs exactly one commit. Both actions
+# address one anchor at a time by its 0-based index into the note's
+# append-only history; only a *live* target is addressable -- an index that
+# is out of range or already superseded/detached is `INVALID_ARGUMENT`
+# before any write, mirroring the operation-level negative-space case in
+# `tests/core/notes/test_reanchor_note.py`, now exercised through the wire.
+#
+# `context`/`provenance`'s exact key sets are not specified anywhere this
+# phase's design documents reach, so these tests assert only their presence
+# and type -- the weakest defensible contract, not a guessed shape.
+# ---------------------------------------------------------------------------
+
+
+def _seed_anchored_note(server: Any, vault: Path, page: str, quote: str) -> str:
+    """Capture a note pinned at span fidelity to `page`/`quote` via the real
+    conversational tool -- so its anchor at index 0 is exactly what a real
+    capture would produce, mirroring `test_reanchor_note.py`'s own fixture
+    precedent."""
+    _seed_capture_page(vault, page, f"# Seed page\n\n{quote}.\n", f"test: seed {page}")
+    captured = assert_success(
+        capture(server, TOPIC, "a reflection worth revisiting", quote=quote, pages=[page])
+    )
+    note_id = captured["note_id"]
+    assert isinstance(note_id, str)
+    return note_id
+
+
+def _read_note_document(vault: Path, note_id: str) -> NoteDocument:
+    text = (vault / f"notes/{TOPIC}/{note_id}.md").read_text(encoding="utf-8")
+    document, error = parse_note(text)
+    assert error is None, f"the note must parse cleanly, got error: {error!r}"
+    assert document is not None
+    return document
+
+
+def _assert_decision_envelope_shape(body: dict[str, Any]) -> None:
+    """The uniform decision-envelope shape every dry-run gate in this codebase
+    returns (`suggestions_review` is the precedent) -- present and typed, not
+    a guessed set of keys inside `context`/`provenance`."""
+    assert isinstance(body.get("decision_id"), str) and body["decision_id"]
+    assert isinstance(body.get("summary"), str) and body["summary"]
+    assert isinstance(body.get("context"), dict)
+    assert isinstance(body.get("options"), list) and body["options"]
+    assert isinstance(body.get("provenance"), dict)
+    assert isinstance(body.get("reason_required"), bool)
+
+
+# ---------------------------------------------------------------------------
+# reanchor -- dry-run preview, decision envelope, apply, accept-projection
+# ---------------------------------------------------------------------------
+
+
+def test_notes_reanchor_dry_run_previews_without_writing(
+    vault_config: Path, template_vault: Path
+) -> None:
+    page = f"{TOPIC}/reanchor-dry-run-original.md"
+    quote = "the passage this reanchor dry-run targets"
+    server = build_full_server()
+    note_id = _seed_anchored_note(server, template_vault, page, quote)
+    new_page = f"{TOPIC}/reanchor-dry-run-new.md"
+    _seed_capture_page(
+        template_vault, new_page, "# New\n\nthe corrected passage.\n", "test: seed new page"
+    )
+    before_sha = git_head_sha(template_vault)
+    before_commits = git_commit_count(template_vault)
+
+    body = assert_success(
+        notes_call(
+            server,
+            "reanchor",
+            topic=TOPIC,
+            note_id=note_id,
+            anchor=0,
+            page=new_page,
+            quote="the corrected passage.",
+            mode="dry-run",
+        )
+    )
+
+    assert body["mode"] == "dry-run"
+    assert git_head_sha(template_vault) == before_sha, "a dry-run must never commit"
+    assert git_commit_count(template_vault) == before_commits
+
+
+def test_notes_reanchor_dry_run_returns_a_decision_envelope(
+    vault_config: Path, template_vault: Path
+) -> None:
+    page = f"{TOPIC}/reanchor-envelope-original.md"
+    quote = "a passage worth confirming through the decision envelope"
+    server = build_full_server()
+    note_id = _seed_anchored_note(server, template_vault, page, quote)
+    new_page = f"{TOPIC}/reanchor-envelope-new.md"
+    _seed_capture_page(
+        template_vault, new_page, "# New\n\nthe corrected passage.\n", "test: seed new page"
+    )
+
+    body = assert_success(
+        notes_call(
+            server,
+            "reanchor",
+            topic=TOPIC,
+            note_id=note_id,
+            anchor=0,
+            page=new_page,
+            quote="the corrected passage.",
+            mode="dry-run",
+        )
+    )
+
+    _assert_decision_envelope_shape(body)
+
+
+def test_notes_reanchor_apply_makes_exactly_one_commit_and_appends_the_new_anchor(
+    vault_config: Path, template_vault: Path
+) -> None:
+    page = f"{TOPIC}/reanchor-apply-original.md"
+    quote = "the passage this apply-mode reanchor targets"
+    server = build_full_server()
+    note_id = _seed_anchored_note(server, template_vault, page, quote)
+    new_page = f"{TOPIC}/reanchor-apply-new.md"
+    _seed_capture_page(
+        template_vault, new_page, "# New\n\nthe corrected passage.\n", "test: seed new page"
+    )
+    before_commits = git_commit_count(template_vault)
+
+    body = assert_success(
+        notes_call(
+            server,
+            "reanchor",
+            topic=TOPIC,
+            note_id=note_id,
+            anchor=0,
+            page=new_page,
+            quote="the corrected passage.",
+            mode="apply",
+        )
+    )
+
+    assert body["mode"] == "apply"
+    assert git_commit_count(template_vault) == before_commits + 1, (
+        "apply must make exactly one commit"
+    )
+    assert isinstance(body.get("commit"), str) and body["commit"]
+    assert body["commit"] == git_head_sha(template_vault)
+
+    document = _read_note_document(template_vault, note_id)
+    assert len(document.anchors) == 2, "apply must append, never replace"
+    assert document.anchors[0].quote == quote, (
+        "the original anchor of record must survive byte-identical"
+    )
+    assert document.anchors[1].kind == "reanchored"
+    assert document.anchors[1].page == new_page
+
+
+def test_notes_reanchor_apply_with_no_page_or_quote_accepts_the_projected_match(
+    vault_config: Path, template_vault: Path
+) -> None:
+    """`INTERFACE_DESIGN.md` §1: `page` and `quote` empty means "accept the
+    projected match" -- the drift queue's one-click accept, not a separate
+    code path from the explicit-arguments case above."""
+    page = f"{TOPIC}/reanchor-accept-projection.md"
+    quote = "a passage that has not drifted at all"
+    server = build_full_server()
+    note_id = _seed_anchored_note(server, template_vault, page, quote)
+    before_commits = git_commit_count(template_vault)
+
+    body = assert_success(
+        notes_call(server, "reanchor", topic=TOPIC, note_id=note_id, anchor=0, mode="apply")
+    )
+
+    assert body["mode"] == "apply"
+    assert git_commit_count(template_vault) == before_commits + 1
+
+    document = _read_note_document(template_vault, note_id)
+    assert len(document.anchors) == 2, "accepting the projection still appends, like any reanchor"
+    accepted = document.anchors[1]
+    assert accepted.kind == "reanchored"
+    assert accepted.page == page, "with nothing drifted, the accepted page is unchanged"
+    assert accepted.quote == quote
+
+
+def test_notes_reanchor_targeting_one_anchor_leaves_a_different_pages_anchor_untouched(
+    vault_config: Path, template_vault: Path
+) -> None:
+    """A note may carry more than one independent anchor, each resolved on
+    its own page. Correcting one through the dispatcher must never touch, or
+    silently un-live, the other -- the wire-level counterpart to
+    `test_reanchor_note.py`'s op-level precedent."""
+    note_id = "20260101-093000-wire-two-independent-pages"
+    page_a = _forged_anchor(page=f"{TOPIC}/wire-multi-anchor-a.md", quote="the passage on page A")
+    page_b = _forged_anchor(
+        page=f"{TOPIC}/wire-multi-anchor-b.md",
+        quote="the passage on page B, never touched by this reanchor",
+    )
+    _write_forged_note(template_vault, note_id, _forged_note(note_id, anchors=(page_a, page_b)))
+    new_page = f"{TOPIC}/wire-multi-anchor-a-corrected.md"
+    _seed_capture_page(
+        template_vault,
+        new_page,
+        "# Corrected\n\nthe corrected passage on page A.\n",
+        "test: seed corrected page",
+    )
+    server = build_full_server()
+
+    assert_success(
+        notes_call(
+            server,
+            "reanchor",
+            topic=TOPIC,
+            note_id=note_id,
+            anchor=0,
+            page=new_page,
+            quote="the corrected passage on page A.",
+            mode="apply",
+        )
+    )
+
+    document = _read_note_document(template_vault, note_id)
+    assert document.anchors[0] == page_a, "the targeted anchor itself must stay byte-unchanged"
+    assert document.anchors[1] == page_b, (
+        "page B's anchor must stay byte-unchanged by a reanchor targeting page A"
+    )
+    assert document.anchors[2].kind == "reanchored"
+
+
+# ---------------------------------------------------------------------------
+# detach -- dry-run preview, decision envelope, apply
+# ---------------------------------------------------------------------------
+
+
+def test_notes_detach_dry_run_previews_without_writing(
+    vault_config: Path, template_vault: Path
+) -> None:
+    page = f"{TOPIC}/detach-dry-run-target.md"
+    quote = "a passage this detach dry-run targets"
+    server = build_full_server()
+    note_id = _seed_anchored_note(server, template_vault, page, quote)
+    before_sha = git_head_sha(template_vault)
+    before_commits = git_commit_count(template_vault)
+
+    body = assert_success(
+        notes_call(server, "detach", topic=TOPIC, note_id=note_id, anchor=0, mode="dry-run")
+    )
+
+    assert body["mode"] == "dry-run"
+    assert git_head_sha(template_vault) == before_sha, "a dry-run must never commit"
+    assert git_commit_count(template_vault) == before_commits
+
+
+def test_notes_detach_dry_run_returns_a_decision_envelope(
+    vault_config: Path, template_vault: Path
+) -> None:
+    page = f"{TOPIC}/detach-envelope-target.md"
+    quote = "a passage worth confirming a detach through the decision envelope"
+    server = build_full_server()
+    note_id = _seed_anchored_note(server, template_vault, page, quote)
+
+    body = assert_success(
+        notes_call(server, "detach", topic=TOPIC, note_id=note_id, anchor=0, mode="dry-run")
+    )
+
+    _assert_decision_envelope_shape(body)
+
+
+def test_notes_detach_apply_makes_exactly_one_commit_and_appends_a_terminal_record(
+    vault_config: Path, template_vault: Path
+) -> None:
+    page = f"{TOPIC}/detach-apply-target.md"
+    quote = "a passage this apply-mode detach targets"
+    server = build_full_server()
+    note_id = _seed_anchored_note(server, template_vault, page, quote)
+    before_commits = git_commit_count(template_vault)
+
+    body = assert_success(
+        notes_call(server, "detach", topic=TOPIC, note_id=note_id, anchor=0, mode="apply")
+    )
+
+    assert body["mode"] == "apply"
+    assert git_commit_count(template_vault) == before_commits + 1, (
+        "apply must make exactly one commit"
+    )
+    assert isinstance(body.get("commit"), str) and body["commit"]
+    assert body["commit"] == git_head_sha(template_vault)
+
+    document = _read_note_document(template_vault, note_id)
+    assert len(document.anchors) == 2
+    assert document.anchors[-1].kind == "detached"
+    assert effective_anchor(document) is None
+
+
+# ---------------------------------------------------------------------------
+# mode defaults to dry-run -- the mechanical half of the read/offer guard.
+# `mode=apply` must never fire from detection alone; the schema default is
+# the part of that guarantee this file can actually assert mechanically.
+# ---------------------------------------------------------------------------
+
+
+def test_notes_dispatcher_schema_mode_defaults_to_dry_run() -> None:
+    schema = tool_schema(build_full_server(), "notes")
+    assert schema["properties"]["mode"]["default"] == "dry-run"
+
+
+def test_notes_dispatcher_description_states_the_read_offer_guard_once_mutating() -> None:
+    """Every mutating dispatcher in this codebase states its confirmation
+    precondition in its own registered description (see
+    `test_tool_description_guards.py`'s `_MUTATING_DISPATCHERS`) -- `notes`
+    now exposes `reanchor`/`detach` and must join that guarded set, using the
+    same verbatim guard clause `suggestions_review` and `INTERFACE_DESIGN.md`
+    §1's own draft description both use.
+
+    (Once this goes green, `test_tool_description_guards.py` must move
+    `notes` from its `_READ_ONLY_CONTROLS` negative control into
+    `_MUTATING_DISPATCHERS` -- that file is out of this step's declared
+    scope, so the move is left for whoever wires the actions.)
+    """
+    descriptions = {tool.name: (tool.description or "") for tool in list_tools(build_full_server())}
+    assert "notes" in descriptions
+    description = descriptions["notes"].lower()
+    assert "never fires from detection alone" in description, (
+        f"the notes dispatcher now exposes mutating actions and must state the same "
+        f"read/offer guard clause every other mutating dispatcher carries: "
+        f"{descriptions['notes']!r}"
+    )
+
+
+# ---------------------------------------------------------------------------
+# Error grammar -- NOTE_NOT_FOUND, INVALID_ARGUMENT (anchor not live),
+# PAGE_NOT_FOUND -- each with its code and an actionable fix.
+#
+# The out-of-range/not-live cases below assert on `fix` as well as `code`:
+# right now, *every* call to `reanchor`/`detach` is rejected `INVALID_ARGUMENT`
+# by the dispatcher's action-enum check (action not yet registered), which
+# would make a code-only assertion pass vacuously regardless of the anchor
+# argument. `_live_target`'s rejection carries no custom `fix`, so it falls
+# back to the code's `DEFAULT_FIX` ("Correct the named argument and call
+# again.") -- distinct from the action-enum check's custom fix ("Pass action
+# as one of: ..."). Asserting on `fix` is what makes these tests fail for the
+# *new* behavior rather than passing for the old one.
+# ---------------------------------------------------------------------------
+
+_ANCHOR_NOT_LIVE_FIX = "Correct the named argument and call again."
+
+
+def test_notes_reanchor_out_of_range_anchor_index_is_rejected_before_any_write(
+    vault_config: Path, template_vault: Path
+) -> None:
+    page = f"{TOPIC}/reanchor-out-of-range.md"
+    quote = "the only passage this note has"
+    server = build_full_server()
+    note_id = _seed_anchored_note(server, template_vault, page, quote)
+    before_commits = git_commit_count(template_vault)
+
+    err = error_of(
+        notes_call(
+            server,
+            "reanchor",
+            topic=TOPIC,
+            note_id=note_id,
+            anchor=5,
+            page=page,
+            quote=quote,
+            mode="apply",
+        )
+    )
+
+    assert_error_shape(err, "INVALID_ARGUMENT")
+    assert err["fix"] == _ANCHOR_NOT_LIVE_FIX, (
+        f"expected the anchor-liveness rejection's default fix, not the action-enum "
+        f"check's fix -- got {err['fix']!r}"
+    )
+    assert git_commit_count(template_vault) == before_commits, (
+        "a rejected reanchor must make no commit"
+    )
+
+
+def test_notes_detach_out_of_range_anchor_index_is_rejected_before_any_write(
+    vault_config: Path, template_vault: Path
+) -> None:
+    page = f"{TOPIC}/detach-out-of-range.md"
+    quote = "the only passage this note has"
+    server = build_full_server()
+    note_id = _seed_anchored_note(server, template_vault, page, quote)
+    before_commits = git_commit_count(template_vault)
+
+    err = error_of(
+        notes_call(server, "detach", topic=TOPIC, note_id=note_id, anchor=5, mode="apply")
+    )
+
+    assert_error_shape(err, "INVALID_ARGUMENT")
+    assert err["fix"] == _ANCHOR_NOT_LIVE_FIX, (
+        f"expected the anchor-liveness rejection's default fix, not the action-enum "
+        f"check's fix -- got {err['fix']!r}"
+    )
+    assert git_commit_count(template_vault) == before_commits
+
+
+def test_notes_reanchor_an_already_detached_anchor_is_rejected_with_invalid_argument(
+    vault_config: Path, template_vault: Path
+) -> None:
+    """Mirrors the operation-level append-only negative-space case, now
+    exercised through the dispatcher: a detached anchor is no longer live, so
+    re-anchoring it must be rejected before any write."""
+    page = f"{TOPIC}/reanchor-after-detach.md"
+    quote = "a passage detached before a correction is attempted through the wire"
+    server = build_full_server()
+    note_id = _seed_anchored_note(server, template_vault, page, quote)
+    detach_result = core_detach(
+        LocalFSStore(template_vault), template_vault, VaultVcs(template_vault), TOPIC, note_id, 0
+    )
+    assert "error" not in detach_result, f"fixture setup failed: {detach_result!r}"
+    new_page = f"{TOPIC}/reanchor-after-detach-new.md"
+    _seed_capture_page(
+        template_vault, new_page, "# New\n\nthe new passage.\n", "test: seed new page"
+    )
+    before_commits = git_commit_count(template_vault)
+
+    err = error_of(
+        notes_call(
+            server,
+            "reanchor",
+            topic=TOPIC,
+            note_id=note_id,
+            anchor=0,
+            page=new_page,
+            quote="the new passage.",
+            mode="apply",
+        )
+    )
+
+    assert_error_shape(err, "INVALID_ARGUMENT")
+    assert err["fix"] == _ANCHOR_NOT_LIVE_FIX, (
+        f"expected the anchor-liveness rejection's default fix, not the action-enum "
+        f"check's fix -- got {err['fix']!r}"
+    )
+    assert git_commit_count(template_vault) == before_commits, (
+        "a rejected reanchor must make no commit"
+    )
+
+
+def test_notes_detach_an_already_detached_anchor_is_rejected_with_invalid_argument(
+    vault_config: Path, template_vault: Path
+) -> None:
+    page = f"{TOPIC}/detach-twice-through-wire.md"
+    quote = "a passage detached, then detached again through the wire"
+    server = build_full_server()
+    note_id = _seed_anchored_note(server, template_vault, page, quote)
+    detach_result = core_detach(
+        LocalFSStore(template_vault), template_vault, VaultVcs(template_vault), TOPIC, note_id, 0
+    )
+    assert "error" not in detach_result, f"fixture setup failed: {detach_result!r}"
+    before_commits = git_commit_count(template_vault)
+
+    err = error_of(
+        notes_call(server, "detach", topic=TOPIC, note_id=note_id, anchor=0, mode="apply")
+    )
+
+    assert_error_shape(err, "INVALID_ARGUMENT")
+    assert err["fix"] == _ANCHOR_NOT_LIVE_FIX, (
+        f"expected the anchor-liveness rejection's default fix, not the action-enum "
+        f"check's fix -- got {err['fix']!r}"
+    )
+    assert git_commit_count(template_vault) == before_commits
+
+
+def test_notes_reanchor_unknown_note_id_is_note_not_found(
+    vault_config: Path, template_vault: Path
+) -> None:
+    del template_vault
+    server = build_full_server()
+    err = error_of(
+        notes_call(
+            server,
+            "reanchor",
+            topic=TOPIC,
+            note_id="20260101-000000-never-captured",
+            anchor=0,
+            page=f"{TOPIC}/somewhere.md",
+            quote="whatever",
+            mode="apply",
+        )
+    )
+    assert_error_shape(err, "NOTE_NOT_FOUND")
+
+
+def test_notes_detach_unknown_note_id_is_note_not_found(
+    vault_config: Path, template_vault: Path
+) -> None:
+    del template_vault
+    server = build_full_server()
+    err = error_of(
+        notes_call(
+            server,
+            "detach",
+            topic=TOPIC,
+            note_id="20260101-000000-never-captured",
+            anchor=0,
+            mode="apply",
+        )
+    )
+    assert_error_shape(err, "NOTE_NOT_FOUND")
+
+
+def test_notes_reanchor_targeting_a_page_that_no_longer_exists_fails_with_page_not_found(
+    vault_config: Path, template_vault: Path
+) -> None:
+    page = f"{TOPIC}/reanchor-page-gone-original.md"
+    quote = "the passage before the page vanished"
+    server = build_full_server()
+    note_id = _seed_anchored_note(server, template_vault, page, quote)
+    missing_page = f"{TOPIC}/reanchor-page-gone-target.md"
+    before_commits = git_commit_count(template_vault)
+
+    err = error_of(
+        notes_call(
+            server,
+            "reanchor",
+            topic=TOPIC,
+            note_id=note_id,
+            anchor=0,
+            page=missing_page,
+            quote="whatever the passage was",
+            mode="apply",
+        )
+    )
+
+    assert_error_shape(err, "PAGE_NOT_FOUND")
+    assert git_commit_count(template_vault) == before_commits, (
+        "a rejected reanchor must make no commit"
+    )
+
+
+def test_notes_reanchor_page_not_found_fix_text_names_detach_as_the_fallback(
+    vault_config: Path, template_vault: Path
+) -> None:
+    """`INTERFACE_DESIGN.md` §8's error grammar table gives this row a
+    fallback the generic `PAGE_NOT_FOUND` fix lacks: a user pointing at a
+    deleted page can keep the note without an anchor by detaching instead."""
+    page = f"{TOPIC}/reanchor-fix-text-original.md"
+    quote = "a passage before the page vanishes"
+    server = build_full_server()
+    note_id = _seed_anchored_note(server, template_vault, page, quote)
+    missing_page = f"{TOPIC}/reanchor-fix-text-missing.md"
+
+    err = error_of(
+        notes_call(
+            server,
+            "reanchor",
+            topic=TOPIC,
+            note_id=note_id,
+            anchor=0,
+            page=missing_page,
+            quote="whatever the passage was",
+            mode="apply",
+        )
+    )
+
+    assert_error_shape(err, "PAGE_NOT_FOUND")
+    assert "detach" in err["fix"], (
+        f"the fix text must name `notes action=detach` as the fallback for a deleted "
+        f"reanchor target; got {err['fix']!r}"
+    )
