@@ -50,7 +50,7 @@ from knotica.mcp_server.tools_dispatch_notes import (
     _drift_status,
     _status_counts,
 )
-from knotica.mcp_server.tools_dispatch_notes_actions import _NOTES_SORT
+from knotica.mcp_server.tools_dispatch_notes_common import _NOTES_SORT
 from knotica.search.cursor import decode_cursor
 from knotica.store import LocalFSStore
 from support.dispatch import (

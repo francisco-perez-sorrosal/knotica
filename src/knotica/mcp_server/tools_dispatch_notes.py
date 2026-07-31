@@ -14,9 +14,13 @@ quietly ignored -- an action that appears to work and does nothing is worse
 than one that says it does not exist.
 
 This module is the thin router: MCP tool registration and dispatch. Per-action
-payload construction, argument validation, and the resolved-anchor status
-vocabulary (``exact``, ``shifted``, ``fuzzy``, ``orphaned``, ``unanchored``)
-live in :mod:`knotica.mcp_server.tools_dispatch_notes_actions`.
+payload construction lives in two cohesion-scoped sibling modules --
+:mod:`knotica.mcp_server.tools_dispatch_notes_read` (``list``/``read``/
+``drift``, read-only) and :mod:`knotica.mcp_server.tools_dispatch_notes_mutations`
+(``reanchor``/``detach``, mutating). Shared argument validation and the
+resolved-anchor status vocabulary (``exact``, ``shifted``, ``fuzzy``,
+``orphaned``, ``unanchored``) live in the leaf both sit on,
+:mod:`knotica.mcp_server.tools_dispatch_notes_common`.
 """
 
 from __future__ import annotations
@@ -31,22 +35,23 @@ from knotica.core.notes.store import list_notes
 from knotica.core.notes_config import resolve_notes_config
 from knotica.core.vcs import VaultVcs
 from knotica.mcp_server.dispatch_telemetry import record_dispatch
-from knotica.mcp_server.tools_dispatch_notes_actions import (
+from knotica.mcp_server.tools_dispatch_notes_common import (
     _ALL_FILTER,
     _ANCHOR_STATUSES as _ANCHOR_STATUSES,
     _DEFAULT_LIMIT,
     _DEFAULT_MODE,
     _LEAST_SEVERE_ANCHOR_STATUS as _LEAST_SEVERE_ANCHOR_STATUS,
     _MOST_SEVERE_ANCHOR_STATUS as _MOST_SEVERE_ANCHOR_STATUS,
-    _detach_payload,
+    _validate_action,
+    _validate_topic,
+)
+from knotica.mcp_server.tools_dispatch_notes_mutations import _detach_payload, _reanchor_payload
+from knotica.mcp_server.tools_dispatch_notes_read import (
     _drift_payload,
     _drift_status as _drift_status,
     _list_payload,
-    _reanchor_payload,
     _read_payload,
     _status_counts as _status_counts,
-    _validate_action,
-    _validate_topic,
 )
 from knotica.mcp_server.vault_ctx import with_resolved_vault
 from knotica.store import VaultStore
