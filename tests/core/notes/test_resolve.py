@@ -523,7 +523,7 @@ def test_reworded_passage_below_guess_threshold_with_heading_intact_resolves_orp
     oracle = _score_the_real_way(historical_text, quote, head_text)
     assert oracle is not None, "fixture must share seed words with the reworded page"
     _oracle_span, oracle_score = oracle
-    guess_threshold = 0.52
+    guess_threshold = 0.60
     assert oracle_score < guess_threshold, (
         "fixture's real score must fall short of guess_threshold, or this collapses "
         "into the fuzzy case instead of exercising the graded-recovery band"
@@ -583,11 +583,13 @@ def test_nested_heading_uses_the_innermost_enclosing_heading_not_a_surviving_anc
     assert "# Top" in head_text, "fixture must keep the ancestor heading at HEAD"
     assert "## Sub" not in head_text, "fixture must actually rename the innermost heading"
 
+    # Thresholds chosen to straddle this reword's real score, so the fixture
+    # falls past the fuzzy rung and reaches the heading check this test is about.
     projection = resolve_anchor(
         historical_text,
         head_text,
         _anchor(quote=quote, heading="Sub"),
-        guess_threshold=0.52,
+        guess_threshold=0.60,
         complete_orphan_threshold=0.20,
     )
 
@@ -616,11 +618,13 @@ def test_quote_with_no_enclosing_heading_falls_through_to_page_fidelity():
     head_text = historical_text.replace(quote, reword)
     assert "## Some later heading" in head_text, "fixture must keep the later heading intact"
 
+    # Thresholds chosen to straddle this reword's real score, so the fixture
+    # falls past the fuzzy rung and reaches the heading check this test is about.
     projection = resolve_anchor(
         historical_text,
         head_text,
         _anchor(quote=quote, heading=""),
-        guess_threshold=0.52,
+        guess_threshold=0.60,
         complete_orphan_threshold=0.20,
     )
 
@@ -829,7 +833,7 @@ def test_same_recoverable_band_score_with_heading_gone_resolves_orphaned_at_page
     oracle = _score_the_real_way(historical_text, quote, head_text)
     assert oracle is not None, "fixture must share seed words with the reworded page"
     oracle_span, oracle_score = oracle
-    guess_threshold = 0.52
+    guess_threshold = 0.60
     complete_orphan_threshold = 0.20
     assert complete_orphan_threshold <= oracle_score < guess_threshold, (
         "fixture's real score must sit inside the graded-recovery band"
@@ -877,8 +881,8 @@ def test_score_below_complete_orphan_threshold_resolves_orphaned_at_page_with_no
     oracle = _score_the_real_way(historical_text, quote, head_text)
     assert oracle is not None, "fixture must share seed words with the reworded page"
     _oracle_span, oracle_score = oracle
-    guess_threshold = 0.52
-    complete_orphan_threshold = 0.45
+    guess_threshold = 0.70
+    complete_orphan_threshold = 0.60
     assert oracle_score < complete_orphan_threshold < guess_threshold, (
         "fixture's real score must fall below complete_orphan_threshold for this to "
         "exercise the no-guess rung"
@@ -1190,15 +1194,21 @@ def test_a_populated_best_guess_always_implies_a_populated_score():
         "objective they are actually pursuing"
     )
     head_text = historical_text.replace(quote, heavier_reword)
+    # guess_threshold sits above this reword's real score so the fixture lands on
+    # a guess-bearing rung. A projection that resolves `fuzzy` carries `span` and
+    # deliberately no `best_guess`, which would make the invariant vacuous here.
     guessed = resolve_anchor(
         historical_text,
         head_text,
         _anchor(quote=quote, heading="Working memory"),
-        guess_threshold=0.52,
+        guess_threshold=0.60,
         complete_orphan_threshold=0.35,
     )
 
-    assert guessed.best_guess is not None
+    assert guessed.best_guess is not None, (
+        "fixture must reach a rung that actually offers a guess, or this test asserts "
+        "the implication on a projection that could never have violated it"
+    )
     assert guessed.score is not None
 
 
@@ -1313,6 +1323,128 @@ def test_every_non_null_score_lies_within_the_unit_interval_across_the_whole_lad
     assert section.score is not None and 0.0 <= section.score <= 1.0
     assert page_guessed.score is not None and 0.0 <= page_guessed.score <= 1.0
     assert floor.score is not None and 0.0 <= floor.score <= 1.0
+
+
+# ---------------------------------------------------------------------------
+# Quote shape must not decide recoverability.
+#
+# ``fuzzy`` is the only rung that re-places a note automatically, so whether it
+# can fire is what the whole ladder is for. Whether it fires must depend on how
+# much the page drifted, not on whether the captured quote happened to be a
+# whole sentence, a clause inside one, or a run of several. The three fixtures
+# below apply the *identical* single-character edit to the *identical*
+# paragraph and differ only in the shape of the anchored quote.
+# ---------------------------------------------------------------------------
+
+_SHAPE_LEAD_IN = "Long-horizon agents cannot retain every interaction at full fidelity."
+_SHAPE_FIRST = (
+    "Episodic traces are compressed into semantic summaries during idle periods, "
+    "trading recall precision for storage economy."
+)
+_SHAPE_SECOND = "That tradeoff stays invisible until the corpus grows past a few thousand pages."
+_SHAPE_THIRD = "Most teams discover it only when retrieval quality quietly degrades."
+_SHAPE_TRAILER = "The result is a store whose size grows sublinearly with elapsed time."
+_SHAPE_CLAUSE = "trading recall precision for storage economy"
+_SHAPE_HISTORICAL = (
+    "# Agent memory\n\n"
+    "## Consolidation\n\n"
+    + " ".join([_SHAPE_LEAD_IN, _SHAPE_FIRST, _SHAPE_SECOND, _SHAPE_THIRD, _SHAPE_TRAILER])
+    + "\n\n## Retrieval\n\nRetrieval over consolidated summaries is cheaper but coarser.\n"
+)
+_SHAPE_TYPO_HEAD = _SHAPE_HISTORICAL.replace("precision", "precisian")
+
+
+def _resolve_shape(quote: str, head_text: str) -> Projection:
+    """Resolve ``quote`` against the shared shape fixture at shipped thresholds."""
+    return resolve_anchor(
+        _SHAPE_HISTORICAL,
+        head_text,
+        _anchor(quote=quote, heading="Consolidation", start=_SHAPE_HISTORICAL.index(quote)),
+        guess_threshold=_STANDARD_GUESS_THRESHOLD,
+        complete_orphan_threshold=_STANDARD_COMPLETE_ORPHAN_THRESHOLD,
+    )
+
+
+def test_a_whole_sentence_quote_with_a_single_character_edit_resolves_fuzzy():
+    """The control: the one quote shape already known to recover. It pins the
+    baseline the other two shapes must reach, so a regression that lowers this
+    case shows up here rather than making the comparisons below vacuous.
+    """
+    projection = _resolve_shape(_SHAPE_FIRST, _SHAPE_TYPO_HEAD)
+
+    assert projection.status == "fuzzy"
+    assert projection.fidelity == "span"
+    assert projection.score is not None and projection.score > 0.9
+
+
+def test_a_sub_clause_quote_with_a_single_character_edit_resolves_fuzzy():
+    """A quote that is a clause *inside* a sentence rather than the whole of
+    it. The window proposed for it is its host sentence -- roughly twice its
+    own length -- and scoring the quote against that whole width caps the
+    similarity ratio near 0.67 however small the edit, which is what put this
+    case permanently out of reach of ``guess_threshold``.
+    """
+    projection = _resolve_shape(_SHAPE_CLAUSE, _SHAPE_TYPO_HEAD)
+
+    assert projection.status == "fuzzy", (
+        f"resolved {projection.status}/{projection.fidelity} at score {projection.score} -- "
+        "one changed character must be recoverable whether the captured quote was a whole "
+        "sentence or a clause within one"
+    )
+    assert projection.fidelity == "span"
+    assert projection.score is not None and projection.score > 0.9
+
+
+def test_a_multi_sentence_quote_with_a_single_character_edit_resolves_fuzzy():
+    """A quote spanning three consecutive sentences -- what a client passes
+    when it displayed a paragraph rather than a line. A window bounded by one
+    sentence can never cover it, so this case was unreachable at any threshold.
+    """
+    quote = f"{_SHAPE_FIRST} {_SHAPE_SECOND} {_SHAPE_THIRD}"
+
+    projection = _resolve_shape(quote, _SHAPE_TYPO_HEAD)
+
+    assert projection.status == "fuzzy", (
+        f"resolved {projection.status}/{projection.fidelity} at score {projection.score} -- "
+        "a multi-sentence quote must be recoverable from a one-character edit, not left "
+        "unmatchable because no proposed window was ever wide enough to hold it"
+    )
+    assert projection.fidelity == "span"
+    assert projection.score is not None and projection.score > 0.9
+
+
+def test_a_fuzzy_span_is_the_aligned_placement_not_the_wider_window_it_was_found_in():
+    """``fuzzy`` claims a location; the span it reports is rendered to a human
+    and highlighted in the drift queue. It must therefore be the sub-span the
+    score was actually computed for, not the wider candidate window that
+    sub-span was located inside.
+    """
+    projection = _resolve_shape(_SHAPE_CLAUSE, _SHAPE_TYPO_HEAD)
+
+    assert projection.status == "fuzzy"
+    assert projection.span is not None
+    start, end = projection.span
+    assert _SHAPE_TYPO_HEAD[start:end] == _SHAPE_CLAUSE.replace("precision", "precisian")
+
+
+def test_a_passage_replaced_by_unrelated_prose_never_resolves_fuzzy():
+    """The band-sharpening guard, at ladder level. Making sub-span quotes
+    recoverable raises every score the scorer produces; the change is only
+    correct if it leaves prose that shares nothing with the quote below
+    ``guess_threshold``, so unrelated text is never auto-placed.
+    """
+    unrelated = (
+        "Tool schemas are validated against the declared JSON Schema before dispatch, "
+        "and a mismatch is rejected at the boundary."
+    )
+    head_text = _SHAPE_HISTORICAL.replace(_SHAPE_FIRST, unrelated)
+
+    projection = _resolve_shape(_SHAPE_CLAUSE, head_text)
+
+    assert projection.status == "orphaned", (
+        f"unrelated prose resolved {projection.status} at score {projection.score} -- "
+        "a passage that no longer exists must never be silently re-placed"
+    )
 
 
 # ---------------------------------------------------------------------------

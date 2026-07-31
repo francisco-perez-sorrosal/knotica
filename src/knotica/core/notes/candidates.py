@@ -23,13 +23,17 @@ Given ``(quote, head_text)``, :func:`generate_candidates`:
   seed word;
 - seeds a window at *every* occurrence of a chosen seed word, not merely
   its first, and extends each window to the boundaries of the sentence it
-  falls in -- except that the *backward* extension also stops at a heading
-  line or a blank line, whichever is nearest, and never runs past either
-  all the way to document start. Sentence punctuation alone is not a
-  reliable backward boundary: an unpunctuated heading or opening paragraph
-  gives the punctuation-only heuristic nothing to stop on, and the
-  extension would otherwise swallow page chrome instead of the passage
-  itself;
+  falls in -- bounded in both directions by the structural block the seed
+  occurrence sits in (see below), so the extension can never swallow page
+  chrome instead of the passage itself;
+- keeps absorbing whole neighbouring sentences, alternating outward from
+  the seeded one, whenever ``quote`` is *longer* than the sentence its seed
+  word fell in -- a quote that spans two or three sentences could otherwise
+  never be covered by any proposed window, and an uncovered quote is
+  unmatchable at any threshold, not merely a low-scoring one. Widening
+  stops at the cap below or at the enclosing block, whichever comes first,
+  and does not run at all for a quote that already fits inside its own
+  sentence -- the ordinary case, whose geometry is unchanged;
 - caps every window's length at twice the character length of ``quote``,
   centred on the occurrence that seeded it, so a seed word buried in an
   unusually long run of prose does not produce an unbounded candidate. The
@@ -37,6 +41,14 @@ Given ``(quote, head_text)``, :func:`generate_candidates`:
   character offsets, and every other length in the resolution ladder is
   character-based; a word-based cap would be the only unit discontinuity
   in the whole path.
+
+A window may legitimately be *wider* than ``quote``: a quote captured as a
+clause of a sentence is proposed with its whole host sentence around it.
+Ranking that window against the quote as a whole would cap the similarity
+ratio on width alone, so :mod:`knotica.core.notes.scoring` first aligns each
+window to its best-matching sub-span and scores that. This module's job is to
+propose a window that *contains* the passage; locating it precisely inside
+one is the scorer's.
 
 A quote sharing no words at all with the page is a normal, expected input
 here (not an error): it returns an empty tuple. Downstream, an empty
@@ -63,25 +75,17 @@ followed by whitespace, and it treats an ellipsis as an ordinary sentence
 end, which is usually close enough for a window-extension heuristic that
 only needs a plausible boundary, not a linguistically exact one.
 
-**Structural backward boundary -- a second, independent stop.** A heading
-line (Markdown ATX, ``#`` through ``######``) or a blank line always stops
-the *backward* extension, regardless of what the punctuation-based
+**Structural block bounds -- a second, independent stop.** A heading line
+(Markdown ATX, ``#`` through ``######``) or a blank line bounds the
+extension on *both* sides, regardless of what the punctuation-based
 sentence heuristic above would otherwise allow. This matters because
-punctuation is not guaranteed to exist before the passage: a page-opening
+punctuation is not guaranteed to exist around the passage: a page-opening
 heading or an unpunctuated lead-in paragraph gives the sentence heuristic
-no boundary to stop on, and the backward extension would otherwise run
-all the way to document start, spending the length cap on chrome instead
-of the passage.
-
-**Known asymmetry -- the forward extension has no equivalent stop.** The
-forward direction still relies solely on the punctuation-based sentence
-heuristic above. In practice this rarely bites: an anchored quote is
-ordinarily captured as a complete, terminally-punctuated sentence, so the
-quote's own trailing punctuation already bounds the forward extension
-before any following heading or blank-line chrome is reached. It would
-bite for a quote whose own trailing sentence lacks terminal punctuation
-(a truncated capture, or a page's final, unpunctuated line) sitting right
-before page-closing chrome -- not covered here.
+no boundary to stop on, and the extension would otherwise run to document
+start (or through a following heading), spending the length cap on chrome
+instead of the passage. The forward bound also keeps multi-sentence
+widening honest -- absorbing neighbouring sentences must not become a
+licence to absorb the next section.
 """
 
 from __future__ import annotations
@@ -128,9 +132,9 @@ def generate_candidates(quote: str, head_text: str) -> tuple[tuple[int, int], ..
     windows: set[tuple[int, int]] = set()
     for word in seed_words:
         for word_start, _word_end in page_words[word]:
-            sentence_start, sentence_end = _sentence_containing(word_start, sentence_spans)
-            sentence_start = max(sentence_start, _nearest_block_start(block_starts, word_start))
-            windows.add(_clip_to_cap(sentence_start, sentence_end, word_start, cap))
+            block = _enclosing_block(block_starts, word_start, len(head_text))
+            start, end = _seeded_window(word_start, sentence_spans, block, len(quote), cap)
+            windows.add(_clip_to_cap(start, end, word_start, cap))
     return tuple(sorted(windows))
 
 
@@ -217,22 +221,77 @@ def _block_starts(text: str) -> tuple[int, ...]:
     return tuple(sorted(starts))
 
 
-def _nearest_block_start(block_starts: tuple[int, ...], offset: int) -> int:
-    """The latest structural block boundary at or before ``offset`` -- the
-    backward extension must not cross it.
+def _enclosing_block(
+    block_starts: tuple[int, ...], offset: int, text_length: int
+) -> tuple[int, int]:
+    """The structural block containing ``offset`` -- the latest boundary at or
+    before it, through the next one after it (or end of text). No extension
+    may cross either edge.
     """
     index = bisect_right(block_starts, offset) - 1
-    return block_starts[index]
+    following = index + 1
+    upper = block_starts[following] if following < len(block_starts) else text_length
+    return block_starts[index], upper
 
 
-def _sentence_containing(
-    offset: int, sentence_spans: tuple[tuple[int, int], ...]
+def _seeded_window(
+    word_start: int,
+    sentence_spans: tuple[tuple[int, int], ...],
+    block: tuple[int, int],
+    quote_length: int,
+    cap: int,
 ) -> tuple[int, int]:
-    """The span of the sentence containing character ``offset``."""
-    for start, end in sentence_spans:
+    """The block-bounded span a seed occurrence at ``word_start`` extends to.
+
+    The sentence containing the occurrence, when the quote fits inside it --
+    the ordinary case, whose geometry is exactly what it was before widening
+    existed. When the quote is longer than that sentence, whole neighbouring
+    sentences are absorbed alternately outward until the span reaches ``cap``
+    or the enclosing block is exhausted.
+
+    Widening runs to the cap rather than stopping at ``quote_length``: which
+    of the quote's own sentences the seed word fell in is unknown here, so a
+    span grown to exactly the quote's length can end up holding the wrong
+    ones. Overshooting costs nothing -- the scorer aligns each window to its
+    best-matching sub-span -- while undershooting cannot be recovered from.
+    """
+    lower, upper = block
+    index = _sentence_index(word_start, sentence_spans)
+    first = last = index
+    start = max(sentence_spans[index][0], lower)
+    end = min(sentence_spans[index][1], upper)
+    if end - start >= quote_length:
+        return start, end
+
+    while end - start < cap and (start > lower or end < upper):
+        if start > lower:
+            first -= 1
+            start = max(sentence_spans[first][0], lower)
+        if end < upper:
+            last += 1
+            end = min(sentence_spans[last][1], upper)
+    return start, end
+
+
+def _sentence_index(offset: int, sentence_spans: tuple[tuple[int, int], ...]) -> int:
+    """The index of the sentence span containing character ``offset``.
+
+    **Precondition: ``sentence_spans`` is non-empty.** It is empty only for
+    empty ``head_text``, and a window is only ever seeded from a word found
+    *in* that text, so no live path reaches here with an empty tuple --
+    verified across the call graph. The fallback below returns
+    ``len(sentence_spans) - 1``, which is ``-1`` for an empty tuple, and the
+    caller indexes with it two lines later: a future caller that violates the
+    precondition gets an ``IndexError`` out of a module whose contract is that
+    it never raises. Left as-is rather than guarded because every projection in
+    the vault runs through this module and the currently-dead branch is not
+    worth a behaviour change to close; if a second caller is ever added, close
+    it at that call site.
+    """
+    for index, (start, end) in enumerate(sentence_spans):
         if start <= offset < end:
-            return start, end
-    return sentence_spans[-1]
+            return index
+    return len(sentence_spans) - 1
 
 
 def _clip_to_cap(

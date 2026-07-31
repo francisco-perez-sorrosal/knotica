@@ -24,6 +24,39 @@ characters gives ``1 - 40 = -39``) and, even at the position term's small
 bounded for any two offsets inside the same document. The term is clamped
 to ``>= 0.0`` defensively.
 
+**Sub-span alignment -- the candidate is trimmed before it is scored.** A
+candidate window is only ever an *approximation* of where the quote now
+lives: rung 4 proposes sentence-bounded spans, so a quote that was captured
+as a clause inside a sentence gets a window roughly twice its own length.
+``SequenceMatcher.ratio()`` is ``2*M / (len(a) + len(b))``, so scoring the
+quote against that whole width caps the ratio near
+``2*q / (q + 2*q) = 0.667`` **even when every character of the quote is
+present in the window verbatim** -- at which point a one-character typo and a
+heavy paraphrase become indistinguishable and the score stops tracking edit
+distance at all. :func:`align_candidate` therefore locates the sub-span of
+the window the quote actually aligns to, and :func:`score_candidate` scores
+*that*: its quote ratio, the prefix and suffix drawn from around it, and its
+own start for the position term. :func:`score_candidates` reports the aligned
+span alongside the winning score, so a caller rendering the result to a human
+shows the span whose score it is displaying.
+
+The aligned sub-span is the window's **matched extent**: from the start of
+the first block the quote matches to the end of the last. That is not a
+second scoring pass -- the blocks are a correspondence the matcher already
+had to compute -- and it cannot manufacture agreement that is not there.
+``ratio()``'s denominator still carries ``len(quote)``, so a sub-span
+narrower than the quote is *penalised*, not flattered; and a window whose
+matches are scattered across its whole width yields an extent equal to that
+width, i.e. alignment degrades to a no-op exactly where there is no coherent
+region to align to. Taking a fixed ``len(quote)`` slice instead was measured
+against this and rejected: it discards matching material outside the slice,
+which costs paraphrase recall for no gain in precision.
+
+The matcher used for alignment disables ``difflib``'s ``autojunk`` heuristic,
+which discards any element occurring in more than 1% of a sequence of length
+200 or more; at *character* granularity that junks ordinary letters out of
+any window past a couple of sentences, leaving the extent anchored on noise.
+
 A candidate's own quote/prefix/suffix are extracted from ``head_text`` with
 the same :data:`CONTEXT_WINDOW`-character window rung 0 uses to extract the
 anchor's historical context, so the comparison is like-for-like rather than
@@ -61,6 +94,7 @@ __all__ = [
     "PREFIX_WEIGHT",
     "QUOTE_WEIGHT",
     "SUFFIX_WEIGHT",
+    "align_candidate",
     "score_candidate",
     "score_candidates",
 ]
@@ -80,6 +114,31 @@ NORMALISER = 92
 CONTEXT_WINDOW = 32
 
 
+def align_candidate(quote: str, head_text: str, candidate: tuple[int, int]) -> tuple[int, int]:
+    """The sub-span of ``candidate`` that ``quote`` actually aligns to.
+
+    The window's matched extent: from the start of the first block ``quote``
+    matches to the end of the last. Returns ``candidate`` unchanged when the
+    window is already no wider than ``quote`` (there is nothing to trim) or
+    when the two share no character at all (there is nothing to align to). See
+    the module docstring for why the whole width would otherwise cap the quote
+    ratio, and for why the extent cannot inflate a score.
+    """
+    start, end = candidate
+    if end - start <= len(quote):
+        return candidate
+
+    window = head_text[start:end]
+    matcher = SequenceMatcher(None, quote, window, autojunk=False)
+    matched = [block for block in matcher.get_matching_blocks() if block.size]
+    if not matched:
+        return candidate
+
+    first = min(block.b for block in matched)
+    last = max(block.b + block.size for block in matched)
+    return start + first, start + last
+
+
 def score_candidate(
     candidate: tuple[int, int],
     head_text: str,
@@ -91,12 +150,13 @@ def score_candidate(
     """Score one ``candidate`` span against the anchor's recorded context.
 
     ``quote``/``prefix``/``suffix`` are the anchor's own historical strings,
-    already extracted by the caller (resolution rung 0). This function
-    derives the *candidate's own* quote/prefix/suffix from ``head_text`` at
-    ``candidate`` and combines the three similarity ratios with a position
-    term via the weighted formula documented on the module.
+    already extracted by the caller (resolution rung 0). This function aligns
+    ``candidate`` to its best-matching sub-span (:func:`align_candidate`),
+    derives the *candidate's own* quote/prefix/suffix from ``head_text`` there,
+    and combines the three similarity ratios with a position term via the
+    weighted formula documented on the module.
     """
-    start, end = candidate
+    start, end = align_candidate(quote, head_text, candidate)
     candidate_quote = head_text[start:end]
     candidate_prefix = head_text[max(0, start - CONTEXT_WINDOW) : start]
     candidate_suffix = head_text[end : end + CONTEXT_WINDOW]
@@ -131,6 +191,11 @@ def score_candidates(
 ) -> tuple[tuple[int, int], float] | None:
     """The argmax of :func:`score_candidate` over ``candidates``.
 
+    The score is that argmax; the span reported alongside it is the *aligned*
+    sub-span of the winning window -- the span the score was actually computed
+    for, not the wider window it was located inside. A caller that renders the
+    result to a human therefore shows the placement its number describes.
+
     Returns ``None`` for an empty candidate set rather than raising -- an
     empty candidate set is a normal, expected rung-4 outcome (a quote whose
     seed words do not occur in the page at all), not a programming error,
@@ -140,15 +205,15 @@ def score_candidates(
     if not candidates:
         return None
 
-    best_span = candidates[0]
-    best_score = score_candidate(best_span, head_text, quote, prefix, suffix, historical_offset)
+    best_window = candidates[0]
+    best_score = score_candidate(best_window, head_text, quote, prefix, suffix, historical_offset)
     for candidate in candidates[1:]:
         candidate_score = score_candidate(
             candidate, head_text, quote, prefix, suffix, historical_offset
         )
         if candidate_score > best_score:
-            best_span, best_score = candidate, candidate_score
-    return best_span, best_score
+            best_window, best_score = candidate, candidate_score
+    return align_candidate(quote, head_text, best_window), best_score
 
 
 def _position_term(start: int, historical_offset: int, head_text: str) -> float:

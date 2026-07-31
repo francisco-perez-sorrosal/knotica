@@ -50,11 +50,13 @@ import difflib
 import pytest
 
 from knotica.core.notes.scoring import (
+    CONTEXT_WINDOW,
     NORMALISER,
     POSITION_WEIGHT,
     PREFIX_WEIGHT,
     QUOTE_WEIGHT,
     SUFFIX_WEIGHT,
+    align_candidate,
     score_candidate,
     score_candidates,
 )
@@ -206,6 +208,11 @@ def test_score_candidates_selects_the_true_argmax_of_the_individual_candidate_sc
     Checked against all three candidates' individually-computed scores rather
     than against one hand-picked expected winner, so the assertion holds
     regardless of exactly how any single candidate's score is computed.
+
+    The *score* is the argmax; the *span* reported alongside it is the sub-span
+    of the winning window that was actually scored (see the alignment section
+    below), which is why the winner is identified by score here rather than by
+    span equality.
     """
     quote = "the recorded phrase that was originally pinned"
     prefix = "the paragraph leading into it reads"
@@ -229,7 +236,10 @@ def test_score_candidates_selects_the_true_argmax_of_the_individual_candidate_sc
 
     result = score_candidates(candidates, head_text, quote, prefix, suffix, historical_offset)
 
-    assert result == (best_span, individual_scores[best_span])
+    assert result is not None
+    winning_span, winning_score = result
+    assert winning_score == individual_scores[best_span]
+    assert winning_span == align_candidate(quote, head_text, best_span)
 
 
 def test_score_candidates_breaks_a_quote_similarity_tie_using_position_proximity():
@@ -258,3 +268,146 @@ def test_score_candidates_breaks_a_quote_similarity_tie_using_position_proximity
     assert result is not None
     winning_span, _ = result
     assert winning_span == first_candidate
+
+
+# ---------------------------------------------------------------------------
+# Sub-span alignment -- a window wider than the quote is scored on the part of
+# it that actually matches, not on its whole width.
+#
+# ``SequenceMatcher.ratio()`` is ``2*M / (len(a) + len(b))``. A window twice
+# the quote's length therefore caps the quote ratio near
+# ``2*q / (q + 2*q) = 0.667`` even when every character of the quote is
+# present in it verbatim -- so a one-character typo and a heavy paraphrase
+# become indistinguishable, and the score stops tracking edit distance. The
+# scorer must first locate the sub-span of the window the quote actually
+# aligns to, then score *that*: its quote ratio, and the prefix/suffix drawn
+# from around it.
+# ---------------------------------------------------------------------------
+
+_HOST_SENTENCE = (
+    "Episodic traces are compressed into semantic summaries during idle periods, "
+    "trading recall precision for storage economy."
+)
+_CLAUSE = "trading recall precision for storage economy"
+_LEAD_IN = "Long-horizon agents cannot retain every interaction at full fidelity. "
+_TRAILER = " The result is a store whose size grows sublinearly with elapsed time."
+
+
+def _clause_context(historical_text: str) -> tuple[str, str, int]:
+    """The clause's own historical prefix, suffix, and offset -- extracted the
+    way the resolution ladder extracts them, so the scorer is fed a
+    like-for-like anchor rather than a hand-built one.
+    """
+    offset = historical_text.index(_CLAUSE)
+    prefix = historical_text[max(0, offset - CONTEXT_WINDOW) : offset]
+    suffix = historical_text[offset + len(_CLAUSE) : offset + len(_CLAUSE) + CONTEXT_WINDOW]
+    return prefix, suffix, offset
+
+
+def test_a_quote_that_is_a_clause_of_a_wider_window_is_scored_on_its_matching_sub_span():
+    """One character of the anchored clause changed at HEAD -- the smallest
+    drift there is. The window the generator proposes is the whole host
+    sentence, roughly twice the clause's length. The score must reflect the
+    one-character edit, not the window's width.
+    """
+    historical_text = _LEAD_IN + _HOST_SENTENCE + _TRAILER
+    edited_sentence = _HOST_SENTENCE.replace("precision", "precisian")
+    head_text = _LEAD_IN + edited_sentence + _TRAILER
+    window = (len(_LEAD_IN), len(_LEAD_IN) + len(edited_sentence))
+    prefix, suffix, offset = _clause_context(historical_text)
+    assert (window[1] - window[0]) > 1.5 * len(_CLAUSE), (
+        "fixture must actually present a window materially wider than the quote"
+    )
+
+    score = score_candidate(window, head_text, _CLAUSE, prefix, suffix, offset)
+
+    assert score > 0.9, (
+        f"a single-character edit scored {score:.4f} -- a quote that is a sub-span of its "
+        "host sentence must score on how much it changed, not on how much wider than it "
+        "the proposed window happened to be"
+    )
+
+
+def test_an_unrelated_window_stays_low_even_though_alignment_may_trim_it():
+    """The band-sharpening guard. Trimming a window to its best-matching
+    sub-span raises the score of anything it is pointed at, so the fix is only
+    a fix if it raises near-verbatim matches *without* dragging unrelated prose
+    up with them.
+    """
+    historical_text = _LEAD_IN + _HOST_SENTENCE + _TRAILER
+    unrelated = (
+        "Tool schemas are validated against the declared JSON Schema before dispatch, "
+        "and a mismatch is rejected at the boundary."
+    )
+    head_text = _LEAD_IN + unrelated + _TRAILER
+    window = (len(_LEAD_IN), len(_LEAD_IN) + len(unrelated))
+    prefix, suffix, offset = _clause_context(historical_text)
+
+    score = score_candidate(window, head_text, _CLAUSE, prefix, suffix, offset)
+
+    assert score < 0.55, (
+        f"unrelated prose scored {score:.4f} -- alignment must sharpen the band, not "
+        "widen it; a window sharing nothing but ordinary English letters with the quote "
+        "has to stay far below anything a near-verbatim match reaches"
+    )
+
+
+def test_alignment_leaves_a_window_no_wider_than_the_quote_untouched():
+    """There is nothing to trim when the window is already the quote's size or
+    narrower -- alignment must be a no-op there rather than shifting the span.
+    """
+    head_text = f"{_LEAD_IN}{_CLAUSE}{_TRAILER}"
+    window = (len(_LEAD_IN), len(_LEAD_IN) + len(_CLAUSE))
+
+    assert align_candidate(_CLAUSE, head_text, window) == window
+
+
+def test_alignment_trims_a_wider_window_down_to_the_region_the_quote_matches():
+    edited_sentence = _HOST_SENTENCE.replace("precision", "precisian")
+    edited_clause = _CLAUSE.replace("precision", "precisian")
+    head_text = _LEAD_IN + edited_sentence + _TRAILER
+    window = (len(_LEAD_IN), len(_LEAD_IN) + len(edited_sentence))
+
+    start, end = align_candidate(_CLAUSE, head_text, window)
+
+    assert (start, end) != window, "a window wider than the quote must actually be trimmed"
+    assert window[0] <= start and end <= window[1], "the aligned span must stay inside the window"
+    assert head_text[start:end] == edited_clause
+
+
+def test_alignment_tracks_a_passage_that_grew_rather_than_forcing_the_quotes_own_length():
+    """The clause was reworded longer at HEAD. The aligned span is the region
+    the quote matches, so it follows the passage's new length instead of
+    truncating it -- what a reader is shown is the passage as it now reads.
+    """
+    reworded_clause = "trading away recall precision in return for storage economy"
+    reworded_sentence = _HOST_SENTENCE.replace(_CLAUSE, reworded_clause)
+    head_text = _LEAD_IN + reworded_sentence + _TRAILER
+    window = (len(_LEAD_IN), len(_LEAD_IN) + len(reworded_sentence))
+
+    start, end = align_candidate(_CLAUSE, head_text, window)
+
+    assert head_text[start:end] == reworded_clause
+    assert end - start > len(_CLAUSE), (
+        "the aligned span must be able to exceed the quote's own length -- a passage "
+        "that grew is still the passage"
+    )
+
+
+def test_score_candidates_reports_the_sub_span_it_actually_scored():
+    """A caller that renders the winning span to a human -- the resolution
+    ladder does -- must be handed the span whose score it is showing, not the
+    wider window that span was found inside.
+    """
+    historical_text = _LEAD_IN + _HOST_SENTENCE + _TRAILER
+    edited_sentence = _HOST_SENTENCE.replace("precision", "precisian")
+    head_text = _LEAD_IN + edited_sentence + _TRAILER
+    window = (len(_LEAD_IN), len(_LEAD_IN) + len(edited_sentence))
+    prefix, suffix, offset = _clause_context(historical_text)
+
+    result = score_candidates((window,), head_text, _CLAUSE, prefix, suffix, offset)
+
+    assert result is not None
+    winning_span, _score = result
+    assert winning_span == align_candidate(_CLAUSE, head_text, window)
+    assert head_text[winning_span[0] : winning_span[1]] == _CLAUSE.replace("precision", "precisian")

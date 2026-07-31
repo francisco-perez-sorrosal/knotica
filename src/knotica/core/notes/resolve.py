@@ -37,7 +37,11 @@ The ladder, in order:
 7. ``score >= guess_threshold`` -- ``fuzzy`` at ``span`` fidelity, the candidate span carries
    the placement and ``best_guess`` stays ``None`` (``span`` already claims a location;
    ``best_guess`` would duplicate it under a contract that means the opposite -- "might be
-   here, not claiming it"). Stop.
+   here, not claiming it"). The span reported is the scorer's *aligned* sub-span -- the
+   region of the winning window the quote actually matches, which is the region the score
+   describes -- not the wider sentence-bounded window rung 5 proposed it inside. It tracks
+   the passage as it now reads, so a passage reworded longer yields a longer span; it is
+   still a similarity match, not a character-exact one. Stop.
 8. The historical enclosing heading -- the nearest heading line at or above the historical
    offset in ``historical_text``, any level -- still exists as a heading in ``head_text`` at
    HEAD (any level; the first match wins) -- ``orphaned`` at ``section`` fidelity.
@@ -49,8 +53,9 @@ The ladder, in order:
    either way strictly below ``guess_threshold``, so a low-confidence match is never silently
    treated as good enough. Stop.
 9. The heading is gone too, but a raw score exists and ``score >= complete_orphan_threshold``
-   -- ``orphaned`` at ``page`` fidelity, ``best_guess`` is the scorer's own argmax candidate
-   window (no structural evidence this time, only the best-scoring similarity).
+   -- ``orphaned`` at ``page`` fidelity, ``best_guess`` is the scorer's own argmax candidate,
+   aligned the same way rung 7's span is (no structural evidence this time, only the
+   best-scoring similarity).
 10. Otherwise -- ``orphaned`` at ``page`` fidelity, ``best_guess: None`` (a garbage guess is
     worse than no guess), but a score is still computed and reported when one exists. When no
     candidate was ever scored (rung 5 returned nothing) *and* no heading survived either,
@@ -129,6 +134,15 @@ class Projection:
     ``score`` is ``None`` if and only if ``fidelity is None or fidelity == "topic"`` --
     scoring only ever runs once a page exists to score candidates against. ``best_guess``,
     when populated, always carries an accompanying ``score``.
+
+    ``score_measured`` says whether ``score`` is an actual comparison or a sentinel the
+    ladder had to supply. It is ``True`` for a verbatim hit (``1.0`` is exact) and wherever
+    candidate scoring produced a raw value; it is ``False`` at rung 8's no-candidate clamp
+    and at rung 10's :data:`_NO_CANDIDATE_FLOOR_SCORE`, where nothing was compared at all.
+    Consumers that *render* the score to a human must not present an unmeasured value as a
+    similarity percentage: the rung-8 clamp is ``guess_threshold - CLAMP_EPSILON``, which is
+    a **ceiling**, so the case with the least evidence would otherwise display the highest
+    confidence any orphan can show. ``score_measured`` implies ``score is not None``.
     """
 
     status: ProjectionStatus
@@ -136,6 +150,7 @@ class Projection:
     span: tuple[int, int] | None
     score: float | None
     best_guess: tuple[int, int] | None
+    score_measured: bool = False
 
     def __post_init__(self) -> None:
         is_invalid = self.status == "anchor-invalid"
@@ -152,6 +167,9 @@ class Projection:
 
         if self.best_guess is not None and self.score is None:
             raise ValueError("A projection with a best_guess must carry a score.")
+
+        if self.score_measured and self.score is None:
+            raise ValueError("A projection with no score cannot report a measured one.")
 
 
 def resolve_anchor(
@@ -176,12 +194,12 @@ def resolve_anchor(
     quote_length = len(anchor.quote)
     if head_text[historical_offset : historical_offset + quote_length] == anchor.quote:
         span = (historical_offset, historical_offset + quote_length)
-        return _projection("exact", "span", span=span, score=1.0)
+        return _projection("exact", "span", span=span, score=1.0, score_measured=True)
 
     nearest_offset = _nearest_occurrence(head_text, anchor.quote, historical_offset)
     if nearest_offset is not None:
         span = (nearest_offset, nearest_offset + quote_length)
-        return _projection("shifted", "span", span=span, score=1.0)
+        return _projection("shifted", "span", span=span, score=1.0, score_measured=True)
 
     return _resolve_by_similarity(
         historical_text,
@@ -216,7 +234,7 @@ def _resolve_by_similarity(
     raw_span, raw_score = scored if scored is not None else (None, None)
 
     if raw_score is not None and raw_score >= guess_threshold:
-        return _projection("fuzzy", "span", span=raw_span, score=raw_score)
+        return _projection("fuzzy", "span", span=raw_span, score=raw_score, score_measured=True)
 
     heading = _historical_enclosing_heading(historical_text, historical_offset)
     section_span = _surviving_section_span(head_text, heading) if heading is not None else None
@@ -228,12 +246,21 @@ def _resolve_by_similarity(
         # in notes_config.py -- this module is deliberately config-free and takes raw floats
         # from any caller), which would otherwise clamp to a negative score here.
         clamped_score = max(0.0, clamped_score)
-        return _projection("orphaned", "section", score=clamped_score, best_guess=section_span)
+        return _projection(
+            "orphaned",
+            "section",
+            score=clamped_score,
+            best_guess=section_span,
+            score_measured=raw_score is not None,
+        )
 
     page_score = raw_score if raw_score is not None else _NO_CANDIDATE_FLOOR_SCORE
+    measured = raw_score is not None
     if page_score >= complete_orphan_threshold:
-        return _projection("orphaned", "page", score=page_score, best_guess=raw_span)
-    return _projection("orphaned", "page", score=page_score)
+        return _projection(
+            "orphaned", "page", score=page_score, best_guess=raw_span, score_measured=measured
+        )
+    return _projection("orphaned", "page", score=page_score, score_measured=measured)
 
 
 def _projection(
@@ -243,9 +270,15 @@ def _projection(
     span: tuple[int, int] | None = None,
     score: float | None = None,
     best_guess: tuple[int, int] | None = None,
+    score_measured: bool = False,
 ) -> Projection:
     return Projection(
-        status=status, fidelity=fidelity, span=span, score=score, best_guess=best_guess
+        status=status,
+        fidelity=fidelity,
+        span=span,
+        score=score,
+        best_guess=best_guess,
+        score_measured=score_measured,
     )
 
 

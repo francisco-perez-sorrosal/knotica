@@ -504,3 +504,93 @@ def test_the_same_small_edit_scores_materially_the_same_near_the_top_of_a_page_a
         "the page must not dominate the match score; the same edit to the same passage "
         "should score materially the same wherever on the page it sits"
     )
+
+
+# ---------------------------------------------------------------------------
+# Multi-sentence quotes: a window must be able to span consecutive sentences.
+#
+# A window extended to exactly one sentence can never cover a quote that spans
+# two or three of them, so such a quote is unrecoverable at any threshold --
+# no scorer can rank a window that was never proposed. The extension must
+# therefore keep absorbing neighbouring sentences whenever the quote outruns
+# the sentence its seed word fell in, while still respecting the very
+# boundaries the single-sentence case respects: the structural block the seed
+# occurrence sits in, and the length cap.
+# ---------------------------------------------------------------------------
+
+_MULTI_LEAD_IN = "Long-horizon agents cannot retain every interaction at full fidelity."
+_MULTI_FIRST = (
+    "Episodic traces are compressed into semantic summaries during idle periods, "
+    "trading recall precision for storage economy."
+)
+_MULTI_SECOND = "That tradeoff stays invisible until the corpus grows past a few thousand pages."
+_MULTI_THIRD = "Most teams discover it only when retrieval quality quietly degrades."
+_MULTI_TRAILER = "The result is a store whose size grows sublinearly with elapsed time."
+_MULTI_QUOTE = f"{_MULTI_FIRST} {_MULTI_SECOND} {_MULTI_THIRD}"
+_MULTI_HEAD_TEXT = (
+    "# Agent memory\n\n"
+    "## Consolidation\n\n"
+    + " ".join([_MULTI_LEAD_IN, _MULTI_FIRST, _MULTI_SECOND, _MULTI_THIRD, _MULTI_TRAILER]).replace(
+        "precision", "precisian"
+    )
+    + "\n\n## Retrieval\n\nRetrieval over consolidated summaries is cheaper but coarser.\n"
+)
+_MULTI_EDITED_PASSAGE = _MULTI_QUOTE.replace("precision", "precisian")
+
+
+def test_a_window_spans_consecutive_sentences_when_the_quote_outruns_one_sentence():
+    """The three-sentence quote is longer than any single sentence of the
+    paragraph it was captured from, so a window bounded by one sentence can
+    never cover it. At least one proposed window must span the whole passage.
+    """
+    passage_start = _MULTI_HEAD_TEXT.index(_MULTI_EDITED_PASSAGE)
+    passage_end = passage_start + len(_MULTI_EDITED_PASSAGE)
+    assert len(_MULTI_FIRST) < len(_MULTI_QUOTE), (
+        "fixture must actually make the quote outrun its own first sentence"
+    )
+
+    candidates = generate_candidates(_MULTI_QUOTE, _MULTI_HEAD_TEXT)
+
+    assert _valid_windows(candidates, _MULTI_HEAD_TEXT)
+    covering = [
+        (start, end) for start, end in candidates if start <= passage_start and end >= passage_end
+    ]
+    assert covering, (
+        "a quote spanning three consecutive sentences must produce at least one window "
+        "that covers all three -- a window clipped to the single sentence its seed word "
+        "fell in leaves the rest of the quote unmatchable at any threshold"
+    )
+
+
+def test_widening_across_sentences_never_crosses_a_structural_block_boundary():
+    """Absorbing neighbouring sentences must not become a licence to absorb
+    page chrome: the paragraph under study sits between two heading lines, and
+    a window widened past either of them would spend the length cap on
+    structure instead of prose -- the same failure the backward-boundary fix
+    already ruled out for single-sentence windows.
+
+    Scoped to the windows that actually cover the passage. A seed word that
+    happens to occur *inside* a heading line legitimately seeds its own window
+    there; that is the seeding rule, not the extension rule, and is not what
+    this test is about.
+    """
+    passage_start = _MULTI_HEAD_TEXT.index(_MULTI_EDITED_PASSAGE)
+    passage_end = passage_start + len(_MULTI_EDITED_PASSAGE)
+
+    candidates = generate_candidates(_MULTI_QUOTE, _MULTI_HEAD_TEXT)
+
+    chrome = [
+        (start, end)
+        for start, end in candidates
+        if start < passage_end
+        and end > passage_start
+        and (
+            "# Agent memory" in _MULTI_HEAD_TEXT[start:end]
+            or "## Consolidation" in _MULTI_HEAD_TEXT[start:end]
+            or "## Retrieval" in _MULTI_HEAD_TEXT[start:end]
+        )
+    ]
+    assert not chrome, (
+        "widening a window across sentence boundaries must still stop at the structural "
+        f"block the seed occurrence sits in; these windows swallowed a heading: {chrome}"
+    )
