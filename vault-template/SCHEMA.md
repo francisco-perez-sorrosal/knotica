@@ -146,7 +146,7 @@ After the body (or if the note has no body), you can add an optional `## Anchors
 Under this heading, list one anchor per bullet point. The format is strict but tolerant:
 
 ```markdown
-- [[<vault-path>[#<Heading>]]] — `<fidelity>` · pinned@`<sha>`[ · at=<int>]
+- [[<vault-path>[#<Heading>]]] — `<fidelity>` · pinned@`<sha>`[ · at=<int>][ · <kind>]
   > <quote>
 ```
 
@@ -155,12 +155,15 @@ Under this heading, list one anchor per bullet point. The format is strict but t
 - `[[vault-path]]` — **optional.** A wikilink to the page you're pinning, written without the `.md` suffix, as Obsidian expects.
   - The optional `#<Heading>` after the path names a specific section. Omit it to pin the whole page.
   - Omit the wikilink entirely when the note belongs to the topic but not to any one page. Write the bullet as `` - `topic` · pinned@`<sha>` `` and keep the quote underneath — that way the passage you were reacting to is still recorded even though nothing points at a page.
-- `<fidelity>` — how specific the pin is: `span` (a single sentence or phrase), `page` (the whole page), or `topic` (the topic as a whole, no specific page). Two further values, `block` and `section`, are not yet produced; a file containing one is read without complaint and left untouched.
-- `pinned@`<sha>`` — the git commit SHA the page was at when you read it. Backticks are required. This is what makes the passage permanently recoverable: however much the page is rewritten later, the text you actually saw can always be retrieved from that commit.
+- `<fidelity>` — how specific the pin is: `span` (a single sentence or phrase), `page` (the whole page), or `topic` (the topic as a whole, no specific page). Write one of these three when you hand-author a bullet. `block` is not yet produced anywhere; a file containing it is read without complaint and left untouched. `section` is different: no writer puts it in a bullet either, but the wiki's resolver can now report it back to you — when the exact passage you pinned is gone but the heading it lived under still exists, the anchor resolves at `section` fidelity instead of failing outright, and that is what you will see when you list or read the note.
+- `pinned@`<sha>`` — the git commit SHA the page was at when you read it. Backticks are required. This is what makes the passage permanently recoverable: however much the page is rewritten later, the text you actually saw can always be retrieved from that commit. `pinned@` is the fixed token for every anchor bullet regardless of `<kind>` below — a corrected anchor is still written `pinned@`<sha>``, never `reanchored@`<sha>``.
 - `<quote>` — **optional.** The exact text you're pinning, on the following line, beginning with `>`. **Copy it character-for-character from the page** — it is matched verbatim to locate your note later, so an approximation still stores fine but will not be found, and the note will read as unanchored. Omit the line entirely if you're pinning a whole page rather than a passage.
 - `at=<int>` — **optional, and only ever needed if you're writing a bullet by hand.** A trailing `· at=<int>` after `pinned@`<sha>`` disambiguates *which* occurrence of the quote on the page is meant, for the rare case where the quote appears more than once. Tools that capture an anchor add it automatically whenever it's needed; when hand-writing an anchor, omit it unless your quote repeats on the page.
+- `<kind>` — **optional; a bullet with no trailing kind token means `pinned`**, so every note already on disk keeps parsing exactly as before and the common case carries no extra word. Otherwise it names what this particular bullet represents: `reanchored` (a human confirmed a new page or passage for a stale pin), `kept` (a human reviewed the existing pin and confirmed it still holds), or `detached` (the note no longer points at that page at all).
 
 A bullet needs at minimum a fidelity and a `pinned@` token — that pair is what marks it as an anchor rather than an ordinary list item.
+
+**Anchors are an append-only history.** A correction always *appends* a new bullet; nothing earlier is ever edited or deleted, so an older pin stays exactly as readable as the day it was written. When a page has more than one bullet, the newest one is the one currently in effect — that is worked out from bullet order alone, not stated anywhere in the file. `detached` is terminal for that page: once written, the note stops resolving against that page unless a later bullet for the same page appends a fresh pin, which reopens it exactly like any other correction.
 
 **Full example:**
 

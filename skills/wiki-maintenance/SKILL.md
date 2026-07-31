@@ -107,8 +107,11 @@ gap directly.
 
 To recall notes, use `notes action=list`: notes sit outside the wiki corpus, so `search` will
 never find one. Filter by `intent` (`reflection`/`dispute`/`gap`/`question`) or by resolved anchor
-`status` (`exact`/`shifted`/`orphaned`/`unanchored`); `notes action=read` returns one note in full,
-its text and anchors included.
+`status` — the ladder runs `exact`/`unanchored`/`shifted`/`fuzzy`/`orphaned` in severity order,
+plus `anchor-invalid` for a record whose own quote never matched (corruption, not drift, so it
+sits outside the ladder). "Drifted" — the count `wiki_status` and the SessionStart nudge surface —
+means `fuzzy` or `orphaned`; `notes action=read` returns one note in full, its text and anchors
+included.
 
 ## Schema-first discipline
 
