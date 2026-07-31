@@ -204,7 +204,7 @@ def _read_note(vault: Path, note_id: str) -> NoteDocument:
 # ---------------------------------------------------------------------------
 
 
-def test_reanchor_appends_a_new_reanchored_anchor_leaving_the_original_byte_identical(
+def test_reanchor_appends_a_new_reanchored_anchor_leaving_the_original_record_unchanged(
     template_vault: Path,
 ):
     note_id = _seed_captured_note(
@@ -226,12 +226,159 @@ def test_reanchor_appends_a_new_reanchored_anchor_leaving_the_original_byte_iden
     after = _read_note(template_vault, note_id)
     assert len(after.anchors) == 2, "reanchor must append, never replace"
     assert after.anchors[0] == original_anchor, (
-        "the original anchor of record must be byte-unchanged after a reanchor -- correcting "
-        "a note must never rewrite what it corrects"
+        "the original anchor of record must survive a reanchor unchanged -- correcting a note "
+        "must never rewrite what it corrects. NOTE: this compares parsed records, which are "
+        "insensitive to on-disk formatting; the byte-level guarantee is asserted separately "
+        "below, because the note file is the artifact and the tuple is not"
     )
     assert after.anchors[1].kind == "reanchored"
     assert after.anchors[1].page == new_page
     assert after.anchors[1].quote == new_quote
+
+
+def test_reanchor_leaves_every_prior_byte_of_the_note_file_unchanged(template_vault: Path):
+    """The append-only guarantee asserted on the artifact, not on the parse.
+
+    The record-level test above compares parsed `AnchorRecord` dataclasses, and
+    `AnchorRecord` equality is insensitive to on-disk formatting: extra spaces
+    around a separator, a tab for a space, trailing whitespace, or an inserted
+    blank line all parse to an equal record. So a serializer that reformatted
+    the anchors section on every write would rewrite the anchor of record's
+    bytes and that assertion would still hold.
+
+    The contract is about the file. A note is a plain-text artifact the user
+    owns, hand-edits in Obsidian, and reads back through `git diff` -- so
+    "never modified or removed" is a claim about bytes on disk. Asserting the
+    prior content is a strict byte *prefix* of the new content is the strongest
+    form available: it pins the anchor of record, every intervening anchor, the
+    frontmatter, and the body all at once, and it can only pass if the write
+    was a pure append.
+    """
+    note_id = _seed_captured_note(
+        template_vault,
+        page_relpath=f"{TOPIC}/reanchor-bytes-original.md",
+        quote="the passage whose bytes must not move",
+    )
+    path = template_vault / _note_path(note_id)
+    before_bytes = path.read_bytes()
+    new_page = f"{TOPIC}/reanchor-bytes-corrected.md"
+    new_quote = "the passage a human confirmed instead"
+    _seed_page(
+        template_vault, new_page, f"# Corrected\n\n{new_quote}.\n", "test: seed corrected page"
+    )
+
+    _success(_reanchor(template_vault, TOPIC, note_id, 0, page=new_page, quote=new_quote))
+
+    after_bytes = path.read_bytes()
+    assert after_bytes.startswith(before_bytes), (
+        "a reanchor must be a pure append: every byte the note file already had must still be "
+        "there, in the same order, before the new anchor. If this fails, something rewrote "
+        "content the user owns -- check the serializer before assuming the test is wrong"
+    )
+    assert len(after_bytes) > len(before_bytes), (
+        "sanity: the reanchor must actually have appended something"
+    )
+
+
+def test_detach_leaves_every_prior_byte_of_the_note_file_unchanged(template_vault: Path):
+    """`detach`'s half of the byte-level guarantee -- see the reanchor twin above.
+
+    Detach is the more dangerous of the two: it appends a *terminal* record, so
+    an implementation that "marked" the target rather than appending would look
+    correct at the record level while rewriting the very anchor it terminates.
+    """
+    note_id = _seed_captured_note(
+        template_vault,
+        page_relpath=f"{TOPIC}/detach-bytes-original.md",
+        quote="the passage this note will stop pointing at",
+    )
+    path = template_vault / _note_path(note_id)
+    before_bytes = path.read_bytes()
+
+    _success(_detach(template_vault, TOPIC, note_id, 0))
+
+    after_bytes = path.read_bytes()
+    assert after_bytes.startswith(before_bytes), (
+        "a detach must be a pure append: terminating an anchor must not rewrite it"
+    )
+    assert len(after_bytes) > len(before_bytes), (
+        "sanity: the detach must actually have appended a terminal record"
+    )
+
+
+def test_reanchor_normalizes_a_hand_authored_anchor_bullets_formatting(template_vault: Path):
+    """Characterization of a known append-only gap -- see `td-027`.
+
+    Hand-authoring is a first-class capture surface: a note written directly in
+    Obsidian must be read, resolved and listed identically to a tool-captured
+    one. But `reanchor` parses the whole document and reserializes it, so any
+    valid-but-non-canonical formatting the user typed -- doubled spaces around
+    a separator, an extra space after the quote marker -- is rewritten to the
+    serializer's canonical form on a *different* anchor than the one being
+    corrected.
+
+    The parsed record survives intact, which is why the record-level tests pass
+    and why this went unnoticed. What does not survive is the user's own bytes,
+    in the user's own file, written by an operation whose contract says it
+    never modifies what it corrects.
+
+    This test pins the current behaviour rather than asserting the desired one,
+    so the gap is visible where the next reader will look and cannot silently
+    get worse. **When `td-027` is fixed, this test should start failing** --
+    replace it with the byte-prefix assertion its two siblings above use.
+    """
+    note_id = "20260730-120000-hand-authored-formatting"
+    page = f"{TOPIC}/hand-authored-target.md"
+    quote = "the passage the user pinned by hand"
+    _seed_page(
+        template_vault, page, f"# Seed page\n\n{quote}.\n", "test: seed hand-authored target"
+    )
+    sha = git_head_sha(template_vault)
+    hand_authored = (
+        "---\n"
+        "type: note\n"
+        "schema_version: 1\n"
+        f"id: {note_id}\n"
+        f"topic: {TOPIC}\n"
+        "intent: reflection\n"
+        "created: 2026-07-30\n"
+        "updated: 2026-07-30\n"
+        "status: active\n"
+        "tags: []\n"
+        "---\n"
+        "\n"
+        "a note the user typed themselves in Obsidian\n"
+        "\n"
+        "## Anchors\n"
+        "\n"
+        f"-  [[{page.removesuffix('.md')}]]  —  `span`  ·  pinned@`{sha}`\n"
+        f"   >  {quote}\n"
+    )
+    path = template_vault / _note_path(note_id)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(hand_authored, encoding="utf-8")
+    run_git(template_vault, "add", "-A")
+    run_git(template_vault, "commit", "-m", "test: seed a hand-authored note")
+    before_bytes = path.read_bytes()
+
+    new_page = f"{TOPIC}/hand-authored-corrected.md"
+    new_quote = "the passage a human confirmed instead"
+    _seed_page(
+        template_vault, new_page, f"# Corrected\n\n{new_quote}.\n", "test: seed corrected page"
+    )
+    _success(_reanchor(template_vault, TOPIC, note_id, 0, page=new_page, quote=new_quote))
+
+    after = _read_note(template_vault, note_id)
+    assert after.anchors[0].quote == quote, (
+        "the parsed record survives -- that much the record-level tests already prove"
+    )
+    assert after.anchors[0].pinned_at == sha
+    after_bytes = path.read_bytes()
+    assert not after_bytes.startswith(before_bytes), (
+        "KNOWN GAP td-027: if this assertion starts failing, reanchor has been taught to preserve "
+        "hand-authored bytes -- delete this test and use the byte-prefix assertion instead"
+    )
+    assert b"-  [[" not in after_bytes, "the doubled spacing the user typed is gone"
 
 
 def test_reanchor_leaves_effective_anchor_pointing_at_the_new_anchor(template_vault: Path):
@@ -400,7 +547,7 @@ def test_detach_appends_a_terminal_detached_record_and_effective_anchor_becomes_
     assert effective_anchor(after) is None
 
 
-def test_detach_leaves_every_prior_anchor_byte_identical(template_vault: Path):
+def test_detach_leaves_every_prior_anchor_record_unchanged(template_vault: Path):
     note_id = _seed_captured_note(
         template_vault,
         page_relpath=f"{TOPIC}/detach-chain-original.md",
