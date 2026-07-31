@@ -921,6 +921,47 @@ def _seed_total_orphan_note(vault: Path, note_id: str) -> str:
     return quote
 
 
+def _seed_surviving_heading_orphan_note(vault: Path, note_id: str) -> str:
+    """A note whose passage was deleted outright while its enclosing heading
+    survived, and whose quote shares zero vocabulary with the rewritten page.
+
+    Candidate generation returns nothing, so no similarity is measured at all --
+    but rung 8 still fires on the surviving heading and must supply *some*
+    score to satisfy the resolver's own nullability invariant. The value it
+    supplies is `guess_threshold - CLAMP_EPSILON`, a **ceiling**, so this is
+    the case that reported the highest confidence in the whole queue while
+    having the least evidence in it. Returns the anchor's quote.
+    """
+    quote = "hyperbolic embeddings preserve ultrametric hierarchy under quantisation"
+    heading = "## Retrieval"
+    page = f"{TOPIC}/drift-surviving-heading-target.md"
+    historical = (
+        "# Agent notes\n\n"
+        "Some preface text unrelated to anything specific happening later on here.\n\n"
+        f"{heading}\n\n"
+        f"{quote}\n\n"
+        "Trailing remarks closing out this particular section for now.\n"
+    )
+    head = (
+        "# Agent notes\n\n"
+        "Some preface text unrelated to anything specific happening later on here.\n\n"
+        f"{heading}\n\n"
+        "a brief note about scheduling logistics for next quarter's planning cycle\n\n"
+        "Trailing remarks closing out this particular section for now.\n"
+    )
+    _seed_capture_page(vault, page, historical, "test: seed surviving-heading target")
+    page_sha = git_head_sha(vault)
+    _write_forged_note(
+        vault,
+        note_id,
+        _forged_note(
+            note_id, anchors=(_forged_anchor(page=page, pinned_at=page_sha, quote=quote),)
+        ),
+    )
+    _seed_capture_page(vault, page, head, "test: delete the passage but keep its enclosing heading")
+    return quote
+
+
 def _seed_anchor_invalid_note(vault: Path, note_id: str) -> str:
     """A note whose anchor is corrupt: the quote was never present in the
     historical blob the anchor claims to pin. Returns the anchor's quote.
@@ -1072,6 +1113,38 @@ def test_drift_alternatives_is_empty_when_overlap_falls_below_the_floor(
     assert _item_for(body, orphan_id)["drift"]["alternatives"] == []
 
 
+def test_drift_reports_no_overlap_when_only_the_heading_survived(
+    vault_config: Path, template_vault: Path
+) -> None:
+    """A deleted passage must not out-rank a drifted one.
+
+    When candidate generation finds nothing but the enclosing heading survives,
+    the resolver reports `guess_threshold - CLAMP_EPSILON` internally -- a
+    ceiling, not a measurement. Surfacing it as `overlap` rendered "74% of the
+    pinned passage survives" for a passage that survives not at all, ranking it
+    above a genuine near-match on the same page. The queue must report no
+    overlap here, while still offering the surviving section as a guess: the
+    heading match is structural evidence and stands on its own.
+    """
+    orphan_id = "20260101-090000-heading-survived-note"
+    _seed_surviving_heading_orphan_note(template_vault, orphan_id)
+    server = build_full_server()
+
+    body = assert_success(notes_call(server, "drift", topic=TOPIC))
+
+    drift = _item_for(body, orphan_id)["drift"]
+    assert drift["overlap"] is None, (
+        "nothing was comparable, so there is no survival percentage to report -- "
+        "reporting the clamp ceiling here shows the least evidence as the most confidence"
+    )
+    assert len(drift["alternatives"]) == 1, (
+        "the surviving heading is structural evidence and is still offered as a guess"
+    )
+    assert drift["alternatives"][0]["overlap"] is None, (
+        "a structural guess carries no measured overlap"
+    )
+
+
 def test_drift_anchor_invalid_item_carries_the_raw_quote_and_no_candidate_search(
     vault_config: Path, template_vault: Path
 ) -> None:
@@ -1090,7 +1163,12 @@ def test_drift_anchor_invalid_item_carries_the_raw_quote_and_no_candidate_search
     assert drift["anchor_index"] == 0
     assert drift["pinned_quote"] == quote
     assert drift["live_quote"] == ""
-    assert drift["overlap"] == 0
+    # `None`, never `0` -- "nothing was comparable" is a different claim from
+    # "0% of it survived", and a renderer that cannot tell them apart shows a
+    # number the resolver never measured.
+    assert drift["overlap"] is None, (
+        "no candidate search ran for this record, so there is no overlap to report"
+    )
     assert drift["alternatives"] == []
     # Provisional on representation (an omitted key vs. an explicit null) --
     # either satisfies "carries no rewrite attribution"; `.get` accepts both.

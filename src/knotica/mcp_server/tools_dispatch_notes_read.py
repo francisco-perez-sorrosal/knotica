@@ -312,15 +312,22 @@ def _drift_item(
     complete_orphan_threshold: float,
 ) -> dict[str, Any]:
     note, anchor_index, anchor, projection = member
-    overlap = projection.score
+    # `None` -- not `0.0` -- when the ladder had to supply a sentinel instead of a
+    # measurement. Rung 8's no-candidate clamp is `guess_threshold - CLAMP_EPSILON`,
+    # a *ceiling*, so rendering it as a survival percentage shows the case with the
+    # least evidence as the most confident one. A consumer must distinguish "0% of
+    # it survived" from "nothing was comparable".
+    overlap = projection.score if projection.score_measured else None
     return {
         "note": _note_summary(note),
         "drift": {
             "anchor_index": anchor_index,
             "pinned_quote": anchor.quote,
             "live_quote": _drift_live_quote(store, anchor, projection),
-            "overlap": overlap if overlap is not None else 0.0,
-            "alternatives": _drift_alternatives(anchor, overlap, complete_orphan_threshold),
+            "overlap": overlap,
+            "alternatives": _drift_alternatives(
+                anchor, projection, overlap, complete_orphan_threshold
+            ),
             "rewritten_at": transition.rewritten_at
             if transition and transition.rewritten_at
             else "",
@@ -332,17 +339,37 @@ def _drift_item(
 
 
 def _drift_alternatives(
-    anchor: AnchorRecord, overlap: float | None, complete_orphan_threshold: float
+    anchor: AnchorRecord,
+    projection: Projection,
+    overlap: float | None,
+    complete_orphan_threshold: float,
 ) -> list[dict[str, Any]]:
-    """One alternative when the best-scored candidate clears the floor, else none.
+    """One alternative when there is a guess worth showing, else none.
+
+    Two independent reasons to offer one, because the ladder has two:
+
+    - `projection.best_guess` is populated -- rung 8's *structural* guess (the
+      enclosing heading survived) or rung 9's argmax window. A structural guess
+      stands on the heading match, not on a similarity score, so it is offered
+      regardless of `overlap` and even when nothing was measurable at all. The
+      threshold alone cannot express that: it would drop the guess in exactly
+      the case where the surviving heading is the only trustworthy evidence.
+    - a *measured* `overlap` at or above `complete_orphan_threshold`. This is
+      what carries `fuzzy`, which deliberately sets no `best_guess` -- its
+      `span` already claims the placement, and duplicating it under a field
+      meaning "might be here, not claiming it" would invite a consumer to read
+      the wrong one.
+
+    `anchor-invalid` and deleted-page orphans satisfy neither: no candidate
+    search ran, and no heading was matched.
 
     Candidate generation only ever searches the anchor's own page in this
-    phase, so `page` is always `anchor.page`. `overlap is None` covers both
-    `anchor-invalid` (no candidate search ran at all -- the quote was never
-    in the historical blob, so there is no trustworthy position to search
-    from) and a deleted-page orphan (no page left to search): neither has a
-    candidate to offer, regardless of the configured threshold.
+    phase, so `page` is always `anchor.page`. `overlap` is `None` when the
+    guess is structural rather than measured; the consumer must render that as
+    prose, never as a percentage.
     """
-    if overlap is None or overlap < complete_orphan_threshold:
+    has_structural_guess = projection.best_guess is not None
+    clears_floor = overlap is not None and overlap >= complete_orphan_threshold
+    if not has_structural_guess and not clears_floor:
         return []
     return [{"page": anchor.page, "heading": anchor.heading, "overlap": overlap}]

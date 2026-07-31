@@ -463,7 +463,9 @@ function DriftItemCard({
               </p>
             )}
             <p class="muted notes-drift-overlap">
-              {Math.round(drift.overlap * 100)}% of the pinned passage survives.
+              {drift.overlap === null
+                ? "the section you pinned survived, but none of the passage did — nothing here is comparable to it."
+                : `${Math.round(drift.overlap * 100)}% of the pinned passage survives.`}
             </p>
           </>
         )}
@@ -485,7 +487,10 @@ function DriftItemCard({
                 onChange={() => onSelectAlt(index)}
               />
               {pageLabel(alt.page)}
-              {alt.heading ? ` › ${alt.heading}` : ""} — {Math.round(alt.overlap * 100)}% overlap
+              {alt.heading ? ` › ${alt.heading}` : ""} —{" "}
+              {alt.overlap === null
+                ? "the section survived (no measurable overlap)"
+                : `${Math.round(alt.overlap * 100)}% overlap`}
             </label>
           ))}
         </div>

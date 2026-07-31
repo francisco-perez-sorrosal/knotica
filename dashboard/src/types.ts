@@ -953,26 +953,34 @@ export interface NotesStatusSummary {
 // ---------------------------------------------------------------------------
 
 /**
- * ``notes action=drift``'s scored candidate placement -- unlike
- * ``note_capture``'s own ``alternatives`` (a different, unrelated shape:
- * ``{page, heading}``, no ``overlap``, because nothing was scored there),
- * this one always carries ``overlap`` because candidate generation actually
- * ran and scored it.
+ * ``notes action=drift``'s candidate placement -- unlike ``note_capture``'s
+ * own ``alternatives`` (a different, unrelated shape: ``{page, heading}``,
+ * no ``overlap``, because nothing was scored there), this one carries an
+ * ``overlap`` **when one was measured**. It is `null` for a structural
+ * guess: the enclosing heading survived, so the section is a real placement,
+ * but no passage-level similarity was computed. Render the null case as
+ * prose, never as `0%` and never as a percentage.
  */
 export interface NoteDriftAlternative {
   page: string;
   heading: string;
-  overlap: number;
+  overlap: number | null;
 }
 
 /**
- * ``notes action=drift``'s per-item detail. ``overlap`` is always a number
- * (never absent) -- `0` when nothing was scored (``anchor-invalid`` never
- * runs a candidate search; a total orphan with no surviving vocabulary
- * scores exactly `0`). ``rewritten_at``/``rewritten_by`` are always strings,
- * `""` (never omitted, never null) when there is no rewrite to attribute --
- * every ``anchor-invalid`` item is in that shape, since nothing about the
- * page caused its corruption.
+ * ``notes action=drift``'s per-item detail. ``overlap`` is `null` whenever
+ * the resolver had no measurement to report -- ``anchor-invalid`` (no
+ * candidate search ever ran), a deleted-page orphan (no page left to
+ * search), and the case that matters most: a **surviving heading whose
+ * passage shares no vocabulary with the page at all**, where the ladder
+ * supplies `guess_threshold - CLAMP_EPSILON` internally to satisfy its own
+ * nullability invariant. That value is a *ceiling*, so surfacing it as a
+ * survival percentage showed a deleted passage as the most confident item in
+ * the queue. Distinguish "0% survived" from "nothing was comparable".
+ * ``rewritten_at``/``rewritten_by`` are always strings, `""` (never omitted,
+ * never null) when there is no rewrite to attribute -- every
+ * ``anchor-invalid`` item is in that shape, since nothing about the page
+ * caused its corruption.
  */
 export interface NoteDrift {
   anchor_index: number;
@@ -980,7 +988,7 @@ export interface NoteDrift {
   pinned_quote: string;
   /** The current text at the resolved placement; "" when nothing is confidently placed. */
   live_quote: string;
-  overlap: number;
+  overlap: number | null;
   alternatives: NoteDriftAlternative[];
   rewritten_at: string;
   rewritten_by: string;
