@@ -540,8 +540,8 @@ def report_gap(
     ``write_gap_records`` path in its own ``VaultTransaction`` -- whose
     ``(qa_id, fault_class)`` open-dedup drops a repeat of the same question, so a
     chatty client cannot spam the queue. ``reason`` is advisory context surfaced
-    in the result; the v1 record has no field for it (additive-only: only
-    ``origin`` was added), so it is not persisted. ``clock`` injects the
+    in the result and persisted verbatim (after stripping) as the record's
+    ``reported_reason`` field. ``clock`` injects the
     ``detected_at`` stamp for deterministic tests. Raises a typed ``KnoticaError``
     on an empty/blank question (never fabricates content).
     """
