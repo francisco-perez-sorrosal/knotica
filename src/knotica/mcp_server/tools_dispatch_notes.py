@@ -1,25 +1,27 @@
 """Operator dispatcher ``notes`` -- registers the ``notes`` MCP tool.
 
-Recall, inspection, the drift review queue, and now two correction actions
-over the personal notes layer: ``reanchor`` re-pins an anchor, ``detach``
-records that it no longer points anywhere. Both mutate -- exactly one commit
-per ``apply`` call -- so, unlike ``list``/``read``/``drift``, this dispatcher's
-description now carries the same read/offer confirmation guard every other
+Recall, inspection, the drift review queue, and all four correction/promotion
+actions over the personal notes layer: ``reanchor`` re-pins an anchor,
+``detach`` records that it no longer points anywhere, ``promote`` crosses the
+notes/KB boundary into a curated example or a reported gap, and ``archive``
+flips a note's frontmatter status. All four mutate -- exactly one commit per
+``apply`` call -- so, unlike ``list``/``read``/``drift``, this dispatcher's
+description carries the same read/offer confirmation guard every other
 mutating dispatcher in this codebase states.
 
-**Still-restricted action set.** The full notes design names seven actions;
-``promote`` and ``archive`` are a later phase and are *not* registered here.
-Supplying one is rejected with ``INVALID_ARGUMENT`` rather than accepted and
-quietly ignored -- an action that appears to work and does nothing is worse
-than one that says it does not exist.
+**The full seven-action design is now registered.** ``list``, ``read``,
+``drift``, ``reanchor``, ``detach``, ``promote``, and ``archive`` are all
+live; supplying anything else is rejected with ``INVALID_ARGUMENT`` rather
+than accepted and quietly ignored -- an action that appears to work and does
+nothing is worse than one that says it does not exist.
 
 This module is the thin router: MCP tool registration and dispatch. Per-action
 payload construction lives in two cohesion-scoped sibling modules --
 :mod:`knotica.mcp_server.tools_dispatch_notes_read` (``list``/``read``/
 ``drift``, read-only) and :mod:`knotica.mcp_server.tools_dispatch_notes_mutations`
-(``reanchor``/``detach``, mutating). Shared argument validation and the
-resolved-anchor status vocabulary (``exact``, ``shifted``, ``fuzzy``,
-``orphaned``, ``unanchored``) live in the leaf both sit on,
+(``reanchor``/``detach``/``promote``/``archive``, mutating). Shared argument
+validation and the resolved-anchor status vocabulary (``exact``, ``shifted``,
+``fuzzy``, ``orphaned``, ``unanchored``) live in the leaf both sit on,
 :mod:`knotica.mcp_server.tools_dispatch_notes_common`.
 """
 
@@ -45,7 +47,14 @@ from knotica.mcp_server.tools_dispatch_notes_common import (
     _validate_action,
     _validate_topic,
 )
-from knotica.mcp_server.tools_dispatch_notes_mutations import _detach_payload, _reanchor_payload
+from knotica.mcp_server.tools_dispatch_notes_mutations import (
+    _archive_payload,
+    _DEFAULT_PROMOTE_TARGET,
+    _DEFAULT_VERDICT,
+    _detach_payload,
+    _promote_payload,
+    _reanchor_payload,
+)
 from knotica.mcp_server.tools_dispatch_notes_read import (
     _drift_payload,
     _drift_status as _drift_status,
@@ -61,7 +70,7 @@ __all__ = ["register_dispatch_notes_tools"]
 ToolResult = CallToolResult
 
 _DISPATCHER = "notes"
-_ACTIONS = ("list", "read", "drift", "reanchor", "detach")
+_ACTIONS = ("list", "read", "drift", "reanchor", "detach", "promote", "archive")
 
 _NOTES_DISPATCH_DESCRIPTION = (
     "Browse and correct the personal notes layer (marginalia) for one topic -- "
@@ -92,15 +101,27 @@ _NOTES_DISPATCH_DESCRIPTION = (
     "-- one not already superseded or detached -- and reject an out-of-range or "
     "dead index with INVALID_ARGUMENT before any write; reanchor further rejects "
     "a deleted target page with PAGE_NOT_FOUND, whose fix names `notes "
-    "action=detach` as the fallback. `mode` (default `dry-run`) previews the "
-    "transition -- returning a decision envelope (decision_id, summary, "
-    "context, options, provenance, reason_required) alongside the preview "
-    "fields -- without writing; `mode=apply` performs exactly one commit. "
-    "`mode=apply` never fires from detection alone -- only the dashboard "
-    "operator invokes it, or the user has explicitly confirmed the change; an "
-    "unconfirmed detection routes to `notes action=list` or an offer instead. "
-    "`list`/`read`/`drift` are read-only: no commits, no lock. Pass vault to "
-    "select a configured vault."
+    "action=detach` as the fallback. `action=promote` is the only action here "
+    "that can write outside the notes layer: it grounds a caller-supplied "
+    "`question` in the note's currently-live anchored pages (there is no "
+    "`pages_used` argument -- grounding is always derived server-side, never "
+    "caller-supplied) and writes a curated example (`target=trainset`, the "
+    "default) or a reported gap (`target=gap`, only for a dispute/gap/question "
+    "-intent note; a reflection is rejected). `target=golden` always rejects -- "
+    "trainset and golden must stay disjoint, so that promotion runs through "
+    "`golden_review` instead. `question` defaults to the note's own text when "
+    "the note's `intent` already is `question`. `action=archive` flips a "
+    "note's `status` to `archived` and touches nothing else -- no anchor "
+    "index, no `## Anchors` change, and it never deletes the file; archiving "
+    "an already-archived note is a no-op (`written=false`, `duplicate=true`). "
+    "`mode` (default `dry-run`) previews the transition -- returning a "
+    "decision envelope (decision_id, summary, context, options, provenance, "
+    "reason_required) alongside the preview fields -- without writing; "
+    "`mode=apply` performs exactly one commit. `mode=apply` never fires from "
+    "detection alone -- only the dashboard operator invokes it, or the user "
+    "has explicitly confirmed the change; an unconfirmed detection routes to "
+    "`notes action=list` or an offer instead. `list`/`read`/`drift` are "
+    "read-only: no commits, no lock. Pass vault to select a configured vault."
 )
 
 
@@ -120,6 +141,10 @@ def register_dispatch_notes_tools(mcp: FastMCP) -> None:
         anchor: int = 0,
         page: str = "",
         quote: str = "",
+        target: str = _DEFAULT_PROMOTE_TARGET,
+        question: str = "",
+        answer: str = "",
+        verdict: str = _DEFAULT_VERDICT,
         vault: str = "",
     ) -> ToolResult:
         return with_resolved_vault(
@@ -138,6 +163,10 @@ def register_dispatch_notes_tools(mcp: FastMCP) -> None:
                 anchor=anchor,
                 page=page,
                 quote=quote,
+                target=target,
+                question=question,
+                answer=answer,
+                verdict=verdict,
             ),
         )
 
@@ -157,6 +186,10 @@ def _dispatch_payload(
     anchor: int,
     page: str,
     quote: str,
+    target: str,
+    question: str,
+    answer: str,
+    verdict: str,
 ) -> dict[str, Any]:
     cleaned_action = _validate_action(action, _DISPATCHER, _ACTIONS)
     cleaned_topic = _validate_topic(store, topic)
@@ -186,6 +219,32 @@ def _dispatch_payload(
             cleaned_topic,
             note_id=note_id,
             anchor_index=anchor,
+            mode=mode,
+            guess_threshold=notes_config.guess_threshold,
+            complete_orphan_threshold=notes_config.complete_orphan_threshold,
+        )
+    if cleaned_action == "promote":
+        return _promote_payload(
+            store,
+            vault_path,
+            vcs,
+            cleaned_topic,
+            note_id=note_id,
+            mode=mode,
+            target=target,
+            question=question,
+            answer=answer,
+            verdict=verdict,
+            guess_threshold=notes_config.guess_threshold,
+            complete_orphan_threshold=notes_config.complete_orphan_threshold,
+        )
+    if cleaned_action == "archive":
+        return _archive_payload(
+            store,
+            vault_path,
+            vcs,
+            cleaned_topic,
+            note_id=note_id,
             mode=mode,
             guess_threshold=notes_config.guess_threshold,
             complete_orphan_threshold=notes_config.complete_orphan_threshold,

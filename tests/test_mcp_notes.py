@@ -31,6 +31,7 @@ from typing import Any
 
 import pytest
 
+from knotica.core.gap_classifier import gaps_path
 from knotica.core.notes.anchor import (
     AnchorRecord,
     NoteDocument,
@@ -40,10 +41,13 @@ from knotica.core.notes.anchor import (
 )
 from knotica.core.notes.resolve import Projection
 from knotica.core.notes.store import ResolvedNote
+from knotica.core.operations.create_topic import qa_dataset_path
 from knotica.core.operations.reanchor_note import detach as core_detach
+from knotica.core.records import GapRecord, QARecord, parse_gaps_jsonl, parse_qa_jsonl
 from knotica.core.status import gather_wiki_status
 from knotica.core.vcs import VaultVcs
 from knotica.mcp_server.tools_dispatch_notes import (
+    _ACTIONS,
     _ANCHOR_STATUSES,
     _LEAST_SEVERE_ANCHOR_STATUS,
     _MOST_SEVERE_ANCHOR_STATUS,
@@ -82,12 +86,12 @@ ERROR_CODES = frozenset(
 #: `<YYYYMMDD-HHMMSS>-<slug>`, slug optional (empty note text has none).
 NOTE_ID_RE = re.compile(r"^\d{8}-\d{6}(-[a-z0-9]+)*$")
 
-#: The remaining two actions the full design names that this phase must not
-#: yet accept. `drift`, `reanchor`, and `detach` were wired (see the
-#: `notes action=drift` and `notes action=reanchor|detach` sections below)
-#: and dropped from this tuple -- each now succeeds instead of rejecting.
-#: `promote`/`archive` stay here until their own turn.
-PHASE_TWO_ACTIONS = ("promote", "archive")
+#: The full seven-action design this dispatcher now registers, in the same
+#: order `_ACTIONS` in `tools_dispatch_notes.py` declares them. Each action
+#: has its own behavioral coverage elsewhere in this file; this tuple exists
+#: to pin the *complete* surface in one place (see
+#: `test_notes_dispatcher_accepts_exactly_the_seven_designed_actions` below).
+ALL_NOTES_ACTIONS = ("list", "read", "drift", "reanchor", "detach", "promote", "archive")
 
 
 # ---------------------------------------------------------------------------
@@ -355,15 +359,21 @@ def test_notes_list_succeeds_as_a_phase_one_action(
     assert_success(notes_call(server, "list", topic=TOPIC))
 
 
-@pytest.mark.parametrize("action", PHASE_TWO_ACTIONS)
-def test_notes_dispatcher_rejects_phase_two_actions_as_invalid_argument(
-    action: str, vault_config: Path, template_vault: Path
+def test_notes_dispatcher_accepts_exactly_the_seven_designed_actions(
+    vault_config: Path, template_vault: Path
 ) -> None:
-    """Phase 2 actions must fail loudly with INVALID_ARGUMENT -- not be
-    silently accepted, and not silently no-op."""
+    """The full notes design names seven actions; this pins the *complete*
+    surface at once -- exactly these seven are registered, and anything
+    else is still rejected with INVALID_ARGUMENT rather than silently
+    accepted or no-op'd. Supersedes the old parametrized rejection test
+    that walked a shrinking `PHASE_TWO_ACTIONS` list: that approach would
+    have parametrized to zero cases once `promote`/`archive` (the last two)
+    landed, which reads as coverage while asserting nothing."""
     del template_vault
+    assert _ACTIONS == ALL_NOTES_ACTIONS
+
     server = build_full_server()
-    err = error_of(notes_call(server, action, topic=TOPIC, note_id="anything"))
+    err = error_of(notes_call(server, "not-a-real-action", topic=TOPIC, note_id="anything"))
     assert_error_shape(err, "INVALID_ARGUMENT")
 
 
@@ -1750,3 +1760,669 @@ def test_notes_reanchor_page_not_found_fix_text_names_detach_as_the_fallback(
         f"the fix text must name `notes action=detach` as the fallback for a deleted "
         f"reanchor target; got {err['fix']!r}"
     )
+
+
+# ---------------------------------------------------------------------------
+# notes action=promote|archive -- the last two actions the full design names.
+# Neither operates per-anchor: `promote`
+# (`core.operations.promote_note.promote_note`) crosses the notes/KB boundary,
+# grounding a caller's question in the note's currently-*live* anchored pages
+# and writing into `qa.jsonl` or the gap queue; `archive`
+# (`core.operations.reanchor_note.archive`) only flips frontmatter `status`
+# and never touches `## Anchors` at all. Both still follow the same
+# dry-run/apply mode pair every mutating action in this dispatcher uses, and
+# both are pinned here at the wire level only -- the operations themselves
+# already have their own behavioral suites
+# (`tests/core/notes/test_promote_note.py`,
+# `tests/core/notes/test_reanchor_note.py`'s `archive` section).
+#
+# Non-vacuity, the same trap as the `reanchor`/`detach` section above:
+# before this step wired them, every call to `promote`/`archive` was
+# rejected `INVALID_ARGUMENT` by the dispatcher's action-enum check, which
+# would have made a code-only assertion pass vacuously. `target=golden` and
+# `target=gap`-on-a-reflection assert the exact `message` from
+# `INTERFACE_DESIGN.md` §8 -- already shipped, verbatim, inside
+# `core.operations.promote_note`, so this is a pin, not a guess. The
+# bad-target/bad-mode/bad-verdict tests assert the rejection's `fix` is
+# distinct from the action-enum check's own fix text, since none of those
+# three carries the same message the action-enum check does.
+#
+# `context`/`provenance`'s exact key sets are unspecified for these two
+# actions too (same reasoning as `reanchor`/`detach` above), so only
+# presence/type is asserted, never a guessed shape.
+# ---------------------------------------------------------------------------
+
+
+def _note_path(note_id: str) -> str:
+    return f"notes/{TOPIC}/{note_id}.md"
+
+
+def _read_qa_records(vault: Path) -> list[QARecord]:
+    path = vault / qa_dataset_path(TOPIC)
+    if not path.exists():
+        return []
+    return parse_qa_jsonl(path.read_text(encoding="utf-8"))
+
+
+def _read_gap_records(vault: Path) -> list[GapRecord]:
+    store = LocalFSStore(vault)
+    path = gaps_path(TOPIC)
+    if not store.exists(path):
+        return []
+    return parse_gaps_jsonl(store.read_text(path))
+
+
+# ---------------------------------------------------------------------------
+# promote -- dry-run preview, decision envelope, apply to each live
+# destination (`trainset`/`gap`)
+# ---------------------------------------------------------------------------
+
+
+def test_notes_promote_dry_run_previews_without_writing(
+    vault_config: Path, template_vault: Path
+) -> None:
+    note_id = "20260101-100000-promote-dry-run-preview"
+    anchor = _forged_anchor(page=f"{TOPIC}/promote-dry-run-preview.md", quote="a grounded claim")
+    _write_forged_note(
+        template_vault, note_id, _forged_note(note_id, intent="question", anchors=(anchor,))
+    )
+    server = build_full_server()
+    before_sha = git_head_sha(template_vault)
+    before_commits = git_commit_count(template_vault)
+
+    body = assert_success(
+        notes_call(
+            server,
+            "promote",
+            topic=TOPIC,
+            note_id=note_id,
+            target="trainset",
+            question="Does this dry-run write anything?",
+            answer="No, dry-run never writes.",
+            mode="dry-run",
+        )
+    )
+
+    assert body["mode"] == "dry-run"
+    assert git_head_sha(template_vault) == before_sha, "a dry-run must never commit"
+    assert git_commit_count(template_vault) == before_commits
+    assert _read_qa_records(template_vault) == [], "a dry-run must not append to qa.jsonl"
+
+
+def test_notes_promote_dry_run_returns_a_decision_envelope(
+    vault_config: Path, template_vault: Path
+) -> None:
+    note_id = "20260101-100100-promote-dry-run-envelope"
+    anchor = _forged_anchor(page=f"{TOPIC}/promote-dry-run-envelope.md", quote="a grounded claim")
+    _write_forged_note(
+        template_vault, note_id, _forged_note(note_id, intent="question", anchors=(anchor,))
+    )
+    server = build_full_server()
+
+    body = assert_success(
+        notes_call(
+            server,
+            "promote",
+            topic=TOPIC,
+            note_id=note_id,
+            target="trainset",
+            question="Does this preview return a decision envelope?",
+            answer="Yes.",
+            mode="dry-run",
+        )
+    )
+
+    _assert_decision_envelope_shape(body)
+
+
+def test_notes_promote_apply_to_trainset_appends_exactly_one_curated_example(
+    vault_config: Path, template_vault: Path
+) -> None:
+    note_id = "20260101-100200-promote-apply-trainset"
+    page = f"{TOPIC}/promote-apply-trainset.md"
+    anchor = _forged_anchor(page=page, quote="a claim worth grounding an eval question in")
+    _write_forged_note(
+        template_vault, note_id, _forged_note(note_id, intent="reflection", anchors=(anchor,))
+    )
+    server = build_full_server()
+    before_commits = git_commit_count(template_vault)
+    question = "Does the grounded claim answer this question?"
+
+    body = assert_success(
+        notes_call(
+            server,
+            "promote",
+            topic=TOPIC,
+            note_id=note_id,
+            target="trainset",
+            question=question,
+            answer="Yes, per the anchored page.",
+            verdict="good",
+            mode="apply",
+        )
+    )
+
+    assert body["mode"] == "apply"
+    assert body["committed"] is True
+    assert git_commit_count(template_vault) == before_commits + 1, (
+        "apply must make exactly one commit"
+    )
+
+    records = _read_qa_records(template_vault)
+    assert len(records) == 1
+    assert records[0].query == question
+    assert records[0].pages_used == (page,), (
+        "grounding must come from the note's own live anchor, never a caller-supplied path"
+    )
+    assert records[0].answer == "Yes, per the anchored page."
+    assert records[0].verdict == "good"
+
+
+def test_notes_promote_apply_to_gap_on_an_opted_in_intent_files_a_reported_gap(
+    vault_config: Path, template_vault: Path
+) -> None:
+    note_id = "20260101-100300-promote-apply-gap"
+    page = f"{TOPIC}/promote-apply-gap.md"
+    anchor = _forged_anchor(page=page, quote="a passage the wiki may be wrong about")
+    _write_forged_note(
+        template_vault, note_id, _forged_note(note_id, intent="dispute", anchors=(anchor,))
+    )
+    server = build_full_server()
+    before_commits = git_commit_count(template_vault)
+    question = "Is the wiki wrong about this passage?"
+
+    body = assert_success(
+        notes_call(
+            server,
+            "promote",
+            topic=TOPIC,
+            note_id=note_id,
+            target="gap",
+            question=question,
+            mode="apply",
+        )
+    )
+
+    assert body["mode"] == "apply"
+    assert body["committed"] is True
+    assert git_commit_count(template_vault) == before_commits + 1
+
+    gaps = _read_gap_records(template_vault)
+    assert len(gaps) == 1
+    assert gaps[0].origin == "reported", "a note-filed gap reuses the existing reported origin"
+    assert gaps[0].question == question, (
+        "the filed gap carries the caller's question, never the note's own body"
+    )
+    assert gaps[0].reference_pages == (page,)
+    assert gaps[0].reported_reason == f"note:{_note_path(note_id)}#0", (
+        "provenance is a note pointer -- topic-relative path and the anchor of record's "
+        "0-based index -- matching the operation-level contract this wires into"
+    )
+
+
+# ---------------------------------------------------------------------------
+# promote -- target routing: `golden` always rejects, `gap` is intent-gated
+# ---------------------------------------------------------------------------
+
+
+def test_notes_promote_target_golden_always_rejects_with_invalid_argument(
+    vault_config: Path, template_vault: Path
+) -> None:
+    note_id = "20260101-100400-promote-golden"
+    anchor = _forged_anchor(page=f"{TOPIC}/promote-golden.md", quote="any grounded claim")
+    _write_forged_note(
+        template_vault, note_id, _forged_note(note_id, intent="question", anchors=(anchor,))
+    )
+    server = build_full_server()
+    before_commits = git_commit_count(template_vault)
+
+    err = error_of(
+        notes_call(
+            server,
+            "promote",
+            topic=TOPIC,
+            note_id=note_id,
+            target="golden",
+            question="Any question at all?",
+        )
+    )
+
+    assert_error_shape(err, "INVALID_ARGUMENT")
+    assert err["message"] == (
+        "promoting to the held-out (golden) set is deferred: trainset and golden must "
+        "stay disjoint, so the choice is one-way and needs its own review gate"
+    ), "the interface design's error grammar text is the documented, executable interface"
+    assert git_commit_count(template_vault) == before_commits, (
+        "golden always rejects before any write"
+    )
+
+
+def test_notes_promote_target_gap_on_a_reflection_note_is_rejected(
+    vault_config: Path, template_vault: Path
+) -> None:
+    note_id = "20260101-100500-promote-gap-reflection"
+    anchor = _forged_anchor(page=f"{TOPIC}/promote-gap-reflection.md", quote="a loose thought")
+    _write_forged_note(
+        template_vault, note_id, _forged_note(note_id, intent="reflection", anchors=(anchor,))
+    )
+    server = build_full_server()
+    before_commits = git_commit_count(template_vault)
+
+    err = error_of(
+        notes_call(
+            server,
+            "promote",
+            topic=TOPIC,
+            note_id=note_id,
+            target="gap",
+            question="Is the wiki wrong here?",
+        )
+    )
+
+    assert_error_shape(err, "INVALID_ARGUMENT")
+    assert err["message"] == (
+        "filing a gap needs a note whose intent is dispute, gap, or question; this one is "
+        "a reflection"
+    )
+    assert git_commit_count(template_vault) == before_commits
+    assert _read_gap_records(template_vault) == []
+
+
+# ---------------------------------------------------------------------------
+# promote -- `question`: required at this boundary, with a defaulting path
+# ---------------------------------------------------------------------------
+
+
+def test_notes_promote_with_an_explicit_question_uses_it_verbatim(
+    vault_config: Path, template_vault: Path
+) -> None:
+    """`question` is required at this boundary; supplying it explicitly must
+    win, regardless of the note's own intent or body."""
+    note_id = "20260101-100600-promote-explicit-question"
+    page = f"{TOPIC}/promote-explicit-question.md"
+    anchor = _forged_anchor(page=page, quote="a stray thought, not phrased as a question")
+    _write_forged_note(
+        template_vault,
+        note_id,
+        _forged_note(
+            note_id,
+            intent="reflection",
+            body="A stray thought, not itself a question.",
+            anchors=(anchor,),
+        ),
+    )
+    server = build_full_server()
+    explicit_question = "Does explicit `question` win over the note's own body?"
+
+    assert_success(
+        notes_call(
+            server,
+            "promote",
+            topic=TOPIC,
+            note_id=note_id,
+            target="trainset",
+            question=explicit_question,
+            answer="Yes.",
+            mode="apply",
+        )
+    )
+
+    records = _read_qa_records(template_vault)
+    assert len(records) == 1
+    assert records[0].query == explicit_question, (
+        "the caller-supplied question must be used verbatim, never the note's own body"
+    )
+
+
+def test_notes_promote_defaults_the_question_from_the_notes_own_text_when_it_already_is_a_question(
+    vault_config: Path, template_vault: Path
+) -> None:
+    """`INTERFACE_DESIGN.md` §1's schema: `question` "[d]efaults to the
+    note's own text when the note already is a question" -- read here as
+    intent `question`, the same enum value `notes action=list`'s `intent`
+    filter and `promote target=gap`'s intent gate both key off. This is the
+    dispatcher's own defaulting logic (`promote_note` itself takes no
+    default -- its `question` parameter is a plain pass-through per
+    `tests/core/notes/test_promote_note.py`'s own interface note), so this
+    test flags exactly what it assumes about "the note's own text":
+    `NoteDocument.body`, verbatim, not some other derived string."""
+    note_id = "20260101-100700-promote-default-question"
+    page = f"{TOPIC}/promote-default-question.md"
+    anchor = _forged_anchor(page=page, quote="the grounding for the note's own question")
+    note_text = "Does removing the reward-shaping term change convergence speed?"
+    _write_forged_note(
+        template_vault,
+        note_id,
+        _forged_note(note_id, intent="question", body=note_text, anchors=(anchor,)),
+    )
+    server = build_full_server()
+
+    assert_success(
+        notes_call(
+            server,
+            "promote",
+            topic=TOPIC,
+            note_id=note_id,
+            target="trainset",
+            answer="Some grounded answer.",
+            mode="apply",
+        )
+    )
+
+    records = _read_qa_records(template_vault)
+    assert len(records) == 1
+    assert records[0].query == note_text, (
+        "with no `question` argument and an intent already 'question', the dispatcher must "
+        "default to the note's own text rather than reject or write an empty query"
+    )
+
+
+# ---------------------------------------------------------------------------
+# promote -- `pages_used` structurally cannot be a caller argument; a note
+# with no live grounding page rejects rather than promoting empty-handed
+# ---------------------------------------------------------------------------
+
+
+def test_notes_dispatcher_schema_has_no_pages_used_property() -> None:
+    """`promote`'s grounding pages are derived server-side from the note's
+    live anchors (`core.operations.promote_note._grounding_pages`) -- there
+    must be no `pages_used`-shaped parameter a caller could use to inject an
+    arbitrary path. A structural guarantee, not merely a validated-away one."""
+    schema = tool_schema(build_full_server(), "notes")
+    assert "pages_used" not in schema["properties"]
+
+
+def test_notes_promote_a_note_with_no_live_pages_is_rejected(
+    vault_config: Path, template_vault: Path
+) -> None:
+    note_id = "20260101-100800-promote-no-live-pages"
+    detached_anchor = _forged_anchor(
+        page=f"{TOPIC}/promote-no-live-pages.md",
+        quote="a passage no longer grounding anything",
+        kind="detached",
+    )
+    _write_forged_note(
+        template_vault,
+        note_id,
+        _forged_note(note_id, intent="question", anchors=(detached_anchor,)),
+    )
+    server = build_full_server()
+    before_commits = git_commit_count(template_vault)
+
+    err = error_of(
+        notes_call(
+            server,
+            "promote",
+            topic=TOPIC,
+            note_id=note_id,
+            target="trainset",
+            question="Can a fully detached note ground a question?",
+            answer="No.",
+            mode="apply",
+        )
+    )
+
+    assert_error_shape(err, "INVALID_ARGUMENT")
+    assert "no live anchored page" in err["message"], (
+        f"the wire-level rejection must surface the same reason the operation gives, not a "
+        f"generic message: {err['message']!r}"
+    )
+    assert git_commit_count(template_vault) == before_commits
+
+
+# ---------------------------------------------------------------------------
+# promote -- error grammar: unknown note_id, bad target, bad verdict
+# ---------------------------------------------------------------------------
+
+
+def test_notes_promote_unknown_note_id_is_note_not_found(
+    vault_config: Path, template_vault: Path
+) -> None:
+    del template_vault
+    server = build_full_server()
+
+    err = error_of(
+        notes_call(
+            server,
+            "promote",
+            topic=TOPIC,
+            note_id="20260101-000000-never-captured",
+            target="trainset",
+            question="Does an unknown note_id fail cleanly?",
+            answer="It must.",
+            mode="apply",
+        )
+    )
+
+    assert_error_shape(err, "NOTE_NOT_FOUND")
+
+
+def test_notes_promote_bad_target_is_rejected_with_invalid_argument(
+    vault_config: Path, template_vault: Path
+) -> None:
+    """`target` outside the enum routes through `promote_note`'s own
+    already-shipped validation, which carries no custom `fix` -- so this
+    pins the code's `DEFAULT_FIX` fallback (`_ANCHOR_NOT_LIVE_FIX`, the same
+    constant the `reanchor`/`detach` section above already names), not a
+    guess: `err(ErrorCode.INVALID_ARGUMENT, "...")` with no `fix=` argument
+    always falls back to it."""
+    note_id = "20260101-100900-promote-bad-target"
+    anchor = _forged_anchor(page=f"{TOPIC}/promote-bad-target.md", quote="anything")
+    _write_forged_note(
+        template_vault, note_id, _forged_note(note_id, intent="question", anchors=(anchor,))
+    )
+    server = build_full_server()
+    before_commits = git_commit_count(template_vault)
+
+    err = error_of(
+        notes_call(
+            server,
+            "promote",
+            topic=TOPIC,
+            note_id=note_id,
+            target="nonsense",
+            question="Whatever",
+            mode="apply",
+        )
+    )
+
+    assert_error_shape(err, "INVALID_ARGUMENT")
+    assert err["fix"] == _ANCHOR_NOT_LIVE_FIX, (
+        f"expected `promote_note`'s own target-validation fallback fix, not the "
+        f"action-enum check's fix -- got {err['fix']!r}"
+    )
+    assert git_commit_count(template_vault) == before_commits
+
+
+def test_notes_promote_bad_verdict_is_rejected_with_invalid_argument(
+    vault_config: Path, template_vault: Path
+) -> None:
+    """`verdict` is not validated anywhere below the dispatcher today --
+    `curate_example` accepts any string verbatim -- so this pins a
+    wire-level contract this step's own plan calls for, not a reuse of
+    existing validation. The exact `fix` wording is therefore genuinely
+    unspecified by any design document; only the discriminator that proves
+    the rejection is verdict-shaped, not the pre-wiring action-enum
+    rejection, is asserted."""
+    note_id = "20260101-101100-promote-bad-verdict"
+    anchor = _forged_anchor(page=f"{TOPIC}/promote-bad-verdict.md", quote="anything")
+    _write_forged_note(
+        template_vault, note_id, _forged_note(note_id, intent="question", anchors=(anchor,))
+    )
+    server = build_full_server()
+    before_commits = git_commit_count(template_vault)
+
+    err = error_of(
+        notes_call(
+            server,
+            "promote",
+            topic=TOPIC,
+            note_id=note_id,
+            target="trainset",
+            question="Whatever",
+            answer="Whatever",
+            verdict="maybe",
+            mode="apply",
+        )
+    )
+
+    assert_error_shape(err, "INVALID_ARGUMENT")
+    assert "Pass action as one of" not in err["fix"], (
+        f"the rejection must come from verdict validation, not the pre-wiring action-enum "
+        f"check -- got {err['fix']!r}"
+    )
+    assert git_commit_count(template_vault) == before_commits
+    assert _read_qa_records(template_vault) == []
+
+
+def test_notes_dispatcher_schema_target_defaults_to_trainset() -> None:
+    schema = tool_schema(build_full_server(), "notes")
+    assert schema["properties"]["target"]["default"] == "trainset"
+
+
+# ---------------------------------------------------------------------------
+# archive -- dry-run preview, decision envelope, apply, idempotency, and the
+# "never deletes" guarantee. Takes no `anchor` index at all: it flips
+# frontmatter `status` and touches `## Anchors` not at all.
+# ---------------------------------------------------------------------------
+
+
+def test_notes_archive_dry_run_previews_without_writing(
+    vault_config: Path, template_vault: Path
+) -> None:
+    note_id = "20260101-101200-archive-dry-run-preview"
+    _write_forged_note(template_vault, note_id, _forged_note(note_id))
+    server = build_full_server()
+    before_sha = git_head_sha(template_vault)
+    before_commits = git_commit_count(template_vault)
+
+    body = assert_success(
+        notes_call(server, "archive", topic=TOPIC, note_id=note_id, mode="dry-run")
+    )
+
+    assert body["mode"] == "dry-run"
+    assert git_head_sha(template_vault) == before_sha, "a dry-run must never commit"
+    assert git_commit_count(template_vault) == before_commits
+    assert _read_note_document(template_vault, note_id).status == "active", (
+        "a dry-run must not flip status"
+    )
+
+
+def test_notes_archive_dry_run_returns_a_decision_envelope(
+    vault_config: Path, template_vault: Path
+) -> None:
+    note_id = "20260101-101300-archive-dry-run-envelope"
+    _write_forged_note(template_vault, note_id, _forged_note(note_id))
+    server = build_full_server()
+
+    body = assert_success(
+        notes_call(server, "archive", topic=TOPIC, note_id=note_id, mode="dry-run")
+    )
+
+    _assert_decision_envelope_shape(body)
+
+
+def test_notes_archive_apply_makes_exactly_one_commit_and_sets_status_to_archived(
+    vault_config: Path, template_vault: Path
+) -> None:
+    note_id = "20260101-101400-archive-apply"
+    original = _forged_note(note_id)
+    _write_forged_note(template_vault, note_id, original)
+    server = build_full_server()
+    before_commits = git_commit_count(template_vault)
+
+    body = assert_success(notes_call(server, "archive", topic=TOPIC, note_id=note_id, mode="apply"))
+
+    assert body["mode"] == "apply"
+    assert body["committed"] is True
+    assert body["written"] is True
+    assert "anchor_index" not in body, "archive touches no anchor and must carry no anchor index"
+    assert git_commit_count(template_vault) == before_commits + 1, (
+        "apply must make exactly one commit"
+    )
+
+    document = _read_note_document(template_vault, note_id)
+    assert document.status == "archived"
+    assert document.anchors == original.anchors, "archiving is a frontmatter-only change"
+
+
+def test_notes_archive_apply_twice_is_idempotent_and_makes_no_second_commit(
+    vault_config: Path, template_vault: Path
+) -> None:
+    note_id = "20260101-101500-archive-twice"
+    _write_forged_note(template_vault, note_id, _forged_note(note_id))
+    server = build_full_server()
+    assert_success(notes_call(server, "archive", topic=TOPIC, note_id=note_id, mode="apply"))
+    before_second_commits = git_commit_count(template_vault)
+
+    second = assert_success(
+        notes_call(server, "archive", topic=TOPIC, note_id=note_id, mode="apply")
+    )
+
+    assert git_commit_count(template_vault) == before_second_commits, (
+        "archiving an already-archived note must be a no-op, not a second commit"
+    )
+    assert second["written"] is False, "the second call changed nothing -- it must say so"
+    assert second["duplicate"] is True, (
+        "a caller must be able to tell 'archived it' from 'it was already archived', using "
+        "the same written/duplicate vocabulary capture_note already returns -- not a new flag"
+    )
+
+
+def test_notes_archive_never_deletes_the_note_file(
+    vault_config: Path, template_vault: Path
+) -> None:
+    note_id = "20260101-101600-archive-never-deletes"
+    _write_forged_note(template_vault, note_id, _forged_note(note_id))
+    server = build_full_server()
+
+    assert_success(notes_call(server, "archive", topic=TOPIC, note_id=note_id, mode="apply"))
+
+    assert (template_vault / _note_path(note_id)).exists(), (
+        "the server never deletes a note; archiving must only flip status"
+    )
+
+
+def test_notes_archive_unknown_note_id_is_note_not_found(
+    vault_config: Path, template_vault: Path
+) -> None:
+    del template_vault
+    server = build_full_server()
+
+    err = error_of(
+        notes_call(
+            server, "archive", topic=TOPIC, note_id="20260101-000000-never-captured", mode="apply"
+        )
+    )
+
+    assert_error_shape(err, "NOTE_NOT_FOUND")
+
+
+# ---------------------------------------------------------------------------
+# promote and archive share the same `mode` validation as reanchor/detach
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize("action", ["promote", "archive"])
+def test_notes_promote_or_archive_bad_mode_is_rejected_with_invalid_argument(
+    action: str, vault_config: Path, template_vault: Path
+) -> None:
+    note_id = f"20260101-101700-{action}-bad-mode"
+    anchor = _forged_anchor(page=f"{TOPIC}/{action}-bad-mode.md", quote="anything")
+    _write_forged_note(
+        template_vault, note_id, _forged_note(note_id, intent="question", anchors=(anchor,))
+    )
+    server = build_full_server()
+    before_commits = git_commit_count(template_vault)
+    kwargs: dict[str, Any] = {"topic": TOPIC, "note_id": note_id, "mode": "sideways"}
+    if action == "promote":
+        kwargs.update(target="trainset", question="Whatever", answer="Whatever")
+
+    err = error_of(notes_call(server, action, **kwargs))
+
+    assert_error_shape(err, "INVALID_ARGUMENT")
+    assert err["fix"] == "Pass mode as one of: dry-run, apply.", (
+        f"expected `_validate_mode`'s own fix, not the action-enum check's fix -- got "
+        f"{err['fix']!r}"
+    )
+    assert git_commit_count(template_vault) == before_commits
