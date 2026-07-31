@@ -89,7 +89,9 @@ Capture with `note_capture` when the user's message **is** the note: an addresse
 this", "worth remembering:") or a reflective aside about what they just read. Pass their words
 verbatim, the passage you displayed as `quote`, and the pages you synthesized it from as
 `pages` — the server pins the strongest anchor it can prove and tells you where it landed in one
-line. Never infer a note from the user thinking aloud, and never write one for them; an
+line. **Prefer one complete sentence as `quote`.** Anchor recovery works on any shape — a
+fragment of a sentence or a multi-sentence block recovers too — but a whole sentence is the
+unit a later rewrite is least likely to dissolve, so it survives best. Never infer a note from the user thinking aloud, and never write one for them; an
 unaddressed reaction gets an offer ("want me to note that?"), not a write.
 
 **Note vs. gap vs. source — one question decides it: does the user want the KB to change?**
