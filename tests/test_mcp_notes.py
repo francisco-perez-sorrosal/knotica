@@ -551,7 +551,11 @@ def _note_with_statuses(*statuses: str) -> ResolvedNote:
         document=document,
         path=f"notes/{TOPIC}/{document.id}.md",
         resolved_anchors=tuple(
-            (anchor, Projection(status=status, fidelity="topic", span=None)) for status in statuses
+            (
+                anchor,
+                Projection(status=status, fidelity="topic", span=None, score=None, best_guess=None),
+            )
+            for status in statuses
         ),
     )
 

@@ -34,6 +34,7 @@ from mcp.types import CallToolResult
 
 from knotica.core.errors import ErrorCode, KnoticaError
 from knotica.core.notes.store import ResolvedNote, read_note
+from knotica.core.notes_config import resolve_notes_config
 from knotica.core.operations.capture_note import capture_note
 from knotica.core.vcs import VaultVcs
 from knotica.mcp_server.vault_ctx import with_resolved_vault
@@ -149,7 +150,15 @@ def _capture_payload(
     path = str(result["path"])
     note_id = str(result["note_id"])
     cleaned_topic = PurePath(path).parent.name
-    resolved = read_note(store, vcs, cleaned_topic, note_id)
+    notes_config = resolve_notes_config()
+    resolved = read_note(
+        store,
+        vcs,
+        cleaned_topic,
+        note_id,
+        guess_threshold=notes_config.guess_threshold,
+        complete_orphan_threshold=notes_config.complete_orphan_threshold,
+    )
     payload: dict[str, Any] = {
         "topic": cleaned_topic,
         "note_id": note_id,

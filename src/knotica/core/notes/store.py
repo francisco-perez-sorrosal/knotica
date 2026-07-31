@@ -59,14 +59,19 @@ def list_notes(
     vcs: VaultVcs,
     topic: str,
     *,
+    guess_threshold: float,
+    complete_orphan_threshold: float,
     anchored_page: str | None = None,
 ) -> NotesListing:
     """Enumerate, parse, and resolve every note under ``notes/<topic>/``.
 
-    ``anchored_page``, when given, restricts the listing to notes with at
-    least one anchor on that vault-relative page path. Read-only throughout:
-    no commit, no lock -- resolution reads the historical blob via
-    ``vcs.read_file_at`` and the current page via ``store.read_text``.
+    ``guess_threshold``/``complete_orphan_threshold`` are the resolution ladder's fuzzy/orphan
+    gates -- required, no defaults, so a caller that forgets to resolve ``[notes]`` config
+    fails loudly (mypy enumerates every call site) rather than silently resolving against a
+    stale default. ``anchored_page``, when given, restricts the listing to notes with at
+    least one anchor on that vault-relative page path. Read-only throughout: no commit, no
+    lock -- resolution reads the historical blob via ``vcs.read_file_at`` and the current page
+    via ``store.read_text``.
     """
     notes: list[ResolvedNote] = []
     skipped_malformed = 0
@@ -78,7 +83,15 @@ def list_notes(
         resolved = ResolvedNote(
             document=document,
             path=path,
-            resolved_anchors=tuple(_resolve_anchors(store, vcs, document.anchors)),
+            resolved_anchors=tuple(
+                _resolve_anchors(
+                    store,
+                    vcs,
+                    document.anchors,
+                    guess_threshold=guess_threshold,
+                    complete_orphan_threshold=complete_orphan_threshold,
+                )
+            ),
         )
         if anchored_page is not None and not _anchors_page(resolved, anchored_page):
             continue
@@ -86,13 +99,27 @@ def list_notes(
     return NotesListing(notes=tuple(notes), skipped_malformed=skipped_malformed)
 
 
-def read_note(store: VaultStore, vcs: VaultVcs, topic: str, note_id: str) -> ResolvedNote | None:
+def read_note(
+    store: VaultStore,
+    vcs: VaultVcs,
+    topic: str,
+    note_id: str,
+    *,
+    guess_threshold: float,
+    complete_orphan_threshold: float,
+) -> ResolvedNote | None:
     """Return the single note ``note_id`` under ``notes/<topic>/``, or ``None``.
 
     ``None`` covers both a missing id and a malformed note file -- callers map
     either to a not-found outcome.
     """
-    listing = list_notes(store, vcs, topic)
+    listing = list_notes(
+        store,
+        vcs,
+        topic,
+        guess_threshold=guess_threshold,
+        complete_orphan_threshold=complete_orphan_threshold,
+    )
     for resolved in listing.notes:
         if resolved.document.id == note_id:
             return resolved
@@ -107,14 +134,24 @@ def _iter_note_paths(store: VaultStore, topic: str) -> list[str]:
 
 
 def _resolve_anchors(
-    store: VaultStore, vcs: VaultVcs, anchors: tuple[AnchorRecord, ...]
+    store: VaultStore,
+    vcs: VaultVcs,
+    anchors: tuple[AnchorRecord, ...],
+    *,
+    guess_threshold: float,
+    complete_orphan_threshold: float,
 ) -> list[tuple[AnchorRecord, Projection]]:
     resolved: list[tuple[AnchorRecord, Projection]] = []
     for anchor in anchors:
         historical_text = vcs.read_file_at(anchor.pinned_at, anchor.page) or ""
-        resolved.append(
-            (anchor, resolve_anchor(historical_text, _head_text(store, anchor), anchor))
+        projection = resolve_anchor(
+            historical_text,
+            _head_text(store, anchor),
+            anchor,
+            guess_threshold=guess_threshold,
+            complete_orphan_threshold=complete_orphan_threshold,
         )
+        resolved.append((anchor, projection))
     return resolved
 
 

@@ -24,6 +24,7 @@ from pathlib import Path
 
 import pytest
 from knotica.core.notes.anchor import AnchorRecord, NoteDocument, serialize_note
+from knotica.core.notes_config import DEFAULT_COMPLETE_ORPHAN_THRESHOLD, DEFAULT_GUESS_THRESHOLD
 from knotica.core.vcs import VaultVcs
 from knotica.store import LocalFSStore
 from support.vault import git_commit_count, git_head_sha, git_status_porcelain, run_git
@@ -102,7 +103,13 @@ def test_listing_a_topic_with_no_notes_directory_at_all_returns_an_empty_listing
     store = LocalFSStore(template_vault)
     vcs = VaultVcs(template_vault)
 
-    listing = list_notes(store, vcs, TOPIC)
+    listing = list_notes(
+        store,
+        vcs,
+        TOPIC,
+        guess_threshold=DEFAULT_GUESS_THRESHOLD,
+        complete_orphan_threshold=DEFAULT_COMPLETE_ORPHAN_THRESHOLD,
+    )
 
     assert listing.notes == ()
     assert listing.skipped_malformed == 0
@@ -117,7 +124,13 @@ def test_listing_an_existing_but_empty_notes_directory_returns_an_empty_listing(
     store = LocalFSStore(template_vault)
     vcs = VaultVcs(template_vault)
 
-    listing = list_notes(store, vcs, TOPIC)
+    listing = list_notes(
+        store,
+        vcs,
+        TOPIC,
+        guess_threshold=DEFAULT_GUESS_THRESHOLD,
+        complete_orphan_threshold=DEFAULT_COMPLETE_ORPHAN_THRESHOLD,
+    )
 
     assert listing.notes == ()
     assert listing.skipped_malformed == 0
@@ -160,7 +173,13 @@ def test_listing_well_formed_notes_returns_each_with_its_resolved_projection(
     store = LocalFSStore(template_vault)
     vcs = VaultVcs(template_vault)
 
-    listing = list_notes(store, vcs, TOPIC)
+    listing = list_notes(
+        store,
+        vcs,
+        TOPIC,
+        guess_threshold=DEFAULT_GUESS_THRESHOLD,
+        complete_orphan_threshold=DEFAULT_COMPLETE_ORPHAN_THRESHOLD,
+    )
 
     assert listing.skipped_malformed == 0
     ids = {resolved.document.id for resolved in listing.notes}
@@ -194,7 +213,14 @@ def test_read_note_returns_the_matching_note_by_id(template_vault: Path):
     store = LocalFSStore(template_vault)
     vcs = VaultVcs(template_vault)
 
-    resolved = read_note(store, vcs, TOPIC, "20260101-090000-findable-note")
+    resolved = read_note(
+        store,
+        vcs,
+        TOPIC,
+        "20260101-090000-findable-note",
+        guess_threshold=DEFAULT_GUESS_THRESHOLD,
+        complete_orphan_threshold=DEFAULT_COMPLETE_ORPHAN_THRESHOLD,
+    )
 
     assert resolved is not None
     assert resolved.document.id == "20260101-090000-findable-note"
@@ -206,7 +232,14 @@ def test_read_note_returns_none_for_an_id_that_does_not_exist(template_vault: Pa
     store = LocalFSStore(template_vault)
     vcs = VaultVcs(template_vault)
 
-    resolved = read_note(store, vcs, TOPIC, "20260101-090000-never-captured")
+    resolved = read_note(
+        store,
+        vcs,
+        TOPIC,
+        "20260101-090000-never-captured",
+        guess_threshold=DEFAULT_GUESS_THRESHOLD,
+        complete_orphan_threshold=DEFAULT_COMPLETE_ORPHAN_THRESHOLD,
+    )
 
     assert resolved is None
 
@@ -232,7 +265,13 @@ def test_a_note_file_missing_required_frontmatter_is_excluded_and_counted(
     store = LocalFSStore(template_vault)
     vcs = VaultVcs(template_vault)
 
-    listing = list_notes(store, vcs, TOPIC)
+    listing = list_notes(
+        store,
+        vcs,
+        TOPIC,
+        guess_threshold=DEFAULT_GUESS_THRESHOLD,
+        complete_orphan_threshold=DEFAULT_COMPLETE_ORPHAN_THRESHOLD,
+    )
 
     assert listing.skipped_malformed == 1
     ids = {resolved.document.id for resolved in listing.notes}
@@ -272,7 +311,13 @@ def test_a_note_with_one_malformed_anchor_bullet_still_lists_its_readable_anchor
     store = LocalFSStore(template_vault)
     vcs = VaultVcs(template_vault)
 
-    listing = list_notes(store, vcs, TOPIC)
+    listing = list_notes(
+        store,
+        vcs,
+        TOPIC,
+        guess_threshold=DEFAULT_GUESS_THRESHOLD,
+        complete_orphan_threshold=DEFAULT_COMPLETE_ORPHAN_THRESHOLD,
+    )
 
     assert listing.skipped_malformed == 0
     resolved = next(
@@ -308,7 +353,14 @@ def test_filtering_by_anchored_page_returns_only_notes_that_anchor_it(template_v
     store = LocalFSStore(template_vault)
     vcs = VaultVcs(template_vault)
 
-    listing = list_notes(store, vcs, TOPIC, anchored_page=f"{TOPIC}/page-a.md")
+    listing = list_notes(
+        store,
+        vcs,
+        TOPIC,
+        guess_threshold=DEFAULT_GUESS_THRESHOLD,
+        complete_orphan_threshold=DEFAULT_COMPLETE_ORPHAN_THRESHOLD,
+        anchored_page=f"{TOPIC}/page-a.md",
+    )
 
     ids = {resolved.document.id for resolved in listing.notes}
     assert ids == {"20260101-090000-anchors-page-a", "20260101-093000-also-anchors-page-a"}
@@ -352,7 +404,13 @@ def test_a_note_captured_then_the_page_edited_around_it_reports_shifted_with_no_
     vcs = VaultVcs(template_vault)
     commits_before = git_commit_count(template_vault)
 
-    listing = list_notes(store, vcs, TOPIC)
+    listing = list_notes(
+        store,
+        vcs,
+        TOPIC,
+        guess_threshold=DEFAULT_GUESS_THRESHOLD,
+        complete_orphan_threshold=DEFAULT_COMPLETE_ORPHAN_THRESHOLD,
+    )
 
     commits_after = git_commit_count(template_vault)
     assert commits_after == commits_before, "reading notes must never create a commit"
@@ -398,7 +456,13 @@ def test_an_anchor_the_quote_never_matched_even_historically_resolves_anchor_inv
     store = LocalFSStore(template_vault)
     vcs = VaultVcs(template_vault)
 
-    listing = list_notes(store, vcs, TOPIC)
+    listing = list_notes(
+        store,
+        vcs,
+        TOPIC,
+        guess_threshold=DEFAULT_GUESS_THRESHOLD,
+        complete_orphan_threshold=DEFAULT_COMPLETE_ORPHAN_THRESHOLD,
+    )
 
     resolved = next(r for r in listing.notes if r.document.id == "20260101-090000-forged-anchor")
     _, projection = resolved.resolved_anchors[0]
@@ -439,7 +503,13 @@ def test_listing_notes_never_acquires_the_vault_lock(
     store = LocalFSStore(template_vault)
     vcs = VaultVcs(template_vault)
 
-    list_notes(store, vcs, TOPIC)
+    list_notes(
+        store,
+        vcs,
+        TOPIC,
+        guess_threshold=DEFAULT_GUESS_THRESHOLD,
+        complete_orphan_threshold=DEFAULT_COMPLETE_ORPHAN_THRESHOLD,
+    )
 
 
 def test_listing_and_reading_notes_leaves_the_working_tree_and_history_untouched(
@@ -466,8 +536,21 @@ def test_listing_and_reading_notes_leaves_the_working_tree_and_history_untouched
     vcs = VaultVcs(template_vault)
     commits_before = git_commit_count(template_vault)
 
-    list_notes(store, vcs, TOPIC)
-    read_note(store, vcs, TOPIC, "20260101-090000-a-note")
+    list_notes(
+        store,
+        vcs,
+        TOPIC,
+        guess_threshold=DEFAULT_GUESS_THRESHOLD,
+        complete_orphan_threshold=DEFAULT_COMPLETE_ORPHAN_THRESHOLD,
+    )
+    read_note(
+        store,
+        vcs,
+        TOPIC,
+        "20260101-090000-a-note",
+        guess_threshold=DEFAULT_GUESS_THRESHOLD,
+        complete_orphan_threshold=DEFAULT_COMPLETE_ORPHAN_THRESHOLD,
+    )
 
     assert git_commit_count(template_vault) == commits_before
     assert git_status_porcelain(template_vault) == ""

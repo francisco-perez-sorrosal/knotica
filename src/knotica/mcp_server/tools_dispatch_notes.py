@@ -33,6 +33,7 @@ from mcp.types import CallToolResult
 
 from knotica.core.errors import ErrorCode, KnoticaError
 from knotica.core.notes.store import NotesListing, ResolvedNote, list_notes
+from knotica.core.notes_config import resolve_notes_config
 from knotica.core.page import TopicNotFoundError
 from knotica.core.schema import validated_topic
 from knotica.core.vcs import VaultVcs
@@ -152,7 +153,14 @@ def _dispatch_payload(
     cleaned_action = _validate_action(action)
     cleaned_topic = _validate_topic(store, topic)
     record_dispatch(_DISPATCHER, cleaned_action, cleaned_topic)
-    listing = list_notes(store, VaultVcs(vault_path), cleaned_topic)
+    notes_config = resolve_notes_config()
+    listing = list_notes(
+        store,
+        VaultVcs(vault_path),
+        cleaned_topic,
+        guess_threshold=notes_config.guess_threshold,
+        complete_orphan_threshold=notes_config.complete_orphan_threshold,
+    )
     if cleaned_action == "read":
         return _read_payload(cleaned_topic, listing, note_id)
     return _list_payload(

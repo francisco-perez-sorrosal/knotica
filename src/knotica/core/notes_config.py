@@ -52,14 +52,21 @@ def resolve_notes_config(
     """Parse ``[notes]`` fresh, or raise on a bad threshold value.
 
     Each key defaults independently -- overriding one leaves the other at its
-    default -- and both are validated as a number in ``[0.0, 1.0]``.
+    default -- and both are validated as a number in ``[0.0, 1.0]``. The two
+    are then cross-checked against each other: ``complete_orphan_threshold``
+    must sit strictly below ``guess_threshold``, or the resolution ladder's
+    graded-recovery band (rung 8, ``orphaned``/``page``-with-a-guess) is
+    empty and silently unreachable.
     """
     section = _load_notes_section(config_path)
+    guess_threshold = _resolve_threshold(section, "guess_threshold", DEFAULT_GUESS_THRESHOLD)
+    complete_orphan_threshold = _resolve_threshold(
+        section, "complete_orphan_threshold", DEFAULT_COMPLETE_ORPHAN_THRESHOLD
+    )
+    _validate_threshold_band(guess_threshold, complete_orphan_threshold)
     return NotesConfig(
-        guess_threshold=_resolve_threshold(section, "guess_threshold", DEFAULT_GUESS_THRESHOLD),
-        complete_orphan_threshold=_resolve_threshold(
-            section, "complete_orphan_threshold", DEFAULT_COMPLETE_ORPHAN_THRESHOLD
-        ),
+        guess_threshold=guess_threshold,
+        complete_orphan_threshold=complete_orphan_threshold,
     )
 
 
@@ -80,6 +87,26 @@ def _resolve_threshold(section: Mapping[str, object], key: str, default: float) 
             f" (e.g. {default}).",
         )
     return value
+
+
+def _validate_threshold_band(guess_threshold: float, complete_orphan_threshold: float) -> None:
+    """Reject a pair that empties the ladder's graded-recovery band.
+
+    Equality is rejected too, not just inversion -- either one leaves rung 8
+    (``orphaned``/``page`` with a guess) unreachable, since anything that
+    could satisfy ``score >= complete_orphan_threshold`` has already fired
+    the looser ``score >= guess_threshold`` guard at rung 6 first.
+    """
+    if complete_orphan_threshold < guess_threshold:
+        return
+    raise _config_error(
+        f"[{NOTES_CONFIG_SECTION}] complete_orphan_threshold ({complete_orphan_threshold!r}) "
+        f"must be strictly below guess_threshold ({guess_threshold!r}), or the graded-recovery "
+        "band between them is empty.",
+        f"Lower [{NOTES_CONFIG_SECTION}] complete_orphan_threshold below guess_threshold, or "
+        f"raise guess_threshold above complete_orphan_threshold, so "
+        "complete_orphan_threshold < guess_threshold holds.",
+    )
 
 
 def _load_notes_section(config_path: str | os.PathLike[str] | None) -> Mapping[str, object]:

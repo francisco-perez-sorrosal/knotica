@@ -26,6 +26,7 @@ from knotica.core.loop_progress import read_progress
 from knotica.core.loop_state import LoopState, compute_gate, read_loop_state
 from knotica.core.metrics import last_eval_summary, read_last_metrics
 from knotica.core.notes.store import ResolvedNote, list_notes
+from knotica.core.notes_config import resolve_notes_config
 from knotica.core.page import TopicNotFoundError
 from knotica.core.gap_classifier import gaps_path
 from knotica.core.gapfill import suggestions_path
@@ -268,7 +269,14 @@ def _notes_summary(store: VaultStore, vcs: VaultVcs, topic: str) -> dict[str, in
     ``anchor-invalid`` (a corrupt record, a data-integrity concern rather than
     "the wiki moved on").
     """
-    listing = list_notes(store, vcs, topic)
+    notes_config = resolve_notes_config()
+    listing = list_notes(
+        store,
+        vcs,
+        topic,
+        guess_threshold=notes_config.guess_threshold,
+        complete_orphan_threshold=notes_config.complete_orphan_threshold,
+    )
     drifted = sum(1 for note in listing.notes if _has_orphaned_anchor(note))
     return {"total": len(listing.notes), "drifted": drifted}
 
