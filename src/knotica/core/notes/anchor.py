@@ -73,6 +73,7 @@ __all__ = [
     "derive_note_id",
     "effective_anchor",
     "escape_anchors_heading",
+    "live_anchors",
     "parse_note",
     "serialize_note",
 ]
@@ -365,15 +366,24 @@ def anchor_of_record(document: NoteDocument) -> AnchorRecord | None:
 
 
 def effective_anchor(document: NoteDocument) -> AnchorRecord | None:
-    """The anchor a reader should currently trust, or ``None`` when detached.
+    """The note's newest pin, regardless of which page it points at.
 
     Unlike :func:`anchor_of_record` (always index 0, immutable, never asked to
-    move), the *effective* anchor is a different question -- which correction
-    is newest -- answered by position rather than a stored flag: the last
-    entry in :attr:`NoteDocument.anchors`. ``kind="detached"`` is terminal --
-    once the newest entry says the note no longer points anywhere, there is no
-    effective anchor left to resolve, even though the anchor of record and the
-    rest of the history stay fully intact.
+    move), this is a different question -- which correction is newest --
+    answered by position rather than a stored flag: the last entry in
+    :attr:`NoteDocument.anchors`. ``kind="detached"`` is terminal -- once the
+    newest entry says the note no longer points anywhere, this returns
+    ``None``, even though the anchor of record and the rest of the history
+    stay fully intact.
+
+    **This is not a liveness primitive.** A note may carry more than one
+    independent anchor, each resolved on its own page; supersession and
+    detachment are per distinct page, not per note (see :func:`live_anchors`).
+    Detaching one page's anchor does not make the note's *other* pages stop
+    resolving, but that is exactly what asking this function "is the note
+    still anchored?" would wrongly imply. Use :func:`live_anchors` for any
+    liveness decision -- which anchors currently resolve, which index is a
+    valid target for a correction, what pages a promoted question may cite.
     """
     if not document.anchors:
         return None
@@ -381,6 +391,33 @@ def effective_anchor(document: NoteDocument) -> AnchorRecord | None:
     if newest.kind == _DETACHED_KIND:
         return None
     return newest
+
+
+def live_anchors(document: NoteDocument) -> tuple[AnchorRecord, ...]:
+    """The currently-live anchors, one per distinct page, in document order.
+
+    Supersession and detachment are per distinct ``page``, not per note: for
+    each page the note has ever anchored, only the newest record for *that*
+    page matters, and it is live unless its own ``kind`` is ``"detached"``.
+    Detaching a page's chain does not blacklist the page -- a later record for
+    the same page, appended after the detach, is live again, exactly like any
+    other correction.
+
+    This is the liveness primitive :func:`effective_anchor` is not: it is what
+    ``reanchor``/``detach`` target validation and the promote bridge's
+    ``pages_used`` derivation must read, since a note-scoped "is there any
+    live anchor" is the wrong question the moment a note carries more than one
+    independent page.
+    """
+    latest_index_by_page: dict[str, int] = {}
+    for index, anchor in enumerate(document.anchors):
+        latest_index_by_page[anchor.page] = index
+    live_indices = sorted(
+        index
+        for index in latest_index_by_page.values()
+        if document.anchors[index].kind != _DETACHED_KIND
+    )
+    return tuple(document.anchors[index] for index in live_indices)
 
 
 def derive_note_id(

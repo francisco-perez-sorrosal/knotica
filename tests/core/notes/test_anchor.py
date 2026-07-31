@@ -1241,3 +1241,113 @@ def test_a_pinned_reanchored_detached_history_round_trips_in_document_order():
     assert reparsed is not None
     assert reparsed.anchors == (pinned, reanchored, detached)
     assert [anchor.kind for anchor in reparsed.anchors] == ["pinned", "reanchored", "detached"]
+
+
+# ---------------------------------------------------------------------------
+# live_anchors: liveness is per distinct page, not per note
+#
+# `effective_anchor` answers "what is this note's newest anchor, regardless
+# of which page it points at" -- a different question from "which of this
+# note's anchors are currently live". Supersession and detachment are per
+# distinct `page`: for each page a note has ever anchored, the newest record
+# for *that* page wins, and only a `detached` record terminates *that page's*
+# own chain. `live_anchors` is the accessor for the second question, and
+# neither it nor `effective_anchor` may be used to answer the other's.
+# ---------------------------------------------------------------------------
+
+
+def test_live_anchors_survives_detachment_of_a_different_pages_anchor():
+    """The bug this correction exists for: detaching page A's anchor must not
+    suppress page B's, which this note also carries and which the detach
+    never touched.
+    """
+    from knotica.core.notes.anchor import live_anchors
+
+    page_a = _anchor(page="agentic-systems/agent-memory.md", pinned_at="9f1a3c0")
+    page_b = _anchor(page="agentic-systems/alignment-failures.md", pinned_at="a3f9c21")
+    page_a_detached = _anchor(
+        page="agentic-systems/agent-memory.md", pinned_at="ff00112", kind="detached"
+    )
+    document = _document_with((page_a, page_b, page_a_detached))
+
+    assert live_anchors(document) == (page_b,)
+
+
+def test_live_anchors_keeps_only_the_newest_record_for_a_twice_reanchored_page():
+    """A page reanchored once still has exactly one live anchor -- the
+    correction, not the anchor it corrected.
+    """
+    from knotica.core.notes.anchor import live_anchors
+
+    page = "agentic-systems/agent-memory.md"
+    first = _anchor(page=page, pinned_at="9f1a3c0", kind="pinned")
+    second = _anchor(page=page, pinned_at="a3f9c21", kind="reanchored")
+    document = _document_with((first, second))
+
+    assert live_anchors(document) == (second,)
+
+
+def test_live_anchors_treats_a_new_pin_on_a_previously_detached_page_as_live_again():
+    """Detachment terminates a chain -- it does not blacklist the page. A
+    later record for the same page, appended after the detach, is live again.
+    """
+    from knotica.core.notes.anchor import live_anchors
+
+    page = "agentic-systems/agent-memory.md"
+    pinned = _anchor(page=page, pinned_at="9f1a3c0", kind="pinned")
+    detached = _anchor(page=page, pinned_at="a3f9c21", kind="detached")
+    repinned = _anchor(page=page, pinned_at="c81f770", kind="pinned")
+    document = _document_with((pinned, detached, repinned))
+
+    assert live_anchors(document) == (repinned,)
+
+
+def test_live_anchors_orders_surviving_anchors_by_their_own_position_in_the_document():
+    """Distinguishes two plausible-but-wrong orderings -- grouping by the page
+    a reader first saw, or sorting by page name -- both of which would put
+    page A's entry before page B's here. The correct order follows each
+    *surviving* record's own position in the append-only history: page A's
+    correction was appended after page B's only anchor, so it comes second.
+    """
+    from knotica.core.notes.anchor import live_anchors
+
+    page_a = _anchor(page="agentic-systems/agent-memory.md", pinned_at="9f1a3c0")
+    page_b = _anchor(page="agentic-systems/alignment-failures.md", pinned_at="a3f9c21")
+    page_a_reanchored = _anchor(
+        page="agentic-systems/agent-memory.md", pinned_at="c81f770", kind="reanchored"
+    )
+    document = _document_with((page_a, page_b, page_a_reanchored))
+
+    assert live_anchors(document) == (page_b, page_a_reanchored)
+
+
+def test_live_anchors_of_a_note_with_no_anchor_history_is_empty():
+    from knotica.core.notes.anchor import live_anchors
+
+    assert live_anchors(_document_with(())) == ()
+
+
+def test_effective_anchor_keeps_its_note_scoped_meaning_even_as_live_anchors_diverges():
+    """`effective_anchor` is not a liveness primitive -- it answers a
+    different question than `live_anchors`: the note's newest pin regardless
+    of page, not which pages currently resolve -- and the two must not be
+    allowed to silently converge in a future change. This is the exact
+    scenario this correction addresses: page A's anchor is detached while
+    page B's stays live, so the two accessors now disagree on purpose.
+    """
+    from knotica.core.notes.anchor import effective_anchor, live_anchors
+
+    page_a = _anchor(page="agentic-systems/agent-memory.md", pinned_at="9f1a3c0")
+    page_b = _anchor(page="agentic-systems/alignment-failures.md", pinned_at="a3f9c21")
+    page_a_detached = _anchor(
+        page="agentic-systems/agent-memory.md", pinned_at="ff00112", kind="detached"
+    )
+    document = _document_with((page_a, page_b, page_a_detached))
+
+    assert effective_anchor(document) is None, (
+        "effective_anchor answers 'the note's newest entry, note-scoped' -- the newest entry "
+        "here is the detach, so returning None is its documented behaviour, not a bug"
+    )
+    assert live_anchors(document) == (page_b,), (
+        "live_anchors answers the different, per-page question -- page B was never touched"
+    )

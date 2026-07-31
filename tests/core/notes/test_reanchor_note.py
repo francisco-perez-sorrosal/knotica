@@ -10,6 +10,23 @@ points anywhere; neither ever touches an anchor that already exists on disk.
 all -- it flips the note's frontmatter status and leaves the `## Anchors`
 section completely alone.
 
+`reanchor` and `detach` act on one anchor at a time, named by its 0-based
+index into the note's append-only history -- index 0 is always the anchor of
+record, and the index is stable because the history never reorders. Only a
+*live* target is addressable: supersession and detachment are per distinct
+page (a note may carry more than one independent anchor, each resolved on
+its own), so an index that is out of range, already superseded by a later
+record on the same page, or itself the terminal `detached` kind is rejected
+with `INVALID_ARGUMENT` before any write -- there is no dedicated code for
+"that anchor is not the live one", so every shape of that rejection funnels
+through the same one. `reanchor` accepts `page`/`quote` and also accepts
+neither: empty means "accept the currently-resolved projection", the drift
+queue's one-click accept, not a separate code path. `archive` takes no index
+at all and is idempotent, mirroring `capture_note`'s own duplicate-call
+precedent: a second `archive` on an already-archived note changes nothing
+and says so through the same `written`/`duplicate` vocabulary, not a new
+flag.
+
 The second invariant, and the highest-value one in this file: **an anchor's
 quote is verbatim knowledge-base prose, and it must never reach a shared,
 scored surface.** `VaultTransaction` writes its `title` argument into both
@@ -21,30 +38,17 @@ distinctive passage pinned by a `reanchor`, or already sitting on a note a
 
 Fixture notes are built through the already-shipped `capture_note` operation
 rather than hand-authored, so every anchor these tests start from is exactly
-what a real capture would produce. The one exception is the "note with zero
-anchors" precondition, unreachable through `capture_note` (which always
-writes at least one anchor, even at topic fidelity) -- that one is placed
-directly via `serialize_note`.
-
-Provisional readings encoded below, pending a design ruling before this
-module is implemented:
-
-- `reanchor`/`detach` operate on a note's *current effective* anchor -- there
-  is no anchor-index argument. A note whose effective anchor is already the
-  terminal `detached` kind (including a note with no anchors at all) rejects
-  both operations before any write.
-- `reanchor` always requires both `page` and `quote`; the "no arguments,
-  accept whatever is currently resolved" variant is out of scope here.
-- The "nothing to correct/detach" failure and the "page no longer exists"
-  failure are asserted by presence of an `error` key; only the page-existence
-  case is pinned to a specific code (`PAGE_NOT_FOUND`), since no dedicated
-  error code for the former currently exists in the shared vocabulary.
+what a real capture would produce, with two exceptions `capture_note` cannot
+reach on its own -- it only ever writes one anchor per call: a note with
+zero anchors, and a note already carrying two independent live anchors on
+different pages. Both are placed directly via `serialize_note`.
 """
 
 from collections.abc import Mapping
 from pathlib import Path
 
 from knotica.core.notes.anchor import (
+    AnchorRecord,
     NoteDocument,
     anchor_of_record,
     effective_anchor,
@@ -76,22 +80,22 @@ _UNKNOWN_NOTE_ID = "20260101-000000-never-captured"
 
 
 def _reanchor(
-    vault: Path, topic: str, note_id: str, *, page: str, quote: str
+    vault: Path, topic: str, note_id: str, anchor: int, *, page: str = "", quote: str = ""
 ) -> Mapping[str, object]:
     """Invoke `reanchor`; imported lazily so collection succeeds before the module exists."""
     from knotica.core.operations.reanchor_note import reanchor
 
     result = reanchor(
-        LocalFSStore(vault), vault, VaultVcs(vault), topic, note_id, page=page, quote=quote
+        LocalFSStore(vault), vault, VaultVcs(vault), topic, note_id, anchor, page=page, quote=quote
     )
     assert isinstance(result, Mapping), f"expected an envelope mapping, got {result!r}"
     return result
 
 
-def _detach(vault: Path, topic: str, note_id: str) -> Mapping[str, object]:
+def _detach(vault: Path, topic: str, note_id: str, anchor: int) -> Mapping[str, object]:
     from knotica.core.operations.reanchor_note import detach
 
-    result = detach(LocalFSStore(vault), vault, VaultVcs(vault), topic, note_id)
+    result = detach(LocalFSStore(vault), vault, VaultVcs(vault), topic, note_id, anchor)
     assert isinstance(result, Mapping), f"expected an envelope mapping, got {result!r}"
     return result
 
@@ -147,9 +151,16 @@ def _seed_captured_note(vault: Path, *, page_relpath: str, quote: str) -> str:
     return note_id
 
 
-def _seed_bare_note(vault: Path, note_id: str) -> None:
-    """Hand-place a note with zero anchors -- unreachable via `capture_note`, which always
-    writes at least one anchor, even at topic fidelity.
+def _seed_note_with_anchors(
+    vault: Path,
+    note_id: str,
+    anchors: tuple[AnchorRecord, ...],
+    *,
+    body: str = "a hand-authored note seeded directly for a test fixture",
+) -> None:
+    """Hand-place a note with a given anchor history -- for shapes `capture_note`
+    cannot produce directly: a bare note with zero anchors, or one already
+    carrying more than one independent live anchor.
     """
     document = NoteDocument(
         id=note_id,
@@ -159,14 +170,21 @@ def _seed_bare_note(vault: Path, note_id: str) -> None:
         updated="2026-07-30T08:00:00Z",
         status="active",
         tags=(),
-        body="a hand-authored note with no anchors at all",
-        anchors=(),
+        body=body,
+        anchors=anchors,
     )
     path = vault / _note_path(note_id)
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(serialize_note(document), encoding="utf-8")
     run_git(vault, "add", "-A")
-    run_git(vault, "commit", "-m", f"test: seed bare note {note_id}")
+    run_git(vault, "commit", "-m", f"test: seed note {note_id} with {len(anchors)} anchor(s)")
+
+
+def _seed_bare_note(vault: Path, note_id: str) -> None:
+    """Hand-place a note with zero anchors -- unreachable via `capture_note`, which always
+    writes at least one anchor, even at topic fidelity.
+    """
+    _seed_note_with_anchors(vault, note_id, (), body="a hand-authored note with no anchors at all")
 
 
 def _note_path(note_id: str) -> str:
@@ -203,7 +221,7 @@ def test_reanchor_appends_a_new_reanchored_anchor_leaving_the_original_byte_iden
         template_vault, new_page, f"# Corrected\n\n{new_quote}.\n", "test: seed corrected page"
     )
 
-    _success(_reanchor(template_vault, TOPIC, note_id, page=new_page, quote=new_quote))
+    _success(_reanchor(template_vault, TOPIC, note_id, 0, page=new_page, quote=new_quote))
 
     after = _read_note(template_vault, note_id)
     assert len(after.anchors) == 2, "reanchor must append, never replace"
@@ -226,7 +244,7 @@ def test_reanchor_leaves_effective_anchor_pointing_at_the_new_anchor(template_va
     _seed_page(template_vault, new_page, "# New\n\nthe corrected passage.\n", "test: seed new page")
 
     _success(
-        _reanchor(template_vault, TOPIC, note_id, page=new_page, quote="the corrected passage.")
+        _reanchor(template_vault, TOPIC, note_id, 0, page=new_page, quote="the corrected passage.")
     )
 
     after = _read_note(template_vault, note_id)
@@ -244,7 +262,9 @@ def test_reanchor_leaves_anchor_of_record_at_index_zero_unchanged(template_vault
     new_page = f"{TOPIC}/reanchor-of-record-new.md"
     _seed_page(template_vault, new_page, "# New\n\nyet another passage.\n", "test: seed new page")
 
-    _success(_reanchor(template_vault, TOPIC, note_id, page=new_page, quote="yet another passage."))
+    _success(
+        _reanchor(template_vault, TOPIC, note_id, 0, page=new_page, quote="yet another passage.")
+    )
 
     after = _read_note(template_vault, note_id)
     assert anchor_of_record(after) == before_of_record, (
@@ -264,7 +284,7 @@ def test_reanchor_pins_the_new_anchor_at_the_pre_reanchor_head_sha(template_vaul
     before_sha = git_head_sha(template_vault)
 
     _success(
-        _reanchor(template_vault, TOPIC, note_id, page=new_page, quote="the corrected passage.")
+        _reanchor(template_vault, TOPIC, note_id, 0, page=new_page, quote="the corrected passage.")
     )
 
     after_sha = git_head_sha(template_vault)
@@ -287,7 +307,7 @@ def test_reanchor_makes_exactly_one_commit_following_the_frozen_grammar(template
     commits_before = git_commit_count(template_vault)
 
     _success(
-        _reanchor(template_vault, TOPIC, note_id, page=new_page, quote="the corrected passage.")
+        _reanchor(template_vault, TOPIC, note_id, 0, page=new_page, quote="the corrected passage.")
     )
 
     assert git_commit_count(template_vault) == commits_before + 1
@@ -307,12 +327,15 @@ def test_reanchoring_an_already_reanchored_note_appends_a_third_correction(templ
         template_vault, second_page, "# Second\n\nthe second passage.\n", "test: seed second"
     )
     _success(
-        _reanchor(template_vault, TOPIC, note_id, page=second_page, quote="the second passage.")
+        _reanchor(template_vault, TOPIC, note_id, 0, page=second_page, quote="the second passage.")
     )
     third_page = f"{TOPIC}/triple-third.md"
     _seed_page(template_vault, third_page, "# Third\n\nthe third passage.\n", "test: seed third")
 
-    _success(_reanchor(template_vault, TOPIC, note_id, page=third_page, quote="the third passage."))
+    # Target index 1 -- the correction just appended is now the live entry for its page.
+    _success(
+        _reanchor(template_vault, TOPIC, note_id, 1, page=third_page, quote="the third passage.")
+    )
 
     after = _read_note(template_vault, note_id)
     assert len(after.anchors) == 3, (
@@ -320,6 +343,39 @@ def test_reanchoring_an_already_reanchored_note_appends_a_third_correction(templ
     )
     assert [anchor.kind for anchor in after.anchors] == ["pinned", "reanchored", "reanchored"]
     assert effective_anchor(after) == after.anchors[2]
+
+
+def test_reanchor_with_no_page_or_quote_accepts_the_currently_resolved_projection(
+    template_vault: Path,
+):
+    """`page`/`quote` are each optional: empty means "accept the projected
+    match", not "leave the argument blank forever" -- so a reanchor with
+    neither re-pins to wherever the target anchor currently resolves. This is
+    the drift queue's one-click accept, not a separate code path from the
+    explicit-arguments case above.
+    """
+    quote = "a passage that has not drifted at all"
+    note_id = _seed_captured_note(
+        template_vault, page_relpath=f"{TOPIC}/reanchor-accept-projection.md", quote=quote
+    )
+    before = _read_note(template_vault, note_id)
+    before_sha = git_head_sha(template_vault)
+
+    _success(_reanchor(template_vault, TOPIC, note_id, 0))
+
+    after = _read_note(template_vault, note_id)
+    assert len(after.anchors) == 2, "accepting the projection still appends, like any reanchor"
+    accepted = after.anchors[1]
+    assert accepted.kind == "reanchored"
+    assert accepted.page == before.anchors[0].page, (
+        "with no page/quote supplied, the resolved page is whatever the anchor currently "
+        "projects onto -- unchanged here, since nothing has drifted"
+    )
+    assert accepted.quote == quote
+    assert accepted.pinned_at == before_sha
+    assert after.anchors[0] == before.anchors[0], (
+        "accepting the projection still never rewrites what it corrects"
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -336,7 +392,7 @@ def test_detach_appends_a_terminal_detached_record_and_effective_anchor_becomes_
         quote="a passage worth detaching from",
     )
 
-    _success(_detach(template_vault, TOPIC, note_id))
+    _success(_detach(template_vault, TOPIC, note_id, 0))
 
     after = _read_note(template_vault, note_id)
     assert len(after.anchors) == 2
@@ -362,6 +418,7 @@ def test_detach_leaves_every_prior_anchor_byte_identical(template_vault: Path):
             template_vault,
             TOPIC,
             note_id,
+            0,
             page=second_page,
             quote="the second passage in the chain.",
         )
@@ -369,7 +426,8 @@ def test_detach_leaves_every_prior_anchor_byte_identical(template_vault: Path):
     before = _read_note(template_vault, note_id)
     assert len(before.anchors) == 2, "sanity: one original + one reanchor"
 
-    _success(_detach(template_vault, TOPIC, note_id))
+    # Target index 1 -- the reanchored correction is now the live entry for its page.
+    _success(_detach(template_vault, TOPIC, note_id, 1))
 
     after = _read_note(template_vault, note_id)
     assert after.anchors[0] == before.anchors[0], "detach must not touch the anchor of record"
@@ -387,7 +445,7 @@ def test_detach_makes_exactly_one_commit_following_the_frozen_grammar(template_v
     )
     commits_before = git_commit_count(template_vault)
 
-    _success(_detach(template_vault, TOPIC, note_id))
+    _success(_detach(template_vault, TOPIC, note_id, 0))
 
     assert git_commit_count(template_vault) == commits_before + 1
     assert git_status_porcelain(template_vault) == ""
@@ -395,6 +453,69 @@ def test_detach_makes_exactly_one_commit_following_the_frozen_grammar(template_v
     assert parsed is not None
     assert parsed["op"] == _DETACH_OP
     assert parsed["topic"] == TOPIC
+
+
+# ---------------------------------------------------------------------------
+# Multi-anchor independence -- correcting one page must never touch another
+# ---------------------------------------------------------------------------
+
+
+def test_reanchoring_one_pages_anchor_leaves_a_different_pages_anchor_untouched_and_live(
+    template_vault: Path,
+):
+    """A note may carry more than one independent anchor, each resolved on
+    its own page. Correcting one must never touch, or silently un-live, the
+    other -- the exact shape that broke the shipped module's note-scoped
+    liveness check, which `live_anchors` now answers per page instead.
+    """
+    note_id = "20260730-093000-two-independent-pages"
+    page_a = AnchorRecord(
+        page=f"{TOPIC}/multi-anchor-page-a.md",
+        heading="",
+        fidelity="span",
+        pinned_at="9f1a3c0",
+        quote="the passage on page A",
+    )
+    page_b = AnchorRecord(
+        page=f"{TOPIC}/multi-anchor-page-b.md",
+        heading="",
+        fidelity="span",
+        pinned_at="a3f9c21",
+        quote="the passage on page B, never touched by this test's reanchor",
+    )
+    _seed_note_with_anchors(
+        template_vault, note_id, (page_a, page_b), body="a reflection anchored to two pages"
+    )
+    new_page = f"{TOPIC}/multi-anchor-page-a-corrected.md"
+    _seed_page(
+        template_vault,
+        new_page,
+        "# Corrected\n\nthe corrected passage on page A.\n",
+        "test: seed corrected page",
+    )
+
+    _success(
+        _reanchor(
+            template_vault,
+            TOPIC,
+            note_id,
+            0,
+            page=new_page,
+            quote="the corrected passage on page A.",
+        )
+    )
+
+    after = _read_note(template_vault, note_id)
+    assert after.anchors[0] == page_a, "the targeted anchor itself must stay byte-unchanged"
+    assert after.anchors[1] == page_b, (
+        "page B's anchor must be byte-unchanged by a reanchor targeting page A"
+    )
+
+    from knotica.core.notes.anchor import live_anchors
+
+    assert page_b in live_anchors(after), (
+        "page B was never targeted -- it must still resolve as live"
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -447,11 +568,16 @@ def test_archiving_an_already_archived_note_is_idempotent_and_makes_no_second_co
     _success(_archive(template_vault, TOPIC, note_id))
     commits_after_first = git_commit_count(template_vault)
 
-    _success(_archive(template_vault, TOPIC, note_id))
+    second = _success(_archive(template_vault, TOPIC, note_id))
 
     assert git_commit_count(template_vault) == commits_after_first, (
         "archiving an already-archived note must be a no-op, not a second commit -- matching "
         "capture_note's idempotency precedent"
+    )
+    assert second["written"] is False, "the second call changed nothing -- it must say so"
+    assert second["duplicate"] is True, (
+        "a caller must be able to tell 'archived it' from 'it was already archived', using the "
+        "same written/duplicate vocabulary capture_note already returns -- not a new flag"
     )
     assert git_status_porcelain(template_vault) == ""
     assert _read_note(template_vault, note_id).status == "archived"
@@ -463,7 +589,7 @@ def test_archive_succeeds_even_when_the_note_has_no_effective_anchor(template_va
         page_relpath=f"{TOPIC}/archive-after-detach-target.md",
         quote="a passage that will be detached before archiving",
     )
-    _success(_detach(template_vault, TOPIC, note_id))
+    _success(_detach(template_vault, TOPIC, note_id, 0))
 
     _success(_archive(template_vault, TOPIC, note_id))
 
@@ -473,7 +599,11 @@ def test_archive_succeeds_even_when_the_note_has_no_effective_anchor(template_va
 
 
 # ---------------------------------------------------------------------------
-# Failure modes -- none of them anchor-shaped except the two named here
+# Failure modes -- none of them anchor-shaped except PAGE_NOT_FOUND and
+# NOTE_NOT_FOUND. Every other rejection below is "the named index is not a
+# live anchor" in one of its three shapes (out of range, superseded,
+# already detached) and funnels through the same INVALID_ARGUMENT code,
+# since no dedicated code for it exists in the shared vocabulary.
 # ---------------------------------------------------------------------------
 
 
@@ -482,7 +612,7 @@ def test_reanchor_on_an_unknown_note_id_fails_with_note_not_found(template_vault
     _seed_page(template_vault, page, "# Page\n\nsome text.\n", "test: seed page")
     commits_before = git_commit_count(template_vault)
 
-    result = _reanchor(template_vault, TOPIC, _UNKNOWN_NOTE_ID, page=page, quote="some text.")
+    result = _reanchor(template_vault, TOPIC, _UNKNOWN_NOTE_ID, 0, page=page, quote="some text.")
 
     assert _error_code(result) == "NOTE_NOT_FOUND"
     assert git_commit_count(template_vault) == commits_before
@@ -491,7 +621,7 @@ def test_reanchor_on_an_unknown_note_id_fails_with_note_not_found(template_vault
 def test_detach_on_an_unknown_note_id_fails_with_note_not_found(template_vault: Path):
     commits_before = git_commit_count(template_vault)
 
-    result = _detach(template_vault, TOPIC, _UNKNOWN_NOTE_ID)
+    result = _detach(template_vault, TOPIC, _UNKNOWN_NOTE_ID, 0)
 
     assert _error_code(result) == "NOTE_NOT_FOUND"
     assert git_commit_count(template_vault) == commits_before
@@ -518,7 +648,7 @@ def test_reanchor_targeting_a_page_that_no_longer_exists_fails_with_page_not_fou
     commits_before = git_commit_count(template_vault)
 
     result = _reanchor(
-        template_vault, TOPIC, note_id, page=missing_page, quote="whatever the passage was"
+        template_vault, TOPIC, note_id, 0, page=missing_page, quote="whatever the passage was"
     )
 
     assert _error_code(result) == "PAGE_NOT_FOUND", (
@@ -539,9 +669,12 @@ def test_detaching_a_note_with_no_anchors_at_all_is_rejected_before_any_write(
     _seed_bare_note(template_vault, note_id)
     commits_before = git_commit_count(template_vault)
 
-    result = _detach(template_vault, TOPIC, note_id)
+    result = _detach(template_vault, TOPIC, note_id, 0)
 
-    assert "error" in result, "a note with no anchors has nothing to detach"
+    assert _error_code(result) == "INVALID_ARGUMENT", (
+        "an index into an empty anchor history names no live anchor -- the same rejection this "
+        "module gives a superseded or detached target, since no dedicated code exists for it"
+    )
     assert git_commit_count(template_vault) == commits_before
 
 
@@ -554,9 +687,12 @@ def test_reanchoring_a_note_with_no_anchors_at_all_is_rejected_before_any_write(
     _seed_page(template_vault, page, "# Page\n\nsome text.\n", "test: seed page")
     commits_before = git_commit_count(template_vault)
 
-    result = _reanchor(template_vault, TOPIC, note_id, page=page, quote="some text.")
+    result = _reanchor(template_vault, TOPIC, note_id, 0, page=page, quote="some text.")
 
-    assert "error" in result, "a note with no anchors has nothing to correct"
+    assert _error_code(result) == "INVALID_ARGUMENT", (
+        "an index into an empty anchor history names no live anchor -- the same rejection this "
+        "module gives a superseded or detached target, since no dedicated code exists for it"
+    )
     assert git_commit_count(template_vault) == commits_before
 
 
@@ -566,14 +702,14 @@ def test_detaching_an_already_detached_note_is_rejected_before_any_write(templat
         page_relpath=f"{TOPIC}/detach-twice-target.md",
         quote="a passage detached, then detached again",
     )
-    _success(_detach(template_vault, TOPIC, note_id))
+    _success(_detach(template_vault, TOPIC, note_id, 0))
     commits_after_first = git_commit_count(template_vault)
 
-    result = _detach(template_vault, TOPIC, note_id)
+    result = _detach(template_vault, TOPIC, note_id, 0)
 
-    assert "error" in result, (
+    assert _error_code(result) == "INVALID_ARGUMENT", (
         "a terminal detached record can never be re-mutated -- this is the append-only "
-        "invariant's negative-space case"
+        "invariant's negative-space case, and the original index is no longer live"
     )
     assert git_commit_count(template_vault) == commits_after_first
     assert len(_read_note(template_vault, note_id).anchors) == 2, (
@@ -587,14 +723,18 @@ def test_reanchoring_an_already_detached_note_is_rejected_before_any_write(templ
         page_relpath=f"{TOPIC}/reanchor-after-detach-target.md",
         quote="a passage detached before a correction is attempted",
     )
-    _success(_detach(template_vault, TOPIC, note_id))
-    commits_after_detach = git_commit_count(template_vault)
+    _success(_detach(template_vault, TOPIC, note_id, 0))
     page = f"{TOPIC}/reanchor-after-detach-new.md"
     _seed_page(template_vault, page, "# New\n\nthe new passage.\n", "test: seed new page")
+    # Baseline *after* the page seed: `_seed_page` commits, so capturing before it
+    # would compare a post-seed count against a pre-seed baseline and fail for a
+    # correct implementation. The sibling double-detach test needs no such care --
+    # nothing commits between its baseline and the rejected call.
+    commits_after_detach = git_commit_count(template_vault)
 
-    result = _reanchor(template_vault, TOPIC, note_id, page=page, quote="the new passage.")
+    result = _reanchor(template_vault, TOPIC, note_id, 0, page=page, quote="the new passage.")
 
-    assert "error" in result, (
+    assert _error_code(result) == "INVALID_ARGUMENT", (
         "a detached note has no effective anchor left to correct -- reanchoring it would "
         "silently resurrect a history the human explicitly ended"
     )
@@ -623,7 +763,7 @@ def test_reanchor_never_leaks_the_new_quotes_kb_prose_into_log_or_any_commit_sub
         template_vault, kb_page, f"# KB page\n\n{distinctive_phrase}.\n", "test: seed KB page"
     )
 
-    _success(_reanchor(template_vault, TOPIC, note_id, page=kb_page, quote=distinctive_phrase))
+    _success(_reanchor(template_vault, TOPIC, note_id, 0, page=kb_page, quote=distinctive_phrase))
 
     log_text = (template_vault / "log.md").read_text(encoding="utf-8")
     assert distinctive_phrase not in log_text, (
@@ -651,7 +791,7 @@ def test_detach_never_leaks_the_targeted_anchors_quote_into_log_or_any_commit_su
         quote=distinctive_phrase,
     )
 
-    _success(_detach(template_vault, TOPIC, note_id))
+    _success(_detach(template_vault, TOPIC, note_id, 0))
 
     log_text = (template_vault / "log.md").read_text(encoding="utf-8")
     assert distinctive_phrase not in log_text, (
