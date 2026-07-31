@@ -71,6 +71,15 @@ _TOPIC_FIDELITY = "topic"
 
 _TIMESTAMP_FORMAT = "%Y-%m-%dT%H:%M:%SZ"
 
+#: Row-specific fix text for ``reanchor``'s ``PAGE_NOT_FOUND`` failure --
+#: ``INTERFACE_DESIGN.md`` § 8's error grammar table gives this row a
+#: fallback the generic :data:`~knotica.core.errors.DEFAULT_FIX` lacks: a
+#: user pointing at a deleted page can keep the note without an anchor.
+_PAGE_NOT_FOUND_FIX = (
+    "Call `search` in this topic for the surviving page, or "
+    "`notes action=detach` to keep the note without an anchor."
+)
+
 
 def reanchor(
     store: VaultStore,
@@ -121,6 +130,7 @@ def reanchor(
                 return err(
                     ErrorCode.PAGE_NOT_FOUND,
                     f"reanchor failed because page {page!r} does not exist.",
+                    fix=_PAGE_NOT_FOUND_FIX,
                 )
             new_page, new_quote = page, quote
         else:

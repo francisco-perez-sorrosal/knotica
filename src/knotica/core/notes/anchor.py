@@ -394,14 +394,23 @@ def effective_anchor(document: NoteDocument) -> AnchorRecord | None:
 
 
 def live_anchors(document: NoteDocument) -> tuple[AnchorRecord, ...]:
-    """The currently-live anchors, one per distinct page, in document order.
+    """The currently-live anchors, one per distinct supersession group, in document order.
 
-    Supersession and detachment are per distinct ``page``, not per note: for
-    each page the note has ever anchored, only the newest record for *that*
-    page matters, and it is live unless its own ``kind`` is ``"detached"``.
-    Detaching a page's chain does not blacklist the page -- a later record for
-    the same page, appended after the detach, is live again, exactly like any
-    other correction.
+    Supersession and detachment are per distinct **group**, not per note --
+    grouped by :func:`_supersession_key`, not by raw ``page``. For each group
+    the note has ever anchored, only the newest record for that group matters,
+    and it is live unless its own ``kind`` is ``"detached"``. Detaching a
+    group's chain does not blacklist it -- a later record in the same group,
+    appended after the detach, is live again, exactly like any other
+    correction.
+
+    Grouping by raw ``page`` alone is wrong: ``page=""`` is itself a valid
+    key, so every page-less (topic-fidelity) anchor a note carries would
+    collapse into one shared bucket and only the newest would survive -- a
+    hand-authored note with two independent, unrelated topic-fidelity
+    reflections would have its first wrongly reported superseded, even though
+    neither anchor ever touched the other. See :func:`_supersession_key` for
+    the asymmetric key that avoids this.
 
     This is the liveness primitive :func:`effective_anchor` is not: it is what
     ``reanchor``/``detach`` target validation and the promote bridge's
@@ -409,15 +418,39 @@ def live_anchors(document: NoteDocument) -> tuple[AnchorRecord, ...]:
     live anchor" is the wrong question the moment a note carries more than one
     independent page.
     """
-    latest_index_by_page: dict[str, int] = {}
+    latest_index_by_key: dict[tuple[str, str], int] = {}
     for index, anchor in enumerate(document.anchors):
-        latest_index_by_page[anchor.page] = index
+        latest_index_by_key[_supersession_key(anchor)] = index
     live_indices = sorted(
         index
-        for index in latest_index_by_page.values()
+        for index in latest_index_by_key.values()
         if document.anchors[index].kind != _DETACHED_KIND
     )
     return tuple(document.anchors[index] for index in live_indices)
+
+
+def _supersession_key(anchor: AnchorRecord) -> tuple[str, str]:
+    """The grouping key two anchors must share to supersede one another.
+
+    A real page's key is the page **alone** (``(page, "")``): a re-anchor
+    supersedes regardless of how the quote changed -- that is the whole point
+    of re-anchoring. A page-less anchor has no page to key on, so it falls
+    back to its quote (``("", quote)``): two independent page-less
+    reflections point at different things and must not collapse into one
+    chain, but a detach record -- which always copies its target's quote,
+    the only way to name a page-less target at all -- still lands in the same
+    group and terminates exactly that chain. Two page-less anchors sharing an
+    identical quote (or both empty) are genuinely indistinguishable, and
+    collapsing them to the newest is correct.
+
+    The asymmetry is deliberate, not an oversight: switching every anchor
+    (not just page-less ones) to a uniform ``(page, quote)`` key would fix the
+    page-less collapse but simultaneously break re-anchoring, since a real
+    page's supersession would then depend on the quote staying the same.
+    """
+    if anchor.page:
+        return (anchor.page, "")
+    return ("", anchor.quote)
 
 
 def derive_note_id(

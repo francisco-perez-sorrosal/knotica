@@ -1351,3 +1351,184 @@ def test_effective_anchor_keeps_its_note_scoped_meaning_even_as_live_anchors_div
     assert live_anchors(document) == (page_b,), (
         "live_anchors answers the different, per-page question -- page B was never touched"
     )
+
+
+# ---------------------------------------------------------------------------
+# live_anchors: page-less anchors must not share a supersession group
+#
+# `page=""` is how a topic-fidelity anchor is written -- the fourth capture
+# surface's degraded case, and the only anchor shape a hand-authored note can
+# carry with no verifiable page at all. Grouping strictly by `page` treats
+# `""` as one shared key like any other, so every page-less anchor a note
+# carries collapses into a single bucket and only the newest survives -- a
+# hand-authored note with two independent, unrelated topic-fidelity
+# reflections has its first wrongly reported superseded, even though neither
+# anchor ever touched the other. The supersession key is the page when the
+# page is non-empty, and `("", quote)` otherwise: two page-less reflections
+# with different quotes point at different things and must both stay live; a
+# detach record (which always copies its target's quote) still lands in the
+# same group and terminates exactly that chain.
+# ---------------------------------------------------------------------------
+
+
+def test_live_anchors_keeps_two_independent_page_less_anchors_with_different_quotes_both_live():
+    """The bug this correction exists for, reproduced directly: two page-less
+    (topic-fidelity) reflections that never touched each other must both
+    survive. Grouping by raw `page` alone would collapse them into one
+    bucket and drop the first as wrongly 'superseded'.
+    """
+    from knotica.core.notes.anchor import live_anchors
+
+    first = _anchor(
+        page="",
+        heading="",
+        fidelity="topic",
+        pinned_at="9f1a3c0",
+        quote="the first passage the user reacted to",
+    )
+    second = _anchor(
+        page="",
+        heading="",
+        fidelity="topic",
+        pinned_at="a3f9c21",
+        quote="a completely unrelated second passage",
+    )
+    document = _document_with((first, second))
+
+    assert live_anchors(document) == (first, second)
+
+
+def test_live_anchors_collapses_two_page_less_anchors_sharing_the_same_quote_to_the_newest():
+    """Two page-less anchors carrying the *same* quote are genuinely
+    indistinguishable -- collapsing them to the newest is correct, not a bug.
+    """
+    from knotica.core.notes.anchor import live_anchors
+
+    quote = "an identical passage typed twice, or reacted to twice"
+    first = _anchor(page="", heading="", fidelity="topic", pinned_at="9f1a3c0", quote=quote)
+    second = _anchor(page="", heading="", fidelity="topic", pinned_at="a3f9c21", quote=quote)
+    document = _document_with((first, second))
+
+    assert live_anchors(document) == (second,)
+
+
+def test_live_anchors_collapses_two_page_less_anchors_with_both_empty_quotes_to_the_newest():
+    """Two page-less anchors that *also* supplied no quote carry no
+    distinguishing information at all -- collapsing to the newest is correct.
+    """
+    from knotica.core.notes.anchor import live_anchors
+
+    first = _anchor(page="", heading="", fidelity="topic", pinned_at="9f1a3c0", quote="")
+    second = _anchor(page="", heading="", fidelity="topic", pinned_at="a3f9c21", quote="")
+    document = _document_with((first, second))
+
+    assert live_anchors(document) == (second,)
+
+
+def test_live_anchors_a_detach_record_only_terminates_the_page_less_chain_it_copies_the_quote_of():
+    """A detach record for a page-less anchor copies its target's quote (the
+    only way to name a page-less target at all), so it lands in the same
+    `("", quote)` group and terminates exactly that chain -- an independent
+    page-less sibling with a different quote is untouched.
+    """
+    from knotica.core.notes.anchor import live_anchors
+
+    targeted = _anchor(
+        page="",
+        heading="",
+        fidelity="topic",
+        pinned_at="9f1a3c0",
+        quote="the passage the first reflection reacted to",
+    )
+    sibling = _anchor(
+        page="",
+        heading="",
+        fidelity="topic",
+        pinned_at="bbb2222",
+        quote="an unrelated second passage, never detached",
+    )
+    detach_record = _anchor(
+        page="",
+        heading="",
+        fidelity="topic",
+        pinned_at="ccc3333",
+        kind="detached",
+        quote="the passage the first reflection reacted to",
+    )
+    document = _document_with((targeted, sibling, detach_record))
+
+    assert live_anchors(document) == (sibling,)
+
+
+def test_live_anchors_still_supersedes_a_real_page_anchor_even_when_the_reanchor_changes_the_quote():
+    """Guards the deliberate asymmetry: for a *real* page the supersession
+    key is the page alone, so a re-anchor supersedes regardless of how the
+    quote changed -- that is the whole point of re-anchoring. A fix that
+    switched every anchor (not just page-less ones) to a `(page, quote)` key
+    would wrongly keep both of these live.
+    """
+    from knotica.core.notes.anchor import live_anchors
+
+    page = "agentic-systems/agent-memory.md"
+    original = _anchor(page=page, pinned_at="9f1a3c0", kind="pinned", quote="the original passage")
+    reanchored = _anchor(
+        page=page,
+        pinned_at="a3f9c21",
+        kind="reanchored",
+        quote="a completely different, corrected passage",
+    )
+    document = _document_with((original, reanchored))
+
+    assert live_anchors(document) == (reanchored,)
+
+
+def test_live_anchors_keeps_a_real_page_anchor_and_a_page_less_anchor_independent_on_one_note():
+    from knotica.core.notes.anchor import live_anchors
+
+    page_anchor = _anchor(
+        page="agentic-systems/agent-memory.md",
+        pinned_at="9f1a3c0",
+        quote="a passage on a real page",
+    )
+    topic_anchor = _anchor(
+        page="",
+        heading="",
+        fidelity="topic",
+        pinned_at="a3f9c21",
+        quote="an independent page-less reflection",
+    )
+    document = _document_with((page_anchor, topic_anchor))
+
+    assert live_anchors(document) == (page_anchor, topic_anchor)
+
+
+def test_live_anchors_orders_page_less_survivors_by_document_position_among_mixed_anchors():
+    """The document-order guarantee already proven for real pages above must
+    hold identically once page-less anchors enter the mix -- survivors come
+    back in their own position in the append-only history, not grouped by
+    page-vs-page-less or by which quote they carry.
+    """
+    from knotica.core.notes.anchor import live_anchors
+
+    topic_first = _anchor(
+        page="",
+        heading="",
+        fidelity="topic",
+        pinned_at="9f1a3c0",
+        quote="a page-less reflection written first",
+    )
+    page_anchor = _anchor(
+        page="agentic-systems/agent-memory.md",
+        pinned_at="a3f9c21",
+        quote="a passage on a real page",
+    )
+    topic_second = _anchor(
+        page="",
+        heading="",
+        fidelity="topic",
+        pinned_at="c81f770",
+        quote="a second, independent page-less reflection",
+    )
+    document = _document_with((topic_first, page_anchor, topic_second))
+
+    assert live_anchors(document) == (topic_first, page_anchor, topic_second)

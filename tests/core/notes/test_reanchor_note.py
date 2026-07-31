@@ -519,6 +519,117 @@ def test_reanchoring_one_pages_anchor_leaves_a_different_pages_anchor_untouched_
 
 
 # ---------------------------------------------------------------------------
+# Page-less anchor independence -- A8: page="" is not a shared supersession
+# group either. A hand-authored note may carry more than one independent
+# topic-fidelity reflection, and correcting one must never wrongly reject the
+# other as "superseded" -- neither ever touched the other.
+# ---------------------------------------------------------------------------
+
+
+def test_reanchoring_the_first_of_two_independent_page_less_anchors_succeeds_and_spares_its_sibling(
+    template_vault: Path,
+):
+    """The bug this correction exists for: a hand-authored note carrying two
+    independent, unrelated topic-fidelity reflections had its first wrongly
+    rejected by `reanchor` as 'superseded or detached ... for the same page'
+    -- false, since neither page-less anchor ever touched the other.
+    """
+    note_id = "20260730-094500-two-independent-page-less-anchors"
+    first = AnchorRecord(
+        page="",
+        heading="",
+        fidelity="topic",
+        pinned_at="9f1a3c0",
+        quote="the first passage the user reacted to",
+    )
+    sibling = AnchorRecord(
+        page="",
+        heading="",
+        fidelity="topic",
+        pinned_at="a3f9c21",
+        quote="a completely unrelated second passage, never touched by this reanchor",
+    )
+    _seed_note_with_anchors(
+        template_vault,
+        note_id,
+        (first, sibling),
+        body="two independent hand-authored reflections, neither ever touching the other",
+    )
+    new_page = f"{TOPIC}/page-less-reanchor-target.md"
+    _seed_page(
+        template_vault,
+        new_page,
+        "# Target\n\nthe passage the first reflection now points at.\n",
+        "test: seed reanchor target",
+    )
+
+    _success(
+        _reanchor(
+            template_vault,
+            TOPIC,
+            note_id,
+            0,
+            page=new_page,
+            quote="the passage the first reflection now points at.",
+        )
+    )
+
+    after = _read_note(template_vault, note_id)
+    assert after.anchors[0] == first, "the targeted anchor itself must stay byte-unchanged"
+    assert after.anchors[1] == sibling, (
+        "the sibling page-less anchor was never targeted -- it must stay byte-unchanged"
+    )
+    assert after.anchors[2].kind == "reanchored"
+    assert after.anchors[2].page == new_page
+
+    from knotica.core.notes.anchor import live_anchors
+
+    assert sibling in live_anchors(after), (
+        "the sibling page-less anchor never touched the reanchored one -- it must still "
+        "resolve as live"
+    )
+
+
+def test_detaching_one_of_two_independent_page_less_anchors_leaves_its_sibling_live(
+    template_vault: Path,
+):
+    note_id = "20260730-095000-detach-one-of-two-page-less-anchors"
+    first = AnchorRecord(
+        page="",
+        heading="",
+        fidelity="topic",
+        pinned_at="9f1a3c0",
+        quote="the reflection about to be detached",
+    )
+    sibling = AnchorRecord(
+        page="",
+        heading="",
+        fidelity="topic",
+        pinned_at="a3f9c21",
+        quote="an unrelated reflection that must survive the detach",
+    )
+    _seed_note_with_anchors(
+        template_vault,
+        note_id,
+        (first, sibling),
+        body="two independent hand-authored reflections",
+    )
+
+    _success(_detach(template_vault, TOPIC, note_id, 0))
+
+    after = _read_note(template_vault, note_id)
+    assert after.anchors[0] == first, "the targeted anchor itself must stay byte-unchanged"
+    assert after.anchors[1] == sibling, "detaching the first anchor must not touch the sibling"
+    assert after.anchors[2].kind == "detached"
+
+    from knotica.core.notes.anchor import live_anchors
+
+    assert sibling in live_anchors(after), (
+        "the sibling page-less anchor was never targeted by the detach -- it must remain live"
+    )
+
+
+# ---------------------------------------------------------------------------
 # archive -- frontmatter-only, idempotent
 # ---------------------------------------------------------------------------
 
@@ -660,6 +771,35 @@ def test_reanchor_targeting_a_page_that_no_longer_exists_fails_with_page_not_fou
     )
     after = _read_note(template_vault, note_id)
     assert len(after.anchors) == 1, "the rejected reanchor must not have appended anything"
+
+
+def test_reanchor_page_not_found_fix_text_names_detach_as_the_fallback(template_vault: Path):
+    """INTERFACE_DESIGN.md's error grammar table gives `reanchor`'s
+    `PAGE_NOT_FOUND` row a specific `fix` naming `notes action=detach` as the
+    fallback for a user pointing at a deleted page -- the generic
+    `DEFAULT_FIX` for `PAGE_NOT_FOUND` ('Call `search` in this topic.') drops
+    that option, leaving a user aiming at a deleted page with no way to know
+    they can keep the note without an anchor instead.
+    """
+    note_id = _seed_captured_note(
+        template_vault,
+        page_relpath=f"{TOPIC}/reanchor-fix-text-original.md",
+        quote="a passage before the page vanishes",
+    )
+    missing_page = f"{TOPIC}/reanchor-fix-text-missing.md"
+
+    result = _reanchor(
+        template_vault, TOPIC, note_id, 0, page=missing_page, quote="whatever the passage was"
+    )
+
+    assert _error_code(result) == "PAGE_NOT_FOUND"
+    error = result["error"]
+    assert isinstance(error, Mapping)
+    fix = str(error["fix"])
+    assert "detach" in fix, (
+        f"the fix text must name `notes action=detach` as the fallback for a deleted reanchor "
+        f"target, per INTERFACE_DESIGN.md's error grammar table; got {fix!r}"
+    )
 
 
 def test_detaching_a_note_with_no_anchors_at_all_is_rejected_before_any_write(
