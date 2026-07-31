@@ -20,7 +20,7 @@ Behavioural. Each is observable and drives a downstream test.
 - [ ] **AC-04** When a topic containing notes is linted or evaluated, the composite eval scalar and every one of its three legs are **byte-identical** to the same vault with the `notes/` tree deleted.
 - [ ] **AC-05** When a note's anchored page is rewritten such that the quote survives verbatim at a new offset, resolving the note reports `status: shifted` and points at the new offset — with zero writes and zero commits.
 - [ ] **AC-06** When the quote no longer appears verbatim but a candidate scores at or above `guess_threshold`, resolving reports `status: fuzzy` with the candidate span and a confidence score.
-- [ ] **AC-07** When the best candidate scores below `guess_threshold`, resolving reports `status: orphaned`; a candidate at or above `complete_orphan_threshold` is carried as `best_guess`, below it no guess is offered.
+- [ ] **AC-07** When the best candidate scores below `guess_threshold`, resolving reports `status: orphaned`. If the historical enclosing heading still exists at HEAD, `best_guess` is that surviving section's span — structural evidence, offered *regardless of score*, at `section` fidelity. Otherwise a candidate at or above `complete_orphan_threshold` is carried as `best_guess` at `page` fidelity, and below it no guess is offered. *(Corrected 2026-07-31: the original wording described a single-threshold ladder in which the `complete_orphan_threshold` band alone gates every guess. The shipped ladder evaluates the surviving-heading rung first — see § Resolution ladder rungs 7–9 — because a surviving heading is structural evidence stronger than any similarity score. The code was right and this criterion was wrong.)*
 - [ ] **AC-08** When a note's anchor is orphaned or fuzzy, the pre-rewrite text of the anchored span is still retrievable verbatim from the anchor of record alone (`page` + `commit_sha` + `quote`), with no dependence on the current HEAD.
 - [ ] **AC-09** When a human corrects an anchor, a *new* anchor is appended to the note; the original anchor of record is never modified or removed.
 - [ ] **AC-10** When the vault has no LLM credentials, every resolution status in AC-05..AC-08 is produced identically; only optional adjudicator commentary in the `[complete_orphan_threshold, guess_threshold)` band is absent.
@@ -524,6 +524,6 @@ Tier 1 (self-review). Findings folded into the architecture above; the non-obvio
 
 | Fragment | id | Covers |
 |---|---|---|
-| `.ai-state/decisions/drafts/20260729-1930-fperez-main-notes-anchor-model.md` | `dec-058` | Bi-partite anchor, no block IDs, resolution ladder, re-anchor locus |
-| `.ai-state/decisions/drafts/20260729-1930-fperez-main-notes-storage-folder-family.md` | `dec-060` | `notes/<topic>/`, `vault_layout.py` folder family, graph scoping, frontmatter |
-| `.ai-state/decisions/drafts/20260729-1930-fperez-main-notes-eval-bridge.md` | `dec-059` | `curate_example` bridge, golden deferral, `reported` origin reuse, no auto-gap |
+| `.ai-state/decisions/058-notes-anchor-model.md` | `dec-058` | Bi-partite anchor, no block IDs, resolution ladder, re-anchor locus |
+| `.ai-state/decisions/060-notes-storage-folder-family.md` | `dec-060` | `notes/<topic>/`, `vault_layout.py` folder family, graph scoping, frontmatter |
+| `.ai-state/decisions/059-notes-eval-bridge.md` | `dec-059` | `curate_example` bridge, golden deferral, `reported` origin reuse, no auto-gap |

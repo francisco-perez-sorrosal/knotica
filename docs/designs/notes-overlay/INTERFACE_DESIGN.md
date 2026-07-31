@@ -1319,8 +1319,8 @@ definition so the next low-friction surface does not have to relitigate it.
 
 | Fragment | id | Decision |
 |---|---|---|
-| `.ai-state/decisions/drafts/20260729-1219-fperez-main-notes-tool-decomposition.md` | `dec-057` | One flat `note_capture` + one `notes` dispatcher |
-| `.ai-state/decisions/drafts/20260729-1219-fperez-main-notes-no-fifth-protocol-operation.md` | `dec-056` | No fifth `read_protocol` operation |
+| `.ai-state/decisions/057-notes-tool-decomposition.md` | `dec-057` | One flat `note_capture` + one `notes` dispatcher |
+| `.ai-state/decisions/056-notes-no-fifth-protocol-operation.md` | `dec-056` | No fifth `read_protocol` operation |
 
 Both need a `LEARNINGS.md ### Decisions Made` entry when the pipeline reaches that stage.
 

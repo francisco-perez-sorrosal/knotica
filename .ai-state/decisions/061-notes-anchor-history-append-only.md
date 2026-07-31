@@ -1,7 +1,7 @@
 ---
-id: dec-draft-a7f3c218
+id: dec-061
 title: Note anchor history is append-only with per-page derived supersession
-status: proposed
+status: accepted
 category: architectural
 date: 2026-07-31
 summary: A correction appends an anchor bearing an optional trailing kind token; supersession and detachment are derived per distinct page from document order and never stored, because storing them requires rewriting an earlier anchor.
