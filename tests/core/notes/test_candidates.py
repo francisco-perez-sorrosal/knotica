@@ -29,11 +29,24 @@ Given ``(quote, head_text)``, candidate generation must:
 Candidate generation is pure and stdlib-only: it takes no store, no vault
 handle, no config, and produces no writes -- a leaf module under
 ``core/notes/`` consumed only by the resolution ladder.
+
+**Structural boundary regression.** The sentence-extension rule above is
+qualified: a window's backward extension must also stop at a heading line
+or a blank line, whichever comes first, rather than running past them all
+the way to document start. A quote whose seed words sit right after a
+page-opening heading is otherwise scored against a window that is mostly
+heading chrome rather than the passage itself, purely because of where the
+passage happens to sit on the page -- see the "Structural boundary" tests
+below, which pin the fix at both the candidate-window level and, in the
+headline case, the resulting match score.
 """
 
 import inspect
 
+import pytest
+
 from knotica.core.notes.candidates import generate_candidates
+from knotica.core.notes.scoring import CONTEXT_WINDOW, score_candidates
 
 # ---------------------------------------------------------------------------
 # Shared fixture: a quote whose five words span every rarity band this rung
@@ -320,3 +333,174 @@ def test_generate_candidates_signature_accepts_only_quote_and_head_text():
     parameters = list(inspect.signature(generate_candidates).parameters)
 
     assert parameters == ["quote", "head_text"]
+
+
+# ---------------------------------------------------------------------------
+# Structural boundary: a backward extension must stop at a heading line or a
+# blank line, whichever comes first, rather than running to document start.
+#
+# Every fixture below edits exactly one word of the target sentence (mirrors
+# the ordinary "the page moved on slightly since the note was captured"
+# case) and places the identical passage, edit, and immediate surrounding
+# context either right after page-opening heading chrome or buried deep in
+# ordinary prose -- so the only thing that can differ between the two is
+# where the passage sits on the page.
+# ---------------------------------------------------------------------------
+
+_PAGE_HEADING = "# Page Title\n\n## Section Heading"
+_UNPUNCTUATED_OPENING_PARAGRAPH = (
+    "Market commentary from earlier in the week, spanning several loosely related "
+    "topics, and continuing without ever reaching a proper stopping point"
+)
+_LEAD_IN_PARAGRAPH = (
+    "Analysts have been tracking the model's behaviour across several recent "
+    "evaluation runs conducted throughout the quarter."
+)
+_ORIGINAL_TARGET_SENTENCE = (
+    "Reward hacking is the model satisfying the metric rather than the intended goal."
+)
+_EDITED_TARGET_SENTENCE = (
+    "Reward hacking is the model satisfying the metric rather than the desired goal."
+)
+_TRAILING_PARAGRAPH = "Investors reacted quickly to the announcement soon afterward."
+_MID_PAGE_FILLER_PARAGRAPHS = [
+    "The quarterly report opened with a summary of macroeconomic conditions across the region.",
+    "Supply chain disruptions continued to affect delivery times for several major manufacturers.",
+    "Regulators signalled openness to further review before any new guidance would be issued.",
+]
+
+
+def _near_top_head_text() -> str:
+    """A heading, a blank line, then the edited target sentence -- nothing
+    with sentence-ending punctuation intervenes between document start and
+    the sentence itself, so a backward extension that only respects
+    ``.``/``!``/``?`` boundaries has nothing to stop it before offset 0.
+    """
+    return "\n\n".join([_PAGE_HEADING, _EDITED_TARGET_SENTENCE, _TRAILING_PARAGRAPH])
+
+
+def _blank_line_only_head_text() -> str:
+    """No heading at all -- an ordinary paragraph with no terminating
+    punctuation of its own, a blank line, then the edited target sentence.
+    Pins that a blank line alone is a structural boundary, not only a
+    heading line.
+    """
+    return "\n\n".join(
+        [_UNPUNCTUATED_OPENING_PARAGRAPH, _EDITED_TARGET_SENTENCE, _TRAILING_PARAGRAPH]
+    )
+
+
+def _mid_page_head_text() -> str:
+    """The identical lead-in paragraph and edited sentence as the near-top
+    fixture's own control counterpart, buried under several ordinary filler
+    paragraphs instead of sitting right after a heading -- the passage, the
+    edit, and its immediate surrounding context are otherwise unchanged;
+    only its position on the page differs.
+    """
+    return "\n\n".join(
+        [
+            *_MID_PAGE_FILLER_PARAGRAPHS,
+            _LEAD_IN_PARAGRAPH,
+            _EDITED_TARGET_SENTENCE,
+            _TRAILING_PARAGRAPH,
+        ]
+    )
+
+
+def _windows_overlapping_the_target_sentence(
+    candidates: tuple[tuple[int, int], ...], head_text: str
+) -> list[tuple[int, int]]:
+    """Every candidate window that overlaps the edited target sentence's own
+    span in ``head_text``.
+    """
+    true_start = head_text.index(_EDITED_TARGET_SENTENCE)
+    true_end = true_start + len(_EDITED_TARGET_SENTENCE)
+    return [(start, end) for start, end in candidates if start < true_end and end > true_start]
+
+
+def test_a_quote_near_page_start_does_not_extend_the_window_back_to_document_start():
+    head_text = _near_top_head_text()
+
+    candidates = generate_candidates(_ORIGINAL_TARGET_SENTENCE, head_text)
+    overlapping = _windows_overlapping_the_target_sentence(candidates, head_text)
+
+    assert overlapping, "at least one window must cover the target sentence"
+    assert all(start > 0 for start, _end in overlapping), (
+        "a window covering a passage that sits right after a heading and a blank line "
+        "must not extend all the way back to document start -- the heading is a "
+        "structural boundary the backward extension must respect"
+    )
+
+
+def test_a_blank_line_alone_stops_backward_extension_even_without_a_heading():
+    head_text = _blank_line_only_head_text()
+    true_start = head_text.index(_EDITED_TARGET_SENTENCE)
+
+    candidates = generate_candidates(_ORIGINAL_TARGET_SENTENCE, head_text)
+    overlapping = _windows_overlapping_the_target_sentence(candidates, head_text)
+
+    assert overlapping, "at least one window must cover the target sentence"
+    assert all(start >= true_start for start, _end in overlapping), (
+        "an unpunctuated opening paragraph followed by a blank line must still stop the "
+        "backward extension there -- a heading is not the only structural boundary that "
+        "must be respected"
+    )
+
+
+def test_a_heading_line_is_never_swallowed_into_a_candidate_window():
+    head_text = _near_top_head_text()
+
+    candidates = generate_candidates(_ORIGINAL_TARGET_SENTENCE, head_text)
+
+    for start, end in candidates:
+        window_text = head_text[start:end]
+        assert "Page Title" not in window_text
+        assert "Section Heading" not in window_text
+
+
+def _best_score_for_the_target_sentence(head_text: str) -> float:
+    """Score the winning candidate for the edited target sentence in
+    ``head_text`` against its own already-extracted local context, so the
+    only thing that can vary between two pages is the quality of the
+    candidate window itself, not the surrounding historical context fed to
+    the scorer.
+    """
+    true_start = head_text.index(_EDITED_TARGET_SENTENCE)
+    true_end = true_start + len(_EDITED_TARGET_SENTENCE)
+    historical_prefix = head_text[max(0, true_start - CONTEXT_WINDOW) : true_start]
+    historical_suffix = head_text[true_end : true_end + CONTEXT_WINDOW]
+
+    candidates = generate_candidates(_ORIGINAL_TARGET_SENTENCE, head_text)
+    result = score_candidates(
+        candidates,
+        head_text,
+        _ORIGINAL_TARGET_SENTENCE,
+        historical_prefix,
+        historical_suffix,
+        true_start,
+    )
+    assert result is not None, "the target sentence must produce at least one scored candidate"
+    _span, score = result
+    return score
+
+
+def test_the_same_small_edit_scores_materially_the_same_near_the_top_of_a_page_and_mid_page():
+    """The headline regression, and the one test that would have caught the
+    defect directly: a quote and a single-word edit to it, scored once with
+    the passage sitting right after page-opening heading chrome and once
+    with the identical passage buried deep in ordinary prose. Nothing about
+    the passage, the edit, or its immediate surrounding context differs
+    between the two pages -- only where the passage sits. If the candidate
+    window generator lets the backward extension run past the heading, the
+    near-top score collapses relative to the mid-page one for reasons that
+    have nothing to do with match quality.
+    """
+    near_top_score = _best_score_for_the_target_sentence(_near_top_head_text())
+    mid_page_score = _best_score_for_the_target_sentence(_mid_page_head_text())
+
+    assert mid_page_score > 0.6, "the control case itself must be a good match"
+    assert near_top_score == pytest.approx(mid_page_score, abs=0.05), (
+        f"near-top={near_top_score:.3f} vs mid-page={mid_page_score:.3f} -- position on "
+        "the page must not dominate the match score; the same edit to the same passage "
+        "should score materially the same wherever on the page it sits"
+    )

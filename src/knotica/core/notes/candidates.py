@@ -23,7 +23,13 @@ Given ``(quote, head_text)``, :func:`generate_candidates`:
   seed word;
 - seeds a window at *every* occurrence of a chosen seed word, not merely
   its first, and extends each window to the boundaries of the sentence it
-  falls in;
+  falls in -- except that the *backward* extension also stops at a heading
+  line or a blank line, whichever is nearest, and never runs past either
+  all the way to document start. Sentence punctuation alone is not a
+  reliable backward boundary: an unpunctuated heading or opening paragraph
+  gives the punctuation-only heuristic nothing to stop on, and the
+  extension would otherwise swallow page chrome instead of the passage
+  itself;
 - caps every window's length at twice the character length of ``quote``,
   centred on the occurrence that seeded it, so a seed word buried in an
   unusually long run of prose does not produce an unbounded candidate. The
@@ -56,11 +62,32 @@ on decimals ("a rate of 3.14 percent") since the period there is not
 followed by whitespace, and it treats an ellipsis as an ordinary sentence
 end, which is usually close enough for a window-extension heuristic that
 only needs a plausible boundary, not a linguistically exact one.
+
+**Structural backward boundary -- a second, independent stop.** A heading
+line (Markdown ATX, ``#`` through ``######``) or a blank line always stops
+the *backward* extension, regardless of what the punctuation-based
+sentence heuristic above would otherwise allow. This matters because
+punctuation is not guaranteed to exist before the passage: a page-opening
+heading or an unpunctuated lead-in paragraph gives the sentence heuristic
+no boundary to stop on, and the backward extension would otherwise run
+all the way to document start, spending the length cap on chrome instead
+of the passage.
+
+**Known asymmetry -- the forward extension has no equivalent stop.** The
+forward direction still relies solely on the punctuation-based sentence
+heuristic above. In practice this rarely bites: an anchored quote is
+ordinarily captured as a complete, terminally-punctuated sentence, so the
+quote's own trailing punctuation already bounds the forward extension
+before any following heading or blank-line chrome is reached. It would
+bite for a quote whose own trailing sentence lacks terminal punctuation
+(a truncated capture, or a page's final, unpunctuated line) sitting right
+before page-closing chrome -- not covered here.
 """
 
 from __future__ import annotations
 
 import re
+from bisect import bisect_right
 
 __all__ = ["CAP_MULTIPLIER", "MIN_SEED_WORDS", "generate_candidates"]
 
@@ -76,6 +103,11 @@ CAP_MULTIPLIER = 2
 _WORD_RE = re.compile(r"[A-Za-z0-9']+")
 _SENTENCE_BOUNDARY_RE = re.compile(r"(?<=[.!?])\s+")
 
+# A structural backward boundary: a run of blank line(s), or a Markdown ATX
+# heading line. Either stops the backward extension -- see the module
+# docstring's "Structural backward boundary" section.
+_BLOCK_BOUNDARY_RE = re.compile(r"\n\s*\n|^#{1,6}[ \t]+\S.*$", re.MULTILINE)
+
 
 def generate_candidates(quote: str, head_text: str) -> tuple[tuple[int, int], ...]:
     """Candidate ``(start, end)`` windows into ``head_text`` for ``quote``.
@@ -85,6 +117,7 @@ def generate_candidates(quote: str, head_text: str) -> tuple[tuple[int, int], ..
     all with ``head_text``.
     """
     sentence_spans = _sentence_spans(head_text)
+    block_starts = _block_starts(head_text)
     page_words, proper_noun_words = _index_page_words(head_text, sentence_spans)
 
     quote_words = _unique_words(quote)
@@ -96,6 +129,7 @@ def generate_candidates(quote: str, head_text: str) -> tuple[tuple[int, int], ..
     for word in seed_words:
         for word_start, _word_end in page_words[word]:
             sentence_start, sentence_end = _sentence_containing(word_start, sentence_spans)
+            sentence_start = max(sentence_start, _nearest_block_start(block_starts, word_start))
             windows.add(_clip_to_cap(sentence_start, sentence_end, word_start, cap))
     return tuple(sorted(windows))
 
@@ -169,6 +203,26 @@ def _sentence_spans(text: str) -> tuple[tuple[int, int], ...]:
         start = match.end()
     spans.append((start, len(text)))
     return tuple(spans)
+
+
+def _block_starts(text: str) -> tuple[int, ...]:
+    """Offsets where a new structural block begins -- right after a blank
+    line or a heading line. Document start (``0``) is always included as
+    the fallback when neither exists before a given offset. See the module
+    docstring's "Structural backward boundary" section.
+    """
+    starts = {0}
+    for match in _BLOCK_BOUNDARY_RE.finditer(text):
+        starts.add(match.end())
+    return tuple(sorted(starts))
+
+
+def _nearest_block_start(block_starts: tuple[int, ...], offset: int) -> int:
+    """The latest structural block boundary at or before ``offset`` -- the
+    backward extension must not cross it.
+    """
+    index = bisect_right(block_starts, offset) - 1
+    return block_starts[index]
 
 
 def _sentence_containing(
