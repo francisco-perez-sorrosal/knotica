@@ -1,0 +1,14 @@
+# `.ai-state/observations.jsonl` is an append-only write-ahead log. Every
+# worktree accumulates its own session's lines on top of a shared base, so a
+# merge sees both sides having "modified" the same region and conflicts --
+# every single time, on a file whose correct resolution is always the same:
+# keep both sides. Git's built-in `union` driver does exactly that, and doing
+# it automatically removes the one step of a worktree merge where a human
+# under time pressure is most likely to resolve by picking a side and silently
+# discarding another session's observations.
+#
+# Union is safe here precisely because the file is append-only and its records
+# are independent: duplicate lines are idempotent to every reader, and no
+# record's meaning depends on its neighbours. Do not extend this to a file
+# where order or uniqueness carries meaning.
+.ai-state/observations.jsonl merge=union
