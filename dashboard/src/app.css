@@ -2780,6 +2780,82 @@ button.danger:hover:not(:disabled) {
 .notes-recheck { margin-left: auto; }
 .notes-load-more { margin-top: 1rem; }
 
+/* The promote dialog -- the pane's only modal, and the visible boundary
+   crossing out of the notes layer. It must overlay `.app-chrome` (z-index
+   120), not append below the note list. */
+.modal-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 200;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 1.5rem;
+  background: rgb(7 54 66 / 38%);
+  overflow-y: auto;
+}
+.modal {
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--surface);
+  box-shadow: var(--shadow);
+  padding: 1.1rem 1.25rem;
+  max-height: 100%;
+  overflow-y: auto;
+}
+.modal h3 { margin: 0 0 .6rem; }
+.notes-promote-modal {
+  width: min(38rem, 100%);
+  display: flex;
+  flex-direction: column;
+  gap: .7rem;
+}
+.notes-promote-quote {
+  margin: 0;
+  padding-left: .6rem;
+  border-left: 2px solid var(--line);
+  color: var(--muted);
+  white-space: pre-wrap;
+}
+.notes-promote-target {
+  display: flex;
+  flex-direction: column;
+  gap: .3rem;
+}
+.notes-promote-target label {
+  display: flex;
+  align-items: baseline;
+  gap: .45rem;
+}
+.notes-promote-hint { font-size: .8rem; }
+.notes-promote-field {
+  display: flex;
+  flex-direction: column;
+  gap: .25rem;
+}
+.notes-promote-field textarea {
+  width: 100%;
+  min-height: 4.5rem;
+  resize: vertical;
+  font: inherit;
+}
+.notes-promote-verdict {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+}
+.notes-promote-verdict label {
+  display: flex;
+  align-items: center;
+  gap: .35rem;
+}
+.notes-promote-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: .5rem;
+  margin-top: .2rem;
+}
+
 @media (max-width: 720px) {
   .stages, .story-stages { grid-template-columns: repeat(2, 1fr); }
   .story-stages { grid-template-columns: repeat(2, minmax(0, 1fr)); }
