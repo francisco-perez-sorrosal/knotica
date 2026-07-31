@@ -1,10 +1,9 @@
 """Payload construction and validation for the ``notes`` dispatcher's actions.
 
-Phase 1 registers exactly ``action=list`` and ``action=read``; this module
-builds their response payloads and validates the ``notes`` tool's arguments.
-The router in :mod:`knotica.mcp_server.tools_dispatch_notes` only registers
-the MCP tool and dispatches into this module -- it does not know how a page
-is built.
+This module builds ``action=list``/``action=read``/``action=drift``'s response
+payloads and validates the ``notes`` tool's arguments. The router in
+:mod:`knotica.mcp_server.tools_dispatch_notes` only registers the MCP tool
+and dispatches into this module -- it does not know how a page is built.
 
 ``status`` is a note's resolved-anchor bucket, derived from the resolved
 projections of its anchors: a note is as drifted as its weakest anchor. The
@@ -14,6 +13,11 @@ pointed at a page at all (no quote, an unreadable claimed page, or a quote
 matched on several claimed pages), never that something the anchor once
 pointed at is now gone -- but it is still a real bucket a caller can filter
 and count on.
+
+``action=drift`` is the review queue: every anchor (not note) whose resolved
+status is ``fuzzy``, ``orphaned``, or ``anchor-invalid`` -- the three buckets
+a human actually needs to look at. See the "drift" section below for the
+per-item payload shape.
 """
 
 from __future__ import annotations
@@ -22,9 +26,13 @@ from collections import Counter
 from typing import Any
 
 from knotica.core.errors import ErrorCode, KnoticaError
+from knotica.core.notes.anchor import AnchorRecord
+from knotica.core.notes.reconcile import Transition, reconcile_notes
+from knotica.core.notes.resolve import Projection
 from knotica.core.notes.store import NotesListing, ResolvedNote
 from knotica.core.page import TopicNotFoundError
 from knotica.core.schema import validated_topic
+from knotica.core.vcs import VaultVcs
 from knotica.mcp_server.dispatch_telemetry import record_rejected_action
 from knotica.mcp_server.tools_notes import render_anchors
 from knotica.search.cursor import Cursor, InvalidCursorError, decode_cursor, encode_cursor
@@ -103,7 +111,8 @@ def _list_payload(
     page_size = _validate_limit(limit)
 
     matching = _sorted(_filtered(listing.notes, intent_filter, status_filter))
-    offset = _resolve_offset(cursor, intent_filter, status_filter)
+    query = _cursor_query(intent_filter, status_filter)
+    offset = _resolve_offset(cursor, query)
     page = matching[offset : offset + page_size]
     has_more = offset + page_size < len(matching)
     return {
@@ -113,7 +122,7 @@ def _list_payload(
         "notes": [_note_summary(note) for note in page],
         "intent_counts": _intent_counts(listing.notes),
         "status_counts": _status_counts(listing.notes),
-        "next_cursor": _next_cursor(intent_filter, status_filter, offset + page_size, has_more),
+        "next_cursor": _next_cursor(query, offset + page_size, has_more),
         "has_more": has_more,
         "total_count": len(matching),
         "skipped_malformed": listing.skipped_malformed,
@@ -217,21 +226,27 @@ def _status_counts(notes: tuple[ResolvedNote, ...]) -> dict[str, int]:
     return {value: counter.get(value, 0) for value in _ANCHOR_STATUSES}
 
 
-def _next_cursor(intent_filter: str, status_filter: str, offset: int, has_more: bool) -> str:
+def _next_cursor(query: str, offset: int, has_more: bool) -> str:
+    """Mint an opaque cursor for ``query`` (an action's own filter token), or ``""``."""
     if not has_more:
         return ""
-    return encode_cursor(
-        Cursor(query=_cursor_query(intent_filter, status_filter), sort=_NOTES_SORT, offset=offset)
-    )
+    return encode_cursor(Cursor(query=query, sort=_NOTES_SORT, offset=offset))
 
 
 def _cursor_query(intent_filter: str, status_filter: str) -> str:
-    """Both filter axes pinned into the token -- changing either invalidates it."""
+    """``list``'s cursor query -- both filter axes pinned in, so changing either
+    invalidates a prior page's cursor. ``drift`` has no filter axes and uses
+    :data:`_DRIFT_CURSOR_QUERY` instead of calling this."""
     return f"intent={intent_filter};status={status_filter}"
 
 
-def _resolve_offset(cursor: str, intent_filter: str, status_filter: str) -> int:
-    """Decode an opaque page cursor, failing closed on a stale/malformed token."""
+def _resolve_offset(cursor: str, query: str) -> int:
+    """Decode an opaque page cursor, failing closed on a stale/malformed token.
+
+    ``query`` is the action's own filter token (see :func:`_cursor_query` for
+    ``list``, :data:`_DRIFT_CURSOR_QUERY` for ``drift``) -- a cursor minted
+    under a different one cannot continue this read.
+    """
     if not cursor:
         return 0
     decoded = decode_cursor(cursor)
@@ -240,9 +255,9 @@ def _resolve_offset(cursor: str, intent_filter: str, status_filter: str) -> int:
             f"Cursor was minted under sort {decoded.sort!r}, "
             f"but the current sort contract is {_NOTES_SORT!r}."
         )
-    if decoded.query != _cursor_query(intent_filter, status_filter):
+    if decoded.query != query:
         raise InvalidCursorError(
-            "Cursor was minted for a different intent/status filter and cannot continue this read."
+            "Cursor was minted for a different filter and cannot continue this read."
         )
     return decoded.offset
 
@@ -267,6 +282,170 @@ def _read_payload(topic: str, listing: NotesListing, note_id: str) -> dict[str, 
         ErrorCode.NOTE_NOT_FOUND,
         f"notes action=read failed because no note {cleaned_id!r} exists in topic {topic!r}.",
     )
+
+
+# ---------------------------------------------------------------------------
+# drift -- the review queue
+#
+# Membership is per-anchor, not per-note (a multi-anchor note resolves each
+# anchor independently -- one queue item per anchor whose own status is a
+# member, not one item per note): `fuzzy` union `orphaned` union
+# `anchor-invalid`. `exact`, `shifted`, and `unanchored` self-healed or never
+# pointed at anything, so none of the three belong in a human's review queue.
+#
+# `total_count` is `len(items)` -- the full queue, corruption included -- so
+# pagination (`next_cursor`/`has_more`/`total_count`) stays one contract with
+# `items`; `invalid_count` is a breakdown of how many of those are
+# `anchor-invalid`, not a disjoint bucket. This deliberately differs from
+# `wiki_status.notes.drifted` (`fuzzy + orphaned` only) -- the queue header
+# and that badge disagree by design, not by bug.
+# ---------------------------------------------------------------------------
+
+#: The three resolved-anchor statuses a human needs to look at. `fuzzy` and
+#: `orphaned` are resolver-measured drift (the wiki moved on); `anchor-invalid`
+#: is a data-integrity outcome (the record itself is corrupt) but still needs
+#: eyes on it. Mirrors `knotica.core.notes.reconcile`'s own membership bound --
+#: keep the two definitions in sync if either changes.
+_QUEUE_MEMBER_STATUSES = frozenset({"fuzzy", "orphaned", "anchor-invalid"})
+
+#: `drift` takes no `intent`/`status` filter, so its cursor carries a fixed
+#: token rather than one built from filter axes like `list`'s.
+_DRIFT_CURSOR_QUERY = "action=drift"
+
+#: A member tuple: the note it belongs to, the 0-based index of the anchor
+#: within that note, the anchor itself, and its resolved projection.
+_DriftMember = tuple[ResolvedNote, int, AnchorRecord, Projection]
+
+
+def _drift_payload(
+    store: VaultStore,
+    vcs: VaultVcs,
+    topic: str,
+    listing: NotesListing,
+    *,
+    guess_threshold: float,
+    complete_orphan_threshold: float,
+    cursor: str,
+    limit: int,
+) -> dict[str, Any]:
+    page_size = _validate_limit(limit)
+    members = _drift_members(listing.notes)
+    transitions = _transitions_by_anchor(
+        store,
+        vcs,
+        topic,
+        guess_threshold=guess_threshold,
+        complete_orphan_threshold=complete_orphan_threshold,
+    )
+    offset = _resolve_offset(cursor, _DRIFT_CURSOR_QUERY)
+    page = members[offset : offset + page_size]
+    has_more = offset + page_size < len(members)
+    items = [
+        _drift_item(
+            store,
+            member,
+            transitions.get((member[0].document.id, member[1])),
+            complete_orphan_threshold,
+        )
+        for member in page
+    ]
+    invalid_count = sum(
+        1 for *_rest, projection in members if projection.status == "anchor-invalid"
+    )
+    return {
+        "topic": topic,
+        "items": items,
+        "next_cursor": _next_cursor(_DRIFT_CURSOR_QUERY, offset + page_size, has_more),
+        "has_more": has_more,
+        "total_count": len(members),
+        "invalid_count": invalid_count,
+    }
+
+
+def _drift_members(notes: tuple[ResolvedNote, ...]) -> list[_DriftMember]:
+    """Every queue-member anchor across ``notes``, sorted like `list`'s notes."""
+    return [
+        (note, index, anchor, projection)
+        for note in _sorted(list(notes))
+        for index, (anchor, projection) in enumerate(note.resolved_anchors)
+        if projection.status in _QUEUE_MEMBER_STATUSES
+    ]
+
+
+def _transitions_by_anchor(
+    store: VaultStore,
+    vcs: VaultVcs,
+    topic: str,
+    *,
+    guess_threshold: float,
+    complete_orphan_threshold: float,
+) -> dict[tuple[str, int], Transition]:
+    transitions = reconcile_notes(
+        store,
+        vcs,
+        topic,
+        guess_threshold=guess_threshold,
+        complete_orphan_threshold=complete_orphan_threshold,
+    )
+    return {(transition.note_id, transition.anchor_index): transition for transition in transitions}
+
+
+def _drift_item(
+    store: VaultStore,
+    member: _DriftMember,
+    transition: Transition | None,
+    complete_orphan_threshold: float,
+) -> dict[str, Any]:
+    note, anchor_index, anchor, projection = member
+    overlap = projection.score
+    return {
+        "note": _note_summary(note),
+        "drift": {
+            "anchor_index": anchor_index,
+            "pinned_quote": anchor.quote,
+            "live_quote": _drift_live_quote(store, anchor, projection),
+            "overlap": overlap if overlap is not None else 0.0,
+            "alternatives": _drift_alternatives(anchor, overlap, complete_orphan_threshold),
+            "rewritten_at": transition.rewritten_at
+            if transition and transition.rewritten_at
+            else "",
+            "rewritten_by": transition.rewritten_by
+            if transition and transition.rewritten_by
+            else "",
+        },
+    }
+
+
+def _drift_live_quote(store: VaultStore, anchor: AnchorRecord, projection: Projection) -> str:
+    """The live text at the anchor's resolved span -- populated for `fuzzy` only.
+
+    `orphaned` (any fidelity) and `anchor-invalid` carry no placement
+    confident enough to quote back verbatim -- a human compares
+    `pinned_quote` against `alternatives` instead.
+    """
+    if projection.status != "fuzzy" or projection.span is None:
+        return ""
+    if not anchor.page or not store.exists(anchor.page):
+        return ""
+    start, end = projection.span
+    return store.read_text(anchor.page)[start:end]
+
+
+def _drift_alternatives(
+    anchor: AnchorRecord, overlap: float | None, complete_orphan_threshold: float
+) -> list[dict[str, Any]]:
+    """One alternative when the best-scored candidate clears the floor, else none.
+
+    Candidate generation only ever searches the anchor's own page in this
+    phase, so `page` is always `anchor.page`. `overlap is None` covers both
+    `anchor-invalid` (no candidate search ran at all -- the quote was never
+    in the historical blob, so there is no trustworthy position to search
+    from) and a deleted-page orphan (no page left to search): neither has a
+    candidate to offer, regardless of the configured threshold.
+    """
+    if overlap is None or overlap < complete_orphan_threshold:
+        return []
+    return [{"page": anchor.page, "heading": anchor.heading, "overlap": overlap}]
 
 
 # ---------------------------------------------------------------------------

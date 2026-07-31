@@ -25,6 +25,7 @@ Phase 1 scope, pinned here:
 from __future__ import annotations
 
 import re
+from datetime import datetime
 from pathlib import Path
 from typing import Any
 
@@ -41,9 +42,11 @@ from knotica.mcp_server.tools_dispatch_notes import (
     _drift_status,
     _status_counts,
 )
+from knotica.mcp_server.tools_dispatch_notes_actions import _NOTES_SORT
+from knotica.search.cursor import decode_cursor
 from knotica.store import LocalFSStore
 from support.dispatch import TOPIC, build_full_server, call_tool, payload_of, tool_schema
-from support.vault import git_head_sha, run_git
+from support.vault import git_commit_count, git_head_sha, run_git
 
 #: The Phase 1 error-code subset for the notes surface. `ANCHOR_DEGRADED` is
 #: warning-only (never the sole content of a failure envelope) but is listed
@@ -62,8 +65,10 @@ ERROR_CODES = frozenset(
 #: `<YYYYMMDD-HHMMSS>-<slug>`, slug optional (empty note text has none).
 NOTE_ID_RE = re.compile(r"^\d{8}-\d{6}(-[a-z0-9]+)*$")
 
-#: The five actions the full design names that Phase 1 must not accept.
-PHASE_TWO_ACTIONS = ("drift", "reanchor", "detach", "promote", "archive")
+#: The remaining four actions the full design names that this phase must not
+#: yet accept. `drift` was wired (see the `notes action=drift` section below)
+#: and dropped from this tuple -- it now succeeds instead of rejecting.
+PHASE_TWO_ACTIONS = ("reanchor", "detach", "promote", "archive")
 
 
 # ---------------------------------------------------------------------------
@@ -765,3 +770,396 @@ def test_status_counts_gains_a_fuzzy_key_and_sums_across_the_bucketable_statuses
         "every note above carries exactly one bucketable status -- the counts must "
         "sum to the note count, neither double-counting nor dropping one"
     )
+
+
+# ---------------------------------------------------------------------------
+# notes action=drift -- the review queue
+#
+# Membership is `fuzzy ∪ orphaned ∪ anchor-invalid` (R2, plus the ruling that
+# corrects Q1): `exact` and `shifted` self-healed and `unanchored` never
+# pointed at anything to lose -- none of the three belong in a human's review
+# queue. `anchor-invalid` is a data-integrity outcome, not resolver-measured
+# drift, but it still needs a human to look at it, so it rides in the same
+# queue with its own `invalid_count` breakdown rather than its own bucket --
+# and `total_count` counts it too, since pagination (`next_cursor`/
+# `has_more`/`total_count`) is one contract with `items`.
+# ---------------------------------------------------------------------------
+
+
+def _seed_exact_note(vault: Path, note_id: str) -> None:
+    """A note whose page is untouched since it was pinned -- resolves `exact`."""
+    quote = "an unmodified passage the resolver finds exactly where it was pinned"
+    page = f"{TOPIC}/drift-exact-target.md"
+    _seed_capture_page(vault, page, f"# Exact target\n\n{quote}\n", "test: seed exact target")
+    page_sha = git_head_sha(vault)
+    _write_forged_note(
+        vault,
+        note_id,
+        _forged_note(
+            note_id, anchors=(_forged_anchor(page=page, pinned_at=page_sha, quote=quote),)
+        ),
+    )
+
+
+def _seed_shifted_note(vault: Path, note_id: str) -> None:
+    """A note whose quote survives verbatim but at a new offset -- resolves `shifted`."""
+    quote = "a claim whose position on the page moves after this note was pinned"
+    page = f"{TOPIC}/drift-shifted-target.md"
+    _seed_capture_page(vault, page, f"# Shifted target\n\n{quote}\n", "test: seed shifted target")
+    page_sha = git_head_sha(vault)
+    _write_forged_note(
+        vault,
+        note_id,
+        _forged_note(
+            note_id, anchors=(_forged_anchor(page=page, pinned_at=page_sha, quote=quote),)
+        ),
+    )
+    _seed_capture_page(
+        vault,
+        page,
+        f"# Shifted target\n\nA new preface paragraph inserted before the pinned quote.\n\n{quote}\n",
+        "test: shift the quote's position on the page",
+    )
+
+
+def _seed_fuzzy_note(vault: Path, note_id: str) -> tuple[str, str, str]:
+    """A note reworded by a near-verbatim paraphrase (one word's case flips)
+    so its real similarity score clears the default `guess_threshold` (0.75)
+    with a wide margin -- resolves `fuzzy`, mirroring `test_status_notes.py`'s
+    fuzzy fixture. Returns ``(quote, page, reword_commit_message)``.
+    """
+    quote = "the mechanism that makes this claim true"
+    page = f"{TOPIC}/drift-fuzzy-target.md"
+    original = (
+        "# Fuzzy target\n\n"
+        "An introductory sentence sits here for structure.\n\n"
+        f"{quote}.\n\n"
+        "A closing sentence rounds things out.\n"
+    )
+    _seed_capture_page(vault, page, original, "test: seed fuzzy target")
+    page_sha = git_head_sha(vault)
+    _write_forged_note(
+        vault,
+        note_id,
+        _forged_note(
+            note_id, anchors=(_forged_anchor(page=page, pinned_at=page_sha, quote=quote),)
+        ),
+    )
+    paraphrase = "The mechanism that makes this claim true"
+    reworded = original.replace(quote, paraphrase)
+    assert quote not in reworded, "fixture must not leave the verbatim quote behind"
+    reword_message = "test: reword the fuzzy target passage"
+    _seed_capture_page(vault, page, reworded, reword_message)
+    return quote, page, reword_message
+
+
+def _seed_total_orphan_note(vault: Path, note_id: str) -> str:
+    """A note whose quote shares zero vocabulary with the page's rewritten
+    content: keyword-candidate generation returns nothing, and no heading
+    survives either, so the resolver reports the honest ``0.0`` floor score
+    with ``best_guess: None``. Mirrors `test_resolve.py`'s zero-candidate,
+    no-surviving-heading fixture verbatim. Returns the anchor's quote.
+    """
+    quote = "reward hacking undermines interpretability"
+    heading = "## Failure modes"
+    page = f"{TOPIC}/drift-orphan-target.md"
+    historical = (
+        "# Agent notes\n\n"
+        "Some preface text unrelated to anything specific happening later on here.\n\n"
+        f"{heading}\n\n"
+        f"{quote}\n\n"
+        "Trailing remarks closing out this particular section for now.\n"
+    )
+    head = (
+        "# Agent notes\n\n"
+        "Some preface text unrelated to anything specific happening later on here.\n\n"
+        "## Known issues (renamed)\n\n"
+        "a brief note about scheduling logistics for next quarter's planning cycle\n\n"
+        "Trailing remarks closing out this particular section for now.\n"
+    )
+    _seed_capture_page(vault, page, historical, "test: seed orphan target")
+    page_sha = git_head_sha(vault)
+    _write_forged_note(
+        vault,
+        note_id,
+        _forged_note(
+            note_id, anchors=(_forged_anchor(page=page, pinned_at=page_sha, quote=quote),)
+        ),
+    )
+    _seed_capture_page(
+        vault, page, head, "test: rewrite the orphan target, losing all vocabulary overlap"
+    )
+    return quote
+
+
+def _seed_anchor_invalid_note(vault: Path, note_id: str) -> str:
+    """A note whose anchor is corrupt: the quote was never present in the
+    historical blob the anchor claims to pin. Returns the anchor's quote.
+    """
+    quote = "a quote that was never in the historical blob"
+    page = f"{TOPIC}/drift-invalid-target.md"
+    _seed_capture_page(
+        vault,
+        page,
+        "# Invalid target\n\nNone of this text matches the anchor's quote.\n",
+        "test: seed invalid target",
+    )
+    page_sha = git_head_sha(vault)
+    _write_forged_note(
+        vault,
+        note_id,
+        _forged_note(
+            note_id, anchors=(_forged_anchor(page=page, pinned_at=page_sha, quote=quote),)
+        ),
+    )
+    return quote
+
+
+def _item_for(body: dict[str, Any], note_id: str) -> dict[str, Any]:
+    """The one `{note, drift}` item in a drift payload belonging to `note_id`."""
+    return next(item for item in body["items"] if item["note"]["note_id"] == note_id)
+
+
+def test_drift_queue_holds_only_fuzzy_orphaned_and_anchor_invalid_notes(
+    vault_config: Path, template_vault: Path
+) -> None:
+    """Per R2 (plus the ruling correcting Q1): the review queue is `fuzzy ∪
+    orphaned ∪ anchor-invalid`. `exact` and `shifted` self-healed and
+    `unanchored` never pointed at anything -- none of the three belong in a
+    human's review queue."""
+    server = build_full_server()
+    exact_id = "20260101-090000-drift-exact-note"
+    shifted_id = "20260101-090100-drift-shifted-note"
+    fuzzy_id = "20260101-090200-drift-fuzzy-note"
+    orphan_id = "20260101-090300-drift-orphan-note"
+    invalid_id = "20260101-090400-drift-invalid-note"
+    _seed_exact_note(template_vault, exact_id)
+    _seed_shifted_note(template_vault, shifted_id)
+    _seed_fuzzy_note(template_vault, fuzzy_id)
+    _seed_total_orphan_note(template_vault, orphan_id)
+    _seed_anchor_invalid_note(template_vault, invalid_id)
+    unanchored = assert_success(
+        capture(server, TOPIC, "a purely topical drift-queue-membership control")
+    )
+
+    body = assert_success(notes_call(server, "drift", topic=TOPIC))
+
+    queue_ids = {item["note"]["note_id"] for item in body["items"]}
+    assert queue_ids == {fuzzy_id, orphan_id, invalid_id}, (
+        f"exact/shifted/unanchored must never appear in the review queue, got {queue_ids!r}"
+    )
+    assert exact_id not in queue_ids
+    assert shifted_id not in queue_ids
+    assert unanchored["note_id"] not in queue_ids
+    assert body["total_count"] == 3
+    assert body["invalid_count"] == 1
+
+
+def test_drift_total_count_includes_anchor_invalid_while_wiki_status_drifted_excludes_it(
+    vault_config: Path, template_vault: Path
+) -> None:
+    """Pagination (`next_cursor`/`has_more`/`total_count`) is one contract
+    with `items` -- `total_count` must equal `len(items)`, the full queue
+    including corruption, or a topic with any `anchor-invalid` note
+    mis-paginates. `invalid_count` is the breakdown. `wiki_status`'s
+    `drifted` badge counts `fuzzy + orphaned` only (R2) -- the queue header
+    and the badge disagree **by design**, not by bug, so both are pinned
+    together here."""
+    orphan_id = "20260101-090000-count-orphan-note"
+    invalid_id = "20260101-090100-count-invalid-note"
+    _seed_total_orphan_note(template_vault, orphan_id)
+    _seed_anchor_invalid_note(template_vault, invalid_id)
+    server = build_full_server()
+
+    body = assert_success(notes_call(server, "drift", topic=TOPIC))
+    status_payload = gather_wiki_status(LocalFSStore(template_vault), template_vault, topic=TOPIC)
+
+    assert len(body["items"]) == 2
+    assert body["total_count"] == 2, "total_count must count the anchor-invalid item too"
+    assert body["invalid_count"] == 1
+    assert status_payload["totals"]["notes"]["drifted"] == 1, (
+        "wiki_status excludes anchor-invalid from `drifted` -- the header and the "
+        "badge disagree by design"
+    )
+
+
+def test_drift_item_pinned_quote_is_always_populated_even_for_a_total_orphan(
+    vault_config: Path, template_vault: Path
+) -> None:
+    """The historical text is never withheld -- even a total orphan (no guess
+    offered at all) still ships the passage that was originally pinned, so a
+    human reviewing the queue always has something to compare against."""
+    orphan_id = "20260101-090000-quote-orphan-note"
+    quote = _seed_total_orphan_note(template_vault, orphan_id)
+    server = build_full_server()
+
+    body = assert_success(notes_call(server, "drift", topic=TOPIC))
+
+    drift = _item_for(body, orphan_id)["drift"]
+    assert drift["pinned_quote"] == quote
+    assert drift["live_quote"] == "", (
+        "a total orphan has nothing live to show -- live_quote must be empty, "
+        "never a guess dressed up as the current text"
+    )
+
+
+def test_drift_alternatives_carries_at_least_one_entry_when_overlap_clears_the_floor(
+    vault_config: Path, template_vault: Path
+) -> None:
+    """A fuzzy match's score clears `complete_orphan_threshold` by construction
+    (it already cleared the stricter `guess_threshold`), so the queue must
+    offer at least one alternative -- the architect's "an orphan never ships
+    with zero guesses above that floor" constraint, exercised at its
+    strongest case."""
+    fuzzy_id = "20260101-090000-alt-fuzzy-note"
+    _quote, page, _message = _seed_fuzzy_note(template_vault, fuzzy_id)
+    server = build_full_server()
+
+    body = assert_success(notes_call(server, "drift", topic=TOPIC))
+
+    alternatives = _item_for(body, fuzzy_id)["drift"]["alternatives"]
+    assert len(alternatives) >= 1, "a scored-above-floor match must offer at least one alternative"
+    for alt in alternatives:
+        assert set(alt) == {"page", "heading", "overlap"}, (
+            f"a drift alternative carries page/heading/overlap -- unlike capture's, it "
+            f"was genuinely scored: {alt!r}"
+        )
+        assert alt["page"] == page, "candidate generation only ever searches the anchor's own page"
+        assert isinstance(alt["overlap"], int | float)
+
+
+def test_drift_alternatives_is_empty_when_overlap_falls_below_the_floor(
+    vault_config: Path, template_vault: Path
+) -> None:
+    """A garbage guess is worse than none: when the best candidate scores
+    below `complete_orphan_threshold`, `alternatives` must be empty, not a
+    padded-out low-confidence guess."""
+    orphan_id = "20260101-090000-alt-orphan-note"
+    _seed_total_orphan_note(template_vault, orphan_id)
+    server = build_full_server()
+
+    body = assert_success(notes_call(server, "drift", topic=TOPIC))
+
+    assert _item_for(body, orphan_id)["drift"]["alternatives"] == []
+
+
+def test_drift_anchor_invalid_item_carries_the_raw_quote_and_no_candidate_search(
+    vault_config: Path, template_vault: Path
+) -> None:
+    """`anchor-invalid` means the quote was never in the historical blob --
+    there is no trustworthy position to seed a candidate search from, so no
+    search runs. The item still carries the raw recorded quote (so the human
+    reviewing sees what the note claims), and carries no rewrite attribution:
+    nothing about the page caused this record's corruption."""
+    invalid_id = "20260101-090000-shape-invalid-note"
+    quote = _seed_anchor_invalid_note(template_vault, invalid_id)
+    server = build_full_server()
+
+    body = assert_success(notes_call(server, "drift", topic=TOPIC))
+
+    drift = _item_for(body, invalid_id)["drift"]
+    assert drift["anchor_index"] == 0
+    assert drift["pinned_quote"] == quote
+    assert drift["live_quote"] == ""
+    assert drift["overlap"] == 0
+    assert drift["alternatives"] == []
+    # Provisional on representation (an omitted key vs. an explicit null) --
+    # either satisfies "carries no rewrite attribution"; `.get` accepts both.
+    # Empty string, not an omitted key: every other "not applicable" value in
+    # this payload family is `""` (`page`, `heading`, `live_quote`,
+    # `next_cursor`), and introducing key-omission for two fields would put a
+    # second convention inside the same object. The dashboard branches on
+    # falsiness either way.
+    assert drift["rewritten_at"] == ""
+    assert drift["rewritten_by"] == ""
+
+
+def test_drift_item_carries_rewrite_attribution_for_a_genuinely_reconciled_page(
+    vault_config: Path, template_vault: Path
+) -> None:
+    """A queue member whose page really was rewritten since the anchor was
+    pinned must carry `rewritten_at`/`rewritten_by` from the reconciliation
+    pass -- the audit trail a human needs to trust the queue entry."""
+    fuzzy_id = "20260101-090000-rewrite-fuzzy-note"
+    _quote, _page, reword_message = _seed_fuzzy_note(template_vault, fuzzy_id)
+    server = build_full_server()
+
+    body = assert_success(notes_call(server, "drift", topic=TOPIC))
+
+    drift = _item_for(body, fuzzy_id)["drift"]
+    rewritten_at = drift.get("rewritten_at")
+    assert isinstance(rewritten_at, str) and rewritten_at
+    datetime.fromisoformat(rewritten_at)  # must not raise -- ISO 8601
+    assert drift.get("rewritten_by") == reword_message
+
+
+def test_drift_pagination_splits_queue_members_across_pages_using_the_shared_cursor_contract(
+    vault_config: Path, template_vault: Path
+) -> None:
+    """Pagination must reuse `list`'s opaque-cursor contract, not invent a
+    second scheme: the minted cursor decodes under the same sort tag, and
+    every queue member is reachable across pages exactly once -- neither
+    dropped nor duplicated at the page boundary."""
+    orphan_id = "20260101-090000-page-orphan-note"
+    fuzzy_id = "20260101-090100-page-fuzzy-note"
+    invalid_id = "20260101-090200-page-invalid-note"
+    _seed_total_orphan_note(template_vault, orphan_id)
+    _seed_fuzzy_note(template_vault, fuzzy_id)
+    _seed_anchor_invalid_note(template_vault, invalid_id)
+    server = build_full_server()
+
+    first_page = assert_success(notes_call(server, "drift", topic=TOPIC, limit=2))
+    assert len(first_page["items"]) == 2
+    assert first_page["has_more"] is True
+    assert first_page["next_cursor"] != ""
+    assert first_page["total_count"] == 3
+    assert decode_cursor(first_page["next_cursor"]).sort == _NOTES_SORT, (
+        "drift's cursor must reuse the notes listing's sort contract, not a second scheme"
+    )
+
+    second_page = assert_success(
+        notes_call(server, "drift", topic=TOPIC, limit=2, cursor=first_page["next_cursor"])
+    )
+    assert len(second_page["items"]) == 1
+    assert second_page["has_more"] is False
+    assert second_page["next_cursor"] == ""
+    assert second_page["total_count"] == 3
+
+    seen_ids = {item["note"]["note_id"] for item in first_page["items"]} | {
+        item["note"]["note_id"] for item in second_page["items"]
+    }
+    assert seen_ids == {orphan_id, fuzzy_id, invalid_id}, (
+        "every queue member must appear exactly once across both pages"
+    )
+
+
+def test_drift_queue_is_empty_when_the_topic_has_no_queue_member_notes(
+    vault_config: Path, template_vault: Path
+) -> None:
+    _seed_exact_note(template_vault, "20260101-090000-only-exact-note")
+    server = build_full_server()
+
+    body = assert_success(notes_call(server, "drift", topic=TOPIC))
+
+    assert body["items"] == []
+    assert body["total_count"] == 0
+    assert body["invalid_count"] == 0
+    assert body["has_more"] is False
+    assert body["next_cursor"] == ""
+
+
+def test_drift_never_writes_or_commits(vault_config: Path, template_vault: Path) -> None:
+    """`drift` is read-only throughout: no lock, no note-file write, no
+    commit -- unlike `reanchor`/`detach`/`promote`/`archive`, it carries no
+    `mode` parameter at all because there is nothing here to gate."""
+    _seed_fuzzy_note(template_vault, "20260101-090000-readonly-fuzzy-note")
+    _seed_anchor_invalid_note(template_vault, "20260101-090100-readonly-invalid-note")
+    before_sha = git_head_sha(template_vault)
+    before_count = git_commit_count(template_vault)
+    server = build_full_server()
+
+    assert_success(notes_call(server, "drift", topic=TOPIC))
+    assert_success(notes_call(server, "drift", topic=TOPIC, limit=1))
+
+    assert git_head_sha(template_vault) == before_sha, "drift must never commit"
+    assert git_commit_count(template_vault) == before_count

@@ -1,15 +1,16 @@
 """Operator dispatcher ``notes`` -- registers the ``notes`` MCP tool.
 
-Recall and inspection of the personal notes layer. Both actions are read-only,
-so -- like ``arena`` -- this dispatcher carries no mutation precondition in its
-description: there is nothing here to gate.
+Recall, inspection, and the drift review queue over the personal notes layer.
+All three registered actions are read-only, so -- like ``arena`` -- this
+dispatcher carries no mutation precondition in its description: there is
+nothing here to gate.
 
 **Deliberately restricted action set.** The full notes design names seven
-actions; the five that mutate or resolve drift (``drift``, ``reanchor``,
-``detach``, ``promote``, ``archive``) are a later phase and are *not* registered
-here. Supplying one is rejected with ``INVALID_ARGUMENT`` rather than accepted
-and quietly ignored -- an action that appears to work and does nothing is worse
-than one that says it does not exist.
+actions; the four that mutate (``reanchor``, ``detach``, ``promote``,
+``archive``) are a later phase and are *not* registered here. Supplying one is
+rejected with ``INVALID_ARGUMENT`` rather than accepted and quietly ignored --
+an action that appears to work and does nothing is worse than one that says it
+does not exist.
 
 This module is the thin router: MCP tool registration and dispatch. Per-action
 payload construction, argument validation, and the resolved-anchor status
@@ -35,6 +36,7 @@ from knotica.mcp_server.tools_dispatch_notes_actions import (
     _DEFAULT_LIMIT,
     _LEAST_SEVERE_ANCHOR_STATUS as _LEAST_SEVERE_ANCHOR_STATUS,
     _MOST_SEVERE_ANCHOR_STATUS as _MOST_SEVERE_ANCHOR_STATUS,
+    _drift_payload,
     _drift_status as _drift_status,
     _list_payload,
     _read_payload,
@@ -50,7 +52,7 @@ __all__ = ["register_dispatch_notes_tools"]
 ToolResult = CallToolResult
 
 _DISPATCHER = "notes"
-_ACTIONS = ("list", "read")
+_ACTIONS = ("list", "read", "drift")
 
 _NOTES_DISPATCH_DESCRIPTION = (
     "Browse the personal notes layer (marginalia) for one topic -- the notes "
@@ -62,9 +64,18 @@ _NOTES_DISPATCH_DESCRIPTION = (
     "prior next_cursor (default 20, max 50 per page); the response carries "
     "intent_counts and status_counts for the whole topic. `action=read` returns "
     "one note in full -- its text and every anchor with the page, the passage "
-    "originally pinned, and how that pin resolves against the vault today. Both "
-    "actions are read-only: no commits, no lock. Pass vault to select a "
-    "configured vault."
+    "originally pinned, and how that pin resolves against the vault today. "
+    "`action=drift` is the review queue: one item per anchor resolving "
+    "fuzzy, orphaned, or anchor-invalid (a note that self-healed or never "
+    "pointed at anything never appears). Each item carries the note plus a "
+    "drift detail -- pinned_quote (the original passage, always present), "
+    "live_quote (the current text, when confidently placed), overlap (the "
+    "similarity score), alternatives (a scored candidate placement, when one "
+    "clears the confidence floor), and rewritten_at/rewritten_by (who last "
+    "touched the page, when known); total_count includes anchor-invalid, "
+    "invalid_count breaks out how many of those there are. Paginates the "
+    "same way as `list`. All three actions are read-only: no commits, no "
+    "lock. Pass vault to select a configured vault."
 )
 
 
@@ -114,15 +125,27 @@ def _dispatch_payload(
     cleaned_topic = _validate_topic(store, topic)
     record_dispatch(_DISPATCHER, cleaned_action, cleaned_topic)
     notes_config = resolve_notes_config()
+    vcs = VaultVcs(vault_path)
     listing = list_notes(
         store,
-        VaultVcs(vault_path),
+        vcs,
         cleaned_topic,
         guess_threshold=notes_config.guess_threshold,
         complete_orphan_threshold=notes_config.complete_orphan_threshold,
     )
     if cleaned_action == "read":
         return _read_payload(cleaned_topic, listing, note_id)
+    if cleaned_action == "drift":
+        return _drift_payload(
+            store,
+            vcs,
+            cleaned_topic,
+            listing,
+            guess_threshold=notes_config.guess_threshold,
+            complete_orphan_threshold=notes_config.complete_orphan_threshold,
+            cursor=cursor,
+            limit=limit,
+        )
     return _list_payload(
         cleaned_topic, listing, intent=intent, status=status, cursor=cursor, limit=limit
     )
