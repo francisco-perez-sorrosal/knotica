@@ -135,6 +135,11 @@ class VaultVcs:
         result = self._run(["log", "-1", "--format=%ct", commit], optional_locks=False)
         return int(result.stdout.strip() or "0")
 
+    def commit_subject(self, commit: str) -> str:
+        """The commit's subject line -- the first line of its message (read-only)."""
+        result = self._run(["log", "-1", "--format=%s", commit], optional_locks=False)
+        return result.stdout.strip()
+
     def is_dirty(self, paths: Sequence[str | PurePath] | None = None) -> bool:
         """Return whether the work tree has uncommitted changes.
 
