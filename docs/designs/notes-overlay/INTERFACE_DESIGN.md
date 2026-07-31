@@ -949,6 +949,27 @@ just Goodhart with extra steps. we never test the case where the metric IS the g
 - [[2026-06-02-goodhart-in-evals]]
 ```
 
+> **Corrected 2026-07-30, during Phase 2 implementation.** The anchor-bullet examples in this
+> section are **stale** and must not be built from. They show an on-disk `` `exact` ``/
+> `` `superseded` `` *status* token, `~~strikethrough~~` rendering, a `reanchored@` token variant,
+> and a standalone `**detached**` bullet — none of which the shipped grammar accepts, and three of
+> which are incompatible with decisions this document's own architecture rests on.
+>
+> The status token persists a projection, which `dec-058` makes derived-and-never-persisted (Phase
+> 1's parser never accepted it). Strikethrough and a `superseded` token require **rewriting an
+> earlier bullet**, which AC-09 forbids in terms — the anchor of record is never modified. A
+> `reanchored@` token breaks the signature rule that a bullet is an anchor iff it carries
+> backticked fidelity *plus* `pinned@<sha>`, which is what lets an older reader survive a
+> later-generation file. And the `**detached**` bullet carries neither, so the shipped parser would
+> skip it into `skipped_anchor_count` — silently losing the very record it exists to write.
+>
+> The binding grammar is a single bullet shape with an optional trailing `kind` token, where an
+> absent token means `pinned` so every existing note parses unmigrated, and supersession is
+> **derived** from document order rather than stored. Frontmatter `anchor_status`/`anchor_fidelity`
+> are likewise not implemented — they would cache a projection that goes stale the moment the KB
+> changes. The *intent* of this section stands unchanged: the anchor list is an append-only
+> history, readable in plain Obsidian, and nothing is ever deleted.
+
 **The anchor list is a history, not a field.** After a drift review that re-pinned once and then
 detached, the same section reads:
 
