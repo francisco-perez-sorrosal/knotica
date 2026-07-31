@@ -195,6 +195,130 @@ def test_note_capture_degraded_anchor_is_a_success_envelope_with_a_warning(
 
 
 # ---------------------------------------------------------------------------
+# note_capture -- structured alternatives on an ambiguous multi-page match
+#
+# Unlike the drift queue's alternatives, every capture-time match is verbatim
+# -- there is nothing to score, so the shape carries only `page`/`heading`,
+# never an `overlap` (that would imply a similarity comparison that never
+# ran) and never a `quote` (identical on every matched page by construction).
+# ---------------------------------------------------------------------------
+
+
+def _seed_capture_page(vault: Path, relpath: str, content: str, message: str) -> None:
+    target = vault / relpath
+    target.parent.mkdir(parents=True, exist_ok=True)
+    target.write_text(content, encoding="utf-8")
+    run_git(vault, "add", "-A")
+    run_git(vault, "commit", "-m", message)
+
+
+def test_note_capture_alternatives_carry_page_and_heading_for_each_matched_page(
+    vault_config: Path, template_vault: Path
+) -> None:
+    """A quote matching several claimed pages degrades to topic fidelity
+    (Phase 1 behavior, unchanged) AND now hands back one structured runner-up
+    per matched page, in claimed order -- exactly what `_plan_anchor`'s prose
+    warning already names, just reaching the caller as data this time."""
+    quote = "the reward signal and the intended goal quietly diverge"
+    page_a = f"{TOPIC}/wire-multi-match-a.md"
+    page_b = f"{TOPIC}/wire-multi-match-b.md"
+    _seed_capture_page(template_vault, page_a, f"# Reward Divergence\n\n{quote}.\n", "test: seed A")
+    _seed_capture_page(template_vault, page_b, f"# Goal Misalignment\n\n{quote}.\n", "test: seed B")
+    server = build_full_server()
+
+    result = capture(
+        server,
+        TOPIC,
+        "this keeps coming up in two places",
+        quote=quote,
+        pages=[page_a, page_b],
+    )
+
+    assert getattr(result, "isError", False) is False, (
+        "a multi-page match is still a success -- the anchor degrades, the call does not fail"
+    )
+    body = assert_success(result)
+    warnings = body.get("warnings", [])
+    assert any(w.get("code") == "ANCHOR_DEGRADED" for w in warnings), (
+        f"the existing degradation warning must ride alongside the new structured data, "
+        f"not be replaced by it: {warnings!r}"
+    )
+    assert body["alternatives"] == [
+        {"page": page_a, "heading": "Reward Divergence"},
+        {"page": page_b, "heading": "Goal Misalignment"},
+    ]
+
+
+def test_note_capture_alternatives_entries_never_carry_an_overlap_key(
+    vault_config: Path, template_vault: Path
+) -> None:
+    """The ruling most likely to be "helpfully" undone by a later change that
+    pattern-matches on the drift queue's `{page, heading, overlap}` shape:
+    every capture-time alternative matched the quote verbatim, so there is no
+    similarity score to carry, and none must sneak in."""
+    quote = "specification gaming shows up whenever the metric is a proxy for the goal"
+    page_a = f"{TOPIC}/overlap-guard-a.md"
+    page_b = f"{TOPIC}/overlap-guard-b.md"
+    _seed_capture_page(template_vault, page_a, f"# Gaming\n\n{quote}.\n", "test: seed A")
+    _seed_capture_page(template_vault, page_b, f"# Proxy Goals\n\n{quote}.\n", "test: seed B")
+    server = build_full_server()
+
+    body = assert_success(
+        capture(
+            server,
+            TOPIC,
+            "the same specification-gaming point twice",
+            quote=quote,
+            pages=[page_a, page_b],
+        )
+    )
+
+    alternatives = body["alternatives"]
+    assert len(alternatives) == 2, "sanity: both claimed pages must have matched"
+    assert all(set(entry) == {"page", "heading"} for entry in alternatives), (
+        "an alternative entry carries more than page/heading -- an overlap or quote key "
+        f"snuck in, but every capture-time match is exact so there is nothing to score: "
+        f"{alternatives!r}"
+    )
+
+
+def test_note_capture_alternatives_is_empty_when_exactly_one_claimed_page_matches(
+    vault_config: Path, template_vault: Path
+) -> None:
+    quote = "an argument that only lives on one of the candidate pages"
+    page_a = f"{TOPIC}/wire-single-match-a.md"
+    page_b = f"{TOPIC}/wire-single-match-b.md"
+    _seed_capture_page(template_vault, page_a, f"# Single Match\n\n{quote}.\n", "test: seed A")
+    _seed_capture_page(
+        template_vault, page_b, "# Unrelated\n\nNothing here matches.\n", "test: seed B"
+    )
+    server = build_full_server()
+
+    body = assert_success(
+        capture(
+            server,
+            TOPIC,
+            "unambiguous, not the multi-page case",
+            quote=quote,
+            pages=[page_a, page_b],
+        )
+    )
+
+    assert body["alternatives"] == [], "exactly one match is the happy path, not an ambiguity"
+
+
+def test_note_capture_alternatives_is_empty_when_no_quote_is_supplied(
+    vault_config: Path, template_vault: Path
+) -> None:
+    del template_vault
+    server = build_full_server()
+
+    body = assert_success(capture(server, TOPIC, "a purely topical reflection"))
+
+    assert body["alternatives"] == [], "nothing was claimed, so there is nothing to offer"
+
+
+# ---------------------------------------------------------------------------
 # notes dispatcher -- Phase 1 action scope
 # ---------------------------------------------------------------------------
 

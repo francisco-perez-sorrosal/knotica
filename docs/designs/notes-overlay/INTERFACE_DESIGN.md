@@ -293,8 +293,19 @@ without re-reasoning over `fidelity` × `status` × heading presence. Handing it
 removes the chance of it inventing a wrong location and removes the tokens it would spend
 formatting one. It costs the server a small string table. Worth it.
 
-**`alternatives`** is populated only on ambiguity — a list of `{page, heading, quote}` the agent
-can offer as a one-word refinement *after* the note is already safe.
+**`alternatives`** is populated only on ambiguity — a list of `{page, heading}` the agent can offer
+as a one-word refinement *after* the note is already safe.
+
+> **Corrected 2026-07-30, during Phase 2 implementation.** This paragraph said `{page, heading,
+> quote}`, contradicting its own example below. The example is right: the quote is *identical* on
+> every alternative — that is precisely what makes them ambiguous — so a per-entry copy is pure
+> redundancy. There is deliberately no `overlap` either, unlike the drift queue's alternatives:
+> every candidate here matched the quote **verbatim**, so nothing was scored, and an `overlap: 1.0`
+> would invite a consumer to sort or threshold on a comparison that never ran.
+>
+> The example's `"status": "fuzzy"` on a `"fidelity": "topic"` anchor is also wrong and predates
+> the shipped status vocabulary. An anchor that never pointed at a page is **`unanchored`**;
+> `fuzzy` means a scored span match against a real page, and cannot co-occur with `topic` fidelity.
 
 ### Degraded example (ambiguous match)
 

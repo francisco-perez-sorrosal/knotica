@@ -165,9 +165,11 @@ def _capture_payload(
         "path": path,
         "intent": resolved.document.intent if resolved is not None else intent,
         "anchors": render_anchors(resolved),
-        # Phase 1 pins at most one anchor and the capture path returns no
-        # ranked runners-up, so there is never a refinement to offer yet.
-        "alternatives": [],
+        # `capture_note` already resolved the multi-page-match ambiguity into
+        # `{page, heading}` mappings against the text it matched against --
+        # passed through unchanged rather than re-derived here, which would
+        # mean re-reading pages against a HEAD that may have moved.
+        "alternatives": result.get("alternatives", []),
         "placement": _placement(resolved, intent),
         "written": True,
         "duplicate": bool(result["duplicate"]),
