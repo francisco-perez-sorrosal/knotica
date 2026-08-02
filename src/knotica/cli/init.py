@@ -45,14 +45,24 @@ from knotica.core.config import config_file_path
 from knotica.core.errors import KnoticaError
 from knotica.core.template import TEMPLATE_DIRNAME
 
-__all__ = ["configure", "run"]
+#: ``knotica.cli.desktop`` reuses this module's Desktop-config seam so the
+#: launch argv and the additive patch have exactly one definition.
+__all__ = [
+    "MCP_SERVER_NAME",
+    "configure",
+    "desktop_config_path",
+    "mcp_from_source",
+    "patch_desktop",
+    "run",
+    "warm_launch",
+]
 
 #: Config vault name written by the wizard (the schema's ``default_vault``).
 _DEFAULT_VAULT_NAME = "main"
 #: Default vault filesystem path offered under ``--yes`` / interactive default.
 _DEFAULT_VAULT_PATH = "~/dev/data/knotica"
 #: Name the MCP server is registered under (claude CLI + Desktop config).
-_MCP_SERVER_NAME = "knotica"
+MCP_SERVER_NAME = "knotica"
 #: Env override for the Desktop config path (test hook; never bind $HOME early).
 _DESKTOP_CONFIG_ENV_VAR = "KNOTICA_DESKTOP_CONFIG"
 #: Env override for the MCP ``--from`` source (test hook / power-user escape).
@@ -122,15 +132,15 @@ def run(args: argparse.Namespace) -> int:
 
 def _scaffold_and_wire(console: Console, inputs: _Inputs) -> None:
     """Run every wizard stage in order (config resolved fresh, never cached)."""
-    from_source = _mcp_from_source()
+    from_source = mcp_from_source()
     result = _run_scaffold(inputs.vault_path, inputs.topic)
     _report_scaffold(console, inputs, result)
     _setup_remote(console, inputs.vault_path, inputs.remote)
     _write_config(console, _DEFAULT_VAULT_NAME, inputs.vault_path)
     _register_mcp(console, from_source)
     if inputs.desktop:
-        _patch_desktop(console, from_source)
-    _warm_uvx(console, from_source)
+        patch_desktop(console, from_source)
+    warm_launch(console, from_source)
 
 
 def _resolve_inputs(console: Console, args: argparse.Namespace) -> _Inputs:
@@ -252,7 +262,7 @@ def _register_mcp(console: Console, from_source: str) -> None:
             claude,
             "mcp",
             "add",
-            _MCP_SERVER_NAME,
+            MCP_SERVER_NAME,
             "--",
             "uvx",
             "--from",
@@ -263,16 +273,16 @@ def _register_mcp(console: Console, from_source: str) -> None:
         check=False,
     )
     if result.returncode == 0:
-        console.info(f"registered MCP server '{_MCP_SERVER_NAME}' with claude")
+        console.info(f"registered MCP server '{MCP_SERVER_NAME}' with claude")
         return
     combined = f"{result.stderr}\n{result.stdout}".lower()
     if "already exists" in combined:
-        console.info(f"MCP server '{_MCP_SERVER_NAME}' already registered with claude")
+        console.info(f"MCP server '{MCP_SERVER_NAME}' already registered with claude")
     else:
         console.warn(f"`claude mcp add` failed: {result.stderr.strip() or result.stdout.strip()}")
 
 
-def _patch_desktop(console: Console, from_source: str) -> None:
+def patch_desktop(console: Console, from_source: str) -> None:
     """Additively patch the Desktop config with an absolute ``uv`` / ``uvx`` launch.
 
     Local repo checkouts use editable ``uv run --directory … --extra evals`` so
@@ -287,26 +297,77 @@ def _patch_desktop(console: Console, from_source: str) -> None:
     except _InitError as error:
         console.warn(str(error))
         return
-    path = _desktop_config_path()
+    path = desktop_config_path()
+    console.info(f"target file: {path}")
     path.parent.mkdir(parents=True, exist_ok=True)
     existing: dict[str, Any] = {}
     if path.is_file():
-        backup = path.with_name(path.name + ".bak")
-        shutil.copy2(path, backup)
-        console.info(f"backed up Desktop config → {backup}")
         try:
             existing = json.loads(path.read_text(encoding="utf-8"))
         except json.JSONDecodeError:
             console.warn(f"Desktop config at {path} is not valid JSON — leaving it untouched")
             return
+    else:
+        console.info("no Desktop config yet — creating it")
+
     servers = existing.setdefault("mcpServers", {})
+    prior = servers.get(MCP_SERVER_NAME)
+    prior = prior if isinstance(prior, dict) else None
     entry: dict[str, object] = {"command": command, "args": args}
-    prior_env = servers.get(_MCP_SERVER_NAME, {}).get("env")
+    prior_env = prior.get("env") if prior else None
     if isinstance(prior_env, dict):
         entry["env"] = prior_env
-    servers[_MCP_SERVER_NAME] = entry
+
+    if prior == entry:
+        console.info(f"mcpServers.{MCP_SERVER_NAME} is already current — nothing to change")
+        return
+
+    # Back up only when something will actually change: an unconditional copy
+    # would overwrite a good .bak with an identical file on every no-op run,
+    # quietly destroying the one snapshot a user might need to roll back to.
+    if path.is_file():
+        backup = path.with_name(path.name + ".bak")
+        shutil.copy2(path, backup)
+        console.info(f"backed up previous config → {backup}")
+
+    _report_desktop_changes(console, prior, command, args, entry.get("env"), servers)
+    servers[MCP_SERVER_NAME] = entry
     path.write_text(json.dumps(existing, indent=2) + "\n", encoding="utf-8")
-    console.info(f"patched Desktop config → {path} (additive; server '{_MCP_SERVER_NAME}')")
+    console.info(f"wrote mcpServers.{MCP_SERVER_NAME} in {path}")
+
+
+def _report_desktop_changes(
+    console: Console,
+    prior: dict[str, Any] | None,
+    command: str,
+    args: list[str],
+    env: object,
+    servers: dict[str, Any],
+) -> None:
+    """Narrate exactly what the patch changes, before it is written.
+
+    A config patch is an edit to a file the user did not open, so the log is the
+    only record of it. Name the key that changes, the before/after of each field,
+    what is carried over, and what is left alone -- enough to audit or undo the
+    write without diffing the file.
+    """
+    verb = "updating" if prior else "adding"
+    console.info(f"{verb} key: mcpServers.{MCP_SERVER_NAME}")
+    prior_command = prior.get("command") if prior else None
+    if prior and prior_command != command:
+        console.info(f"  command: {prior_command} → {command}")
+    else:
+        console.info(f"  command: {command}")
+    prior_args = prior.get("args") if prior else None
+    if prior and prior_args != args:
+        console.info(f"  args (was): {' '.join(str(a) for a in prior_args or [])}")
+    console.info(f"  args: {' '.join(args)}")
+    if isinstance(env, dict) and env:
+        # Names only -- these are credentials.
+        console.info(f"  env: preserved {', '.join(sorted(env))}")
+    untouched = sorted(name for name in servers if name != MCP_SERVER_NAME)
+    if untouched:
+        console.info(f"  left untouched: {', '.join(untouched)}")
 
 
 def _is_local_repo_source(from_source: str) -> bool:
@@ -321,8 +382,8 @@ def _local_repo_run_args(from_source: str, *knotica_argv: str) -> list[str]:
     ``--extra`` (not ``--group``): the eval dependencies are a PEP 621 extra, and
     the byte-identical PEP 735 group that once aliased it is gone. A config
     written before that removal still carries the old group flag and now fails to
-    launch with "Group `evals` is not defined"; re-running ``knotica init
-    --desktop`` rewrites it.
+    launch with "Group `evals` is not defined"; ``knotica desktop install``
+    rewrites it.
     """
     # Pre-migration configs carry `--group evals` here. allow-stale-invocation
     repo = str(Path(from_source).expanduser().resolve())
@@ -377,7 +438,7 @@ def _uvx_knotica_args(
     return args
 
 
-def _warm_uvx(console: Console, from_source: str) -> None:
+def warm_launch(console: Console, from_source: str) -> None:
     """Verify launch tooling and warm the Desktop resolution cache (best-effort)."""
     try:
         command, args = _desktop_knotica_launch(from_source, "--version")
@@ -416,7 +477,7 @@ def _repo_root_from(start: Path) -> str | None:
     return None
 
 
-def _mcp_from_source() -> str:
+def mcp_from_source() -> str:
     """Resolve the MCP ``--from`` source: env > source checkout > package name.
 
     The source-checkout probe checks two signals, since either can miss the repo
@@ -434,7 +495,7 @@ def _mcp_from_source() -> str:
     )
 
 
-def _desktop_config_path() -> Path:
+def desktop_config_path() -> Path:
     """Desktop config location: ``$KNOTICA_DESKTOP_CONFIG`` > macOS default."""
     override = os.environ.get(_DESKTOP_CONFIG_ENV_VAR)
     if override:

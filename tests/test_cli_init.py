@@ -26,8 +26,6 @@ config resolver directly and is a GREEN anchor from the start.
 
 import json
 import os
-import shutil
-import stat
 import subprocess
 import sys
 from pathlib import Path
@@ -53,34 +51,6 @@ _REAL_CANARY_PATHS = (
 # ---------------------------------------------------------------------------
 # Hermetic execution: redirected HOME + a PATH with only git and inert stubs
 # ---------------------------------------------------------------------------
-
-
-def _make_executable(path: Path) -> None:
-    path.chmod(path.stat().st_mode | stat.S_IXUSR | stat.S_IXGRP | stat.S_IXOTH)
-
-
-@pytest.fixture
-def hermetic_bin(tmp_path: Path) -> Path:
-    """A lone PATH directory: real ``git`` symlinked, everything else inert.
-
-    ``uvx`` prints a version (init pre-warms with ``uvx --version``) and resolves
-    to an absolute path (so the Desktop patch has a real absolute command to
-    write); ``uv``/``claude``/``gh`` exit 0 so init's optional registration and
-    remote steps are no-ops that touch nothing real.
-    """
-    bin_dir = tmp_path / "hermetic-bin"
-    bin_dir.mkdir()
-    git = shutil.which("git")
-    assert git is not None, "git must be installed to exercise knotica init"
-    (bin_dir / "git").symlink_to(git)
-    (bin_dir / "uvx").write_text("#!/bin/sh\necho 'uvx 0.0.0'\nexit 0\n", encoding="utf-8")
-    (bin_dir / "uv").write_text("#!/bin/sh\necho 'uv 0.0.0'\nexit 0\n", encoding="utf-8")
-    for name in ("claude", "gh"):
-        (bin_dir / name).write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
-    for stub in bin_dir.iterdir():
-        if not stub.is_symlink():
-            _make_executable(stub)
-    return bin_dir
 
 
 def _init_env(hermetic_bin: Path) -> dict[str, str]:
@@ -371,7 +341,7 @@ def test_mcp_from_source_falls_back_to_cwd_when_file_is_outside_the_checkout(
     monkeypatch.delenv(init_mod._MCP_FROM_ENV_VAR, raising=False)
     monkeypatch.chdir(REPO_ROOT)
 
-    assert init_mod._mcp_from_source() == str(REPO_ROOT)
+    assert init_mod.mcp_from_source() == str(REPO_ROOT)
 
 
 def test_mcp_from_source_falls_back_to_package_name_outside_any_checkout(
@@ -389,7 +359,7 @@ def test_mcp_from_source_falls_back_to_package_name_outside_any_checkout(
     monkeypatch.delenv(init_mod._MCP_FROM_ENV_VAR, raising=False)
     monkeypatch.chdir(tmp_path)
 
-    assert init_mod._mcp_from_source() == "knotica"
+    assert init_mod.mcp_from_source() == "knotica"
 
 
 # ---------------------------------------------------------------------------

@@ -49,8 +49,12 @@ restart-daemon:  ## Restart the loop service so it runs the freshly installed co
 	  echo "loop service not installed (skip) — 'knotica service install' to add it"; \
 	fi
 
-desktop:  ## Register this repo as the knotica MCP server in Claude Desktop
-	$(UV) run --extra evals knotica init --desktop --yes
+# Deliberately NOT `knotica init --desktop`: the full wizard also scaffolds a
+# vault and upserts it as the *default* in config.toml, so running it to fix a
+# Desktop entry switches the active knowledge base. `desktop install` touches the
+# Desktop config alone -- additive, backed up first, `env` block preserved.
+desktop:  ## Point Claude Desktop at this repo (idempotent; no vault/config changes)
+	$(UV) run --extra evals knotica desktop install
 	@echo "Now fully quit Claude Desktop (Cmd-Q) and reopen it."
 
 clean-tool:  ## Remove the globally installed knotica CLI

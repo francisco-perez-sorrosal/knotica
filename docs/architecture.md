@@ -435,7 +435,10 @@ Two install channels, both backing the same MCP server:
 
 - **Claude Code plugin:** `/plugin marketplace add francisco-perez-sorrosal/bit-agora` →
   `/plugin install knotica@bit-agora` → `/knotica:setup`.
-- **CLI + Claude Desktop:** `uv tool install --from . knotica` → `knotica init --desktop --yes`.
+- **CLI + Claude Desktop:** `uv tool install --from . knotica` → `knotica init --desktop --yes`
+  (first-time). `knotica desktop install` maintains the Desktop entry afterwards — it patches
+  only `claude_desktop_config.json`, so it cannot re-point the active vault the way re-running
+  the wizard would.
   Full Desktop + AWM use case: [`docs/CLAUDE_DESKTOP.md`](./CLAUDE_DESKTOP.md).
   Summary: [README](../README.md).
 

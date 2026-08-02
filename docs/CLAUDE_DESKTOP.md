@@ -195,7 +195,8 @@ For **Claude Desktop**, headless tools need those packages in the uvx environmen
 
 | Install path | What to run |
 |--------------|-------------|
-| **`knotica init --desktop`** | Appends `[evals]` to the `--from` source in Desktop config automatically |
+| **`knotica init --desktop`** (first-time setup) | Appends `[evals]` to the `--from` source in Desktop config automatically |
+| **`knotica desktop install`** (existing install) | Same entry, without scaffolding a vault or rewriting `config.toml` — use this to re-point or repair |
 | **Manual Desktop config** | Append `[evals]` to the uvx `--from` value (see Option B JSON above) |
 | **Repo dev / CLI** (`knotica eval`, `knotica compile`) | From the knotica repo root: `uv sync --extra evals` |
 
@@ -216,13 +217,13 @@ uvx --from '/path/to/knotica/repo[evals]' python -c "import anthropic; print('an
 ```
 
 If `query` returns `NOT_CONFIGURED` about the eval dependencies, you have OAuth set but uvx is
-missing `anthropic` — patch Desktop config (or re-run `knotica init --desktop` from the repo) and
+missing `anthropic` — patch Desktop config (or run `knotica desktop install` from the repo) and
 fully restart Desktop. Do **not** run `uv sync` in the vault directory; the vault is data only.
 
 > **Upgrading from a pre-`[evals]` config.** Desktop entries written before this change carry
 > `--group evals` (or `--with anthropic --with dspy`). That launch now fails outright <!-- allow-stale-invocation -->
 > with ``Group `evals` is not defined in the project's `dependency-groups` table``. Re-run
-> `knotica init --desktop` to rewrite the entry, then fully quit and reopen Desktop.
+> `knotica desktop install` to rewrite the entry, then fully quit and reopen Desktop.
 
 ### Enabling headless in Claude Code
 
@@ -577,7 +578,7 @@ vault’s `.knotica/prompts/*.md` rather than improvising a single tool call.
 | Server never connects | Confirm absolute `uvx` in Desktop config; fully restart Desktop; check `~/Library/Logs/Claude/mcp*.log` |
 | `NOT_CONFIGURED` (vault) | Run `knotica init` / ensure `~/.config/knotica/config.toml` points at a real vault |
 | `NOT_CONFIGURED` (`query` / compile / Arena, credentials) | Add `CLAUDE_CODE_OAUTH_TOKEN` (preferred) or `ANTHROPIC_API_KEY` to `mcpServers.knotica.env`; fully restart Desktop — see [Headless LLM credentials](#headless-llm-credentials-query--compile--eval) |
-| `NOT_CONFIGURED` (`query` / compile, eval dependencies) | Append `[evals]` to the Desktop uvx `--from` source (or re-run `knotica init --desktop` from the code repo); see [Headless LLM packages](#headless-llm-packages-evals-extra) — **not** `uv sync` in the vault |
+| `NOT_CONFIGURED` (`query` / compile, eval dependencies) | Append `[evals]` to the Desktop uvx `--from` source (or run `knotica desktop install` from the code repo); see [Headless LLM packages](#headless-llm-packages-evals-extra) — **not** `uv sync` in the vault |
 | First call hangs ~30s | Cold `uvx` resolve — run `uvx --from <repo> knotica --version` once to warm |
 | Dirty vault blocks compile | `knotica doctor` → scoped `knotica doctor repair` (never bare `git restore .`) |
 | Compile not ready | Need ≥30 **query-style** curated examples + golden ≥20; grow them via `curate_example` and the golden bootstrap/review flow |

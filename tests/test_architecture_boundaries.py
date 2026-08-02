@@ -186,8 +186,10 @@ RAW_WRITE_FUNCTION_ALLOWLIST = frozenset(
         # VaultTransaction).
         "evals/golden.py::_write_staging",
         # Backs up and patches the Claude Desktop app's own config file --
-        # external application state, never vault content.
-        "cli/init.py::_patch_desktop",
+        # external application state, never vault content. Public because
+        # `cli/desktop.py` calls it: the Desktop-entry shape is defined once,
+        # here, rather than reimplemented per command.
+        "cli/init.py::patch_desktop",
         # Mints a single-use nonce under the gitignored `.knotica/locks/`
         # directory -- the same runtime-lock class the vault flock
         # (core/lock.py) uses, never vault content.

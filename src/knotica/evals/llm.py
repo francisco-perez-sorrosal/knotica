@@ -62,7 +62,7 @@ EVALS_DEPS_FIX = (
     "run `uv sync --extra evals` from the repo root. "
     "For Claude Desktop (uvx launch), request the extra by appending `[evals]` to "
     "the `--from` source in `claude_desktop_config.json` -- `--from '<repo>[evals]'` "
-    "-- or re-run `knotica init --desktop`."
+    "-- or run `knotica desktop install`."
 )
 
 __all__ = [

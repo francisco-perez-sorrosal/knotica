@@ -38,19 +38,66 @@ Then `/knotica:setup` (wizard) → open the vault in Obsidian → `/knotica:inge
 
 ### Channel 2 — CLI + Claude Desktop (recommended for Desktop Chat)
 
+From a repo checkout, one command does the whole thing:
+
 ```bash
-uv tool install --from . knotica    # from a repo checkout
-knotica init --desktop --yes        # vault + config + Desktop MCP entry
+make start      # sync deps + install the CLI (with evals) + restart the loop service
 ```
 
-**Fully quit and reopen Claude Desktop**, then confirm the `knotica` MCP server is connected.
+Then, first-time only, scaffold a vault and register the server:
+
+```bash
+knotica init --desktop --yes        # vault + config.toml + Desktop MCP entry
+```
+
+**Fully quit and reopen Claude Desktop** (⌘Q — config is read at launch), then confirm the `knotica` MCP server is connected.
 
 > **Full Desktop walkthrough (install + AWM prove use case):**  
 > **[`docs/CLAUDE_DESKTOP.md`](docs/CLAUDE_DESKTOP.md)**
 
-Desktop gotcha: the config must use the **absolute path to `uvx`** (minimal PATH at launch). `knotica init --desktop` writes that for you. Logs: `~/Library/Logs/Claude/mcp*.log`.
+#### Which command should I run?
 
-`knotica init` also scaffolds the vault, runs `git init` (optional private `gh` remote), writes `~/.config/knotica/config.toml`, and pre-warms `uvx`.
+The commands differ in **what they write**, not in how thorough they are. Setup commands are for standing an install *up*; maintenance commands are for keeping one *working*. Reaching for a setup command to fix a running install is the main way people surprise themselves — `knotica init` registers its vault as the **default**, so running it to repair a Desktop entry switches which knowledge base is active.
+
+| Command | Vault | `config.toml` | Desktop config | Use it when |
+|---|:--:|:--:|:--:|---|
+| `knotica init` | creates | writes (sets default) | — | First-time setup, no Desktop |
+| `knotica init --desktop` | creates | writes (sets default) | writes | First-time setup, with Desktop |
+| `knotica desktop install` | — | — | writes | Re-point or repair an existing install |
+| `knotica desktop status` | — | — | reads | "What is Desktop actually launching?" |
+| `make desktop` | — | — | writes | Same as `desktop install`, from the repo |
+
+`knotica desktop install` is **idempotent**: it backs the file up first, preserves every other MCP server, and carries over the entry's `env` block — where your Desktop MCP credentials live. Running it twice changes nothing the second time.
+
+Desktop gotcha: the config must use the **absolute path to `uv`/`uvx`** (Desktop launches servers with a minimal PATH). Both commands above write that for you. Logs: `~/Library/Logs/Claude/mcp*.log`.
+
+#### Lean vs headless: the `evals` extra
+
+The base install is deliberately **lean** — it carries no LLM SDK at all. That is not an oversight: ingest, curation, lint, and exploratory Q&A are *client-as-brain* (your Claude client does the thinking), so they need no server-side model and no credentials, and keeping those packages out keeps MCP cold-start fast.
+
+Server-side work — the MCP `query` tool, DSPy compile, the eval harness, loop/Arena — does need them. They live in a single PEP 621 extra named `evals`, and **you always request it by name** so its version bounds come along:
+
+| Goal | Command |
+|---|---|
+| Repo dev / CLI | `uv sync --extra evals` (or `make install`) |
+| Global CLI | `uv tool install --from '.[evals]' knotica` |
+| Desktop / uvx | `uvx --from '<repo>[evals]' knotica mcp` — written for you by the commands above |
+| Lean (ingest only) | omit the extra entirely |
+
+Never hand-list `anthropic`/`dspy` with `--with`: that drops the bounds the extra carries (notably `litellm<1.92`, without which macOS has no wheel and the install fails compiling a Rust sdist).
+
+#### Repo-checkout shortcuts
+
+`make help` lists them all. The ones you'll actually use:
+
+| Target | What it does |
+|---|---|
+| `make start` | `install` + `restart-daemon` — the one command after pulling changes |
+| `make install` | Sync the venv and (re)install the CLI with the `evals` extra |
+| `make desktop` | Point Claude Desktop at this checkout (idempotent) |
+| `make verify` | The canonical gate: mypy → pytest → ruff check → ruff format |
+| `make doctor` | Vault/config health for the active knowledge base |
+| `make restart-daemon` | Restart the loop service onto freshly installed code |
 
 ## First run (either channel)
 

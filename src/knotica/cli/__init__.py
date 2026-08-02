@@ -33,6 +33,7 @@ from knotica.cli.common import EXIT_ERROR, EXIT_MISUSE
 #: ``knotica.cli.<name>`` module exporting ``configure`` and ``run``.
 COMMAND_NAMES: tuple[str, ...] = (
     "init",
+    "desktop",
     "mcp",
     "doctor",
     "status",

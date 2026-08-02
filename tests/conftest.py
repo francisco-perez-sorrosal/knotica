@@ -24,6 +24,7 @@ Zero network; a fixture instantiation is a local copytree (well under 1 s).
 """
 
 import shutil
+import stat
 from pathlib import Path
 
 import pytest
@@ -106,3 +107,36 @@ def vault_config(
     )
     monkeypatch.setenv("KNOTICA_CONFIG", str(config_path))
     return config_path
+
+
+# ---------------------------------------------------------------------------
+# CLI process-isolation fixture (shared by the init and desktop CLI tests)
+# ---------------------------------------------------------------------------
+
+
+def _make_executable(path: Path) -> None:
+    path.chmod(path.stat().st_mode | stat.S_IXUSR | stat.S_IXGRP | stat.S_IXOTH)
+
+
+@pytest.fixture
+def hermetic_bin(tmp_path: Path) -> Path:
+    """A lone PATH directory: real ``git`` symlinked, everything else inert.
+
+    ``uvx`` prints a version (init pre-warms with ``uvx --version``) and resolves
+    to an absolute path (so the Desktop patch has a real absolute command to
+    write); ``uv``/``claude``/``gh`` exit 0 so init's optional registration and
+    remote steps are no-ops that touch nothing real.
+    """
+    bin_dir = tmp_path / "hermetic-bin"
+    bin_dir.mkdir()
+    git = shutil.which("git")
+    assert git is not None, "git must be installed to exercise knotica init"
+    (bin_dir / "git").symlink_to(git)
+    (bin_dir / "uvx").write_text("#!/bin/sh\necho 'uvx 0.0.0'\nexit 0\n", encoding="utf-8")
+    (bin_dir / "uv").write_text("#!/bin/sh\necho 'uv 0.0.0'\nexit 0\n", encoding="utf-8")
+    for name in ("claude", "gh"):
+        (bin_dir / name).write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
+    for stub in bin_dir.iterdir():
+        if not stub.is_symlink():
+            _make_executable(stub)
+    return bin_dir
