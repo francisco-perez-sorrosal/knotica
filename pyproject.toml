@@ -26,9 +26,19 @@ knotica = "knotica.cli:main"
 # re-fetch: `uvx --from <src>[evals]` (reuses the installed plugin via
 # ${CLAUDE_PLUGIN_ROOT}[evals]), `pip install knotica[evals]`,
 # `uv sync --extra evals`, or the Desktop `--with anthropic --with dspy` launch.
+#
+# `litellm<1.92` is a platform-availability bound, not a feature one. dspy pulls
+# litellm in transitively and needs only >=1.64. From 1.92.0 litellm moved to a
+# Rust bridge and publishes manylinux + win wheels *only* — no macOS wheel at any
+# version — so every macOS install builds the sdist and needs a Rust toolchain
+# (1.95.0 requires rustc >=1.94.1). 1.91.4 is the last `py3-none-any` wheel, so
+# this bound keeps `uv tool install --from '.[evals]'` and `uv sync` compiler-free
+# on every platform and keeps CI resolving the same litellm as local runs — which
+# eval-score comparability depends on. Revisit when litellm ships macOS wheels.
 evals = [
     "anthropic>=0.116",
     "dspy>=3.2",
+    "litellm<1.92",
 ]
 
 [dependency-groups]
@@ -46,6 +56,7 @@ dev = [
 evals = [
     "anthropic>=0.116",
     "dspy>=3.2",
+    "litellm<1.92",
 ]
 
 [tool.hatch.build.targets.wheel]
