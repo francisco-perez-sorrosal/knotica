@@ -35,3 +35,6 @@ skills-lock.json
 
 # Local credentials (discovery API keys) — never commit
 .env
+
+# Claude Code worktrees live here -- full repo copies, never committed.
+.claude/worktrees/

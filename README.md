@@ -126,6 +126,13 @@ See [`dashboard/README.md`](dashboard/README.md).
 - Repo layout: `src/knotica/` · `vault-template/` · `.claude-plugin/` + `commands/` + `hooks/` + `skills/` + `.mcp.json` · `dashboard/` · `tests/`.
 - The wiki vault is **not** in this repo — user-configured path (dev default `~/dev/data/knotica`).
 - Python 3.12+, uv-managed; `uv run pytest` for tests. Dashboard: `cd dashboard && npm run build`.
+- **ADR finalize hooks** promote `.ai-state/decisions/drafts/` to numbered records on `main`. Git cannot install a repo's own hooks on clone (that would make `git clone` execute arbitrary code), so `.claude/settings.json` re-asserts them at session start and you should never need to think about it. To install by hand — a fresh clone, a new machine, or working outside Claude Code:
+
+  ```sh
+  sh scripts/install_git_hooks.sh          # idempotent; PRAXION_ROOT overrides discovery
+  ```
+
+  It never replaces a hook it did not install, and reports rather than fails when praxion is absent.
 
 ## Source material
 

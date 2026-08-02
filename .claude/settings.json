@@ -1,0 +1,16 @@
+{
+  "hooks": {
+    "SessionStart": [
+      {
+        "matcher": "*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "sh \"$CLAUDE_PROJECT_DIR/scripts/session_state_guard.sh\"",
+            "timeout": 10
+          }
+        ]
+      }
+    ]
+  }
+}
