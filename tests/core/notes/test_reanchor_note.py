@@ -306,26 +306,24 @@ def test_detach_leaves_every_prior_byte_of_the_note_file_unchanged(template_vaul
     )
 
 
-def test_reanchor_normalizes_a_hand_authored_anchor_bullets_formatting(template_vault: Path):
-    """Characterization of a known append-only gap -- see `td-027`.
+def test_reanchor_preserves_a_hand_authored_anchor_bullets_formatting(template_vault: Path):
+    """Hand-authored formatting survives a correction to a *different* anchor.
 
     Hand-authoring is a first-class capture surface: a note written directly in
     Obsidian must be read, resolved and listed identically to a tool-captured
-    one. But `reanchor` parses the whole document and reserializes it, so any
-    valid-but-non-canonical formatting the user typed -- doubled spaces around
-    a separator, an extra space after the quote marker -- is rewritten to the
-    serializer's canonical form on a *different* anchor than the one being
-    corrected.
+    one -- and correcting one of its anchors must not rewrite the others.
 
-    The parsed record survives intact, which is why the record-level tests pass
-    and why this went unnoticed. What does not survive is the user's own bytes,
-    in the user's own file, written by an operation whose contract says it
-    never modifies what it corrects.
+    `reanchor` used to parse the whole document and reserialize it, so any
+    valid-but-non-canonical formatting the user typed -- doubled spaces around a
+    separator, an extra space after the quote marker -- was rewritten to the
+    serializer's canonical form on anchors the operation was never asked to
+    touch. The parsed record survived intact, which is why the record-level
+    tests passed and why it went unnoticed; what did not survive was the user's
+    own bytes, in the user's own file.
 
-    This test pins the current behaviour rather than asserting the desired one,
-    so the gap is visible where the next reader will look and cannot silently
-    get worse. **When `td-027` is fixed, this test should start failing** --
-    replace it with the byte-prefix assertion its two siblings above use.
+    The append-only contract is about the note file, not the tuple. Asserting a
+    byte prefix is what states that: everything that was there is still there,
+    unchanged, and the correction only added.
     """
     note_id = "20260730-120000-hand-authored-formatting"
     page = f"{TOPIC}/hand-authored-target.md"
@@ -374,11 +372,12 @@ def test_reanchor_normalizes_a_hand_authored_anchor_bullets_formatting(template_
     )
     assert after.anchors[0].pinned_at == sha
     after_bytes = path.read_bytes()
-    assert not after_bytes.startswith(before_bytes), (
-        "KNOWN GAP td-027: if this assertion starts failing, reanchor has been taught to preserve "
-        "hand-authored bytes -- delete this test and use the byte-prefix assertion instead"
+    assert after_bytes.startswith(before_bytes), (
+        "a correction appends; it never rewrites bytes the user typed"
     )
-    assert b"-  [[" not in after_bytes, "the doubled spacing the user typed is gone"
+    assert b"-  [[" in after_bytes, (
+        "the doubled spacing the user typed must survive verbatim -- the whole point"
+    )
 
 
 def test_reanchor_leaves_effective_anchor_pointing_at_the_new_anchor(template_vault: Path):

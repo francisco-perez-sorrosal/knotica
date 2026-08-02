@@ -41,6 +41,7 @@ from knotica.core.errors import ErrorCode, KnoticaError, err, ok
 from knotica.core.notes.anchor import (
     AnchorRecord,
     NoteDocument,
+    append_anchor_text,
     live_anchors,
     parse_note,
     serialize_note,
@@ -280,8 +281,21 @@ def _append_and_commit(
     note_id: str,
     path: str,
 ) -> dict[str, object]:
-    """Append ``new_anchor``, serialize the whole file, and commit it once."""
-    content = serialize_note(replace(document, anchors=(*document.anchors, new_anchor)))
+    """Splice ``new_anchor`` onto the file's existing bytes and commit it once.
+
+    Deliberately **not** ``serialize_note(replace(document, anchors=...))``. That
+    re-renders every bullet canonically, so correcting anchor 0 of a
+    hand-authored note rewrote the formatting of anchors 1..n that the operation
+    was never asked to touch -- valid-but-non-canonical spacing the user typed,
+    replaced in the user's own file. The parsed records were identical either
+    way, which is why record-level tests never saw it.
+
+    The append-only contract is about the note file, not the tuple: appending
+    bytes to the end is what "the original anchor of record is never modified"
+    actually means on disk, and it keeps a correction's diff to the lines the
+    correction added.
+    """
+    content = append_anchor_text(store.read_text(path), new_anchor)
     with VaultTransaction(store, vault_root, op, topic, _title(note_id)) as txn:
         txn.write(path, content)
     return ok(

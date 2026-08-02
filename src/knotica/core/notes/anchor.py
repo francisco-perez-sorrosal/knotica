@@ -73,6 +73,7 @@ __all__ = [
     "AnchorRecord",
     "NoteDocument",
     "anchor_of_record",
+    "append_anchor_text",
     "derive_note_id",
     "effective_anchor",
     "escape_anchors_heading",
@@ -662,6 +663,26 @@ def _split_wikilink_target(target: str) -> tuple[str, str]:
     if page and not page.endswith(_MARKDOWN_SUFFIX):
         page += _MARKDOWN_SUFFIX
     return page, heading.strip()
+
+
+def append_anchor_text(text: str, anchor: AnchorRecord) -> str:
+    """Append one anchor bullet to ``text``, preserving every existing byte.
+
+    The byte-preservation is the whole point. Appending by round-tripping the
+    parsed document through :func:`serialize_note` re-renders *every* bullet in
+    canonical form, so a note hand-authored with valid-but-non-canonical spacing
+    comes back reformatted on anchors the operation was never asked to touch --
+    a correction that silently rewrites lines the user typed, in the user's own
+    file, and fills the audit-trail diff with changes nobody made.
+
+    Safe as a plain append because the anchors section is always last: the
+    serializer emits frontmatter, body, then ``## Anchors``, and
+    :func:`parse_note` consumes the section to end-of-file. A note with no
+    anchors section yet is therefore not appendable this way -- the caller must
+    have parsed at least one existing anchor, which every correction path does
+    by construction, since it corrects an anchor by index.
+    """
+    return f"{text.rstrip(chr(10))}\n{_serialize_anchor(anchor)}\n"
 
 
 def _serialize_anchor(anchor: AnchorRecord) -> str:
