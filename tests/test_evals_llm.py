@@ -751,15 +751,16 @@ def test_missing_anthropic_package_raises_an_actionable_typed_error(
 
     err = excinfo.value
     combined = f"{err.message} {err.fix}"
-    assert "uv sync --group evals" in combined, (
-        "a missing eval dependency group must surface the exact install command "
+    assert "uv sync --extra evals" in combined, (
+        "a missing eval dependency must surface the exact install command "
         f"so the failure is self-fixing; got message={err.message!r} fix={err.fix!r}"
     )
     assert "code repo" in combined and "not the vault" in combined, (
         "the fix must distinguish the knotica package repo from the vault data repo"
     )
-    assert "--with anthropic" in combined, (
-        "Desktop uvx users need the --with remediation in the same error"
+    assert "[evals]" in combined, (
+        "Desktop uvx users need the extra-based remediation in the same error; naming packages "
+        "by hand omits the version bounds the extra carries"
     )
 
 

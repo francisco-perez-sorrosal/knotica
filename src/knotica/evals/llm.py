@@ -54,14 +54,15 @@ from typing import Protocol, cast, runtime_checkable
 
 from knotica.core.errors import ErrorCode, KnoticaError
 
-#: Remediation when ``anthropic`` / ``dspy`` are missing. ``uv sync --group evals``
+#: Remediation when ``anthropic`` / ``dspy`` are missing. ``uv sync --extra evals``
 #: applies to repo dev/CLI; Claude Desktop's ``uvx`` launch needs ``--with`` flags
 #: (see ``knotica init --desktop``).
 EVALS_DEPS_FIX = (
-    "Install the eval dependency group in the knotica code repo (not the vault): "
-    "run `uv sync --group evals` from the repo root. "
-    "For Claude Desktop (uvx launch), add `--with anthropic --with dspy` to the "
-    "uvx args in `claude_desktop_config.json`, or re-run `knotica init --desktop`."
+    "Install the eval extra in the knotica code repo (not the vault): "
+    "run `uv sync --extra evals` from the repo root. "
+    "For Claude Desktop (uvx launch), request the extra by appending `[evals]` to "
+    "the `--from` source in `claude_desktop_config.json` -- `--from '<repo>[evals]'` "
+    "-- or re-run `knotica init --desktop`."
 )
 
 __all__ = [

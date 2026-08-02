@@ -1331,7 +1331,7 @@ function formatActionError(cause: unknown): string {
 function llmUnavailableTooltip(llm: LlmAvailability | undefined | null): string | undefined {
   if (!llm || llm.available !== false) return undefined;
   return llm.reason === "deps"
-    ? "credentials found but eval dependencies are missing — restart with: uv run --group evals knotica mcp …"
+    ? "credentials found but eval dependencies are missing — restart with: uv run --extra evals knotica mcp …"
     : "needs LLM credentials";
 }
 

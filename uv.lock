@@ -930,11 +930,6 @@ dev = [
     { name = "pytest" },
     { name = "ruff" },
 ]
-evals = [
-    { name = "anthropic" },
-    { name = "dspy" },
-    { name = "litellm" },
-]
 
 [package.metadata]
 requires-dist = [
@@ -951,11 +946,6 @@ dev = [
     { name = "mypy" },
     { name = "pytest" },
     { name = "ruff" },
-]
-evals = [
-    { name = "anthropic", specifier = ">=0.116" },
-    { name = "dspy", specifier = ">=3.2" },
-    { name = "litellm", specifier = "<1.92" },
 ]
 
 [[package]]

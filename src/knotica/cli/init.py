@@ -59,8 +59,11 @@ _DESKTOP_CONFIG_ENV_VAR = "KNOTICA_DESKTOP_CONFIG"
 _MCP_FROM_ENV_VAR = "KNOTICA_MCP_FROM"
 #: Timeout for every bootstrap subprocess call.
 _SUBPROCESS_TIMEOUT_SECONDS = 120.0
-#: Headless LLM packages injected into Desktop's uvx launch (query / compile / Arena).
-_UVX_EVALS_PACKAGES = ("anthropic", "dspy")
+#: Name of the PEP 621 extra carrying the headless LLM dependencies (query /
+#: compile / Arena). The single source of truth for what those dependencies are
+#: is ``pyproject.toml``; every launch path requests them by this name so no
+#: caller re-states the package list or its version bounds.
+_EVALS_EXTRA = "evals"
 
 
 class _InitError(Exception):
@@ -127,7 +130,7 @@ def _scaffold_and_wire(console: Console, inputs: _Inputs) -> None:
     _register_mcp(console, from_source)
     if inputs.desktop:
         _patch_desktop(console, from_source)
-    _warm_uvx(console, from_source, include_evals=inputs.desktop)
+    _warm_uvx(console, from_source)
 
 
 def _resolve_inputs(console: Console, args: argparse.Namespace) -> _Inputs:
@@ -272,7 +275,7 @@ def _register_mcp(console: Console, from_source: str) -> None:
 def _patch_desktop(console: Console, from_source: str) -> None:
     """Additively patch the Desktop config with an absolute ``uv`` / ``uvx`` launch.
 
-    Local repo checkouts use editable ``uv run --directory … --group evals`` so
+    Local repo checkouts use editable ``uv run --directory … --extra evals`` so
     Desktop picks up worktree changes without a stale ``uvx`` wheel cache.
     Published installs fall back to ``uvx --refresh --from …``.
 
@@ -313,9 +316,17 @@ def _is_local_repo_source(from_source: str) -> bool:
 
 
 def _local_repo_run_args(from_source: str, *knotica_argv: str) -> list[str]:
-    """``uv run --directory <repo> --group evals knotica …`` argv tail."""
+    """``uv run --directory <repo> --extra evals knotica …`` argv tail.
+
+    ``--extra`` (not ``--group``): the eval dependencies are a PEP 621 extra, and
+    the byte-identical PEP 735 group that once aliased it is gone. A config
+    written before that removal still carries the old group flag and now fails to
+    launch with "Group `evals` is not defined"; re-running ``knotica init
+    --desktop`` rewrites it.
+    """
+    # Pre-migration configs carry `--group evals` here. allow-stale-invocation
     repo = str(Path(from_source).expanduser().resolve())
-    return ["run", "--directory", repo, "--group", "evals", "knotica", *knotica_argv]
+    return ["run", "--directory", repo, "--extra", _EVALS_EXTRA, "knotica", *knotica_argv]
 
 
 def _desktop_knotica_launch(from_source: str, subcommand: str) -> tuple[str, list[str]]:
@@ -346,25 +357,27 @@ def _uvx_knotica_args(
 ) -> list[str]:
     """Build ``uvx`` argv for a knotica subcommand.
 
-    Desktop headless tools (``query``, compile, Arena) need ``anthropic`` and
-    ``dspy``, which live in the PEP 735 ``evals`` group and are not part of the
-    base wheel ``uvx --from`` resolves. ``include_evals=True`` adds ``--with``
-    for each package without pulling them onto the lean Claude Code plugin path.
+    Desktop headless tools (``query``, compile, Arena) need the eval dependencies,
+    which are absent from the base wheel ``uvx --from`` resolves.
+    ``include_evals=True`` requests them as the ``evals`` **extra**
+    (``--from '<source>[evals]'``) rather than naming packages with ``--with``:
+    the extra carries the full dependency specification, version bounds included,
+    so this path cannot drift from ``pyproject.toml``. Naming packages by hand
+    silently dropped the ``litellm`` platform bound and left Desktop installs
+    building a Rust sdist on macOS. The lean Claude Code plugin path is unchanged
+    -- it resolves ``--from <source>`` with no extra.
     ``refresh=True`` forces a rebuild so local ``--from`` edits are not masked
     by a stale cached wheel (notably headless retrieval helpers).
     """
     args: list[str] = []
     if refresh:
         args.append("--refresh")
-    args.extend(["--from", from_source])
-    if include_evals:
-        for package in _UVX_EVALS_PACKAGES:
-            args.extend(["--with", package])
+    args.extend(["--from", f"{from_source}[{_EVALS_EXTRA}]" if include_evals else from_source])
     args.extend(["knotica", subcommand])
     return args
 
 
-def _warm_uvx(console: Console, from_source: str, *, include_evals: bool = False) -> None:
+def _warm_uvx(console: Console, from_source: str) -> None:
     """Verify launch tooling and warm the Desktop resolution cache (best-effort)."""
     try:
         command, args = _desktop_knotica_launch(from_source, "--version")

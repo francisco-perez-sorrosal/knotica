@@ -320,8 +320,8 @@ def test_desktop_patch_merges_preserving_servers_and_writes_absolute_launch_with
     )
     args = knotica_entry.get("args", [])
     if args[:2] == ["run", "--directory"]:
-        assert args[3:6] == ["--group", "evals", "knotica"] and args[-1] == "mcp", (
-            f"Desktop uv run args must be run --directory <repo> --group evals knotica mcp; "
+        assert args[3:6] == ["--extra", "evals", "knotica"] and args[-1] == "mcp", (
+            f"Desktop uv run args must be run --directory <repo> --extra evals knotica mcp; "
             f"got args={args!r}"
         )
         assert Path(args[2]).resolve() == REPO_ROOT.resolve(), (
@@ -331,9 +331,14 @@ def test_desktop_patch_merges_preserving_servers_and_writes_absolute_launch_with
         assert args[0] == "--refresh" and args[1] == "--from" and args[-2:] == ["knotica", "mcp"], (
             f"Desktop uvx args must be --refresh --from <repo> … knotica mcp; got args={args!r}"
         )
-        assert args.count("--with") == 2 and "anthropic" in args and "dspy" in args, (
-            "Desktop uvx args must include --with anthropic --with dspy for headless query; "
-            f"got args={args!r}"
+        source = args[2]
+        assert source.endswith("[evals]"), (
+            "Desktop uvx args must request headless deps as the `evals` extra, not by naming "
+            "packages with --with: the extra carries the version bounds, a hand-written package "
+            f"list does not; got args={args!r}"
+        )
+        assert "--with" not in args, (
+            f"the --with package list is superseded by the evals extra; got args={args!r}"
         )
 
     backups = [b for b in desktop.parent.glob("*.bak") if b.is_file()]

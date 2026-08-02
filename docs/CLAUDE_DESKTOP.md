@@ -69,8 +69,8 @@ What this does:
    yourself in the walkthrough below.
 2. `git init` on the vault.
 3. Writes `~/.config/knotica/config.toml` pointing at that vault.
-4. Patches Claude Desktop’s config (see below) with an **absolute** `uvx` path and
-   **`--with anthropic --with dspy`** so headless `query` / compile / Arena work.
+4. Patches Claude Desktop’s config (see below) with an **absolute** `uvx` path and a
+   **`--from '<repo>[evals]'`** source so headless `query` / compile / Arena work.
 5. Pre-warms the `uvx` environment (first resolution can take ~20–30s).
 
 Then:
@@ -94,11 +94,7 @@ If you prefer to edit the file yourself (macOS):
       "command": "/ABS/PATH/TO/uvx",
       "args": [
         "--from",
-        "/ABS/PATH/TO/knotica/repo",
-        "--with",
-        "anthropic",
-        "--with",
-        "dspy",
+        "/ABS/PATH/TO/knotica/repo[evals]",
         "knotica",
         "mcp"
       ]
@@ -188,35 +184,45 @@ Credentials are read from the environment only — never `config.toml` or the va
 A missing credential surfaces as `NOT_CONFIGURED` naming both `CLAUDE_CODE_OAUTH_TOKEN` (preferred)
 and `ANTHROPIC_API_KEY`.
 
-### Headless LLM packages (evals group)
+### Headless LLM packages (evals extra)
 
-`anthropic` and `dspy` live in the PEP 735 **`evals` dependency group** in the knotica **code repo**
+`anthropic` and `dspy` live in the PEP 621 **`evals` extra** in the knotica **code repo**
 (not the vault). The base wheel that `uvx --from <repo> knotica mcp` installs does **not** include
-them — by design (dec-013 cold-start isolation for ingest-only paths).
+them — by design (dec-013 cold-start isolation for ingest-only paths, preserved through dec-055:
+the lean launch omits the extra, so it still resolves neither package).
 
 For **Claude Desktop**, headless tools need those packages in the uvx environment:
 
 | Install path | What to run |
 |--------------|-------------|
-| **`knotica init --desktop`** | Writes `--with anthropic --with dspy` into Desktop config automatically |
-| **Manual Desktop config** | Add `"--with", "anthropic", "--with", "dspy"` to the uvx `args` (see Option B JSON above) |
-| **Repo dev / CLI** (`knotica eval`, `knotica compile`) | From the knotica repo root: `uv sync --group evals` |
+| **`knotica init --desktop`** | Appends `[evals]` to the `--from` source in Desktop config automatically |
+| **Manual Desktop config** | Append `[evals]` to the uvx `--from` value (see Option B JSON above) |
+| **Repo dev / CLI** (`knotica eval`, `knotica compile`) | From the knotica repo root: `uv sync --extra evals` |
 
-**Verify** the evals group is available:
+Always request the dependencies **by extra name**, never by listing packages. The extra carries
+their version bounds — notably `litellm<1.92`, without which macOS resolves a litellm that ships
+no wheel and the install fails compiling a Rust sdist.
+
+**Verify** the evals extra is available:
 
 ```bash
 # Dev worktree / repo clone — CLI and pytest
 cd /path/to/knotica/repo
-uv sync --group evals
+uv sync --extra evals
 uv run python -c "import anthropic; print('anthropic ok')"
 
 # Desktop uvx path — must match your claude_desktop_config.json args
-uvx --from /path/to/knotica/repo --with anthropic --with dspy python -c "import anthropic; print('anthropic ok')"
+uvx --from '/path/to/knotica/repo[evals]' python -c "import anthropic; print('anthropic ok')"
 ```
 
-If `query` returns `NOT_CONFIGURED` about the eval dependency group, you have OAuth set but uvx is
+If `query` returns `NOT_CONFIGURED` about the eval dependencies, you have OAuth set but uvx is
 missing `anthropic` — patch Desktop config (or re-run `knotica init --desktop` from the repo) and
 fully restart Desktop. Do **not** run `uv sync` in the vault directory; the vault is data only.
+
+> **Upgrading from a pre-`[evals]` config.** Desktop entries written before this change carry
+> `--group evals` (or `--with anthropic --with dspy`). That launch now fails outright <!-- allow-stale-invocation -->
+> with ``Group `evals` is not defined in the project's `dependency-groups` table``. Re-run
+> `knotica init --desktop` to rewrite the entry, then fully quit and reopen Desktop.
 
 ### Enabling headless in Claude Code
 
@@ -231,7 +237,7 @@ none of which requires editing `.mcp.json`:
    one. A credential alone isn't enough, though: the running lean server still lacks the
    `evals` extra until one of the two levers below adds it.
 2. **`/knotica:headless on`** — the guided path. It runs a user-scoped
-   `claude mcp add --scope user knotica -- uvx --from <repo> --with anthropic --with dspy knotica mcp`,
+   `claude mcp add --scope user knotica -- uvx --from '<repo>[evals]' knotica mcp`,
    which outranks the plugin's lean server (Code resolves MCP scope Local > Project > User >
    Plugin, so a user-scoped `knotica` cleanly overrides it, no merge). `/knotica:headless off`
    removes the override; `/knotica:headless status` reports current readiness.
@@ -571,7 +577,7 @@ vault’s `.knotica/prompts/*.md` rather than improvising a single tool call.
 | Server never connects | Confirm absolute `uvx` in Desktop config; fully restart Desktop; check `~/Library/Logs/Claude/mcp*.log` |
 | `NOT_CONFIGURED` (vault) | Run `knotica init` / ensure `~/.config/knotica/config.toml` points at a real vault |
 | `NOT_CONFIGURED` (`query` / compile / Arena, credentials) | Add `CLAUDE_CODE_OAUTH_TOKEN` (preferred) or `ANTHROPIC_API_KEY` to `mcpServers.knotica.env`; fully restart Desktop — see [Headless LLM credentials](#headless-llm-credentials-query--compile--eval) |
-| `NOT_CONFIGURED` (`query` / compile, eval dependency group) | Add `--with anthropic --with dspy` to Desktop uvx args (or re-run `knotica init --desktop` from the code repo); see [Headless LLM packages](#headless-llm-packages-evals-group) — **not** `uv sync` in the vault |
+| `NOT_CONFIGURED` (`query` / compile, eval dependencies) | Append `[evals]` to the Desktop uvx `--from` source (or re-run `knotica init --desktop` from the code repo); see [Headless LLM packages](#headless-llm-packages-evals-extra) — **not** `uv sync` in the vault |
 | First call hangs ~30s | Cold `uvx` resolve — run `uvx --from <repo> knotica --version` once to warm |
 | Dirty vault blocks compile | `knotica doctor` → scoped `knotica doctor repair` (never bare `git restore .`) |
 | Compile not ready | Need ≥30 **query-style** curated examples + golden ≥20; grow them via `curate_example` and the golden bootstrap/review flow |

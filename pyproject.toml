@@ -25,7 +25,9 @@ knotica = "knotica.cli:main"
 # client-as-brain paths. Enable per surface without a second server or a
 # re-fetch: `uvx --from <src>[evals]` (reuses the installed plugin via
 # ${CLAUDE_PLUGIN_ROOT}[evals]), `pip install knotica[evals]`,
-# `uv sync --extra evals`, or the Desktop `--with anthropic --with dspy` launch.
+# `uv sync --extra evals`, or the Desktop `uvx --from '<repo>[evals]'` launch.
+# Always request this set *by extra name*; a caller that re-lists the packages
+# by hand drops the bounds below and reintroduces the macOS build failure.
 #
 # `litellm<1.92` is a platform-availability bound, not a feature one. dspy pulls
 # litellm in transitively and needs only >=1.64. From 1.92.0 litellm moved to a
@@ -47,17 +49,14 @@ dev = [
     "ruff",
     "mypy",
 ]
-# Compatibility alias of the `evals` *extra* above (the source of truth) so
-# existing `uv sync --group evals` dev/CI flows keep working unchanged. Same
-# package set; the extra is what `uvx --from <src>[evals]` and
-# `pip install knotica[evals]` resolve. Still opt-in and off the lean
-# `uvx … knotica mcp` cold-start path. Consolidate to extra-only later (a
-# bounded DRY cleanup once the `--group evals` call sites move to `--extra`).
-evals = [
-    "anthropic>=0.116",
-    "dspy>=3.2",
-    "litellm<1.92",
-]
+# No `evals` group here on purpose. It existed as a byte-identical alias of the
+# `evals` *extra* above during the dec-055 migration window; that migration is
+# now complete and the alias is removed, because two hand-synced copies of one
+# dependency set drift silently (nothing enforced their equality, and a
+# platform bound had to be written twice). The extra is the single source of
+# truth: `uv sync --extra evals`, `uv run --extra evals`,
+# `uv tool install --from '.[evals]'`, `pip install knotica[evals]`,
+# `uvx --from '<src>[evals]'`.
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/knotica"]

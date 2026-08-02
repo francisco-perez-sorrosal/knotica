@@ -29,11 +29,14 @@ install:  ## Sync the venv and (re)install the knotica CLI with headless evals s
 	$(UV) tool install --from '.[evals]' knotica --force
 	@knotica --version
 
+# `--extra evals` is explicit rather than incidental: the eval-facing tests should
+# exercise the real anthropic/dspy packages, and a bare `uv run` leaves whether
+# they are present up to whatever the venv happens to hold.
 verify:  ## Run the canonical checks, in order: types, tests, lint
-	$(UV) run mypy src/knotica
-	$(UV) run pytest
-	$(UV) run ruff check .
-	$(UV) run ruff format --check .
+	$(UV) run --extra evals mypy src/knotica
+	$(UV) run --extra evals pytest
+	$(UV) run --extra evals ruff check .
+	$(UV) run --extra evals ruff format --check .
 
 doctor:  ## Report vault/config health for the active knowledge base
 	$(UV) run --extra evals knotica doctor --quick

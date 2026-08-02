@@ -259,7 +259,7 @@ read by anything but `wiki_status`/the dashboard on the same machine.
 
 <!-- Implementer-owned: pin exact versions in pyproject.toml. -->
 Floors, not pins: `mcp>=1.28` (resolves to 1.28.1 in `uv.lock`) — the sole runtime dependency.
-Dev group: `pytest`, `ruff`. **Eval group** (Phase 2, PEP 735 `[dependency-groups] evals`, `uv sync --group evals`):
+Dev group: `pytest`, `ruff`. **Eval extra** (Phase 2, PEP 621 `[project.optional-dependencies] evals`, `uv sync --extra evals`):
 `anthropic>=0.116` (Messages API for the headless eval runner + judge; 0.116.0 verified PyPI 2026-07-15) **and
 `dspy>=3.2`** (`dspy.Evaluate` as the per-example runner — user override 2026-07-15; 3.2.1 verified PyPI, requires-python
 `<3.15`) — both declared **only** in the dependency-group so the built wheel never ships them and

@@ -1,7 +1,8 @@
 ---
 id: dec-055
 title: Expose evals as a PEP 621 extra (keep the group) for flexible headless install
-status: accepted
+status: superseded
+superseded_by: dec-draft-ca6dfe07
 category: architectural
 date: 2026-07-28
 summary: Add anthropic+dspy as a PEP 621 [project.optional-dependencies] evals extra alongside the existing PEP 735 dependency-group, so headless install is reachable via uvx --from '<src>[evals]', pip install knotica[evals], and uv sync --extra evals — partially superseding dec-013's group-only stance while re-affirming that the lean uvx cold-start path stays opt-in and unbloated.

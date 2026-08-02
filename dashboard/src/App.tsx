@@ -598,7 +598,7 @@ export function App() {
             {catalog.value.llm.reason === "deps" ? (
               <>
                 Credentials found but eval dependencies are missing. Restart the server with:{" "}
-                <code>uv run --group evals knotica mcp …</code>
+                <code>uv run --extra evals knotica mcp …</code>
               </>
             ) : (
               <>
