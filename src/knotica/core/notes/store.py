@@ -60,6 +60,48 @@ class NotesListing:
     skipped_malformed: int
 
 
+class _PassCache:
+    """Memoizes page reads for the duration of **one** resolution pass.
+
+    Anchors cluster on pages: several notes in a topic routinely quote the same
+    page, and a single note often carries several anchors into one. Each of
+    those anchors was re-reading byte-identical content -- the historical blob
+    through a ``git show`` subprocess, the live page through the filesystem.
+
+    Scoped to a single ``list_notes``/``read_note`` call and discarded with it,
+    deliberately: a longer-lived cache would have to be invalidated on every
+    vault mutation, which is the staleness obligation the derived-projection
+    design exists to avoid. Within one pass the vault cannot change under it --
+    nothing here writes, and the historical blobs are addressed by immutable
+    commit sha.
+    """
+
+    def __init__(self) -> None:
+        self._historical: dict[tuple[str, str], str] = {}
+        self._head: dict[str, str | None] = {}
+
+    def historical(self, vcs: VaultVcs, anchor: AnchorRecord) -> str:
+        """The anchored page as it stood at the anchor's ``pinned_at`` commit."""
+        key = (anchor.pinned_at, anchor.page)
+        if key not in self._historical:
+            self._historical[key] = vcs.read_file_at(anchor.pinned_at, anchor.page) or ""
+        return self._historical[key]
+
+    def head(self, store: VaultStore, anchor: AnchorRecord) -> str | None:
+        """The anchored page as it stands now, or ``None`` when there is no page.
+
+        A topic-fidelity anchor records the empty path -- ``store.exists("")``
+        is true (the vault root is a real directory) and reading it raises, so
+        the emptiness must be checked before the existence.
+        """
+        if anchor.page not in self._head:
+            if not anchor.page or not store.exists(anchor.page):
+                self._head[anchor.page] = None
+            else:
+                self._head[anchor.page] = store.read_text(anchor.page)
+        return self._head[anchor.page]
+
+
 def list_notes(
     store: VaultStore,
     vcs: VaultVcs,
@@ -81,11 +123,13 @@ def list_notes(
     """
     notes: list[ResolvedNote] = []
     skipped_malformed = 0
+    cache = _PassCache()
     for path in _iter_note_paths(store, topic):
         resolved = _load_note(
             store,
             vcs,
             path,
+            cache,
             guess_threshold=guess_threshold,
             complete_orphan_threshold=complete_orphan_threshold,
         )
@@ -139,6 +183,7 @@ def read_note(
         store,
         vcs,
         path,
+        _PassCache(),
         guess_threshold=guess_threshold,
         complete_orphan_threshold=complete_orphan_threshold,
     )
@@ -148,6 +193,7 @@ def _load_note(
     store: VaultStore,
     vcs: VaultVcs,
     path: str,
+    cache: _PassCache,
     *,
     guess_threshold: float,
     complete_orphan_threshold: float,
@@ -172,6 +218,7 @@ def _load_note(
                 store,
                 vcs,
                 document.anchors,
+                cache,
                 guess_threshold=guess_threshold,
                 complete_orphan_threshold=complete_orphan_threshold,
             )
@@ -206,34 +253,22 @@ def _resolve_anchors(
     store: VaultStore,
     vcs: VaultVcs,
     anchors: tuple[AnchorRecord, ...],
+    cache: _PassCache,
     *,
     guess_threshold: float,
     complete_orphan_threshold: float,
 ) -> list[tuple[AnchorRecord, Projection]]:
     resolved: list[tuple[AnchorRecord, Projection]] = []
     for anchor in anchors:
-        historical_text = vcs.read_file_at(anchor.pinned_at, anchor.page) or ""
         projection = resolve_anchor(
-            historical_text,
-            _head_text(store, anchor),
+            cache.historical(vcs, anchor),
+            cache.head(store, anchor),
             anchor,
             guess_threshold=guess_threshold,
             complete_orphan_threshold=complete_orphan_threshold,
         )
         resolved.append((anchor, projection))
     return resolved
-
-
-def _head_text(store: VaultStore, anchor: AnchorRecord) -> str | None:
-    """The anchored page as it stands now, or ``None`` when there is no page.
-
-    A topic-fidelity anchor records the empty path -- ``store.exists("")`` is
-    true (the vault root is a real directory) and reading it raises, so the
-    emptiness must be checked before the existence.
-    """
-    if not anchor.page or not store.exists(anchor.page):
-        return None
-    return store.read_text(anchor.page)
 
 
 def _anchors_page(resolved: ResolvedNote, page: str) -> bool:

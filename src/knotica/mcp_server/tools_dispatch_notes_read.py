@@ -251,6 +251,7 @@ def _drift_payload(
         topic,
         guess_threshold=guess_threshold,
         complete_orphan_threshold=complete_orphan_threshold,
+        listing=listing,
     )
     offset = _resolve_offset(cursor, _DRIFT_CURSOR_QUERY)
     page = members[offset : offset + page_size]
@@ -294,13 +295,21 @@ def _transitions_by_anchor(
     *,
     guess_threshold: float,
     complete_orphan_threshold: float,
+    listing: NotesListing,
 ) -> dict[tuple[str, int], Transition]:
+    """Index the topic's transitions by ``(note_id, anchor_index)``.
+
+    ``listing`` is threaded through rather than re-derived: the caller already
+    resolved it to find the queue members, and resolving it twice was the
+    dominant cost of a drift-queue open.
+    """
     transitions = reconcile_notes(
         store,
         vcs,
         topic,
         guess_threshold=guess_threshold,
         complete_orphan_threshold=complete_orphan_threshold,
+        listing=listing,
     )
     return {(transition.note_id, transition.anchor_index): transition for transition in transitions}
 

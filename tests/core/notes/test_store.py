@@ -886,3 +886,53 @@ def test_read_note_matches_the_corresponding_entry_from_list_notes(template_vaul
     assert actual.document == expected.document
     assert actual.path == expected.path
     assert actual.resolved_anchors == expected.resolved_anchors
+
+
+def test_anchors_sharing_a_page_read_its_historical_blob_once(template_vault: Path, monkeypatch):
+    """Resolution memoizes page reads within a pass -- notes cluster on pages.
+
+    Pins the optimization, not just its result: without a per-pass cache each
+    anchor re-fetched byte-identical content through its own `git show`
+    subprocess, and process spawn dominates this path's wall-clock. A refactor
+    that drops the cache keeps every projection correct and silently restores
+    the cost, so correctness assertions alone cannot catch it.
+    """
+    page = f"{TOPIC}/shared-target.md"
+    (template_vault / page).write_text("# Shared\n\na shared passage.\n", encoding="utf-8")
+    run_git(template_vault, "add", "-A")
+    run_git(template_vault, "commit", "-m", "test: seed shared page")
+    pinned = git_head_sha(template_vault)
+
+    for index in range(4):
+        _write_note(
+            template_vault,
+            f"20260101-09000{index}-shares-a-page",
+            _note(
+                f"20260101-09000{index}-shares-a-page",
+                anchors=(_anchor(page=page, pinned_at=pinned, quote="a shared passage."),),
+            ),
+        )
+
+    from knotica.core.notes.store import list_notes
+
+    reads: list[tuple[str, str]] = []
+    original = VaultVcs.read_file_at
+
+    def counting(self: VaultVcs, ref: str, path: str) -> str | None:
+        reads.append((ref, path))
+        return original(self, ref, path)
+
+    monkeypatch.setattr(VaultVcs, "read_file_at", counting)
+
+    listing = list_notes(
+        LocalFSStore(template_vault),
+        VaultVcs(template_vault),
+        TOPIC,
+        guess_threshold=DEFAULT_GUESS_THRESHOLD,
+        complete_orphan_threshold=DEFAULT_COMPLETE_ORPHAN_THRESHOLD,
+    )
+
+    assert len(listing.notes) == 4, "all four notes must be listed"
+    assert reads.count((pinned, page)) == 1, (
+        f"four anchors on one page must read its historical blob once, got {reads}"
+    )

@@ -297,6 +297,28 @@ def time_surface(label: str, counter: GitCounter, operation: object) -> Timing:
     )
 
 
+def _drift_open(
+    store: LocalFSStore, vcs: VaultVcs, *, guess: float, orphan: float
+) -> tuple[object, ...]:
+    """What ``notes read action=drift`` actually costs, end to end.
+
+    Mirrors ``_drift_payload``: resolve the topic once to find the queue
+    members, then hand that same listing to ``reconcile_notes`` rather than
+    letting it re-resolve. Measuring this as two independent calls would report
+    a double listing the read path no longer performs.
+    """
+    listing = list_notes(store, vcs, TOPIC, guess_threshold=guess, complete_orphan_threshold=orphan)
+    transitions = reconcile_notes(
+        store,
+        vcs,
+        TOPIC,
+        guess_threshold=guess,
+        complete_orphan_threshold=orphan,
+        listing=listing,
+    )
+    return (listing, transitions)
+
+
 def measure(scenario: Scenario, counter: GitCounter) -> Scenario:
     root = Path(tempfile.mkdtemp(prefix="knotica-latency-"))
     try:
@@ -346,14 +368,7 @@ def measure(scenario: Scenario, counter: GitCounter) -> Scenario:
             time_surface(
                 "drift_open",
                 counter,
-                lambda: (
-                    list_notes(
-                        store, vcs, TOPIC, guess_threshold=guess, complete_orphan_threshold=orphan
-                    ),
-                    reconcile_notes(
-                        store, vcs, TOPIC, guess_threshold=guess, complete_orphan_threshold=orphan
-                    ),
-                ),
+                lambda: _drift_open(store, vcs, guess=guess, orphan=orphan),
             )
         )
         scenario.measured_queue_members = queue_members  # type: ignore[attr-defined]

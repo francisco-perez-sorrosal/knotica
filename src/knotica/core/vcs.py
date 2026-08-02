@@ -577,11 +577,19 @@ class VaultVcs:
         return self._exists_at_ref(ref, path)
 
     def read_file_at(self, ref: str, path: str) -> str | None:
-        """Return file contents at ``ref:path``, or ``None`` when absent."""
-        if not self._exists_at_ref(ref, path):
-            return None
-        result = self._run(["show", f"{ref}:{path}"], optional_locks=False)
-        return result.stdout
+        """Return file contents at ``ref:path``, or ``None`` when absent.
+
+        One subprocess, not two. ``git show`` already fails on a missing path,
+        so probing with ``cat-file -e`` first doubled the process count of the
+        hottest read in the notes layer -- anchor resolution calls this once per
+        anchor, and process spawn dominates that path's wall-clock.
+
+        Collapsing any non-zero exit to ``None`` matches the previous behaviour
+        exactly: the probe ran with ``check=False``, so a bad ref or a broken
+        repository already produced ``None`` here rather than raising.
+        """
+        result = self._run(["show", f"{ref}:{path}"], check=False, optional_locks=False)
+        return result.stdout if result.returncode == 0 else None
 
     def diff_between(
         self,

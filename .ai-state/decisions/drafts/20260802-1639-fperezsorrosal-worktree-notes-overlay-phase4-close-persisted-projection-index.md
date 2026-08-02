@@ -136,10 +136,18 @@ instrument is committed and re-runnable, so the post-fix claim can be *measured*
 argued. The three redundancies are real, local wins that benefit `list_notes` on every surface —
 not only the drift queue.
 
-**Negative.** The three fixes are unbuilt and their improvement is **modelled, not measured**
-(~6x by the call-count formula; 505 calls to ~85 at 100 anchors). The formula has matched every
-measured row, which is grounds for confidence and not a substitute for evidence. If the fixes
-underdeliver, this decision will have declined the named remedy on a projection.
+**Negative.** The three fixes are now built and re-measured, so this decision no longer rests on a
+projection — but the margin at higher densities is thin. Git calls fell **5.05x** (505 to 100 at
+100 anchors) against the modelled ~6x, and wall-clock fell **10-14x** (14.78s to 1.049s at 100
+notes; 1.47s to 0.132s at 10). A drift open is snappy at every density this project has reached,
+and crosses one second at 100 notes — *just* over, not comfortably under. Two further
+non-structural reductions remain (memoizing `reconcile`'s own historical read, and the three
+per-queue-member metadata calls); if both are spent and density keeps growing, falsifier 1 fires
+and this decision is re-opened on its own terms.
+
+The model was optimistic in one identifiable way, worth recording because the same reasoning will
+be reused: it assumed `reconcile`'s `read_file_at(pinned_at, …)` would be memoized, but that read
+lives outside `store.py`'s pass cache and still costs one subprocess per queue member.
 
 The measurement is also single-run per scenario on one machine whose git spawn (17-22ms/call) is
 slow relative to typical CI (3-6ms). The decomposition and the call-count model are

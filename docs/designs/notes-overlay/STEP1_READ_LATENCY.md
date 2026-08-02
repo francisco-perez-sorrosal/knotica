@@ -132,13 +132,47 @@ cost to avoid deleting a redundant `_exists_at_ref` call.
 redundancies as the actual work.** This mirrors how Phase 3 closed the spikes — on measurement,
 with the instrument committed and re-runnable.
 
-### The estimate that is *not* measured
+### Post-fix — measured, 2026-08-02
 
-Modelling the three fixes against the call-count formula gives roughly a 6x reduction (100 notes x
-1 anchor: 505 calls → ~85). **That figure is modelled, not measured** — it is a prediction from a
-formula that has so far matched every measured row, which is grounds for confidence but not the
-same as evidence. It should be measured after the fixes, by re-running this instrument, before any
-claim about post-fix latency is recorded anywhere.
+The three redundancies were fixed and this instrument re-run. **The projection above was close on
+call count and pessimistic on wall-clock:**
+
+| notes x anchors | git calls before → after | wall before → after |
+|---|---|---|
+| 10 x 1 | 54 → 12 (4.5x) | 1.47s → **0.132s** (11x) |
+| 50 x 1 | 256 → 52 (4.9x) | 6.69s → **0.548s** (12x) |
+| 100 x 1 | 505 → 100 (5.05x) | 14.78s → **1.049s** (14x) |
+| 200 x 1 | 1010 → 200 (5.05x) | 24.70s → **2.453s** (10x) |
+
+Call count fell **5.05x**, against the modelled ~6x — the model was slightly optimistic because it
+assumed `reconcile`'s own `read_file_at(pinned_at, …)` would be memoized too; that read lives
+outside `store.py`'s pass cache and still costs one subprocess per queue member. Wall-clock fell
+**10-14x**, i.e. *more* than the call ratio, because fewer spawns also means less contention per
+spawn.
+
+A drift-queue open is now **snappy at 10 notes** (0.132s) where it was 1.47s, and perceptible
+rather than punishing at 50 (0.548s).
+
+**A correction to this document's own earlier claim.** The first post-fix run reported 125 calls at
+100 anchors, not 100, and the discrepancy was the instrument's fault rather than the fix's: the
+script called `reconcile_notes` without handing it the listing, so it measured a double-listing the
+read path no longer performs. `_drift_open` now mirrors `_drift_payload` exactly. A measurement
+harness that models the old call path silently under-reports the fix it is measuring.
+
+### Against the index closure's falsifier
+
+`dec-draft-9e1d9377`'s falsifier 1: *"the three redundancies are fixed and a re-run still shows a
+drift-queue open above ~1s at note densities the project actually reaches."*
+
+**Not triggered.** Zero notes exist in either configured vault, and at every density within reach —
+10 notes (0.132s), 50 notes (0.548s) — a drift open is well under a second. The 1s line is crossed
+at **100 notes** (1.049s), which is a density this project has never approached.
+
+The margin there is thin, though, and worth stating plainly: at 100 notes the fix lands *just* over
+the threshold rather than comfortably under it. Two reductions remain available before an index
+would be the next lever — memoizing `reconcile`'s own historical read (15 of the 100 calls at that
+density) and the three per-queue-member metadata calls (`path_commit_shas`, `commit_subject`,
+`commit_timestamp`, another 45). Neither is structural.
 
 ### What would still deserve an index
 

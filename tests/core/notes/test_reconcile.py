@@ -573,3 +573,55 @@ def test_reconciliation_never_writes_to_the_vault(
     assert git_status_porcelain(template_vault) == "", (
         "reconciling a topic's notes must never leave the working tree dirty"
     )
+
+
+def test_passing_a_precomputed_listing_yields_identical_transitions(template_vault: Path):
+    """The listing parameter changes cost, never results.
+
+    The drift-queue read path resolves the topic to find queue members and then
+    calls this; letting it re-resolve internally made a drift open resolve every
+    anchor twice. Handing the listing in is only safe if the two forms are
+    indistinguishable in output.
+    """
+    from knotica.core.notes.reconcile import reconcile_notes
+    from knotica.core.notes.store import list_notes
+
+    quote = "the model has no persistent notion of the goal it is optimizing for"
+    paraphrase = "the model retains no persistent notion of the goal it is optimizing for"
+    page_relpath = f"{TOPIC}/agent-memory.md"
+    original_page = f"Preface paragraph.\n\n{quote}\n\nClosing thoughts."
+    page_sha = _write_and_commit_page(
+        template_vault, page_relpath, original_page, "test: seed agent-memory page"
+    )
+    _write_note(
+        template_vault,
+        "20260101-090000-headline-note",
+        _note(
+            "20260101-090000-headline-note",
+            anchors=(_anchor(page=page_relpath, pinned_at=page_sha, quote=quote),),
+        ),
+    )
+    _commit_all(template_vault, "test: capture headline-note")
+    _write_and_commit_page(
+        template_vault,
+        page_relpath,
+        original_page.replace(quote, paraphrase),
+        "vault: reword the agent-memory passage",
+    )
+    store = LocalFSStore(template_vault)
+    vcs = VaultVcs(template_vault)
+
+    self_sufficient = reconcile_notes(
+        store, vcs, TOPIC, guess_threshold=0.52, complete_orphan_threshold=0.35
+    )
+    handed_in = reconcile_notes(
+        store,
+        vcs,
+        TOPIC,
+        guess_threshold=0.52,
+        complete_orphan_threshold=0.35,
+        listing=list_notes(store, vcs, TOPIC, guess_threshold=0.52, complete_orphan_threshold=0.35),
+    )
+
+    assert handed_in == self_sufficient
+    assert handed_in, "the fixture must produce at least one transition to compare"
