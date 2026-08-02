@@ -23,13 +23,13 @@ asserts):
 
 from collections.abc import Callable
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 from mcp.server.fastmcp import FastMCP
 from mcp.types import CallToolResult
 
 from knotica.core.config import resolve
-from knotica.core.errors import KnoticaError
+from knotica.core.errors import ErrorCode, KnoticaError
 from knotica.core.links import Link, inbound_links, iter_page_paths, outbound_links
 from knotica.core.lint import RESERVED_TOP_LEVEL_NAMES, lint_vault
 from knotica.core.page import (
@@ -38,6 +38,7 @@ from knotica.core.page import (
 )
 from knotica.core.page import read_page as read_page_core
 from knotica.core.schema import overlay_path
+from knotica.core.vault_layout import SCORED_FAMILIES, Family
 from knotica.mcp_server import envelope
 from knotica.search import DEFAULT_PAGE_SIZE, InvalidCursorError, RipgrepBackend
 from knotica.store import LocalFSStore, VaultStore
@@ -63,11 +64,19 @@ _LIST_TOPICS_DESCRIPTION = (
     "Pass vault to select a configured vault name (default: config default_vault)."
 )
 
+#: The folder families `search` accepts on the wire. Personal notes are a
+#: member but never a default -- see `_resolve_families`.
+_VALID_FAMILIES: frozenset[str] = frozenset({"page", "source", "note"})
+
 _SEARCH_DESCRIPTION = (
     "Search page contents and return POINTERS (topic, page path, a short snippet, relevance "
     "score) — not full page bodies. Follow up with read_page for the results you choose. "
     "Paginated: pass the returned next_cursor to get the next page; has_more indicates more "
     "results exist. Default 10 results per call to keep responses small. "
+    "Searches the knowledge base only by default. To include the user's personal notes, pass "
+    "families=['page','source','note'] (or ['note'] for notes alone) — notes are private "
+    "marginalia, so search them only when the user's request is about their own notes. "
+    "families must stay identical across a paginated walk; changing it invalidates the cursor. "
     "Pass vault to select a configured vault name (default: config default_vault)."
 )
 
@@ -125,11 +134,23 @@ def register_read_tools(mcp: FastMCP) -> None:
         topic: str = "",
         cursor: str = "",
         limit: int = DEFAULT_PAGE_SIZE,
+        families: list[str] = [],  # never mutated; the wire schema needs a literal `default: []`
         vault: str = "",
     ) -> ToolResult:
+        # Validated inside the _read closure so a rejected family name becomes
+        # an INVALID_ARGUMENT envelope like every other bad argument, rather
+        # than escaping as an unhandled exception past the adapter boundary.
         return _read(
             lambda _store, root: envelope.read_ok(
-                RipgrepBackend(root).search(query, topic=topic, cursor=cursor, limit=limit).render()
+                RipgrepBackend(root)
+                .search(
+                    query,
+                    topic=topic,
+                    cursor=cursor,
+                    limit=limit,
+                    families=_resolve_families(families),
+                )
+                .render()
             ),
             vault_name=vault,
         )
@@ -253,3 +274,29 @@ def _render_inbound(link: Link) -> dict[str, Any]:
         "line": link.line,
         "context": link.context,
     }
+
+
+def _resolve_families(requested: list[str]) -> frozenset[Family]:
+    """Validate the wire ``families`` argument into a backend family set.
+
+    An empty list means "unspecified" and resolves to
+    :data:`SCORED_FAMILIES` -- the wire schema needs a literal ``[]`` default,
+    so ``[]`` cannot also mean "search nothing" without making the safe
+    behaviour unreachable for a caller that simply omits the argument. A
+    caller wanting no results should not call search.
+
+    Unknown names are refused rather than ignored: silently dropping an
+    unrecognised family would return the default corpus while the caller
+    believed it had widened the search, which is a wrong answer wearing a
+    successful envelope.
+    """
+    if not requested:
+        return SCORED_FAMILIES
+    unknown = sorted({name for name in requested if name not in _VALID_FAMILIES})
+    if unknown:
+        raise KnoticaError(
+            ErrorCode.INVALID_ARGUMENT,
+            f"search does not know the folder families {unknown}.",
+            fix=f"Use any of {sorted(_VALID_FAMILIES)}, or omit families for the default corpus.",
+        )
+    return frozenset(cast("set[Family]", set(requested)))

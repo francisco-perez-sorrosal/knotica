@@ -39,7 +39,9 @@ import pytest
 from support.vault import run_git
 
 # The §1.4 error-code enum, mirrored as wire strings. The tool result's
-# error.code must be one of exactly these.
+# error.code must be one of exactly these. Deliberately hand-mirrored rather
+# than derived from ``ErrorCode``: the point is to catch a wire-visible rename,
+# which a derived set would silently follow.
 ERROR_CODES = frozenset(
     {
         "NOT_CONFIGURED",
@@ -52,6 +54,9 @@ ERROR_CODES = frozenset(
         "LOCK_BUSY",
         "GIT_ERROR",
         "INVALID_CURSOR",
+        # Read tools gained this when `search` began validating `families`;
+        # it is a canonical ErrorCode, not a new wire concept.
+        "INVALID_ARGUMENT",
     }
 )
 
@@ -329,6 +334,44 @@ def test_search_returns_pointer_results_with_the_pagination_envelope(
         assert "path" in pointer or "page" in pointer, (
             f"pointer must carry a page location: {pointer!r}"
         )
+
+
+def test_search_omitting_families_returns_no_notes(vault_config: Path) -> None:
+    """The wire default must be the safe corpus. A caller that never learned
+    about families gets the knowledge base and nothing private.
+    """
+    body = assert_success(call_tool("search", {"query": "memory"}))
+
+    assert not [r for r in body["results"] if r["path"].startswith("notes/")]
+    assert not [r for r in body["results"] if r["kind"] == "note"]
+
+
+def test_search_rejects_an_unknown_family_rather_than_ignoring_it(vault_config: Path) -> None:
+    """Silently dropping an unrecognised family would return the default
+    corpus while the caller believed it had widened the search -- a wrong
+    answer inside a success envelope. It must be an INVALID_ARGUMENT error.
+    """
+    result = call_tool("search", {"query": "memory", "families": ["page", "notes"]})
+
+    err = error_of(result)
+    assert_error_shape(err, "INVALID_ARGUMENT")
+    assert "notes" in err["message"], (
+        f"the message must name the family it rejected so the caller can fix it: {err!r}"
+    )
+
+
+def test_search_with_an_empty_families_list_is_the_default_not_an_empty_corpus(
+    vault_config: Path,
+) -> None:
+    """The wire schema needs a literal ``[]`` default, so ``[]`` cannot also
+    mean "search nothing" -- that would make the safe behaviour unreachable
+    for a caller that simply omits the argument.
+    """
+    omitted = assert_success(call_tool("search", {"query": "memory"}))
+    explicit_empty = assert_success(call_tool("search", {"query": "memory", "families": []}))
+
+    assert explicit_empty["total_count"] == omitted["total_count"]
+    assert explicit_empty["total_count"] > 0
 
 
 def test_search_limit_one_paginates_with_a_usable_next_cursor(
