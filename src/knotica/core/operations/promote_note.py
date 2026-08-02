@@ -41,11 +41,20 @@ from pathlib import Path, PurePath
 
 from knotica.core.errors import ErrorCode, KnoticaError, err, ok
 from knotica.core.gapfill import report_gap
-from knotica.core.notes.anchor import NoteDocument, live_anchors, parse_note
+from knotica.core.notes.anchor import (
+    PROMOTED_EVAL_PREFIX,
+    NoteDocument,
+    live_anchors,
+    parse_note,
+)
+from knotica.core.page import set_frontmatter_scalar
 from knotica.core.operations.curate_example import curate_example
 from knotica.store import VaultStore
 
 __all__ = ["GAP_ELIGIBLE_INTENTS", "gap_intent_message", "no_live_pages_message", "promote_note"]
+
+#: The note frontmatter key carrying the eval-bridge audit trail.
+_PROMOTED_FIELD = "promoted"
 
 _TARGET_TRAINSET = "trainset"
 _TARGET_GAP = "gap"
@@ -157,6 +166,7 @@ def promote_note(
                 vault_root,
                 topic,
                 note_id,
+                path,
                 pages_used,
                 question=question,
                 answer=answer,
@@ -174,13 +184,28 @@ def _promote_to_trainset(
     vault_root: str | PurePath,
     topic: str,
     note_id: str,
+    path: str,
     pages_used: tuple[str, ...],
     *,
     question: str,
     answer: str,
     verdict: str,
 ) -> dict[str, object]:
-    """Append one curated example, reusing ``curate_example`` -- no re-implementation."""
+    """Append one curated example, reusing ``curate_example`` -- no re-implementation.
+
+    The note is stamped ``promoted: eval:<qa-id>`` **inside ``curate_example``'s
+    own transaction**, via its ``extra_writes`` hook, so the crossing remains
+    exactly one commit. Writing the stamp here instead would need a second
+    commit and break the one-commit-per-mutating-operation invariant.
+
+    This is the note-side audit trail that closes the asymmetry: a gap promotion
+    is already discoverable in reverse from ``gaps.jsonl``
+    (``reported_reason = note:<path>#0``), while a trainset promotion left no
+    trace on either side -- ``qa.jsonl`` deliberately records no note provenance,
+    and ``source`` is always ``curate_example``. Without this stamp, "how many
+    note-derived questions are in the trainset" is unanswerable, which is the
+    condition ``dec-059``'s reversal trigger is written in terms of.
+    """
     if not answer.strip():
         return err(
             ErrorCode.INVALID_ARGUMENT,
@@ -198,7 +223,24 @@ def _promote_to_trainset(
             no_live_pages_message(note_id),
             fix="Anchor the note to a live KB page first (`notes action=reanchor`), then promote again.",
         )
-    return curate_example(store, vault_root, topic, question, pages_used, answer, verdict)
+
+    def stamp_note(record_id: str) -> dict[str, str]:
+        return {
+            path: set_frontmatter_scalar(
+                store.read_text(path), _PROMOTED_FIELD, f"{PROMOTED_EVAL_PREFIX}{record_id}"
+            )
+        }
+
+    return curate_example(
+        store,
+        vault_root,
+        topic,
+        question,
+        pages_used,
+        answer,
+        verdict,
+        extra_writes=stamp_note,
+    )
 
 
 def _promote_to_gap(

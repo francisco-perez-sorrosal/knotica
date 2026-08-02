@@ -66,6 +66,9 @@ __all__ = [
     "NOTE_INTENTS",
     "NOTE_TYPE",
     "PHASE_ONE_FIDELITIES",
+    "PROMOTED_EVAL_PREFIX",
+    "PROMOTED_GAP_PREFIX",
+    "PROMOTED_NONE",
     "REQUIRED_NOTE_FIELDS",
     "AnchorRecord",
     "NoteDocument",
@@ -90,6 +93,15 @@ PHASE_ONE_FIDELITIES: frozenset[str] = frozenset({"span", "page", "topic"})
 DEFAULT_SCHEMA_VERSION = 1
 DEFAULT_INTENT = "reflection"
 DEFAULT_STATUS = "active"
+
+#: ``promoted`` values. The scalar is the note-side audit trail for the eval
+#: bridge: a note that has never crossed reads ``none``, and a crossing stamps
+#: the destination plus the record it produced. Absent frontmatter parses as
+#: ``none``, so every note written before this field existed stays valid and
+#: needs no migration -- which is why no ``schema_version`` bump accompanies it.
+PROMOTED_NONE = "none"
+PROMOTED_GAP_PREFIX = "gap:"
+PROMOTED_EVAL_PREFIX = "eval:"
 
 #: The intents a *writer* may stamp. Reading deliberately does not enforce this
 #: -- a hand-typed note with an unknown intent must stay readable -- so the
@@ -170,6 +182,14 @@ class NoteDocument:
     ``body`` is the free text before the ``## Anchors`` section, stripped.
     ``skipped_anchor_count`` reports bullets the grammar could not read -- data,
     not an error: the note itself stays valid and its readable anchors survive.
+
+    ``promoted`` is the note-side audit trail for the eval-bridge crossing:
+    ``none`` (the default, and what every pre-existing note parses as),
+    ``gap:<id>``, or ``eval:<id>``. It is a **first-class field rather than a
+    loose frontmatter key on purpose** -- :func:`serialize_note` emits a fixed
+    field set, so an unmodelled key would be silently dropped the first time
+    ``reanchor`` or ``detach`` round-trips the document, erasing the audit
+    trail exactly when the note is being corrected.
     """
 
     id: str
@@ -183,6 +203,7 @@ class NoteDocument:
     anchors: tuple[AnchorRecord, ...] = ()
     skipped_anchor_count: int = 0
     schema_version: int = DEFAULT_SCHEMA_VERSION
+    promoted: str = PROMOTED_NONE
 
 
 def parse_note(text: str) -> tuple[NoteDocument | None, str | None]:
@@ -221,6 +242,7 @@ def parse_note(text: str) -> tuple[NoteDocument | None, str | None]:
             anchors=anchors,
             skipped_anchor_count=skipped,
             schema_version=_as_schema_version(present.get("schema_version")),
+            promoted=_as_text(present.get("promoted")) or PROMOTED_NONE,
         ),
         None,
     )
@@ -254,6 +276,7 @@ def serialize_note(document: NoteDocument) -> str:
         "updated": document.updated,
         "status": document.status,
         "tags": list(document.tags),
+        "promoted": document.promoted,
     }
     body = escape_anchors_heading(document.body.strip())
     parts = [serialize_frontmatter(fields), "\n", body, "\n"]

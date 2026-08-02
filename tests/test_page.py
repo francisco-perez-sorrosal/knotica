@@ -28,6 +28,7 @@ from knotica.core.page import (
     parse_page,
     read_page,
     serialize_frontmatter,
+    set_frontmatter_scalar,
     topic_relative_page_name,
     validate_frontmatter,
 )
@@ -428,3 +429,51 @@ def test_missing_page_with_no_similar_names_suggests_nothing(template_vault):
         read_page(store, "agentic-systems", "zzzz-quantum-chromodynamics")
     assert excinfo.value.suggestions == ()
     assert "Nearest matches" not in str(excinfo.value)
+
+
+def test_setting_a_frontmatter_scalar_preserves_every_other_byte():
+    """The point of the primitive: a one-field change is a one-line diff.
+
+    Re-rendering through `parse_page` + `serialize_frontmatter` would normalize
+    the author's own formatting -- doubled spaces, field order, list style -- in
+    a file the user hand-edits.
+    """
+    original = (
+        "---\n"
+        "type:  note\n"
+        "id: 20260101-000000-example\n"
+        "tags:  [a,b]\n"
+        "status: active\n"
+        "---\n"
+        "\n"
+        "Body   text with   deliberate spacing.\n"
+    )
+
+    updated = set_frontmatter_scalar(original, "status", "archived")
+
+    assert "status: archived\n" in updated
+    assert "type:  note\n" in updated, "an untouched field keeps its original spacing"
+    assert "tags:  [a,b]\n" in updated, "an untouched list keeps its original style"
+    assert "Body   text with   deliberate spacing.\n" in updated, "the body is untouched"
+    assert updated.replace("status: archived", "status: active") == original, (
+        "exactly one line differs from the original"
+    )
+
+
+def test_setting_an_absent_frontmatter_scalar_appends_it_inside_the_block():
+    original = "---\ntype: note\nid: n-1\n---\n\nBody.\n"
+
+    updated = set_frontmatter_scalar(original, "promoted", "eval:qa-abc123")
+
+    fields, error, body = parse_page(updated)
+    assert error is None and fields is not None
+    assert fields["promoted"] == "eval:qa-abc123"
+    assert fields["type"] == "note", "pre-existing fields survive"
+    assert body.strip() == "Body."
+
+
+def test_setting_a_scalar_on_text_without_frontmatter_returns_it_unchanged():
+    """Fabricating a block would turn a malformed file into a differently-malformed one."""
+    original = "# Just a heading\n\nNo frontmatter here.\n"
+
+    assert set_frontmatter_scalar(original, "promoted", "none") == original

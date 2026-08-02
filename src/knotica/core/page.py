@@ -40,6 +40,7 @@ __all__ = [
     "parse_page",
     "read_page",
     "serialize_frontmatter",
+    "set_frontmatter_scalar",
     "validate_frontmatter",
 ]
 
@@ -288,6 +289,51 @@ def serialize_frontmatter(fields: Mapping[str, object]) -> str:
         lines.append(f"{key}: {_serialize_value(value)}" if value is not None else f"{key}:")
     lines.append(_FRONTMATTER_FENCE)
     return "\n".join(lines) + "\n"
+
+
+def set_frontmatter_scalar(text: str, key: str, value: str) -> str:
+    """Set one frontmatter scalar, preserving every other byte of ``text``.
+
+    The byte-preserving property is the point, and it is why this exists
+    alongside ``parse_page``/``serialize_frontmatter`` rather than being
+    expressed as a round-trip through them. Re-rendering a whole document to
+    change one field rewrites the author's own formatting -- doubled spaces,
+    field order, list style -- in a file the user owns and hand-edits, and
+    turns a one-line semantic change into a diff that touches lines nobody
+    touched. That defect is already on the ledger for the anchor bullets
+    (``reanchor``/``detach`` normalize hand-authored spacing); this primitive
+    keeps a new write path from repeating it on the frontmatter.
+
+    An existing ``key`` is replaced in place, keeping its position. A missing
+    one is appended as the last entry of the block. ``text`` without a
+    frontmatter block is returned unchanged -- callers that require one must
+    check first; silently fabricating a block would turn a malformed file into
+    a differently-malformed file.
+    """
+    block, _body = _split_frontmatter(text)
+    if block is None:
+        return text
+    lines = text.splitlines(keepends=True)
+    entry = f"{key}: {_serialize_value(value)}"
+
+    fence_positions = [
+        index for index, line in enumerate(lines) if line.strip() == _FRONTMATTER_FENCE
+    ]
+    if len(fence_positions) < 2:
+        return text
+    opening, closing = fence_positions[0], fence_positions[1]
+
+    for index in range(opening + 1, closing):
+        stripped = lines[index].strip()
+        if stripped.startswith("#") or not stripped:
+            continue
+        candidate, separator, _rest = stripped.partition(":")
+        if separator and candidate.strip() == key:
+            lines[index] = entry + "\n"
+            return "".join(lines)
+
+    lines.insert(closing, entry + "\n")
+    return "".join(lines)
 
 
 def read_page(store: VaultStore, topic: str, page: str) -> Page:

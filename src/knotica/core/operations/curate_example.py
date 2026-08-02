@@ -12,6 +12,7 @@ carried as a tolerated extra field so no caller input is lost.
 
 import hashlib
 import json
+from collections.abc import Callable, Mapping
 from datetime import UTC, datetime
 from pathlib import PurePath
 
@@ -43,6 +44,7 @@ def curate_example(
     answer: str,
     verdict: str,
     notes: str | None = None,
+    extra_writes: Callable[[str], Mapping[str, str]] | None = None,
 ) -> dict[str, object]:
     """Append one curated example to the topic's dataset, or report a duplicate.
 
@@ -55,10 +57,25 @@ def curate_example(
         answer: The answer given.
         verdict: ``good`` or ``bad`` -- the user's judgment of answer quality.
         notes: Optional free-text note preserved on the record.
+        extra_writes: Optional callback receiving the new record's ``id`` and
+            returning additional ``{path: content}`` writes to include in **this
+            operation's own transaction**. Exists so a caller can record its own
+            side of the write without a second commit: the vault's
+            one-commit-per-mutating-operation invariant means a caller cannot
+            append here and then write elsewhere. Default ``None`` preserves
+            every existing caller's behaviour exactly.
 
     Returns:
         A success envelope with pointer ``{path, example_count, appended}``
         (plus any secret-scrub warnings), or a typed failure envelope.
+
+    Note:
+        ``extra_writes`` runs only when a record is actually appended. On the
+        duplicate path nothing is written, by design: the question is already in
+        the dataset, so no *new* crossing occurred and the count of note-derived
+        questions -- which is what ``dec-059``'s trigger asks for -- stays
+        correct. What a duplicate promotion does not get is its own note-side
+        stamp, which is a per-note audit gap and not a miscount.
     """
     try:
         cleaned = validated_topic(topic)
@@ -82,6 +99,8 @@ def curate_example(
         new_text = _appended_line(existing_text, _serialize(record, notes))
         with VaultTransaction(store, vault_root, "curate_example", cleaned, _title(query)) as txn:
             txn.write(dataset_path, new_text)
+            for path, content in (extra_writes(record.id) if extra_writes else {}).items():
+                txn.write(path, content)
     except KnoticaError as error:
         return error.envelope()
     result = txn.result

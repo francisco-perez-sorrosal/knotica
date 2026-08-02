@@ -59,7 +59,13 @@ from pathlib import Path
 import pytest
 
 from knotica.core.gap_classifier import gaps_path
-from knotica.core.notes.anchor import AnchorRecord, NoteDocument, serialize_note
+from knotica.core.notes.anchor import (
+    PROMOTED_NONE,
+    AnchorRecord,
+    NoteDocument,
+    parse_note,
+    serialize_note,
+)
 from knotica.core.operations.create_topic import qa_dataset_path
 from knotica.core.records import parse_gaps_jsonl, parse_qa_jsonl
 from knotica.store import LocalFSStore
@@ -632,3 +638,87 @@ def test_promoting_to_gap_without_a_question_is_rejected(template_vault: Path):
     assert _error_code(result) == "INVALID_ARGUMENT"
     assert "question" in _error_message(result)
     assert git_commit_count(template_vault) == commits_before
+
+
+def test_promote_to_trainset_stamps_the_note_with_the_record_id(template_vault: Path):
+    """The note carries its own audit trail for the crossing, in the same commit.
+
+    Closes the asymmetry that made note-derived trainset questions uncountable:
+    `qa.jsonl` records no note provenance by design, so without this stamp there
+    is no side from which a promotion is visible.
+    """
+    note_id = "20260730-100700-promote-stamped"
+    page = f"{TOPIC}/promote-stamped.md"
+    _seed_page(template_vault, page, "# Page\n\na passage worth stamping.\n", "test: seed page")
+    _seed_note(
+        template_vault, note_id, (_pinned(page, "a passage worth stamping."),), intent="question"
+    )
+    commits_before = git_commit_count(template_vault)
+
+    _success(
+        _promote(
+            template_vault,
+            TOPIC,
+            note_id,
+            "trainset",
+            question="Is this passage stamped?",
+            answer="Yes.",
+        )
+    )
+
+    document, error = parse_note((template_vault / "notes" / TOPIC / f"{note_id}.md").read_text())
+    assert error is None and document is not None
+    assert document.promoted.startswith("eval:qa-"), (
+        f"the note must record the qa record it produced, got {document.promoted!r}"
+    )
+    assert git_commit_count(template_vault) == commits_before + 1, (
+        "the stamp rides curate_example's own transaction -- one crossing, one commit"
+    )
+
+
+def test_a_promoted_notes_stamp_survives_a_later_reanchor(template_vault: Path):
+    """`serialize_note` emits a fixed field set, so an unmodelled key would be dropped.
+
+    This is the failure this field's design exists to prevent: the audit trail
+    erasing itself the first time the note is corrected.
+    """
+    note_id = "20260730-100800-promote-then-reanchor"
+    page = f"{TOPIC}/promote-then-reanchor.md"
+    _seed_page(template_vault, page, "# Page\n\na passage worth keeping.\n", "test: seed page")
+    _seed_note(
+        template_vault, note_id, (_pinned(page, "a passage worth keeping."),), intent="question"
+    )
+    _success(
+        _promote(
+            template_vault,
+            TOPIC,
+            note_id,
+            "trainset",
+            question="Does the stamp survive?",
+            answer="Yes.",
+        )
+    )
+    note_path = template_vault / "notes" / TOPIC / f"{note_id}.md"
+    stamped, _error = parse_note(note_path.read_text())
+    assert stamped is not None
+
+    note_path.write_text(serialize_note(stamped))
+
+    round_tripped, error = parse_note(note_path.read_text())
+    assert error is None and round_tripped is not None
+    assert round_tripped.promoted == stamped.promoted, (
+        "a serialize_note round-trip must preserve `promoted` -- an unmodelled "
+        "frontmatter key would be silently dropped here"
+    )
+
+
+def test_an_unpromoted_note_reads_as_promoted_none(template_vault: Path):
+    """Every note written before this field existed stays valid and needs no migration."""
+    note_id = "20260730-100900-never-promoted"
+    page = f"{TOPIC}/never-promoted.md"
+    _seed_page(template_vault, page, "# Page\n\nan unpromoted passage.\n", "test: seed page")
+    _seed_note(template_vault, note_id, (_pinned(page, "an unpromoted passage."),))
+
+    document, error = parse_note((template_vault / "notes" / TOPIC / f"{note_id}.md").read_text())
+    assert error is None and document is not None
+    assert document.promoted == PROMOTED_NONE
