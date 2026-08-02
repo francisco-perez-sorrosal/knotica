@@ -399,6 +399,58 @@ class _RaisingLLMClient:
         )
 
 
+class _FailThenSucceedLLMClient:
+    """An ``LLMClient`` that raises the truncation error once, then answers normally.
+
+    Models the live sequence a truncated query produces: the first call fails at
+    the LLM boundary, and a later call (after the operator raised the budget, or
+    simply asked again) would succeed.
+    """
+
+    def __init__(self) -> None:
+        self.call_count = 0
+
+    def complete(self, **_kwargs: object) -> Completion:
+        self.call_count += 1
+        if self.call_count == 1:
+            raise KnoticaError(
+                ErrorCode.LLM_API_ERROR,
+                "the call was cut off mid-answer (stop_reason: max_tokens)",
+                fix="Ask a narrower question, or raise the caller's output budget.",
+                retryable=False,
+            )
+        return _structured_completion(answer="A complete answer.", citations=[])
+
+
+def test_a_failed_synthesis_is_never_written_to_the_shared_cache(
+    template_vault,
+) -> None:
+    # The regression: the cache stores whatever `compute` returns, and the answer
+    # was parsed only *after* that store. A truncated completion therefore got
+    # persisted, and every later run of the same question replayed the broken text
+    # from cache -- a permanent failure that no budget change could clear, because
+    # max_tokens is not part of the cache key. Raising at the LLM boundary keeps
+    # `compute` from returning at all, so the entry is never written and the next
+    # run makes a real call.
+    client = _FailThenSucceedLLMClient()
+    runner = MessagesApiRunner(
+        llm_client=client,  # type: ignore[arg-type]  -- structural LLMClient
+        worker_snapshot=WORKER_SNAPSHOT,
+        cache=ResponseCache(),
+    )
+    store = _store(template_vault)
+
+    with pytest.raises(KnoticaError):
+        runner.run(store, TOPIC, RETRIEVAL_QUESTION)
+    prediction = runner.run(store, TOPIC, RETRIEVAL_QUESTION)
+
+    assert client.call_count == 2, (
+        "the failed call must leave no cache entry -- an identical re-run has to "
+        "reach the model again, not replay a poisoned failure forever"
+    )
+    assert prediction.answer == "A complete answer."
+
+
 def test_a_typed_llm_error_propagates_uncaught(template_vault) -> None:
     runner = _runner(_RaisingLLMClient())  # type: ignore[arg-type]  -- structural LLMClient
 

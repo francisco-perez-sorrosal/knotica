@@ -141,6 +141,23 @@ _OAUTH_BETA_HEADER_VALUE = "oauth-2025-04-20"
 _OUTPUT_CONFIG_KWARG = "output_config"
 _JSON_SCHEMA_FORMAT_TYPE = "json_schema"
 
+#: Response ``stop_reason`` values meaning **the model never finished**: the text
+#: is a prefix cut mid-token, not an answer. ``max_tokens`` is the caller's own
+#: budget running out; ``model_context_window_exceeded`` is the model's window
+#: running out first. Structured outputs guarantee schema-valid JSON only for a
+#: response that *completes* -- a truncated one is a half-written object, which is
+#: why :meth:`AnthropicClient.complete` raises here rather than handing a
+#: downstream JSON parser a prefix and letting it report "invalid JSON" (a true
+#: statement that names the wrong cause and hides the fixable one).
+_INCOMPLETE_STOP_REASONS: frozenset[str] = frozenset(
+    {"max_tokens", "model_context_window_exceeded"}
+)
+
+#: The ``stop_reason`` for a model that declined the request outright. Also a
+#: non-answer, but with a different remedy than a budget bump -- so it earns its
+#: own message rather than being folded into :data:`_INCOMPLETE_STOP_REASONS`.
+_REFUSAL_STOP_REASON = "refusal"
+
 
 @dataclass(frozen=True, slots=True)
 class TokenUsage:
@@ -178,10 +195,20 @@ class Message:
 
 @dataclass(frozen=True, slots=True)
 class Completion:
-    """A model response: the assembled text plus the call's exact token usage."""
+    """A model response: the assembled text, the call's exact token usage, its stop reason.
+
+    ``stop_reason`` is the response's own verdict on *why* generation ended --
+    the only signal that distinguishes a complete answer from one the budget cut
+    off mid-token. :meth:`AnthropicClient.complete` refuses to return a
+    :class:`Completion` whose stop reason is incomplete (see
+    :data:`_INCOMPLETE_STOP_REASONS`), so every instance a caller holds is a
+    whole response. It stays ``None`` for the offline seams that have no
+    Messages API response behind them (:class:`FakeLLMClient`, cache replay).
+    """
 
     text: str
     usage: TokenUsage
+    stop_reason: str | None = None
 
 
 @runtime_checkable
@@ -303,10 +330,11 @@ class _ResponseUsage(Protocol):
 
 
 class _MessagesResponse(Protocol):
-    """The Messages API response surface this module reads: ``content`` + ``usage``."""
+    """The Messages API response surface this module reads: ``content``, ``usage``, ``stop_reason``."""
 
     content: Sequence[_ContentBlock]
     usage: _ResponseUsage
+    stop_reason: str | None
 
 
 class _MessagesResource(Protocol):
@@ -393,6 +421,14 @@ class AnthropicClient:
         SDK transport failures (rate limits, auth rejections, server errors,
         network drops) are re-raised as typed :class:`KnoticaError`s carrying the
         active auth mode -- adapters render the envelope, never a raw traceback.
+
+        A response that arrives but did not *finish* -- truncated at ``max_tokens``
+        or at the context window, or refused -- is likewise a typed, **non-retryable**
+        failure (see :func:`_incomplete_response_error`), never a returned
+        :class:`Completion`. Raising here rather than returning the prefix is what
+        keeps the diagnosis at the layer that owns the evidence: ``stop_reason``
+        exists only on this response object, and every caller in the codebase parses
+        the text as structured output, so no caller can use a partial one.
         """
         anthropic = _import_anthropic()
         create_kwargs: dict[str, object] = {
@@ -419,9 +455,15 @@ class AnthropicClient:
                 fix="Check connectivity and re-run; the SDK already retried with backoff.",
                 retryable=True,
             ) from exc
+        stop_reason: str | None = getattr(response, "stop_reason", None)
+        if stop_reason in _INCOMPLETE_STOP_REASONS or stop_reason == _REFUSAL_STOP_REASON:
+            raise _incomplete_response_error(
+                stop_reason, auth_mode=self.auth_mode, snapshot=snapshot, max_tokens=max_tokens
+            )
         return Completion(
             text=_extract_text(response.content),
             usage=_usage_from_response(response.usage),
+            stop_reason=stop_reason,
         )
 
 
@@ -516,6 +558,40 @@ def _llm_api_error(exc: Exception, auth_mode: str) -> KnoticaError:
             retryable=True,
         )
     return KnoticaError(ErrorCode.LLM_API_ERROR, message, retryable=True)
+
+
+def _incomplete_response_error(
+    stop_reason: str | None, *, auth_mode: str, snapshot: str, max_tokens: int
+) -> KnoticaError:
+    """Map an unfinished response's ``stop_reason`` to the typed, non-retryable error.
+
+    ``retryable=False`` in every branch, and that is the substantive half of this
+    function: the calls are ``temperature=0``, so re-issuing the identical request
+    under the identical budget reproduces the identical truncation or refusal. A
+    ``retryable=True`` here would invite a client to burn the same spend on the
+    same failure. Each branch's ``fix`` therefore names a *change* -- a bigger
+    budget, a narrower question, a different phrasing -- not a retry.
+    """
+    if stop_reason == _REFUSAL_STOP_REASON:
+        return KnoticaError(
+            ErrorCode.LLM_API_ERROR,
+            f"the {snapshot} call in {auth_mode} mode returned no answer because the"
+            " model declined the request (stop_reason: refusal).",
+            fix="Rephrase the question; the identical request will be declined again.",
+            retryable=False,
+        )
+    return KnoticaError(
+        ErrorCode.LLM_API_ERROR,
+        f"the {snapshot} call in {auth_mode} mode was cut off mid-answer"
+        f" (stop_reason: {stop_reason}) after its {max_tokens}-token output budget ran"
+        " out, so the partial response is unusable.",
+        fix=(
+            "Ask a narrower question, or raise the caller's output budget"
+            " (query synthesis: `SYNTHESIS_MAX_TOKENS` in `knotica.evals.runner`)."
+            " Retrying the same question unchanged truncates identically."
+        ),
+        retryable=False,
+    )
 
 
 def _extract_text(blocks: Sequence[_ContentBlock]) -> str:

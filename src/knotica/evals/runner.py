@@ -72,6 +72,7 @@ from knotica.store import VaultStore
 
 __all__ = [
     "RUNNER_CACHE_NAMESPACE",
+    "SYNTHESIS_MAX_TOKENS",
     "BaselineRunner",
     "MalformedResponseError",
     "MessagesApiRunner",
@@ -87,9 +88,19 @@ _QUERY_OPERATION = "query"
 #: score-descending/path-ascending ranking makes "top K" reproducible.
 DEFAULT_MAX_PAGES = 5
 
-#: Packaged answer-token budget for the single synthesis call. A module default for
-#: now; ``evals.config`` centralizes the packaged/overridable eval constants later.
-DEFAULT_MAX_TOKENS = 1024
+#: Output-token ceiling for the single synthesis call. The Messages API requires
+#: ``max_tokens`` on every request, so some number must be named here -- there is no
+#: "unbounded" to ask for; the only choice is *which* ceiling.
+#:
+#: Sized for the shape of the output: a cited wiki answer plus its citation array,
+#: which is prose-length, not document-length. 4096 tokens (~3k words) clears any
+#: reasonable answer while still bounding a runaway generation. It is a **ceiling,
+#: not a reservation** -- billing is on tokens actually produced, so raising it
+#: costs nothing on the answers that never approach it, which is why the previous
+#: 1024 bought no savings for the truncations it caused. Exceeding it is now a
+#: typed, non-retryable failure at the LLM boundary (``_incomplete_response_error``
+#: in ``knotica.evals.llm``), never a silently truncated answer.
+SYNTHESIS_MAX_TOKENS = 4096
 
 #: Keys of the JSON object the model returns (see the module docstring).
 _ANSWER_KEY = "answer"
@@ -110,9 +121,12 @@ _CACHE_USAGE_KEY = "usage"
 #: array-of-strings ``citations``, and no other properties. It mirrors exactly the
 #: shape :func:`_parse_structured_answer` requires, so the model's response is
 #: schema-valid JSON at the source -- making the malformed-response class
-#: near-impossible. The tolerant parse + :class:`MalformedResponseError` below stay
-#: as defense-in-depth: structured outputs can still be short-circuited by a
-#: ``max_tokens`` truncation or a refusal, and the parser keeps that visible.
+#: near-impossible. The two ways structured outputs could still be short-circuited
+#: -- a ``max_tokens`` truncation or a refusal -- are caught upstream at the LLM
+#: boundary, which reads the response's ``stop_reason`` and raises a typed,
+#: non-retryable error instead of returning the prefix. The tolerant parse +
+#: :class:`MalformedResponseError` below therefore stay as defense-in-depth for a
+#: client seam that reports no stop reason, not as the truncation diagnosis.
 _SYNTHESIS_JSON_SCHEMA: dict[str, object] = {
     "type": "object",
     "properties": {
@@ -299,7 +313,7 @@ class MessagesApiRunner:
                 system=system,
                 messages=[Message(role="user", content=user)],
                 temperature=0.0,
-                max_tokens=DEFAULT_MAX_TOKENS,
+                max_tokens=SYNTHESIS_MAX_TOKENS,
                 json_schema=_SYNTHESIS_JSON_SCHEMA,
             )
             return _completion_to_cache_value(completion)
@@ -433,6 +447,11 @@ def _completion_from_cache_value(value: JsonValue) -> Completion:
     :class:`~knotica.evals.llm.Completion` (text + verbatim :class:`~knotica.evals.llm.TokenUsage`)
     a cold run produced, so a warm hit feeds the scoring path an identical
     prediction and usage.
+
+    ``stop_reason`` is neither stored nor replayed, and needs no round-trip: only a
+    *finished* completion ever reaches the cache (the LLM boundary raises on an
+    unfinished one before ``compute`` returns), so a cached entry is by construction
+    a complete response and the field carries no information the replay can lose.
     """
     data = cast("dict[str, object]", value)
     usage = cast("dict[str, int]", data[_CACHE_USAGE_KEY])
