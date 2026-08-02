@@ -984,6 +984,22 @@ export interface NoteDriftAlternative {
  */
 export interface NoteDrift {
   anchor_index: number;
+  /**
+   * Why this anchor drifted, so the review surface can say the true thing.
+   *
+   * `superseded` means the anchored page was **replaced wholesale**, not
+   * edited: page similarity collapsed and no heading survived. That is a
+   * different event from a reword and wants a different affordance -- the
+   * ladder's best guess points into content unrelated to the anchored passage,
+   * so the server sends `alternatives: []` and the UI must not invite a
+   * re-anchor onto an arbitrary span. Phase 3 measured one such event supplying
+   * 85% of all observed orphaning, indistinguishable here from a reword.
+   *
+   * Optional for forward/backward compatibility: a dashboard talking to a
+   * server that predates the classifier sees it absent and falls back to
+   * `rewritten`, which is the pre-existing behaviour.
+   */
+  cause?: "rewritten" | "superseded";
   /** Always populated, orphans included -- the historical text is never withheld. */
   pinned_quote: string;
   /** The current text at the resolved placement; "" when nothing is confidently placed. */

@@ -9,6 +9,7 @@ Knotica implements [Karpathy's llm-wiki pattern](https://gist.github.com/karpath
 - **The intelligence is your Claude client** for ingest, curate, and exploratory Q&A (`read_protocol` + search/read). Knotica's server exposes deterministic, stateless tools and holds no session state. **Headless paths** — MCP `query`, compile, eval, loop/Arena — use a server-side LLM and need `CLAUDE_CODE_OAUTH_TOKEN` or `ANTHROPIC_API_KEY` in the environment ([Desktop setup](docs/CLAUDE_DESKTOP.md#headless-llm-credentials-query--compile--eval)).
 - **Everything is a file in git.** Pages, schemas, prompts, curated examples, compiled artifacts, and eval metrics all live in the vault. One git commit per mutating operation — a full audit trail, nothing hidden.
 - **Per-topic agents, earned divergence.** Each topic directory can carry its own schema overlay, prompt overrides, dataset, and metrics — created only when the topic's data justifies it.
+- **Your notes stay yours.** Personal marginalia live in `notes/<topic>/`, anchored to the exact passage that provoked them. They are **never scored** — not by lint, not by eval, not by the loop — and the vault layout enforces that by omission rather than by a filter anyone must remember to maintain. When the wiki rewrites an anchored passage, the note follows it if it can, and lands in a review queue if it cannot; nothing is silently re-pointed, and the text you pinned is preserved verbatim regardless.
 - **The flywheel.** Curated query/answer examples accumulate per topic. At ~30 query-style examples you can **compile** (DSPy) onto a review branch; after merge, `query` silently uses the compiled engine. Arena races prompts when a loop gate fails (reactive heal). Both prove out by asking the same question again.
 
 > [!IMPORTANT]
@@ -88,6 +89,7 @@ Plugin aliases (`/knotica:*`) and the `knotica` CLI expose the same operations f
 | `/knotica:query <question> [topic]` | Answer a question grounded in curated topic pages. |
 | `/knotica:lint [topic]` | Lint pages against the schema (links, structure, confidence, supersession). |
 | `/knotica:curate [topic] [verdict]` | Curate an example into compile-ready training signal with a verdict. |
+| `/knotica:note <your note>` | Save a personal note against a topic, anchored to the passage that provoked it. Never scored. |
 | `/knotica:status [topic]` | Show pages per topic, compile-ready count, lint state, unpushed commits. |
 | `/knotica:doctor` | Run deterministic health checks; surface warnings and failures. |
 | `/knotica:migrate [topic]` | Preview a schema migration (`--dry-run`), then apply. |

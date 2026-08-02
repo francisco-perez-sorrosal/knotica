@@ -402,6 +402,9 @@ function DriftItemCard({
   const intent = INTENT_TREATMENT[note.intent];
   const isInvalid = status === "anchor-invalid";
   const hasResolvedMatch = drift.live_quote !== "";
+  // Absent `cause` means a server predating the classifier; treat it as a
+  // reword, which is exactly how this view behaved before the field existed.
+  const isSuperseded = drift.cause === "superseded";
   const alternative = drift.alternatives[selectedAlt];
   const disabled = anyBusy;
 
@@ -455,6 +458,13 @@ function DriftItemCard({
             </p>
             {hasResolvedMatch ? (
               <blockquote class="notes-anchor-quote">{drift.live_quote}</blockquote>
+            ) : isSuperseded ? (
+              <p class="notes-anchor-meaning bad">
+                <span aria-hidden="true">⚠ </span>
+                this page was replaced, not reworded — its content and every heading changed. Your
+                passage did not move somewhere else on it; there is nowhere on this page it could
+                have gone.
+              </p>
             ) : (
               <p class="muted">
                 {status === "orphaned"
@@ -462,11 +472,24 @@ function DriftItemCard({
                   : treatment.meaning}
               </p>
             )}
-            <p class="muted notes-drift-overlap">
-              {drift.overlap === null
-                ? "the section you pinned survived, but none of the passage did — nothing here is comparable to it."
-                : `${Math.round(drift.overlap * 100)}% of the pinned passage survives.`}
-            </p>
+            {/*
+              A survival percentage is meaningless against a replaced page: the
+              two texts share no subject, so a near-zero overlap reads as "your
+              passage almost survived" when nothing of the kind happened. Say
+              what is actionable instead.
+            */}
+            {isSuperseded ? (
+              <p class="muted notes-drift-overlap">
+                Your pinned text is kept in full above and is not lost. Re-anchor it to the page
+                that replaced this one, or detach it if the subject is gone from the wiki.
+              </p>
+            ) : (
+              <p class="muted notes-drift-overlap">
+                {drift.overlap === null
+                  ? "the section you pinned survived, but none of the passage did — nothing here is comparable to it."
+                  : `${Math.round(drift.overlap * 100)}% of the pinned passage survives.`}
+              </p>
+            )}
           </>
         )}
       </div>
