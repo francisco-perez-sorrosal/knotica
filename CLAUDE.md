@@ -57,3 +57,56 @@ credentials), MIPRO fallbacks recorded on the artifact (`optimizer`/`fallback_re
 spine with cross-spine integration test. End-user Desktop install walkthrough: `docs/CLAUDE_DESKTOP.md`; 
 developer architecture guide: `docs/architecture.md`. See `docs/PRE_PLAN.md` § Phases & execution. 
 Remote (Railway) remains gated on local smoothness.
+
+## Agent Pipeline
+
+This project follows Praxion's tier-driven agent pipeline (Direct → Lightweight → Standard → Full, plus exploratory Spike) under the **Understand, Plan, Verify** methodology. Ephemeral pipeline artifacts live in `.ai-work/<task-slug>/` (deleted after use); permanent decisions and design docs live in `.ai-state/` (committed to git).
+
+When Praxion's assistant tooling is active, its agent coordination protocol rule and `software-planning` skill carry the full agent roster, delegation checklists, and pipeline-branch handling. Always include expected deliverables when delegating to an agent.
+
+Human-readable process overview: [Praxion documentation](https://github.com/francisco-perez-sorrosal/praxion#readme).
+
+## Behavioral Contract
+
+Four non-negotiable behaviors for any agent (including Claude itself) writing, planning, or reviewing code:
+
+- **Surface Assumptions** — state your interpretation up front and surface gap-filling assumptions as you make them; a plausible default never *feels* like ambiguity. Pause when one is load-bearing and hard to reverse.
+- **Register Objection** — when a request violates scope, structure, or evidence, state the conflict with a reason before complying or declining.
+- **Stay Surgical** — touch only what the change requires; if scope grew, stop and re-scope instead of expanding silently.
+- **Simplicity First** — prefer the smallest solution that meets the behavior; every line, file, or dependency must earn its place.
+
+Self-test: did I state my assumptions, flag conflicts with reasons, stay in scope, and pick the simplest path?
+
+## Compaction Guidance
+
+When this conversation compacts, always preserve: the active pipeline stage and task slug, the current WIP step number and status, acceptance criteria from the systems plan, and the list of files modified in the current step. The Praxion `PreCompact` hook snapshots in-flight pipeline documents to `.ai-work/PIPELINE_STATE.md` (one consolidated snapshot at the `.ai-work/` root, with a per-task-slug section for each active pipeline) — re-read that file after compaction to restore orientation.
+
+## Praxion Process
+
+Apply Praxion's tier-driven pipeline for non-trivial work. Use the tier selector from `rules/swe/swe-agent-coordination-protocol.md`: Direct (single-file fix/typo) or Lightweight (2–3 files) may skip the full pipeline; Standard or Full tier work requires researcher → systems-architect → implementation-planner → implementer + test-engineer → verifier.
+
+**Rule-inheritance corollary.** When delegating to any subagent — Praxion-native or host-native (Explore, Plan, general-purpose) — carry the behavioral contract into every delegation prompt. Host-native subagents do not load CLAUDE.md; the orchestrator is the only delivery path.
+
+**Orchestrator obligation.** Every delegation prompt must name the task slug, expected deliverables, and the behavioral contract (Surface Assumptions · Register Objection · Stay Surgical · Simplicity First).
+
+## Working in this project
+
+This `CLAUDE.md` is the **index**; `docs/` and the skills it points to are the **library** — read the index, follow the links the task needs. When I correct you, propose a durable rule for review (a `CLAUDE.md` or rule edit, or a skill note) so the correction outlasts this session.
+
+### Verification
+
+After every change, run these in order — fix at each step before moving on:
+
+1. `uv run mypy src/knotica`
+2. `uv run pytest`
+3. `uv run ruff check . && uv run ruff format --check .`
+
+### Frequent operations
+
+You'll most often be asked to:
+
+- Add or change an MCP tool on one of the seven action-parameterized dispatchers (`loop`, `branches`, `compile`, `datasets`, `arena`, `golden`, `vault_health`)
+- Work on the autonomous loop layer — gating, arena races, baseline policy, branch namespaces
+- Extend the gap-fill pipeline (diagnosis → discovery → suggestion queue → candidate-gated ingest)
+- Adjust vault-facing behavior via `VaultStore` — never hardcode vault paths
+- Update the eval harness, DSPy compile artifacts, or golden datasets

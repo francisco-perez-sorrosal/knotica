@@ -12,3 +12,6 @@
 # record's meaning depends on its neighbours. Do not extend this to a file
 # where order or uniqueness carries meaning.
 .ai-state/observations.jsonl merge=union
+
+# Praxion semantic merge drivers — see rules/swe/agent-intermediate-documents.md
+.ai-state/observations.jsonl merge=observations-jsonl

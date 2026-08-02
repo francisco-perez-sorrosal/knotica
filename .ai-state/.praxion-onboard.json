@@ -1,0 +1,17 @@
+{
+  "plugin": "i-am@bit-agora",
+  "onboarded_with_version": "0.21.1",
+  "onboarded_at": "2026-08-02T20:02:13Z",
+  "scope": "user",
+  "artifacts": {
+    "hooks": ["pre-commit"],
+    "merge_drivers": ["observations-jsonl"],
+    "gitattributes": [".ai-state/observations.jsonl merge=observations-jsonl"],
+    "ci_autofix": {
+      "caller": ".github/workflows/ci-autofix.yml",
+      "policy": ".github/autofix-policy.yml",
+      "hub_sha": "bec2259f583d86a69c95c051bdf038d9c1d2ee6f"
+    },
+    "praxion_feedback": ".ai-state/praxion_feedback/PENDING.md"
+  }
+}

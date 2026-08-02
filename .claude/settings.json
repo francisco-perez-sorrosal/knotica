@@ -12,5 +12,8 @@
         ]
       }
     ]
+  },
+  "env": {
+    "PRAXION_DISABLE_OBSERVABILITY": "0"
   }
 }

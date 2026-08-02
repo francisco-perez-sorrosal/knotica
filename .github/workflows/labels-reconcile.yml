@@ -1,0 +1,18 @@
+name: Labels Reconcile
+
+on:
+  push:
+    branches: [main]
+    paths: [".github/labels.yml"]
+  workflow_dispatch:
+
+permissions: {}  # least-privilege; the job below grants only the ceiling the hub needs
+
+jobs:
+  reconcile:
+    permissions:
+      issues: write
+      contents: read
+    uses: francisco-perez-sorrosal/praxion/.github/workflows/reusable-labels-reconcile.yml@bec2259f583d86a69c95c051bdf038d9c1d2ee6f
+    with:
+      manifest_path: .github/labels.yml

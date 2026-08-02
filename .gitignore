@@ -38,3 +38,15 @@ skills-lock.json
 
 # Claude Code worktrees live here -- full repo copies, never committed.
 .claude/worktrees/
+
+# AI assistants
+.ai-work/
+.ai-state/*.lock
+.ai-state/**/*.lock
+.ai-state/*.backup.json
+.ai-state/observations.jsonl.1
+.claude/settings.local.json
+.claude/worktrees/
+.env
+.env.*
+.env.local

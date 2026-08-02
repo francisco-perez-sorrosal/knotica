@@ -1,0 +1,21 @@
+name: CI Autofix
+
+on:
+  workflow_run:
+    workflows: ["Dashboard", "CI"]   # static literal — GHA requirement
+    types: [completed]
+
+permissions: {}  # least-privilege; the job below grants only what the hub needs
+
+jobs:
+  autofix:
+    permissions:
+      contents: write       # create the ci-autofix/ branch
+      pull-requests: write  # open the fix PR
+      actions: read         # read the failed run's logs
+      id-token: write       # OIDC — lets claude-code-action auth as the Claude app
+    uses: francisco-perez-sorrosal/praxion/.github/workflows/reusable-ci-autofix.yml@bec2259f583d86a69c95c051bdf038d9c1d2ee6f
+    with:
+      policy_path: .github/autofix-policy.yml
+    secrets:
+      CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}

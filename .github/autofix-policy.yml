@@ -1,0 +1,27 @@
+watched_workflows: [Dashboard, CI]   # Documentary only — the caller's own
+                                     # on.workflow_run.workflows is the GHA-required
+                                     # static literal and is authoritative. Keep this
+                                     # list in sync with that literal by hand.
+
+surfaces:
+  main_branch: fix-pr       # fix-pr | off
+  pr_checks:   fix-commit
+  dependabot:  fix-commit
+  fork_prs:    suggest
+
+review:
+  cross_model_gate: agent-prs  # all-prs | agent-prs | off
+  reviewer_family: gpt         # gpt | gemini | composer — NEVER 'claude'
+  on_unavailable: fail-open
+  intake_gate: agent-issues
+  project_prism: CLAUDE.md
+
+safety:
+  max_attempts_per_pr: 2
+  max_runs_per_day: 5
+  sensitive_paths: [.github/, scripts/, hooks/]
+  auto_commit_tiers: [lint, format, doc-refs, lockfile]
+
+provider:
+  fixer: claude
+  fixer_model: opus
