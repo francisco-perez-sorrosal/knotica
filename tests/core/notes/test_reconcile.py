@@ -625,3 +625,87 @@ def test_passing_a_precomputed_listing_yields_identical_transitions(template_vau
 
     assert handed_in == self_sufficient
     assert handed_in, "the fixture must produce at least one transition to compare"
+
+
+def test_a_wholesale_replacement_is_reported_as_superseded(template_vault: Path):
+    """The dominant orphan source gets its own label, not "your passage moved".
+
+    Phase 3 measured one such event supplying 85% of all observed orphaning,
+    indistinguishable at the review surface from an ordinary reword.
+    """
+    from knotica.core.notes.reconcile import reconcile_notes
+
+    quote = "the model has no persistent notion of the goal it is optimizing for"
+    page_relpath = f"{TOPIC}/agent-memory.md"
+    original_page = (
+        f"# Agent memory\n\n## Persistence\n\n{quote}\n\n## Consequences\n\nContext is lost."
+    )
+    page_sha = _write_and_commit_page(
+        template_vault, page_relpath, original_page, "test: seed agent-memory page"
+    )
+    _write_note(
+        template_vault,
+        "20260101-090000-headline-note",
+        _note(
+            "20260101-090000-headline-note",
+            anchors=(_anchor(page=page_relpath, pinned_at=page_sha, quote=quote),),
+        ),
+    )
+    _commit_all(template_vault, "test: capture headline-note")
+    _write_and_commit_page(
+        template_vault,
+        page_relpath,
+        "# Retrieval benchmarks\n\n## Corpus\n\nDocuments are sampled from a snapshot.\n",
+        "vault: replace the page wholesale",
+    )
+
+    transitions = reconcile_notes(
+        LocalFSStore(template_vault),
+        VaultVcs(template_vault),
+        TOPIC,
+        guess_threshold=0.52,
+        complete_orphan_threshold=0.35,
+    )
+
+    transition = next(t for t in transitions if t.note_id == "20260101-090000-headline-note")
+    assert transition.superseded, "a wholesale replacement must be labelled superseded"
+
+
+def test_an_ordinary_reword_is_not_reported_as_superseded(template_vault: Path):
+    from knotica.core.notes.reconcile import reconcile_notes
+
+    quote = "the model has no persistent notion of the goal it is optimizing for"
+    paraphrase = "the model retains no persistent notion of the goal it is optimizing for"
+    page_relpath = f"{TOPIC}/agent-memory.md"
+    original_page = (
+        f"# Agent memory\n\n## Persistence\n\n{quote}\n\n## Consequences\n\nContext is lost."
+    )
+    page_sha = _write_and_commit_page(
+        template_vault, page_relpath, original_page, "test: seed agent-memory page"
+    )
+    _write_note(
+        template_vault,
+        "20260101-090000-headline-note",
+        _note(
+            "20260101-090000-headline-note",
+            anchors=(_anchor(page=page_relpath, pinned_at=page_sha, quote=quote),),
+        ),
+    )
+    _commit_all(template_vault, "test: capture headline-note")
+    _write_and_commit_page(
+        template_vault,
+        page_relpath,
+        original_page.replace(quote, paraphrase),
+        "vault: reword the passage",
+    )
+
+    transitions = reconcile_notes(
+        LocalFSStore(template_vault),
+        VaultVcs(template_vault),
+        TOPIC,
+        guess_threshold=0.52,
+        complete_orphan_threshold=0.35,
+    )
+
+    transition = next(t for t in transitions if t.note_id == "20260101-090000-headline-note")
+    assert not transition.superseded, "a reword must not be labelled superseded"

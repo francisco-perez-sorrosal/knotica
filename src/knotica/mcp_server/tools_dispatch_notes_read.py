@@ -321,6 +321,12 @@ def _drift_item(
     complete_orphan_threshold: float,
 ) -> dict[str, Any]:
     note, anchor_index, anchor, projection = member
+    # A superseded page was replaced outright, so the ladder's best guess points
+    # into content that has nothing to do with the anchored passage. Offering it
+    # invites the reader to re-anchor onto an unrelated span; saying "this page
+    # was replaced" is both true and actionable, where "it might be here" is
+    # neither. Phase 3 measured one such event supplying 85% of all orphaning.
+    superseded = transition.superseded if transition else False
     # `None` -- not `0.0` -- when the ladder had to supply a sentinel instead of a
     # measurement. Rung 8's no-candidate clamp is `guess_threshold - CLAMP_EPSILON`,
     # a *ceiling*, so rendering it as a survival percentage shows the case with the
@@ -334,9 +340,10 @@ def _drift_item(
             "pinned_quote": anchor.quote,
             "live_quote": _drift_live_quote(store, anchor, projection),
             "overlap": overlap,
-            "alternatives": _drift_alternatives(
-                anchor, projection, overlap, complete_orphan_threshold
-            ),
+            "cause": "superseded" if superseded else "rewritten",
+            "alternatives": []
+            if superseded
+            else _drift_alternatives(anchor, projection, overlap, complete_orphan_threshold),
             "rewritten_at": transition.rewritten_at
             if transition and transition.rewritten_at
             else "",

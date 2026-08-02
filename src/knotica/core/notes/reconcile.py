@@ -50,6 +50,7 @@ from datetime import UTC, datetime
 from knotica.core.notes.anchor import AnchorRecord
 from knotica.core.notes.resolve import resolve_anchor
 from knotica.core.notes.store import NotesListing, list_notes
+from knotica.core.notes.supersession import is_superseded
 from knotica.core.vcs import VaultVcs
 from knotica.store import VaultStore
 
@@ -80,6 +81,11 @@ class Transition:
     after: str
     rewritten_at: str | None
     rewritten_by: str | None
+    #: Whether the anchored page was replaced wholesale rather than edited.
+    #: Carried here because this is the one place both the anchor's pinned blob
+    #: and the live page are already in hand -- deriving it costs no extra git
+    #: subprocess, which matters on a path whose cost is spawn-bound.
+    superseded: bool = False
 
 
 def reconcile_notes(
@@ -120,6 +126,7 @@ def reconcile_notes(
             if projection.status not in _QUEUE_MEMBER_STATUSES:
                 continue
             transition = _transition_for_anchor(
+                store,
                 vcs,
                 resolved.document.id,
                 index,
@@ -134,6 +141,7 @@ def reconcile_notes(
 
 
 def _transition_for_anchor(
+    store: VaultStore,
     vcs: VaultVcs,
     note_id: str,
     anchor_index: int,
@@ -153,6 +161,7 @@ def _transition_for_anchor(
             rewritten_by=None,
         )
     return _drift_transition(
+        store,
         vcs,
         note_id,
         anchor_index,
@@ -164,6 +173,7 @@ def _transition_for_anchor(
 
 
 def _drift_transition(
+    store: VaultStore,
     vcs: VaultVcs,
     note_id: str,
     anchor_index: int,
@@ -195,6 +205,7 @@ def _drift_transition(
         complete_orphan_threshold=complete_orphan_threshold,
     )
     subject = vcs.commit_subject(newest_commit)
+    head_text = store.read_text(anchor.page) if anchor.page and store.exists(anchor.page) else None
     return Transition(
         note_id=note_id,
         anchor_index=anchor_index,
@@ -202,6 +213,7 @@ def _drift_transition(
         after=after_status,
         rewritten_at=_iso_timestamp(vcs.commit_timestamp(newest_commit)),
         rewritten_by=subject if subject else newest_commit[:_ABBREVIATED_SHA_LENGTH],
+        superseded=is_superseded(historical_text, head_text),
     )
 
 
