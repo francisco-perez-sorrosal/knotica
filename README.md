@@ -92,12 +92,17 @@ Never hand-list `anthropic`/`dspy` with `--with`: that drops the bounds the extr
 
 | Target | What it does |
 |---|---|
-| `make start` | `install` + `restart-daemon` — the one command after pulling changes |
+| `make start` | `install` + `daemon-restart` — the one command after pulling changes |
 | `make install` | Sync the venv and (re)install the CLI with the `evals` extra |
 | `make desktop` | Point Claude Desktop at this checkout (idempotent) |
 | `make verify` | The canonical gate: mypy → pytest → ruff check → ruff format |
 | `make doctor` | Vault/config health for the active knowledge base |
-| `make restart-daemon` | Restart the loop service onto freshly installed code |
+| `make daemon-install` | Register the loop service with the OS (opt-in — it runs billed evals) |
+| `make daemon-restart` | Restart the loop service onto freshly installed code |
+| `make daemon-status` | Install state + per-topic runner liveness |
+| `make daemon-logs` | Tail the loop service logs |
+
+`make start` **restarts** the loop daemon but never **registers** it. Registration writes an OS unit that auto-starts at login and runs billed evals, so it stays a deliberate act — run `make daemon-install` once, when you want it. `daemon-restart` tells you when nothing is registered rather than skipping silently.
 
 ## First run (either channel)
 
