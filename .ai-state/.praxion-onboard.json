@@ -1,12 +1,21 @@
 {
   "plugin": "i-am@bit-agora",
   "onboarded_with_version": "0.21.1",
-  "onboarded_at": "2026-08-02T20:02:13Z",
+  "onboarded_at": "2026-08-02T20:11:44Z",
   "scope": "user",
   "artifacts": {
-    "hooks": ["pre-commit"],
-    "merge_drivers": ["observations-jsonl"],
-    "gitattributes": [".ai-state/observations.jsonl merge=observations-jsonl"],
+    "hooks": [
+      "pre-commit",
+      "post-merge",
+      "post-commit",
+      "post-checkout"
+    ],
+    "merge_drivers": [
+      "observations-jsonl"
+    ],
+    "gitattributes": [
+      ".ai-state/observations.jsonl merge=observations-jsonl"
+    ],
     "ci_autofix": {
       "caller": ".github/workflows/ci-autofix.yml",
       "policy": ".github/autofix-policy.yml",
