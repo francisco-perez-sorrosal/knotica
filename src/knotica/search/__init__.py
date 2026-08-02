@@ -26,7 +26,7 @@ from collections.abc import Sequence
 from dataclasses import dataclass
 from typing import Any, Protocol, runtime_checkable
 
-from knotica.core.vault_layout import Family
+from knotica.core.vault_layout import SCORED_FAMILIES, Family
 from knotica.search.cursor import (
     SORT_SCORE_DESC_PATH_ASC,
     Cursor,
@@ -177,19 +177,35 @@ class SearchBackend(Protocol):
         topic: str = "",
         cursor: str = "",
         limit: int = DEFAULT_PAGE_SIZE,
+        families: frozenset[Family] = SCORED_FAMILIES,
     ) -> SearchPage:
         """Search the vault and return one page of pointer results.
 
         Args:
             query: Search terms (whitespace-separated; OR semantics).
-            topic: Scope to one topic (its pages + its sources); ``""``
-                searches all topics.
+            topic: Scope to one topic (its pages + its sources, plus its notes
+                when the ``note`` family is selected); ``""`` searches all
+                topics.
             cursor: Opaque token from a prior page's ``next_cursor``; ``""``
                 for the first page.
             limit: Results per page; clamped to 1..50.
+            families: Folder families to search, as an **opt-in allowlist**.
+                Defaults to :data:`SCORED_FAMILIES`, which excludes the
+                ``note`` family.
 
         Raises:
             InvalidCursorError: If ``cursor`` is malformed or stale.
+
+        **Why an allowlist and not an ``include_notes`` flag.** The headless
+        query path (:func:`knotica.search.retrieval.retrieve_search_results`)
+        and the eval runner call this method without naming families at all.
+        With an allowlist default, a caller that says nothing gets the scored
+        corpus and personal notes cannot reach a quality measurement -- the
+        exclusion holds *by omission*, so forgetting the argument is safe. An
+        exclusion flag inverts that: the safe behaviour would depend on every
+        call site remembering to pass it, and one that forgot would silently
+        admit notes into a scored surface. Adding a family to this default is
+        therefore a scoring decision, not a search convenience.
         """
         ...
 

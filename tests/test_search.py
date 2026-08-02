@@ -665,6 +665,105 @@ def test_bm25_score_is_identical_with_and_without_a_sibling_notes_tree(
     assert scores_after == scores_before
 
 
+# ---------------------------------------------------------------------------
+# families=: opt-in inclusion, never opt-out exclusion
+# ---------------------------------------------------------------------------
+
+
+def test_omitting_families_excludes_notes_so_a_forgetful_caller_is_safe(
+    make_backend: Callable[[Path], RipgrepBackend], classification_vault: Path
+):
+    """The headless query path and the eval runner call ``search`` without
+    naming families at all. The exclusion must therefore hold by OMISSION:
+    the safe corpus is what a caller gets for saying nothing, so forgetting
+    the argument can never admit a note into a scored surface.
+    """
+    page = make_backend(classification_vault).search(SEARCH_TOKEN, topic="", limit=50)
+
+    assert NOTES_LAYOUT_PATH not in {result.path for result in page.results}
+
+
+def test_selecting_the_note_family_returns_notes_alongside_pages(
+    make_backend: Callable[[Path], RipgrepBackend], classification_vault: Path
+):
+    """The selector is additive: asking for notes must surface them WITHOUT
+    dropping the scored families, or the parameter would be a mode switch
+    rather than an allowlist.
+    """
+    page = make_backend(classification_vault).search(
+        SEARCH_TOKEN, topic="", limit=50, families=frozenset({"page", "source", "note"})
+    )
+
+    returned_paths = {result.path for result in page.results}
+    assert NOTES_LAYOUT_PATH in returned_paths
+    assert {rel_path for rel_path, _, _ in CLASSIFICATION_LAYOUTS} <= returned_paths
+
+
+def test_a_note_only_selection_returns_notes_and_nothing_else(
+    make_backend: Callable[[Path], RipgrepBackend], classification_vault: Path
+):
+    """An allowlist naming only ``note`` must exclude the scored families --
+    proving the filter reads the passed set rather than merely unioning the
+    note family onto a hardcoded default.
+    """
+    page = make_backend(classification_vault).search(
+        SEARCH_TOKEN, topic="", limit=50, families=frozenset({"note"})
+    )
+
+    returned_paths = {result.path for result in page.results}
+    assert returned_paths == {NOTES_LAYOUT_PATH}
+
+
+def test_a_topic_scoped_note_search_reaches_the_notes_tree(
+    make_backend: Callable[[Path], RipgrepBackend], tmp_path: Path
+):
+    """Topic scoping scans ``<topic>/`` and ``sources/<topic>/``; notes live
+    at ``notes/<topic>/``, which neither covers. Selecting the note family
+    must extend the scanned directories too -- a family filter cannot admit
+    a file the walk never reached, so this fails on filter-only threading.
+    """
+    vault = tmp_path / "vault"
+    _plant(vault, "topicx/page.md", 2)
+    _plant(vault, "notes/topicx/private.md", 2)
+
+    page = make_backend(vault).search(
+        SEARCH_TOKEN, topic="topicx", limit=50, families=frozenset({"note"})
+    )
+
+    assert {result.path for result in page.results} == {"notes/topicx/private.md"}
+
+
+def test_corpus_statistics_follow_the_selected_families(
+    make_backend: Callable[[Path], RipgrepBackend], tmp_path: Path
+):
+    """Corpus statistics must be counted over the same family set being
+    matched. Widening the selection therefore MUST move the surviving pages'
+    scores: BM25 normalises by document length against the corpus average,
+    so a larger corpus is a different population to rank against. Identical
+    scores across the two calls would mean ``_corpus_stats`` ignored
+    ``families`` while ``_collect_matches`` honoured it -- the two
+    disagreeing on what the corpus is, which is the bug the sibling
+    notes-tree test exists to pin.
+    """
+    vault = tmp_path / "vault"
+    _plant(vault, "topicx/three.md", 3)
+    _plant(vault, "topicx/one.md", 1)
+    _plant_text(vault, "notes/topicx/note.md", f"{SEARCH_TOKEN} private reflection\n")
+    backend = make_backend(vault)
+
+    default_scores = {r.path: r.score for r in backend.search(SEARCH_TOKEN, limit=50).results}
+    widened = backend.search(SEARCH_TOKEN, limit=50, families=frozenset({"page", "source", "note"}))
+    widened_page_scores = {
+        r.path: r.score for r in widened.results if not r.path.startswith("notes/")
+    }
+
+    assert set(default_scores) == set(widened_page_scores)
+    assert widened_page_scores != default_scores, (
+        "widening the corpus must change the BM25 length normaliser for the pages too; "
+        "identical scores would mean corpus statistics ignored the selected families"
+    )
+
+
 def test_unknown_topic_yields_an_empty_envelope_not_an_error(planted_vault: Path):
     page = RipgrepBackend(planted_vault).search(SEARCH_TOKEN, topic="ghost-topic")
 

@@ -42,7 +42,14 @@ import subprocess
 from collections.abc import Iterable, Iterator
 from pathlib import Path, PurePath
 
-from knotica.core.vault_layout import SCORED_FAMILIES, SOURCES_DIR, family_of, topic_of
+from knotica.core.vault_layout import (
+    NOTES_DIR,
+    SCORED_FAMILIES,
+    SOURCES_DIR,
+    Family,
+    family_of,
+    topic_of,
+)
 from knotica.search import (
     DEFAULT_PAGE_SIZE,
     ResultKind,
@@ -123,38 +130,53 @@ class RipgrepBackend:
         topic: str = "",
         cursor: str = "",
         limit: int = DEFAULT_PAGE_SIZE,
+        families: frozenset[Family] = SCORED_FAMILIES,
     ) -> SearchPage:
         """Search the vault and return one page of pointer results.
 
-        See :class:`~knotica.search.SearchBackend` for the full contract.
-        The cursor is resolved (and validated) before any scanning happens,
-        so a bad token fails fast without paying the scan cost.
+        See :class:`~knotica.search.SearchBackend` for the full contract,
+        including why ``families`` is an opt-in allowlist. The cursor is
+        resolved (and validated) before any scanning happens, so a bad token
+        fails fast without paying the scan cost.
+
+        ``families`` reaches candidate selection, the corpus statistics *and*
+        the match filter together. That is deliberate: BM25 normalises by
+        document length against the corpus average, so a corpus counted over
+        a different family set than the one being matched would rank the
+        matched documents against a population they are not drawn from.
         """
         offset = resolve_offset(cursor, query)
         page_size = clamp_limit(limit)
         terms = query.split()
-        scan_dirs = self._scope_dirs(topic)
+        scan_dirs = self._scope_dirs(topic, families)
         if not terms or not scan_dirs:
             return paginate((), query, offset, page_size)
         if self._rg_path is not None:
             candidates = self._candidates_ripgrep(terms, scan_dirs)
         else:
-            candidates = list(_walk_markdown_files(self._root, scan_dirs))
-        doc_count, average_bytes = _corpus_stats(self._root, scan_dirs)
-        matches = _collect_matches(candidates, terms, self._root)
+            candidates = list(_walk_markdown_files(self._root, scan_dirs, families))
+        doc_count, average_bytes = _corpus_stats(self._root, scan_dirs, families)
+        matches = _collect_matches(candidates, terms, self._root, families)
         results = _score_bm25(matches, terms, doc_count, average_bytes)
         ranked = sorted(results, key=lambda result: (-result.score, result.path))
         return paginate(ranked, query, offset, page_size)
 
-    def _scope_dirs(self, topic: str) -> list[Path]:
+    def _scope_dirs(self, topic: str, families: frozenset[Family]) -> list[Path]:
         """Return the directories one search scans, given a topic scope.
 
-        Empty topic scans the whole vault root (which covers ``sources/``
-        too). A named topic scans the topic directory *and* its stored
-        sources (``sources/<topic>/``) -- topic scope filters by the result's
-        ``topic`` attribute, and sources carry the topic. A topic with no
-        existing directory scans nothing (zero results; the adapter owns the
-        ``TOPIC_NOT_FOUND`` decision, since it knows the valid topic list).
+        Empty topic scans the whole vault root (which covers ``sources/`` and
+        ``notes/`` alike -- the family filter, not the walk, decides what is
+        admitted there). A named topic scans the topic directory *and* its
+        stored sources (``sources/<topic>/``) -- topic scope filters by the
+        result's ``topic`` attribute, and sources carry the topic. A topic
+        with no existing directory scans nothing (zero results; the adapter
+        owns the ``TOPIC_NOT_FOUND`` decision, since it knows the valid topic
+        list).
+
+        ``notes/<topic>/`` is added only when the ``note`` family is selected.
+        Without that branch a topic-scoped search for notes would scan no
+        directory containing any and return nothing -- the family filter alone
+        cannot admit a file the walk never reached.
         """
         if not topic:
             return [self._root]
@@ -162,6 +184,8 @@ class RipgrepBackend:
         if candidate.is_absolute() or len(candidate.parts) != 1 or topic.startswith("."):
             raise ValueError(f"Topic must be a bare, non-hidden directory name, got: {topic!r}")
         scoped = [self._root / topic, self._root / SOURCES_DIR / topic]
+        if "note" in families:
+            scoped.append(self._root / NOTES_DIR / topic)
         return [directory for directory in scoped if directory.is_dir()]
 
     def _candidates_ripgrep(self, terms: list[str], scan_dirs: list[Path]) -> list[Path]:
@@ -194,16 +218,19 @@ class RipgrepBackend:
         return [Path(line) for line in completed.stdout.splitlines() if line]
 
 
-def _walk_markdown_files(root: Path, scan_dirs: Iterable[Path]) -> Iterator[Path]:
-    """Yield every scored, non-hidden ``*.md`` file under the scan dirs.
+def _walk_markdown_files(
+    root: Path, scan_dirs: Iterable[Path], families: frozenset[Family]
+) -> Iterator[Path]:
+    """Yield every in-family, non-hidden ``*.md`` file under the scan dirs.
 
-    Filters to :data:`SCORED_FAMILIES` here -- the same predicate
-    ``_collect_matches`` applies to ripgrep-selected candidates -- so every
-    consumer of this walk (corpus statistics, and the pure-Python engine's
-    own candidate selection) agrees with the two engines' scored results on
-    what the corpus is. A personal note is real, indexable markdown, but it
-    must never move a ranking or a corpus statistic: the two disagreeing was
-    the whole bug.
+    Filters to ``families`` here -- the same predicate ``_collect_matches``
+    applies to ripgrep-selected candidates -- so every consumer of this walk
+    (corpus statistics, and the pure-Python engine's own candidate selection)
+    agrees with the two engines' scored results on what the corpus is. A
+    personal note is real, indexable markdown, but it must never move a
+    ranking or a corpus statistic *for a search that did not ask for it*: the
+    two disagreeing was the whole bug, and passing different family sets to
+    this walk and to the match filter would re-create it exactly.
     """
     for scan_dir in scan_dirs:
         for dirpath, dirnames, filenames in os.walk(scan_dir):
@@ -213,44 +240,53 @@ def _walk_markdown_files(root: Path, scan_dirs: Iterable[Path]) -> Iterator[Path
                     continue
                 file_path = Path(dirpath) / filename
                 rel_path = file_path.relative_to(root).as_posix()
-                if family_of(rel_path) in SCORED_FAMILIES:
+                if family_of(rel_path) in families:
                     yield file_path
 
 
-def _corpus_stats(root: Path, scan_dirs: Iterable[Path]) -> tuple[int, float]:
-    """Document count and average byte length over every scored markdown file in scope.
+def _corpus_stats(
+    root: Path, scan_dirs: Iterable[Path], families: frozenset[Family]
+) -> tuple[int, float]:
+    """Document count and average byte length over every in-family file in scope.
 
     Stat-only (no file reads): byte size is the BM25 document-length proxy, so
     the corpus average costs one ``stat`` per file rather than a full read.
+    Counted over the *same* ``families`` the matches are drawn from, so the
+    length normaliser describes the population being ranked.
     """
     doc_count = 0
     total_bytes = 0
-    for file_path in _walk_markdown_files(root, scan_dirs):
+    for file_path in _walk_markdown_files(root, scan_dirs, families):
         doc_count += 1
         total_bytes += file_path.stat().st_size
     average_bytes = (total_bytes / doc_count) if doc_count else 0.0
     return doc_count, max(average_bytes, 1.0)
 
 
-def _collect_matches(candidates: Iterable[Path], terms: list[str], root: Path) -> list[_DocMatch]:
+def _collect_matches(
+    candidates: Iterable[Path], terms: list[str], root: Path, families: frozenset[Family]
+) -> list[_DocMatch]:
     """Read each candidate once: per-term occurrence counts, snippet, byte length.
 
     A candidate where no term occurs (possible only through engine-specific
     case-folding edge cases) is dropped, keeping the two engines' result sets
     identical by construction.
 
-    Candidates outside a scored folder family are dropped before being read:
-    personal notes are real, indexable markdown, but retrieval must never
-    surface them, because a search result is what a KB quality measurement is
-    computed over. The check sits ahead of the file read so note contents are
-    never loaded at all. Both engines funnel through here, so the exclusion
-    cannot diverge between the ripgrep and pure-Python paths.
+    Candidates outside the selected folder families are dropped before being
+    read: personal notes are real, indexable markdown, but retrieval must
+    never surface them *unless a caller asked for them by name*, because a
+    search result is what a KB quality measurement is computed over. The
+    check sits ahead of the file read so the contents of an unselected family
+    are never loaded at all. Both engines funnel through here, so the
+    exclusion cannot diverge between the ripgrep and pure-Python paths --
+    ripgrep's candidate list is family-blind, and this is where that is
+    corrected.
     """
     lowered_terms = [term.lower() for term in terms]
     matches: list[_DocMatch] = []
     for file_path in candidates:
         rel_path = file_path.relative_to(root).as_posix()
-        if family_of(rel_path) not in SCORED_FAMILIES:
+        if family_of(rel_path) not in families:
             continue
         content = file_path.read_text(encoding="utf-8", errors="replace")
         lowered_content = content.lower()
