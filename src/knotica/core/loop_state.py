@@ -92,6 +92,13 @@ class LoopState(BaseModel):
     last_eval_started_at: datetime | None = None
     #: Set when an observation eval failed and the cursor was left unadvanced for retry.
     pending_retry: bool = False
+    #: Whether the failure behind ``pending_retry`` can succeed on a retry with no
+    #: operator action. Sourced from the raised error's own ``retryable`` contract
+    #: (``KnoticaError.retryable``), not guessed by the loop. ``False`` means a
+    #: precondition is missing -- a frozen golden set, a credential -- so retrying
+    #: at the transient cadence only burns clones and writes commits. Defaults to
+    #: ``True`` so a state written before this field existed keeps its old meaning.
+    last_failure_retryable: bool = True
 
     @field_validator("topic")
     @classmethod

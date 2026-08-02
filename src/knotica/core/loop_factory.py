@@ -16,6 +16,7 @@ from knotica.core.arena import ScoreFn, VariantSpec
 from knotica.core.gapfill_config import GapfillHookConfig
 from knotica.core.loop import EvaluateFn, LoopRunner, _local_now, harness_evaluate
 from knotica.core.loop import DEFAULT_BRANCH_PREFIX
+from knotica.core.loop_cadence_config import resolve_loop_cadence_config
 from knotica.store import VaultStore
 
 
@@ -35,7 +36,7 @@ def build_loop_runner(
     observe_quiet_seconds: float = 0.0,
     ingest_hold_stale_seconds: float = 600.0,
     clock: Callable[[], float] = time.monotonic,
-    eval_min_interval_hours: float = 0.0,
+    eval_min_interval_hours: float | None = None,
     eval_window: tuple[_time_of_day, _time_of_day] | None = None,
     now_fn: Callable[[], datetime] = _local_now,
     runner_cls: type[LoopRunner] = LoopRunner,
@@ -59,6 +60,15 @@ def build_loop_runner(
     that binding continues to intercept construction through the factory.
     """
     gapfill = gapfill_config if gapfill_config is not None else GapfillHookConfig()
+    # Resolve the [loop] cadence here rather than at each call site. Both real
+    # sites (the watcher and the service daemon) previously omitted it, so the
+    # documented `eval_min_interval_hours` silently ran at the 0.0 default and
+    # never throttled anything -- config that parses, validates, and is editable
+    # through an MCP tool, yet reaches no runner. Defaulting in the one shared
+    # factory makes forgetting it impossible; an explicit value still wins, which
+    # is what tests and `--eval-*` style overrides pass.
+    if eval_min_interval_hours is None:
+        eval_min_interval_hours = resolve_loop_cadence_config().eval_min_interval_hours
     return runner_cls(
         vault,
         topic,

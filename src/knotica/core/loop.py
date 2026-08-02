@@ -26,6 +26,7 @@ from knotica.core import branch_namespaces
 from knotica.core.arena import ArenaState, ScoreFn, VariantSpec
 from knotica.core.arena_resolve import run_arena_and_resolve
 from knotica.core.best_effort import best_effort
+from knotica.core.loop_retry_backoff import is_retryable_failure, retry_floor_seconds
 from knotica.core.loop_state import (
     LoopDecision,
     LoopStage,
@@ -68,14 +69,6 @@ RESULT_BRANCH_PREFIX: str = branch_namespaces.RESULT_BRANCH_PREFIX
 #: attribute into any vault before its first merge.
 _GITATTRIBUTES_PATH = ".gitattributes"
 _LOG_UNION_RULE = "log.md merge=union"
-
-#: Always-on floor between retries of a *failing* observation eval, independent
-#: of ``eval_min_interval_hours``/``eval_window`` (which gate the eager,
-#: config-off-by-default path). Without this, a persistently-failing eval at
-#: the default config retries every loop tick (5-30s) indefinitely — a real
-#: spend/log-noise risk. Applies only to retries of already-``pending_retry``
-#: state; a brand-new content change is never held by this floor.
-_FAILURE_RETRY_FLOOR_SECONDS = 60
 
 
 def _local_now() -> datetime:
@@ -320,6 +313,7 @@ class LoopRunner:
                         "candidate_branch": default,
                         "candidate_sha": head,
                         "pending_retry": True,
+                        "last_failure_retryable": is_retryable_failure(exc),
                     }
                 ),
                 title=f"observation eval error on {default}",
@@ -499,6 +493,9 @@ class LoopRunner:
         sha equality) is the right comparison: the loop's own bookkeeping
         commits (loop-state / metrics / log) move ``head`` between ticks even
         when nothing a human wrote has changed.
+
+        The floor itself is chosen by `loop_retry_backoff.retry_floor_seconds`
+        from the kind of failure recorded on the state.
         """
         if not state.pending_retry or state.last_eval_started_at is None:
             return None
@@ -507,10 +504,12 @@ class LoopRunner:
         if self._content_changed_since(state.candidate_sha, head):
             return None
         elapsed_seconds = (now - state.last_eval_started_at).total_seconds()
-        if elapsed_seconds < _FAILURE_RETRY_FLOOR_SECONDS:
+        floor = retry_floor_seconds(retryable=state.last_failure_retryable)
+        if elapsed_seconds < floor:
+            kind = "failure" if state.last_failure_retryable else "blocked"
             return (
-                f"failure retry held: {elapsed_seconds:.0f}s since last eval attempt "
-                f"< {_FAILURE_RETRY_FLOOR_SECONDS}s floor"
+                f"{kind} retry held: {elapsed_seconds:.0f}s since last eval attempt "
+                f"< {floor}s floor"
             )
         return None
 
