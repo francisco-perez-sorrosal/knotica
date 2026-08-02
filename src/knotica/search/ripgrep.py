@@ -55,6 +55,7 @@ from knotica.search import (
     ResultKind,
     SearchPage,
     SearchResult,
+    canonical_families,
     clamp_limit,
     paginate,
     resolve_offset,
@@ -145,12 +146,13 @@ class RipgrepBackend:
         a different family set than the one being matched would rank the
         matched documents against a population they are not drawn from.
         """
-        offset = resolve_offset(cursor, query)
+        cursor_families = canonical_families(families)
+        offset = resolve_offset(cursor, query, cursor_families)
         page_size = clamp_limit(limit)
         terms = query.split()
         scan_dirs = self._scope_dirs(topic, families)
         if not terms or not scan_dirs:
-            return paginate((), query, offset, page_size)
+            return paginate((), query, offset, page_size, cursor_families)
         if self._rg_path is not None:
             candidates = self._candidates_ripgrep(terms, scan_dirs)
         else:
@@ -159,7 +161,7 @@ class RipgrepBackend:
         matches = _collect_matches(candidates, terms, self._root, families)
         results = _score_bm25(matches, terms, doc_count, average_bytes)
         ranked = sorted(results, key=lambda result: (-result.score, result.path))
-        return paginate(ranked, query, offset, page_size)
+        return paginate(ranked, query, offset, page_size, cursor_families)
 
     def _scope_dirs(self, topic: str, families: frozenset[Family]) -> list[Path]:
         """Return the directories one search scans, given a topic scope.

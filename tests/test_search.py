@@ -28,7 +28,11 @@ Derived from the search tool contract, not from the implementation:
   must stay identical for every layout a real vault contains today;
 - the ``note`` family is excluded from the unscoped retrieval path entirely --
   an unscoped search must never return a ``notes/`` file while still
-  returning every page and stored source from the same vault.
+  returning every page and stored source from the same vault;
+- ``families`` is an opt-in allowlist, never an exclusion flag: omitting it
+  yields the scored corpus, naming ``note`` adds notes without dropping the
+  scored families, and the selection is bound into the cursor so a walk
+  cannot silently change corpus mid-pagination.
 
 The shipped vault template is the golden fixture for classification: the
 query "memory" hits eight files spanning a stored source, topic pages, and
@@ -43,6 +47,7 @@ from collections.abc import Callable
 from pathlib import Path, PurePosixPath
 
 import pytest
+from knotica.core.vault_layout import SCORED_FAMILIES
 from knotica.search import (
     DEFAULT_PAGE_SIZE,
     SORT_SCORE_DESC_PATH_ASC,
@@ -52,6 +57,7 @@ from knotica.search import (
     SearchBackend,
     SearchPage,
     SearchResult,
+    canonical_families,
     clamp_limit,
     decode_cursor,
     encode_cursor,
@@ -764,6 +770,78 @@ def test_corpus_statistics_follow_the_selected_families(
     )
 
 
+def test_a_cursor_cannot_continue_a_walk_under_a_different_family_selection(
+    make_backend: Callable[[Path], RipgrepBackend], tmp_path: Path
+):
+    """The tool exposes ``cursor`` and ``families`` as independent arguments,
+    so a caller can page with one selection and then change it. Changing the
+    selection changes the RESULT SET, not merely its order, so continuing at
+    an offset minted under the old selection would silently page into a
+    different corpus. The cursor must reject it, exactly as it rejects a
+    cursor minted for a different query.
+    """
+    vault = tmp_path / "vault"
+    for index in range(12):
+        _plant(vault, f"topicx/page{index:02d}.md", 2)
+    _plant(vault, "notes/topicx/note.md", 2)
+    backend = make_backend(vault)
+
+    first = backend.search(SEARCH_TOKEN, limit=5)
+    assert first.next_cursor
+
+    with pytest.raises(InvalidCursorError):
+        backend.search(
+            SEARCH_TOKEN,
+            cursor=first.next_cursor,
+            limit=5,
+            families=frozenset({"page", "source", "note"}),
+        )
+
+
+def test_a_cursor_continues_a_walk_under_the_same_family_selection(
+    make_backend: Callable[[Path], RipgrepBackend], tmp_path: Path
+):
+    """The binding must not be so strict that it breaks ordinary paging: an
+    unchanged selection continues the walk. Without this the test above would
+    pass just as well if every cursor were rejected.
+    """
+    vault = tmp_path / "vault"
+    for index in range(12):
+        _plant(vault, f"topicx/page{index:02d}.md", 2)
+    _plant(vault, "notes/topicx/note.md", 2)
+    backend = make_backend(vault)
+    widened = frozenset({"page", "source", "note"})
+
+    first = backend.search(SEARCH_TOKEN, limit=5, families=widened)
+    second = backend.search(SEARCH_TOKEN, cursor=first.next_cursor, limit=5, families=widened)
+
+    first_paths = [result.path for result in first.results]
+    second_paths = [result.path for result in second.results]
+    assert len(first_paths) == 5
+    assert not set(first_paths) & set(second_paths)
+
+
+def test_the_family_selection_is_canonicalised_so_argument_order_cannot_split_a_walk(
+    make_backend: Callable[[Path], RipgrepBackend], tmp_path: Path
+):
+    """The cursor field is compared for equality after a JSON round-trip. An
+    unsorted rendering would mint a different token per set iteration order,
+    invalidating a caller's own walk non-deterministically.
+    """
+    vault = tmp_path / "vault"
+    for index in range(12):
+        _plant(vault, f"topicx/page{index:02d}.md", 2)
+    backend = make_backend(vault)
+
+    first = backend.search(SEARCH_TOKEN, limit=5, families=frozenset({"source", "page"}))
+    continued = backend.search(
+        SEARCH_TOKEN, cursor=first.next_cursor, limit=5, families=frozenset({"page", "source"})
+    )
+
+    assert len(continued.results) == 5
+    assert canonical_families(frozenset({"source", "page"})) == "page,source"
+
+
 def test_unknown_topic_yields_an_empty_envelope_not_an_error(planted_vault: Path):
     page = RipgrepBackend(planted_vault).search(SEARCH_TOKEN, topic="ghost-topic")
 
@@ -888,7 +966,17 @@ def test_invalid_cursor_is_a_value_error_so_adapters_can_map_it():
 def test_an_offset_past_the_end_is_an_empty_final_page_not_an_error(planted_vault: Path):
     # A result set that shrank underneath an outstanding cursor ends the walk
     # gracefully instead of erroring.
-    stale = encode_cursor(Cursor(query=SEARCH_TOKEN, sort=SORT_SCORE_DESC_PATH_ASC, offset=9999))
+    stale = encode_cursor(
+        Cursor(
+            query=SEARCH_TOKEN,
+            sort=SORT_SCORE_DESC_PATH_ASC,
+            offset=9999,
+            # A real token always carries the family selection it was minted
+            # under; hand-minting one without it would be rejected as stale
+            # before the offset is ever consulted, testing the wrong thing.
+            families=canonical_families(SCORED_FAMILIES),
+        )
+    )
 
     page = RipgrepBackend(planted_vault).search(SEARCH_TOKEN, cursor=stale)
 

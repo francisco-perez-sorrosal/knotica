@@ -14,6 +14,10 @@ Contract summary
   never errors.
 * ``topic=""`` searches all topics; a named topic scopes the search to that
   topic's pages **and** its stored sources (``sources/<topic>/``).
+* ``families`` is an opt-in allowlist defaulting to
+  :data:`~knotica.core.vault_layout.SCORED_FAMILIES`, so personal notes are
+  excluded unless a caller names them. It is bound into the cursor: a walk
+  cannot change its family selection mid-pagination.
 * Ordering is deterministic -- score descending, ties broken by path
   ascending -- because cursor validity depends on page N and page N+1 ranking
   the full result set identically.
@@ -31,6 +35,7 @@ from knotica.search.cursor import (
     SORT_SCORE_DESC_PATH_ASC,
     Cursor,
     InvalidCursorError,
+    canonical_families,
     decode_cursor,
     encode_cursor,
     resolve_offset,
@@ -47,6 +52,7 @@ __all__ = [
     "SearchBackend",
     "SearchPage",
     "SearchResult",
+    "canonical_families",
     "clamp_limit",
     "decode_cursor",
     "encode_cursor",
@@ -136,6 +142,7 @@ def paginate(
     query: str,
     offset: int,
     limit: int,
+    families: str = "",
 ) -> SearchPage:
     """Slice a fully **ranked** result sequence into one envelope page.
 
@@ -152,7 +159,12 @@ def paginate(
     next_cursor = ""
     if has_more:
         next_cursor = encode_cursor(
-            Cursor(query=query, sort=SORT_SCORE_DESC_PATH_ASC, offset=offset + limit)
+            Cursor(
+                query=query,
+                sort=SORT_SCORE_DESC_PATH_ASC,
+                offset=offset + limit,
+                families=families,
+            )
         )
     return SearchPage(
         results=page, next_cursor=next_cursor, has_more=has_more, total_count=total_count
