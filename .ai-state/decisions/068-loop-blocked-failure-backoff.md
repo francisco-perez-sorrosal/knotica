@@ -1,7 +1,7 @@
 ---
-id: dec-draft-9bdc7f3c
+id: dec-068
 title: Pace a failed observation eval by the error's own retryable contract
-status: proposed
+status: accepted
 category: architectural
 date: 2026-08-02
 summary: The loop now reads KnoticaError.retryable to tell a transient eval failure from a blocked precondition, holding the blocked case for an hour instead of a minute, and build_loop_runner resolves the [loop] cadence config itself so no call site can silently disable the throttle.
