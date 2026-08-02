@@ -1,7 +1,7 @@
 ---
-id: dec-draft-ca6dfe07
+id: dec-067
 title: Declare the eval dependencies exactly once, as the PEP 621 evals extra
-status: proposed
+status: accepted
 category: architectural
 date: 2026-08-02
 summary: Remove the PEP 735 dependency-group alias and the hand-written uvx --with package tuple so the evals extra is the single declaration of the headless LLM dependencies; every launch path now requests the extra by name and inherits its version bounds.
