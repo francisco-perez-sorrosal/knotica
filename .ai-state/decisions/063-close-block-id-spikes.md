@@ -1,5 +1,5 @@
 ---
-id: dec-draft-40a49c61
+id: dec-063
 title: Close the block-ID spikes and the native-citation spike — measurement and specification, not deferral
 status: re-affirmation
 category: architectural
