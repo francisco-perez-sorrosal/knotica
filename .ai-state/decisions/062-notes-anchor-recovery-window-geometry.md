@@ -20,6 +20,8 @@ affected_files:
 affected_reqs: [REQ-03, REQ-04]
 re_affirms: dec-058
 supersedes: dec-draft-c4b81d90
+re_affirmed_by:
+  - dec-064
 ---
 
 ## Context

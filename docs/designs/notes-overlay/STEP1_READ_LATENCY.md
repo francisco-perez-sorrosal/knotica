@@ -161,7 +161,7 @@ harness that models the old call path silently under-reports the fix it is measu
 
 ### Against the index closure's falsifier
 
-`dec-draft-9e1d9377`'s falsifier 1: *"the three redundancies are fixed and a re-run still shows a
+`dec-065`'s falsifier 1: *"the three redundancies are fixed and a re-run still shows a
 drift-queue open above ~1s at note densities the project actually reaches."*
 
 **Not triggered.** Zero notes exist in either configured vault, and at every density within reach —

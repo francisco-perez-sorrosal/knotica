@@ -1,5 +1,5 @@
 ---
-id: dec-draft-7d8e82fe
+id: dec-064
 title: Close adaptive threshold tuning — thresholds are not the binding constraint on anything measured
 status: re-affirmation
 category: architectural
@@ -70,7 +70,7 @@ thresholds:
 - **Review burden** is bounded by anchor density, not threshold: at 7.7% a topic needs ~13 anchors
   on a single rewritten page to generate one review item.
 - **Read-time cost** is bounded by git subprocess spawn, not threshold or even resolution
-  (`dec-draft-9e1d9377`, Step 1: 92-97% of wall-clock is process spawn).
+  (`dec-065`, Step 1: 92-97% of wall-clock is process spawn).
 
 A tunable that moves none of the measured constraints is not a deferred feature; it is a
 non-feature.

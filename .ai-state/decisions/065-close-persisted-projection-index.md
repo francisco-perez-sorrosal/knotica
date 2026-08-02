@@ -1,5 +1,5 @@
 ---
-id: dec-draft-9e1d9377
+id: dec-065
 title: Close the persisted projection index — the read cost is subprocess overhead, not resolution
 status: re-affirmation
 category: architectural

@@ -1,5 +1,5 @@
 ---
-id: dec-draft-e84ad966
+id: dec-066
 title: Keep deferring golden promotion, and make its reversal trigger observable
 status: re-affirmation
 category: architectural
