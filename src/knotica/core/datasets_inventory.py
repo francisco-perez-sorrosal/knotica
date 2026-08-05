@@ -20,10 +20,11 @@ from knotica.core.golden_review import (
     reviewed_relative_path,
     staging_relative_path,
 )
+from knotica.core.jsonl import read_jsonl_dicts
 from knotica.core.operations.create_topic import qa_dataset_path
-from knotica.core.page import TopicNotFoundError
 from knotica.core.records import RecordParseError, parse_qa_jsonl
 from knotica.core.status import COMPILE_READY_MIN_EXAMPLES
+from knotica.core.topics import require_topic
 from knotica.core.trainset import count_query_train_examples, is_query_train_example
 from knotica.evals.golden import (
     EVAL_MIN_GOLDEN,
@@ -95,7 +96,7 @@ _MAX_RECORDS_LIMIT = 1000
 
 def gather_datasets_inventory(store: VaultStore, topic: str) -> dict[str, Any]:
     """Summarize all dataset roles for ``topic`` (counts, readiness, overlaps)."""
-    cleaned = _require_topic(store, topic)
+    cleaned = require_topic(store, topic)
     train_questions = _train_questions(store, cleaned)
     held_questions = _held_out_questions(store, cleaned)
     reviewed_questions = _candidate_questions(store, reviewed_relative_path(cleaned))
@@ -187,7 +188,7 @@ def load_dataset_records(
     limit: int = _DEFAULT_RECORDS_LIMIT,
 ) -> dict[str, Any]:
     """Load capped rows for one dataset role (read-only)."""
-    cleaned = _require_topic(store, topic)
+    cleaned = require_topic(store, topic)
     resolved = _normalize_role(role)
     meta = _ROLE_META[resolved]
     path = _path_for_role(cleaned, resolved)
@@ -248,7 +249,7 @@ def bootstrap_dataset_candidates(
     snapshot: str,
 ) -> dict[str, Any]:
     """Run golden bootstrap and return staging summary."""
-    cleaned = _require_topic(store, topic)
+    cleaned = require_topic(store, topic)
     candidates = bootstrap(store, cleaned, llm_client, snapshot)
     path = staging_relative_path(cleaned)
     return {
@@ -266,7 +267,7 @@ def freeze_reviewed_dataset(
     topic: str,
 ) -> dict[str, Any]:
     """Freeze ``golden.staging.reviewed.jsonl`` into held-out golden + MANIFEST."""
-    cleaned = _require_topic(store, topic)
+    cleaned = require_topic(store, topic)
     reviewed = reviewed_relative_path(cleaned)
     if not store.exists(reviewed):
         raise KnoticaError(
@@ -274,7 +275,7 @@ def freeze_reviewed_dataset(
             f"no reviewed candidates at {reviewed}",
             fix="Save a reviewed set from the Datasets pane (Review), then Freeze.",
         )
-    accepted = _read_jsonl_dicts(store.read_text(reviewed))
+    accepted = read_jsonl_dicts(store.read_text(reviewed))
     if not accepted:
         raise KnoticaError(
             ErrorCode.NOT_CONFIGURED,
@@ -359,19 +360,6 @@ def _normalize_role(role: str) -> DatasetRole:
     return mapped
 
 
-def _require_topic(store: VaultStore, topic: str) -> str:
-    cleaned = topic.strip().strip("/")
-    if not cleaned or "/" in cleaned:
-        raise TopicNotFoundError(topic or "(empty)")
-    if not store.exists(cleaned):
-        raise TopicNotFoundError(cleaned)
-    try:
-        store.list_dir(cleaned)
-    except (NotADirectoryError, FileNotFoundError) as exc:
-        raise TopicNotFoundError(cleaned) from exc
-    return cleaned
-
-
 def _qa_total(store: VaultStore, topic: str) -> int:
     path = qa_dataset_path(topic)
     if not store.exists(path):
@@ -426,7 +414,7 @@ def _candidate_questions(store: VaultStore, path: str) -> set[str]:
     if not store.exists(path):
         return set()
     questions: set[str] = set()
-    for row in _read_jsonl_dicts(store.read_text(path)):
+    for row in read_jsonl_dicts(store.read_text(path)):
         q = str(row.get("question", "")).strip().lower()
         if q:
             questions.add(q)
@@ -464,27 +452,13 @@ def _jsonl_count(store: VaultStore, path: str) -> int:
     return sum(1 for line in store.read_text(path).splitlines() if line.strip())
 
 
-def _read_jsonl_dicts(text: str) -> list[dict[str, Any]]:
-    rows: list[dict[str, Any]] = []
-    for line in text.splitlines():
-        if not line.strip():
-            continue
-        try:
-            row = json.loads(line)
-        except json.JSONDecodeError:
-            continue
-        if isinstance(row, dict):
-            rows.append(row)
-    return rows
-
-
 def _load_trainset_rows(
     store: VaultStore, path: str, limit: int
 ) -> tuple[list[dict[str, Any]], int]:
     try:
         records = parse_qa_jsonl(store.read_text(path))
     except RecordParseError:
-        raw = _read_jsonl_dicts(store.read_text(path))
+        raw = read_jsonl_dicts(store.read_text(path))
         return raw[:limit], len(raw)
     out: list[dict[str, Any]] = []
     for record in records[:limit]:
@@ -514,7 +488,7 @@ def _load_held_out_rows(
         try:
             records = parse_qa_jsonl(store.read_text(path))
         except RecordParseError:
-            raw = _read_jsonl_dicts(store.read_text(path))
+            raw = read_jsonl_dicts(store.read_text(path))
             return raw[:limit], len(raw)
     out = [
         {
@@ -534,7 +508,7 @@ def _load_held_out_rows(
 def _load_candidate_rows(
     store: VaultStore, path: str, limit: int
 ) -> tuple[list[dict[str, Any]], int]:
-    rows = _read_jsonl_dicts(store.read_text(path))
+    rows = read_jsonl_dicts(store.read_text(path))
     slim = [
         {
             "question": row.get("question", ""),

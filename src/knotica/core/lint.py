@@ -37,6 +37,7 @@ from knotica.core.schema import (
     read_topic_overlay,
     validated_topic,
 )
+from knotica.core.topics import topic_directories
 
 # RESERVED_TOP_LEVEL_NAMES is declared once in vault_layout and re-exported here
 # unchanged, so every existing `from knotica.core.lint import RESERVED_TOP_LEVEL_NAMES`
@@ -157,7 +158,7 @@ def lint_vault(
     """
     scope = _validated_scope(store, topic)
     root = read_root_schema(store)
-    topics = [scope] if scope else _topic_directories(store)
+    topics = [scope] if scope else topic_directories(store)
     vault_links = _vault_link_map(store)
     content_pages = [path for path in _content_page_paths(store, topics) if path in vault_links]
     scoped_pages = [
@@ -217,17 +218,6 @@ def _validated_scope(store: VaultStore, topic: str) -> str | None:
     if cleaned in RESERVED_TOP_LEVEL_NAMES or not store.exists(cleaned):
         raise TopicNotFoundError(cleaned)
     return cleaned
-
-
-def _topic_directories(store: VaultStore) -> list[str]:
-    """Visible top-level directories that are topics (reserved names excluded)."""
-    return [
-        name
-        for name in store.list_dir("")
-        if not name.startswith(".")
-        and name not in RESERVED_TOP_LEVEL_NAMES
-        and _is_directory(store, name)
-    ]
 
 
 def _content_page_paths(store: VaultStore, topics: Iterable[str]) -> list[str]:
@@ -740,7 +730,12 @@ def _has_dot_segment(path: str) -> bool:
 
 
 def _is_directory(store: VaultStore, name: str) -> bool:
-    """Whether the top-level entry ``name`` is a directory (via the store protocol)."""
+    """Whether the top-level entry ``name`` is a directory (via the store protocol).
+
+    Survives the ``topic_directories`` consolidation on purpose: the reserved-name
+    check needs the *complement* of ``is_topic`` -- a directory that claims a
+    reserved name -- which the topic predicate answers ``False`` to by design.
+    """
     try:
         store.list_dir(name)
     except NotADirectoryError:

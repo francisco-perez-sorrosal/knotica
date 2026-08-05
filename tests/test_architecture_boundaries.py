@@ -23,7 +23,6 @@ module:
   raise -- an entirely different external system than git, never the vault's
   git history nor ``core.transaction``'s single-writer path;
 - importing ``knotica.core.lock`` (the vault flock is the transaction's to take);
-- calling the mutating store methods ``write_text_atomic`` / ``delete``;
 - calling the mutating ``VaultVcs`` methods ``commit_paths`` / ``rollback_paths``.
 
 What it deliberately permits (must never be flagged): the read-only ``VaultVcs``
@@ -32,12 +31,28 @@ methods (``head_sha`` / ``current_branch`` / ``unpushed_count`` / ``is_dirty`` /
 does not threaten the single-writer invariant -- and calling ``core.operations.*``
 / ``core.transaction`` from the adapters.
 
+The mutating *store* methods (``write_text_atomic`` / ``delete``) are checked
+**codebase-wide** rather than per-adapter, mirroring the ``commit_paths`` /
+``rollback_paths`` check below: the design rule is "the only writer of the vault
+is ``core.transaction``", so a name-list of covered packages could only ever be
+an approximation of it -- and the next package added to the tree would silently
+start out uncovered, which is exactly how a pre-transaction writer once survived
+in ``guillotine/report.py`` (td-036). Two paths are excluded, both for reasons
+intrinsic to the rule rather than to any package's name: ``core/transaction.py``
+IS the sanctioned writer, and ``store/`` implements the mutation primitive
+itself, so a call to one of its own mutators there is implementation, not a
+bypass.
+
 The scan matches mutating operations by call-method name, which is robust to
 aliasing (``from knotica.core.vcs import VaultVcs`` then ``.commit_paths`` is
-still caught). Known blind spot: an unrelated ``.delete(...)`` call on some
-non-store object in an adapter would also be flagged -- acceptable, since the
-single-writer intent is that adapters perform no mutation of any kind, and no
-such call exists on the current tree.
+still caught). Bare-name matching collides on exactly one name: ``delete`` is
+both a ``VaultStore`` mutator and a ``VaultTransaction`` *staging* call, and the
+latter is the sanctioned path, not a bypass. Rather than allowlist the modules
+that stage deletions -- another name-list with the same decay -- the store scan
+skips calls whose receiver is bound by ``with VaultTransaction(...) as <name>``,
+which is structural (renaming the variable keeps working) and fails *closed*: a
+transaction obtained some other way is flagged loudly instead of slipping
+through silently.
 
 A third check closes a gap in the above: matching by *store method name* is
 blind to a raw filesystem bypass -- ``Path(...).write_text(...)`` writes the
@@ -106,6 +121,16 @@ RAW_WRITE_PACKAGES = (*ADAPTER_PACKAGES, "okf")
 
 #: The only module permitted to call the mutating git surface.
 SOLE_WRITER = SRC_ROOT / "core" / "transaction.py"
+
+#: The store implementation package -- it *is* the mutation primitive the
+#: single-writer rule routes through, so its own internal use of those methods
+#: is implementation, not a bypass. Excluded from the codebase-wide store scan.
+STORE_PACKAGE = "store"
+
+#: The context-manager class whose staging API shares the name ``delete`` with
+#: the ``VaultStore`` protocol. Calls on a name bound by ``with
+#: VaultTransaction(...) as <name>`` are the sanctioned path, not a bypass.
+TRANSACTION_CLASS = "VaultTransaction"
 
 #: Adapter modules exempt from the shell-out clause ONLY. ``cli/init.py`` shells
 #: out to git for one-time repo bootstrap (``git init`` + the initial commit of a
@@ -217,6 +242,20 @@ def _raw_write_scanned_files() -> Iterator[Path]:
         yield from sorted((SRC_ROOT / package).rglob("*.py"))
 
 
+def _store_mutation_scanned_files() -> Iterator[Path]:
+    """Every ``.py`` file subject to the codebase-wide store-mutation scan.
+
+    That is the whole tree minus the sanctioned writer and the store package --
+    see the module docstring for why those two, and only those two, are out.
+    """
+    for path in _all_source_files():
+        if path == SOLE_WRITER:
+            continue
+        if path.relative_to(SRC_ROOT).parts[0] == STORE_PACKAGE:
+            continue
+        yield path
+
+
 def _search_files() -> Iterator[Path]:
     """Every ``.py`` file under ``search/``, in stable order."""
     yield from sorted((SRC_ROOT / "search").rglob("*.py"))
@@ -241,6 +280,59 @@ def _called_method_names(tree: ast.Module) -> list[tuple[str, int]]:
     for node in ast.walk(tree):
         if isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute):
             calls.append((node.func.attr, node.func.lineno))
+    return calls
+
+
+def _callee_name(func: ast.expr) -> str | None:
+    """Trailing callable name of a call target (``X()`` -> ``X``, ``a.X()`` -> ``X``)."""
+    if isinstance(func, ast.Name):
+        return func.id
+    if isinstance(func, ast.Attribute):
+        return func.attr
+    return None
+
+
+def _transaction_bound_names(tree: ast.Module) -> set[str]:
+    """Names bound by ``with VaultTransaction(...) as <name>`` anywhere in ``tree``.
+
+    Structural rather than a hand-maintained receiver-name list: renaming the
+    variable keeps working, and a transaction obtained any *other* way stays
+    flagged. That direction is deliberate -- a false positive is a loud test
+    failure a human resolves, while a missed bypass is silent.
+    """
+    names: set[str] = set()
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.With | ast.AsyncWith):
+            continue
+        for item in node.items:
+            context = item.context_expr
+            if not isinstance(context, ast.Call):
+                continue
+            if _callee_name(context.func) != TRANSACTION_CLASS:
+                continue
+            if isinstance(item.optional_vars, ast.Name):
+                names.add(item.optional_vars.id)
+    return names
+
+
+def _store_mutation_calls(tree: ast.Module) -> list[tuple[str, int]]:
+    """``(method, line)`` for every store-mutating call outside the transaction API.
+
+    Bare-name matching (aliasing-robust) minus the receivers bound by ``with
+    VaultTransaction(...) as <name>`` -- see the module docstring's collision
+    paragraph.
+    """
+    staged = _transaction_bound_names(tree)
+    calls: list[tuple[str, int]] = []
+    for node in ast.walk(tree):
+        if not (isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute)):
+            continue
+        if node.func.attr not in MUTATING_STORE_METHODS:
+            continue
+        receiver = node.func.value
+        if isinstance(receiver, ast.Name) and receiver.id in staged:
+            continue
+        calls.append((node.func.attr, node.func.lineno))
     return calls
 
 
@@ -460,15 +552,45 @@ def test_adapters_do_not_import_the_vault_lock() -> None:
     )
 
 
-def test_adapters_do_not_call_mutating_store_methods() -> None:
+def test_core_transaction_is_the_only_caller_of_mutating_store_methods() -> None:
     violations: list[str] = []
-    for path in _adapter_files():
-        for name, line in _called_method_names(_parse(path)):
-            if name in MUTATING_STORE_METHODS:
-                violations.append(f"{_module_label(path)}:{line} calls {name}()")
+    for path in _store_mutation_scanned_files():
+        for name, line in _store_mutation_calls(_parse(path)):
+            violations.append(f"{_module_label(path)}:{line} calls {name}()")
     assert not violations, (
-        "cli/ and mcp_server/ must not write the vault directly (no "
-        f"write_text_atomic/delete): {violations}"
+        "write_text_atomic/delete must be called only by core/transaction.py -- "
+        "every other module writes the vault through a VaultTransaction, which is "
+        "what makes 'one git commit per mutating operation' true for every surface "
+        f"at once: {violations}"
+    )
+
+
+def test_mutating_store_scan_sees_the_sole_writers_own_calls() -> None:
+    # Non-vacuity guard: proves the path exclusion above suppresses real
+    # detections rather than filtering nothing. If core/transaction.py stops
+    # calling the store mutators under these names, the exclusion is dead and
+    # the codebase-wide assertion has quietly lost its subject.
+    detected = {name for name, _line in _store_mutation_calls(_parse(SOLE_WRITER))}
+    assert detected == set(MUTATING_STORE_METHODS), (
+        "expected core/transaction.py to call every mutating store method -- it is "
+        f"the sole writer; detected only {sorted(detected)}"
+    )
+
+
+def test_mutating_store_scan_permits_the_transaction_staging_api() -> None:
+    # Non-vacuity guard for the receiver carve-out: okf/repair.py stages a
+    # deletion through `with VaultTransaction(...) as transaction`, which the
+    # bare-name scan would otherwise flag. The scan must see the call and still
+    # not report it -- if the first assertion fails the carve-out is filtering
+    # nothing, and if the second fails it stopped recognizing the sanctioned path.
+    repair = _parse(SRC_ROOT / "okf" / "repair.py")
+    assert "delete" in {name for name, _line in _called_method_names(repair)}, (
+        "expected okf/repair.py to stage a deletion via the transaction API -- "
+        "without it the receiver carve-out below is exercised by nothing"
+    )
+    assert not _store_mutation_calls(repair), (
+        "a delete staged on a `with VaultTransaction(...) as <name>` binding is the "
+        "sanctioned path and must not be reported as a single-writer violation"
     )
 
 

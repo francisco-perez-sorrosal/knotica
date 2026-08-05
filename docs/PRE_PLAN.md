@@ -48,6 +48,7 @@ Reserved top-level names (`sources`, `index.md`, `log.md`, `SCHEMA.md`, `START_H
 1. **Hierarchical schema**: root invariants + per-topic overlays that extend but never contradict root (lint-enforced).
 2. **Client-as-brain MVP**: MCP server exposes deterministic tools; the MCP client's LLM performs ingest/query/lint guided by schemas. Holds identically over stdio and remote HTTP — the brain is always the client. Headless work (scheduled lint, DSPy compiles, SIA generations) is the only thing needing server-side LLM access (Phase 3a+).
    - **Stateless server (corollary):** the server holds no session state — no "active topic," no cursors, no memory between calls. The only state is the vault (git) and `config.toml`, both resolved per call. Tools that need a topic take it as an explicit argument (the client infers and passes it, e.g. `curate_example(topic=…)`). This is what makes concurrent sessions, restarts, and the local→remote lift trivially safe.
+   - **Scope of "the only state" — the one place this is spelled out.** The sentence above is about the *server* and about *durable* state. The loop **daemon** is a separate process, and it keeps gitignored runtime markers under `<topic>/.knotica/locks/`: runner heartbeat liveness, in-flight per-question eval progress, and the failed-attempt retry clock (`dec-068`, td-031). These are neither session state nor durable state. Nothing reads them to decide what is *true* — each is a liveness or pacing signal that a fresh process recomputes or safely ignores, so deleting the directory costs at most a re-derived interval, and none of them is committed. The invariant is therefore unchanged rather than widened; what was missing was this scope, stated nowhere but inside one ADR's Consequences prose. `CLAUDE.md` and `.ai-state/DESIGN.md` state the invariant and point here rather than restating this paragraph.
 3. **Two-loop self-improvement**: DSPy owns prompts (query op first — retrieve→synthesize-with-citations; trainsets = per-topic `qa.jsonl`; optimizer MIPROv2/GEPA; artifacts to `.knotica/compiled/`). SIA owns structure (knotica as SIA custom task parameterized by topic; feedback agent may invoke DSPy compile as a move). No DSPy on SIA's own agents.
 4. **Model policy**: Sonnet-class models for loop workers; stronger model only for LLM-as-judge. Eval scalar = QA accuracy + citation validity + lint violations **− token-cost penalty**.
 5. **Flywheel**: conversational curation only for MVP — `curate_example` logs (query, pages used, answer, verdict) to the topic's `qa.jsonl`. Periodic transcript distillation deferred.
@@ -148,7 +149,7 @@ Each operation prompt carries the full protocol (read schema resource → act �
 
 ## Phases & execution
 
-**Status: pipeline `wiki-mvp-core` in flight (2026-07-03).** Kickoff done (repo initialized, worktree `pipeline/wiki-mvp-core`, TASK_BRIEF); researcher complete (all five third-party assumptions verified — see `.ai-work/wiki-mvp-core/RESEARCH_FINDINGS.md`); next: systems-architect + interface-designer (shadow).
+**Status:** the `wiki-mvp-core` pipeline closed long ago and its `.ai-work/` artifacts were deleted at cleanup; its requirement-to-test matrix now lives in `.ai-state/specs/SPEC_wiki-mvp-core_2026-07-03.md` § Traceability. See [Implementation status](#implementation-status-as-of-2026-08-05) below for what actually ships.
 
 - **Phase 0 — Vault + schemas (deliberately software-free).** No knotica code runs in this phase: the client (Claude Code) follows `SCHEMA.md` conventions using plain file tools, manually honoring the per-op-commit and log disciplines. Author `vault-template/` (root `SCHEMA.md`, overlay mechanism, `agentic-systems` seed topic, `START_HERE.md`, `.gitignore`, demo-ingest sample: one pre-processed paper with its pages/index/log entries); instantiate at `~/dev/data/knotica`; `git init` vault + private remote; point Obsidian at it. Exercise ingest/query/lint on 2–3 real papers; confirm Obsidian rendering (graph, backlinks, Dataview). Phase 1 then crystallizes only conventions Phase 0 proved.
 - **Phase 1 — Core + MCP (stdio) + flywheel + first-run UX.** Plugin layer: `.claude-plugin/` manifest + marketplace, `.mcp.json` (uvx-from-plugin-root launch), `/knotica:setup` wizard command, SessionStart hooks (config nudge, `schema_version` check, `doctor --quick`), `wiki-maintenance` skill. CLI layer: `knotica init` wizard (fallback channel, incl. Desktop config patch), `knotica doctor`, `knotica migrate`, config file `~/.config/knotica/config.toml`. Core: topic-aware `VaultStore`; tools `read_page`, `write_page` (atomic + git commit + log + secret-scrub), `store_source` (immutable + provenance), `create_topic` (deterministic overlay + `.knotica/` scaffolding), `search`, `list_links`/`backlinks`, `lint_check`, `curate_example(topic=…)`; mutating ops flock-guarded (**load-bearing**: research found stdio servers may be long-lived and shared across sessions — the design must not rely on process-per-session, nor on process-per-user); graceful unconfigured boot + per-call config resolution; schemas + index as MCP resources; **dual command surface** (MCP prompts canonical, static names + lazy vault-resolved bodies; plugin command aliases in Claude Code). Verified in Claude Code (plugin channel) and Claude Desktop (CLI channel).
@@ -158,6 +159,44 @@ Each operation prompt carries the full protocol (read schema resource → act �
 - **Phase 4 — Gap-fill source-candidate gate (Built).** Approved suggestions ingest onto server-managed worktree candidate branches; loop gate merges gap-closing sources (auto-mark_ingested + page-subset dataset upgrade) or quarantines dilutive ones (never arena). Source discovery closes the loop end-to-end: P1 fault classifier → P2 ranked sources → P3 human approval → P4 gated ingest. See [`docs/architecture.md`](./architecture.md) § 3a (source-candidate detection/dispatch).
 - **Phase 5 — Remote.** Streamable HTTP + OAuth 2.1; Railway deploy; loops move to remote clone + branch-return, unchanged. **Gated on Phases 0–4 running smoothly locally (MCP servers, evals, loops, source-gate).**
 - **Phase 5+ — Scale.** Hybrid search, typed graph, quality scoring, event-driven wiki automation (rohitg00; distinct from Claude plugin hooks), mesh/multi-writer, Archil-backed vault, content-level page-rewriting loop, transcript distillation.
+
+### Implementation status (as of 2026-08-05)
+
+Relocated here from `CLAUDE.md`, which is always-loaded context and should carry the index
+rather than the changelog.
+
+Phases 0–4 are implemented locally (vault template, core/MCP/plugin, eval harness, DSPy compile,
+dashboard MCP App, autonomous loop layer, gap-fill classifier, discovery, suggestion queue, and source-candidate gate).
+**Consolidation (2026-07-21):** loop internals refactored for growth (`core/branch_namespaces`,
+`core/best_effort`, unified arena-race core, `build_loop_runner` factory; vault mutation lock
+widened to the full git-mutation span with crash self-heal and retryable `LOCK_BUSY`); tool
+surface consolidated 49→30 via seven action-parameterized dispatchers (`loop`, `branches`,
+`compile`, `datasets`, `arena`, `golden`, `vault_health`) plus mis-selection telemetry; the
+26 deprecated flat-tool aliases the consolidation initially kept for a migration window were
+removed outright (`dec-050` partially supersedes `dec-045` — no external MCP
+consumers exist to migrate); conversational-routing layer added
+(symptom-based `wiki-maintenance` skill, slimmed server instructions pointing at `read_protocol`,
+read/offer guards on every mutating tool, cheap `wiki_status(view="scope")` check, SessionStart
+topic-seed + needs-attention nudge); `discover_on_regression` defaults on when a discovery key is
+present (offline installs unchanged); loop service lifecycle via `knotica service
+install|uninstall|status` (launchd-verified, systemd untested; one supervised process, topics
+resolved from config each cycle); decision-envelope fields unified across the three human gates. 
+The **gap-fill pipeline** (P1–P4) diagnoses regressions into four fault classes, discovers ranked 
+sources for genuine knowledge gaps, surfaces a human-approval queue, and gates ingests onto isolated worktree candidate branches: `knotica gapfill discover` 
+on-demand + optional loop-side batch, MCP tool `gap_report` for conversational gaps, `suggestions_read`/`suggestions_review`, 
+dashboard **SourcesPane**, and P4 source-ingest tools (`source_ingest_open`/`source_ingest_submit`). Gaps have three origins: `measured` (loop regressions), `reported` (client-as-brain via `gap_report`), 
+and `retracted` (guillotine disputes). The loop watches the default branch, auto-freezes the first 
+observation as the gate baseline, gates `loop/c/*` candidates (distinguishing source from prompt candidates by branch name), and heals prompt regressions via 
+the arena — source-candidate pass auto-marks suggestions ingested and triggers a page-subset dataset upgrade; refuse quarantines to `loop/x/*` with bounded per-question diff, never arena. State surfaced through `wiki_status` (runner liveness, per-question eval progress, 
+LLM availability, suggestion counts, refused-awaiting-rework). Guillotine refactored to verdict + risk report + triage score 
++ gap filing only; content rewriting flows through the gap→suggestion→approved-ingest path where 
+the client-as-brain writes grounded prose and drives the candidate-scoped ingest protocol. Trainset cold-start is data-driven (`knotica datasets bootstrap-train` 
+/ `datasets action=bootstrap_train` dispatcher action: QA synthesized from the topic's own pages, `source: seed_train`; 
+curated examples displace seeds in compile demo selection). No demo content remains in code: no 
+hardcoded questions/prompt appendices, no fabricated offline compile scores (typed error without 
+credentials), MIPRO fallbacks recorded on the artifact (`optimizer`/`fallback_reason`). Coherence-audited 
+spine with cross-spine integration test. End-user Desktop install walkthrough: `docs/CLAUDE_DESKTOP.md`; 
+developer architecture guide: `docs/architecture.md`. Remote (Railway) remains gated on local smoothness.
 
 ## Verification
 

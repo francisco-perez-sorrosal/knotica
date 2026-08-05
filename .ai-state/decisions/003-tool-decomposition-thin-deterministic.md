@@ -16,6 +16,9 @@ dissent: Splitting write_page's side effects into separate tools would be more c
 re_affirmed_by:
   - dec-041
   - dec-045
+  - dec-020
+  - dec-021
+  - dec-028
 ---
 
 ## Context

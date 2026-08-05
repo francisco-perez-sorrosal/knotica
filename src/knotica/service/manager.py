@@ -47,9 +47,9 @@ from typing import Any
 
 from knotica.core.config import diagnose
 from knotica.core.errors import ErrorCode, KnoticaError
-from knotica.core.lint import RESERVED_TOP_LEVEL_NAMES
 from knotica.core.loop_heartbeat import read_runner_liveness
-from knotica.store import LocalFSStore, VaultStore
+from knotica.core.topics import is_topic
+from knotica.store import LocalFSStore
 
 __all__ = [
     "SERVICE_LABEL",
@@ -391,7 +391,7 @@ def resolve_watched_topics(
     if diagnosis.vault is None:
         return ()
     store = LocalFSStore(diagnosis.vault.path)
-    return tuple(name for name in sorted(store.list_dir("")) if _is_topic(store, name))
+    return tuple(name for name in sorted(store.list_dir("")) if is_topic(store, name))
 
 
 def supervise(
@@ -482,17 +482,6 @@ def _uninstall_plan(
         unit_existed=existed,
         performed=performed,
     )
-
-
-def _is_topic(store: VaultStore, name: str) -> bool:
-    """Whether a top-level entry is a topic: a visible, non-reserved directory."""
-    if name.startswith(".") or name in RESERVED_TOP_LEVEL_NAMES:
-        return False
-    try:
-        store.list_dir(name)
-    except NotADirectoryError:
-        return False
-    return True
 
 
 def _load_template(name: str) -> Template:

@@ -57,7 +57,21 @@ def _parse_frontmatter(text: str) -> dict[str, str]:
             fields[key] = header.group(2).strip()
         elif key and line.strip():
             fields[key] = f"{fields[key]} {line.strip()}".strip()
-    return fields
+    return {key: _unquote(value) for key, value in fields.items()}
+
+
+def _unquote(value: str) -> str:
+    """Strip the surrounding quotes YAML requires around some scalars.
+
+    A `summary:` or `dissent:` containing a colon-space *must* be quoted or
+    `yaml.safe_load` rejects the whole block. Without this, the quotes leak
+    into the rendered table as literal characters -- so the fix that makes a
+    record machine-readable would corrupt its own index row.
+    """
+    if len(value) >= 2 and value[0] == value[-1] and value[0] in ('"', "'"):
+        inner = value[1:-1]
+        return inner.replace('\\"', '"').replace("\\\\", "\\") if value[0] == '"' else inner
+    return value
 
 
 def _render_tags(raw: str) -> str:

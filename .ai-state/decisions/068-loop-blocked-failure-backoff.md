@@ -11,7 +11,7 @@ agent_type: orchestrator
 branch: main
 pipeline_tier: standard
 affected_files: [src/knotica/core/loop.py, src/knotica/core/loop_retry_backoff.py, src/knotica/core/loop_state.py, src/knotica/core/loop_factory.py, tests/test_loop_blocked_failure_backoff.py, tests/test_loop_factory_cadence_wiring.py]
-dissent: A one-hour blocked floor is a magic number defended by no measurement, and it is the wrong shape of fix: the loop still writes two commits per attempt, so the same class of bug returns at 1/24th the rate the moment another permanent failure appears that the error contract does not mark non-retryable. Suppressing no-op bookkeeping commits outright would have fixed the family rather than this instance.
+dissent: "A one-hour blocked floor is a magic number defended by no measurement, and it is the wrong shape of fix: the loop still writes two commits per attempt, so the same class of bug returns at 1/24th the rate the moment another permanent failure appears that the error contract does not mark non-retryable. Suppressing no-op bookkeeping commits outright would have fixed the family rather than this instance."
 ---
 
 ## Context

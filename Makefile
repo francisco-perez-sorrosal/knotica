@@ -14,6 +14,7 @@ LAUNCHD_LABEL := com.knotica.loop
 LOG_DIR := $(HOME)/Library/Logs/knotica
 
 .PHONY: help start install verify doctor desktop clean-tool \
+        test-group test-groups \
         daemon-install daemon-restart daemon-status daemon-uninstall daemon-logs
 
 help:  ## Show available targets
@@ -43,11 +44,38 @@ install:  ## Sync the venv and (re)install the knotica CLI with headless evals s
 # `--extra evals` is explicit rather than incidental: the eval-facing tests should
 # exercise the real anthropic/dspy packages, and a bare `uv run` leaves whether
 # they are present up to whatever the venv happens to hold.
-verify:  ## Run the canonical checks, in order: types, tests, lint
+# The topology check runs first because it is the cheapest (filesystem stats,
+# no imports) and because a drifted topology makes every scoped run below it
+# untrustworthy -- a selector naming a deleted file silently shrinks a group.
+# The three record checks are grouped ahead of the code checks for the same
+# reason: each compares a committed claim against the tree using filesystem
+# stats alone, and a stale record makes everything below it untrustworthy to
+# read even when it is green.
+verify:  ## Run the canonical checks: topology, ADRs, architecture, types, tests, lint
+	$(UV) run --extra evals python scripts/test_group.py --check
+	$(UV) run --extra evals python scripts/check_adr_health.py
+	$(UV) run --extra evals python scripts/check_architecture_coverage.py
 	$(UV) run --extra evals mypy src/knotica
 	$(UV) run --extra evals pytest
 	$(UV) run --extra evals ruff check .
 	$(UV) run --extra evals ruff format --check .
+
+# Scoped test runs derived from `.ai-state/TEST_TOPOLOGY.md`. These targets read
+# the topology rather than restating group membership, so there is exactly one
+# place a group is defined -- the same file sentinel audits and
+# `/refresh-topology` regenerates. `--extra evals` matches `verify`: the
+# eval-harness group imports anthropic/dspy for real.
+test-groups:  ## List the test groups defined in .ai-state/TEST_TOPOLOGY.md
+	@$(UV) run --extra evals python scripts/test_group.py --list
+
+test-group:  ## Run one group: make test-group GROUP=<id> [ARGS="-x -q"]
+	@if [ -z "$(GROUP)" ]; then \
+	  echo "usage: make test-group GROUP=<id> [ARGS=\"-x -q\"]"; \
+	  echo; \
+	  $(UV) run --extra evals python scripts/test_group.py --list; \
+	  exit 2; \
+	fi
+	$(UV) run --extra evals python scripts/test_group.py $(GROUP) $(ARGS)
 
 doctor:  ## Report vault/config health for the active knowledge base
 	$(UV) run --extra evals knotica doctor --quick
