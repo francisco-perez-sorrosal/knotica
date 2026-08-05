@@ -13,6 +13,8 @@ pipeline_tier: standard
 affected_files:
   - .ai-state/TEST_TOPOLOGY.md
   - .ai-state/DESIGN.md
+re_affirmed_by:
+  - dec-draft-c20759d6
 dissent: A topology that silently under-covers ~24 modules is arguably worse than one with four honest synthetic subsystem names, because the gap is invisible at the point of use (a scoped run just quietly skips them).
 ---
 
