@@ -12,7 +12,7 @@ from typing import Any
 
 from knotica.core.page import TopicNotFoundError
 from knotica.core.schema import validated_topic
-from knotica.core.topics import is_topic
+from knotica.core.topics import is_topic, topic_directories
 from knotica.store import VaultStore
 
 __all__ = ["gather_vault_metadata_tree"]
@@ -38,7 +38,7 @@ def gather_vault_metadata_tree(
             raise TopicNotFoundError(cleaned)
         topic_names = [cleaned]
     else:
-        topic_names = _topic_directories(store)
+        topic_names = topic_directories(store)
 
     children: list[dict[str, Any]] = []
     for rel in _ROOT_METADATA_FILES:
@@ -124,7 +124,3 @@ def _looks_like_dir(store: VaultStore, rel_path: str) -> bool:
     except FileNotFoundError:
         return False
     return True
-
-
-def _topic_directories(store: VaultStore) -> list[str]:
-    return [name for name in sorted(store.list_dir("")) if is_topic(store, name)]

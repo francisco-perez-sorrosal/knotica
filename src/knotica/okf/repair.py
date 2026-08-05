@@ -33,7 +33,7 @@ _REPAIR_TITLE = "native OKF compatibility"
 #: ``reports/`` -- dot-prefixed so ``iter_page_paths`` skips it (no re-sweep of
 #: the report as a concept file on the next run, td-022) and so it is not a
 #: reserved top-level name that would otherwise surface as a phantom topic in
-#: enumeration (``family_of``/``topic_of``, ``_topic_directories``).
+#: enumeration (``family_of``/``topic_of``, ``topic_directories``).
 _REPORTS_DIR = ".knotica/reports/okf"
 
 #: Where reports landed before the ``.knotica/`` fix -- a vault that has

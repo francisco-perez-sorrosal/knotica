@@ -40,7 +40,7 @@ from knotica.core.records import (
     parse_log_entries,
 )
 from knotica.core.schema import overlay_path
-from knotica.core.topics import is_topic
+from knotica.core.topics import is_topic, topic_directories
 from knotica.core.trainset import count_query_train_examples
 from knotica.core.vcs import GitError, VaultVcs
 from knotica.evals.golden import EVAL_MIN_GOLDEN, GoldenSetMissingError, load as load_golden
@@ -203,7 +203,7 @@ def _scope_status(store: VaultStore, vault_name: str, *, scope: str) -> dict[str
             raise TopicNotFoundError(scope)
         names = [scope]
     else:
-        names = _topic_directories(store)
+        names = topic_directories(store)
     return {
         "schema_version": STATUS_SCHEMA_VERSION,
         "vault_name": vault_name,
@@ -219,7 +219,7 @@ def _topic_statuses(store: VaultStore, vcs: VaultVcs, *, scope: str | None) -> l
             raise TopicNotFoundError(scope)
         names = [scope]
     else:
-        names = _topic_directories(store)
+        names = topic_directories(store)
 
     lint_counts = _lint_counts_by_topic(store, scope=scope)
     return [
@@ -509,11 +509,6 @@ def _pending_loop_candidates(
         return out
     except GitError:
         return []
-
-
-def _topic_directories(store: VaultStore) -> list[str]:
-    """Visible top-level directories that are topics (reserved names excluded)."""
-    return [name for name in sorted(store.list_dir("")) if is_topic(store, name)]
 
 
 def _page_count(store: VaultStore, topic: str) -> int:

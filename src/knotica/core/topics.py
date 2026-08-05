@@ -20,9 +20,16 @@ Two predicates, deliberately not folded into one:
   reserved names, because the input it guards is a topic *argument*, not a
   directory entry already known to sit at the vault root.
 
-Every consumer -- ``core.status``, ``core.vault_metadata_tree``,
+:func:`topic_directories` is the enumeration those two imply: the one walk of the
+vault root that every "which topics are there?" caller shares. It lives here
+rather than at each call site because a wrapper around a consolidated predicate
+is still a copy of the policy -- three modules held their own, and one of them
+had drifted onto an inline re-implementation that never reached ``is_topic`` at
+all (``td-040``).
+
+Every consumer -- ``core.status``, ``core.lint``, ``core.vault_metadata_tree``,
 ``core.datasets_inventory``, ``core.golden_review``, ``mcp_server.tools_read``,
-``service.manager`` -- shares these two, so a search result can never disagree
+``service.manager`` -- shares these three, so a search result can never disagree
 with the rest of the codebase about what counts as a topic.
 """
 
@@ -32,7 +39,7 @@ from knotica.core.page import TopicNotFoundError
 from knotica.core.vault_layout import RESERVED_TOP_LEVEL_NAMES
 from knotica.store import VaultStore
 
-__all__ = ["is_topic", "require_topic"]
+__all__ = ["is_topic", "require_topic", "topic_directories"]
 
 
 def is_topic(store: VaultStore, name: str) -> bool:
@@ -51,6 +58,16 @@ def is_topic(store: VaultStore, name: str) -> bool:
     except (NotADirectoryError, FileNotFoundError):
         return False
     return True
+
+
+def topic_directories(store: VaultStore) -> list[str]:
+    """Every topic directory at the vault root, in lexicographic order.
+
+    The single enumeration of "which topics does this vault hold?". Order is
+    deterministic without a second sort: ``VaultStore.list_dir`` is contractually
+    sorted, so filtering it preserves that order.
+    """
+    return [name for name in store.list_dir("") if is_topic(store, name)]
 
 
 def require_topic(store: VaultStore, topic: str) -> str:

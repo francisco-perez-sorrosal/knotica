@@ -19,6 +19,10 @@ a name that does not exist -- so this suite pins the reconciled contract:
   empty, nested, absent, and non-directory input rather than returning a bool.
   It guards a caller-supplied topic *argument*, so it rejects nested paths --
   where ``is_topic`` rejects reserved names instead.
+- **``topic_directories`` is the one enumeration the predicates imply.** It was
+  three wrappers in three modules, one of which never reached ``is_topic`` at
+  all; the cases below pin the exclusions the surviving copies had to agree on
+  and the lexicographic order every caller inherits from ``list_dir``.
 """
 
 from pathlib import Path
@@ -26,7 +30,7 @@ from pathlib import Path
 import pytest
 
 from knotica.core.page import TopicNotFoundError
-from knotica.core.topics import is_topic, require_topic
+from knotica.core.topics import is_topic, require_topic, topic_directories
 from knotica.store import LocalFSStore
 
 
@@ -104,3 +108,30 @@ def test_require_topic_rejects_a_file(tmp_path: Path, store: LocalFSStore) -> No
 
     with pytest.raises(TopicNotFoundError):
         require_topic(store, "loose.md")
+
+
+def test_topic_directories_is_empty_for_a_bare_vault(store: LocalFSStore) -> None:
+    assert topic_directories(store) == []
+
+
+def test_topic_directories_returns_topics_in_lexicographic_order(
+    tmp_path: Path, store: LocalFSStore
+) -> None:
+    # Created out of order: the ordering is the store's contract, not the
+    # filesystem's, and every consumer of this enumeration depends on it.
+    for name in ("physics", "astronomy", "biology"):
+        (tmp_path / name).mkdir()
+
+    assert topic_directories(store) == ["astronomy", "biology", "physics"]
+
+
+def test_topic_directories_excludes_hidden_reserved_and_file_entries(
+    tmp_path: Path, store: LocalFSStore
+) -> None:
+    (tmp_path / "physics").mkdir()
+    (tmp_path / ".knotica").mkdir()
+    (tmp_path / "notes").mkdir()
+    (tmp_path / "sources").mkdir()
+    (tmp_path / "log.md").write_text("", encoding="utf-8")
+
+    assert topic_directories(store) == ["physics"]
