@@ -15,6 +15,10 @@ Maps the Built structural components of [`.ai-state/DESIGN.md`](DESIGN.md) §3 o
 groups so that a pipeline step can run a scoped subset instead of the full suite (2443 tests /
 169 test files / ~296 s wall-clock as of 2026-08-04).
 
+The groups are runnable by hand, not only by pipeline agents: `make test-groups` lists them and
+`make test-group GROUP=<id>` runs one, both derived from the blocks in this file. See
+[Running a group](#running-a-group).
+
 The suite is **not** flat: 147 files sit directly in `tests/`, and 22 more are nested under
 `tests/core/` (1), `tests/core/notes/` (13), and `tests/discovery/` (8). Three groups therefore
 select a directory rather than a file list, and any count taken with a `tests/test_*.py` glob
@@ -160,6 +164,31 @@ Eleven groups, one per row-owner in the table above. Every block was authored ag
 suite and every `selectors` entry was executed before it was written down — see
 `.ai-work/test-topology-init/TEST_RESULTS.md` for the per-group verification run.
 
+### Running a group
+
+`scripts/test_group.py` *derives* the pytest invocation from the blocks below rather than restating
+them:
+
+| Command | Effect |
+|---|---|
+| `make test-groups` | List every group with its tier and test-file count |
+| `make test-group GROUP=<id> [ARGS="-x -q"]` | Run one group; `ARGS` is forwarded to pytest |
+| `make verify` | Runs `scripts/test_group.py --check` first, ahead of mypy / pytest / ruff |
+
+Both targets go through `uv run --extra evals`, matching `verify` — `eval-harness` imports
+`anthropic`/`dspy` for real, and the script itself needs an environment with `pyyaml` to parse this
+file. Exit codes: `0` success, `1` a failed check or failed pytest (pytest's own code is propagated
+unchanged), `2` usage — an unknown group prints the valid ids. `--help` covers flag detail.
+
+`--check` validates this file against the filesystem: every selector arg exists on disk and holds no
+wildcard, every required trunk field is present, every `file_dependencies` glob matches at least one
+real path, and no group id repeats. It refuses any selector `strategy` other than `pytest-globs`
+rather than guessing an invocation.
+
+Copying group membership into `pyproject.toml` was the alternative, and was rejected: this file is
+what sentinel audits (TT01–TT06) and what `/refresh-topology` regenerates, so a second copy would
+leave the audited file no longer authoritative.
+
 ### Why `pytest-globs` with explicit paths
 
 `pytest-markers` is unavailable without a change no topology file is allowed to make: this project
@@ -174,8 +203,12 @@ in this file would therefore only work when the runner happens to go through a s
 paths work under `subprocess.run(..., shell=False)` too, and they make group membership auditable:
 the un-grouped set below is provably the complement of the eleven `arg` lists, not an accident.
 
-The cost is that a new test file does not join a group until this file is updated. That is what
-the `/refresh-topology` drift path and sentinel TT03 exist for.
+The cost is drift, and it is caught at two speeds. The fast path is `make verify`, which runs
+`scripts/test_group.py --check` before mypy / pytest / ruff: a selector pointing at a renamed or
+deleted file fails at the developer's own gate, immediately. What `--check` cannot see is a
+genuinely *new* test file that no group claims — every selector still resolves, so the check passes
+while the file sits outside the topology. That residual case is what the `/refresh-topology` drift
+path and sentinel TT03 exist for: the slower, broader backstop.
 
 ### Fixtures, parallelism, and shared state
 

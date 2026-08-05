@@ -104,16 +104,32 @@ def selector_args(group: dict[str, Any]) -> list[str]:
     return args
 
 
+def count_test_files(args: list[str]) -> int:
+    """Count the test files a group's selector args resolve to.
+
+    Directory args expand: `tests/core/notes/` is a single arg standing for
+    thirteen files. Reporting the arg count instead would disagree with the
+    topology's own runtime table for the three directory-selecting groups, and
+    a reader comparing the two columns would have no way to tell which is wrong.
+    """
+    total = 0
+    for arg in args:
+        path = REPO_ROOT / arg
+        if path.is_dir():
+            total += sum(1 for p in path.rglob("test_*.py") if "__pycache__" not in p.parts)
+        elif path.exists():
+            total += 1
+    return total
+
+
 def cmd_list(groups: list[dict[str, Any]]) -> int:
-    """Print each group with its tier and selected-path count."""
+    """Print each group with its tier and the number of test files it covers."""
     width = max(len(str(g["id"])) for g in groups)
-    print(f"{'GROUP'.ljust(width)}  {'TIER':<12} PATHS  TITLE")
+    print(f"{'GROUP'.ljust(width)}  {'TIER':<12} FILES  TITLE")
     for group in groups:
-        args = selector_args(group)
+        files = count_test_files(selector_args(group))
         title = str(group.get("title", ""))
-        print(
-            f"{str(group['id']).ljust(width)}  {group.get('tier', '?'):<12} {len(args):>5}  {title}"
-        )
+        print(f"{str(group['id']).ljust(width)}  {group.get('tier', '?'):<12} {files:>5}  {title}")
     print(f"\n{len(groups)} groups. Run one with: make test-group GROUP=<id>")
     return 0
 
@@ -169,7 +185,7 @@ def cmd_run(groups: list[dict[str, Any]], name: str, pytest_args: list[str]) -> 
 
     args = selector_args(match)
     print(f"# {match['id']} — {match.get('title', '')}")
-    print(f"# {len(args)} path(s), tier={match.get('tier', '?')}\n")
+    print(f"# {count_test_files(args)} test file(s), tier={match.get('tier', '?')}\n")
     # pytest writes straight to the terminal fd while our own stdout is block-
     # buffered when piped, so without this flush the header lands *after* the
     # test output it introduces.
