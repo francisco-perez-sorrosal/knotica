@@ -7,7 +7,7 @@ AI-maintained, compounding knowledge wiki (Karpathy's llm-wiki pattern) living i
 **`docs/PRE_PLAN.md` is the authoritative design document.** Read it before any architectural or implementation work. Key invariants (do not violate without updating the pre-plan first):
 
 - **Client-as-brain**: the MCP server exposes deterministic tools only; the MCP client's LLM does all cognitive work (ingest/query/lint) guided by vault schemas. Server-side LLM access exists only for headless loops (Phase 3a+).
-- **Stateless server**: no session state — the vault (git) and `~/.config/knotica/config.toml` are the only state, resolved per tool call. Topic is always an explicit tool argument.
+- **Stateless server**: no session state — the vault (git) and `~/.config/knotica/config.toml` are the only state, resolved per tool call. Topic is always an explicit tool argument. (The loop *daemon* also keeps gitignored runtime markers under `.knotica/locks/`; why that does not widen this is scoped once in [`docs/PRE_PLAN.md`](docs/PRE_PLAN.md) § Settled design decisions.)
 - **The vault is data, this repo is code**: the wiki lives at `~/dev/data/knotica` (separate private git repo). Never hardcode vault paths; all vault access goes through the `VaultStore` abstraction.
 - **One git commit per mutating vault operation** (audit trail + rollback); mutating ops are flock-guarded.
 - **Loops always work on a git clone, never the live vault**; results return as branches for human review.

@@ -18,7 +18,9 @@
 Knotica implements Karpathy's llm-wiki pattern: an AI-maintained compounding markdown knowledge base in
 an Obsidian vault, with per-topic self-improving loops (DSPy inner, SIA outer) planned for Phases 2–3.
 The **client's LLM is the brain**; the server exposes only deterministic tools and is **stateless** — the
-vault (a git repo) and `config.toml` are the only state, resolved per call. The load-bearing structural
+vault (a git repo) and `config.toml` are the only state, resolved per call (the loop daemon's gitignored
+`.knotica/locks/` runtime markers are neither session nor durable state — scoped once in
+[`docs/PRE_PLAN.md`](../docs/PRE_PLAN.md) § Settled design decisions). The load-bearing structural
 property is that **every vault mutation flows through one code path** — a `VaultTransaction` in `core`
 that flock-guards the op, performs atomic writes, appends the log, secret-scrubs, and makes exactly one
 git commit — so MCP tools, the CLI, and future headless loops cannot drift into inconsistent discipline.
@@ -295,7 +297,8 @@ Locked invariants (from `CLAUDE.md` / `docs/PRE_PLAN.md` — do not violate with
 
 - **Client-as-brain**: server exposes deterministic tools only; no server-side LLM until Phase 3a.
 - **Stateless server**: no session state; vault + config are the only state, resolved per call; topic is
-  always an explicit tool argument.
+  always an explicit tool argument. The loop daemon's gitignored `.knotica/locks/` runtime markers are
+  outside this scope, not an exception to it — spelled out once in `docs/PRE_PLAN.md`.
 - **Vault/code separation**: wiki at `~/dev/data/knotica`; all vault access via `VaultStore`; never
   hardcode vault paths.
 - **One git commit per mutating op**, flock-guarded (load-bearing — stdio servers may be long-lived and
