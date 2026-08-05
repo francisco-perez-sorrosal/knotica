@@ -21,11 +21,14 @@ intentional reference (comment syntax varies by language -- the check only
 requires the literal substring to be present on the line).
 
 Baseline: BASELINE_EXEMPT_PATHS lists files with pre-existing violations
-discovered when this gate was introduced (td-014) -- 21 files / 37 citation
-lines, mostly REQ-*/SYSTEMS_PLAN.md docstring provenance notes in tests/ and
-src/knotica/discovery/. This is a decontamination backlog, not a permanent
-exemption: entries should be removed as files are cleaned up, never added to.
-See the notes column on td-014 in .ai-state/TECH_DEBT_LEDGER.md.
+discovered when this gate was introduced (td-014). This is a decontamination
+backlog, not a permanent exemption: entries are removed as files are cleaned
+up, never added to -- and touching a baselined file forces its cleanup, since
+the pre-commit scan does not consult this list for files in the commit. It
+stood at 21 files when the gate landed; `src/knotica/discovery/service.py`
+left it on 2026-08-05, so it is now the 20 entries listed below. The count is
+not restated in prose -- deriving it from the list is what keeps it true.
+See the notes column on td-014 in .ai-state/TECH_DEBT_RESOLVED.md.
 
 Exempt paths (pipeline/ADR-finalize/docs state):
   .ai-work/, .ai-state/, docs/
