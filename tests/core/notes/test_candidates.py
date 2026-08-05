@@ -458,6 +458,36 @@ def test_a_heading_line_is_never_swallowed_into_a_candidate_window():
         assert "Section Heading" not in window_text
 
 
+def test_a_heading_bounds_the_block_before_it_even_with_no_blank_line_between():
+    # td-025's named trigger, measured rather than assumed. An anchored passage
+    # ending WITHOUT terminal punctuation gives the sentence heuristic nothing
+    # to stop on, so only the structural bound can hold it -- and the block
+    # boundaries were recorded from each match's trailing edge alone, which made
+    # the forward bound depend on a blank line happening to precede the heading.
+    # With the fragment butted straight against `## References`, the window ran
+    # through the heading into the next section.
+    head_text = (
+        "# Optics\n"
+        "\n"
+        "The refractive index governs how light bends.\n"
+        "\n"
+        "Snell law holds for isotropic media\n"
+        "## References\n"
+        "Dispersion and the glossary entry for index.\n"
+    )
+    quote = "Snell law holds for isotropic media"
+    chrome_offset = head_text.index("## References")
+
+    candidates = generate_candidates(quote, head_text)
+
+    assert candidates, "the seed word occurs in the page; at least one window must be proposed"
+    for start, end in candidates:
+        assert end <= chrome_offset, (
+            f"window ({start},{end}) crosses into the next section at {chrome_offset}: "
+            f"{head_text[start:end]!r}"
+        )
+
+
 def _best_score_for_the_target_sentence(head_text: str) -> float:
     """Score the winning candidate for the edited target sentence in
     ``head_text`` against its own already-extracted local context, so the

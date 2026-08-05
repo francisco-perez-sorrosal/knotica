@@ -213,10 +213,21 @@ def _block_starts(text: str) -> tuple[int, ...]:
     """Offsets where a new structural block begins -- right after a blank
     line or a heading line. Document start (``0``) is always included as
     the fallback when neither exists before a given offset. See the module
-    docstring's "Structural backward boundary" section.
+    docstring's "Structural block bounds" section.
+
+    A heading contributes **both** its edges: it ends the block before it and
+    starts the one after. Recording only the trailing edge left the forward
+    bound conditional on a blank line happening to precede the heading, so an
+    unpunctuated passage followed immediately by ``## References`` extended
+    straight through it -- the exact "licence to absorb the next section" the
+    module docstring says the forward bound exists to deny (td-025). A blank
+    line needs only its trailing edge: the run of newlines it consists of
+    carries no text, so including it in the preceding block costs nothing.
     """
     starts = {0}
     for match in _BLOCK_BOUNDARY_RE.finditer(text):
+        if match.group().startswith("#"):
+            starts.add(match.start())
         starts.add(match.end())
     return tuple(sorted(starts))
 
