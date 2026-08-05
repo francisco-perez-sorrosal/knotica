@@ -66,6 +66,26 @@ REQUIRED_FIELDS = (
 # an invocation, which is the trunk's "do not invent a selector" rule.
 SUPPORTED_STRATEGY = "pytest-globs"
 
+# The `## Subsystems` table names every group independently of the YAML blocks,
+# which makes it the one source that can answer "did we parse them all?".
+# Bounded to the component table itself -- the notes below it carry their own
+# tables whose first column is also a backticked group id.
+SUBSYSTEMS_TABLE = re.compile(r"^## Subsystems$(.*?)^### ", re.DOTALL | re.MULTILINE)
+SUBSYSTEMS_ROW = re.compile(r"^\|[^|]+\|\s*`([a-z][a-z0-9-]*)`\s*\|", re.MULTILINE)
+
+
+def declared_group_ids(text: str) -> set[str]:
+    """Return the group ids the `## Subsystems` table names.
+
+    Parsed from the table rather than from the YAML blocks on purpose: a check
+    that derives both sides from the same parse cannot detect that parse
+    silently dropping half the file.
+    """
+    table = SUBSYSTEMS_TABLE.search(text)
+    if table is None:
+        sys.exit("error: could not locate the '## Subsystems' table — the topology is malformed")
+    return set(SUBSYSTEMS_ROW.findall(table.group(1)))
+
 
 def load_groups() -> list[dict[str, Any]]:
     """Parse every group block out of the topology, in file order."""
@@ -138,6 +158,17 @@ def cmd_check(groups: list[dict[str, Any]]) -> int:
     """Validate the topology against the filesystem. Returns 1 on any failure."""
     failures: list[str] = []
     seen_ids: set[str] = set()
+
+    # Completeness first. Everything below validates the blocks we parsed; only
+    # this compares that set against an independent declaration of what should
+    # exist. Without it a parser regression that matched half the file would
+    # report "OK -- 5 groups" and read as a pass.
+    declared = declared_group_ids(TOPOLOGY_PATH.read_text(encoding="utf-8"))
+    parsed = {str(g["id"]) for g in groups}
+    for missing in sorted(declared - parsed):
+        failures.append(f"{missing}: named in the Subsystems table but has no group block")
+    for extra in sorted(parsed - declared):
+        failures.append(f"{extra}: has a group block but is absent from the Subsystems table")
 
     for group in groups:
         gid = str(group["id"])

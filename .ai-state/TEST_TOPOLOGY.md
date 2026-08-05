@@ -12,14 +12,14 @@
 # Test Topology — Knotica
 
 Maps the Built structural components of [`.ai-state/DESIGN.md`](DESIGN.md) §3 onto logical test
-groups so that a pipeline step can run a scoped subset instead of the full suite (2443 tests /
-169 test files / ~296 s wall-clock as of 2026-08-04).
+groups so that a pipeline step can run a scoped subset instead of the full suite (2453 tests /
+170 test files / ~296 s wall-clock as of 2026-08-04).
 
 The groups are runnable by hand, not only by pipeline agents: `make test-groups` lists them and
 `make test-group GROUP=<id>` runs one, both derived from the blocks in this file. See
 [Running a group](#running-a-group).
 
-The suite is **not** flat: 147 files sit directly in `tests/`, and 22 more are nested under
+The suite is **not** flat: 148 files sit directly in `tests/`, and 22 more are nested under
 `tests/core/` (1), `tests/core/notes/` (13), and `tests/discovery/` (8). Three groups therefore
 select a directory rather than a file list, and any count taken with a `tests/test_*.py` glob
 alone will under-report by 22.
@@ -53,7 +53,7 @@ that owns its tests. Group ids are kebab-case and collision-free against the tru
 | `src/knotica/core/gap_classifier.py` + `records.GapRecord` | `gapfill-spine` | P1 — regression → fault-class diagnosis, producing the `GapRecord` queue. |
 | `src/knotica/core/gapfill.py` + `records.SuggestionRecord` + `mcp_server/tools_suggestions.py` + `cli/gapfill.py` | `gapfill-spine` | P3 — gap × ranked-candidate join, suggestion queue, approval surface. |
 | `src/knotica/core/source_gate.py` + `source_ingest.py` + `records.SuggestionRecord.gate_outcome` + `mcp_server/tools_source_ingest.py` + `core/operations/candidate_scope.py` + page-subset filter on `evals/train_bootstrap.py`+`evals/golden.py` | `gapfill-spine` | P4 — worktree-scoped candidate ingest and the merge-or-quarantine gate. P1/P3/P4 are three §3 rows but one hand-forward contract over shared `records.*` schemas and the `.knotica/{gaps,suggestions}` JSONL files; they change together and are meaningless apart. |
-| Plugin layer (repo root) | `plugin-layer` | `.claude-plugin/`, `.mcp.json`, `commands/`, `hooks/`, `skills/`, and wheel packaging. The only group whose file dependencies live outside `src/` — a `commands/*.md` edit has no business running 2443 tests. |
+| Plugin layer (repo root) | `plugin-layer` | `.claude-plugin/`, `.mcp.json`, `commands/`, `hooks/`, `skills/`, and wheel packaging. The only group whose file dependencies live outside `src/` — a `commands/*.md` edit has no business running 2453 tests. |
 
 **Coverage:** 18 Built components → 11 groups, 1:1 (each component has exactly one owning group).
 `src/knotica/agent/` is `Planned` and is deliberately absent — it gets a row when it is Built.
@@ -81,10 +81,10 @@ consequences follow, and neither is fixable from inside this file:
   but its filename carries no `okf` marker, so a name-pattern sweep (`test_okf_*.py`) misses it and
   reports five files where there are six. Enumerate this set by import, never by filename glob.
 
-Adding the one file un-grouped for a *different* reason — `test_spine.py`, which is test
-infrastructure rather than a §3 gap (see note 3) — gives the whole-file un-grouped total of
-**12 files / 149 tests**. The two figures are not interchangeable: 11/128 is the size of the §3
-gap this note is about, and 12/149 is what a scoped run leaves to pipeline tier.
+Adding the two files un-grouped for a *different* reason — `test_spine.py` (see note 3) and
+`test_topology_runner.py`, both test infrastructure rather than a §3 gap — gives the whole-file
+un-grouped total of **13 files / 159 tests**. The two figures are not interchangeable: 11/128 is
+the size of the §3 gap this note is about, and 13/159 is what a scoped run leaves to pipeline tier.
 
 The unblock for both is a `.ai-state/DESIGN.md` §3 refinement pass, not a topology edit. Recorded
 as `dec-draft-4b91f4f7`. Do **not** invent synthetic subsystem names to close the gap — an
@@ -182,8 +182,12 @@ unchanged), `2` usage — an unknown group prints the valid ids. `--help` covers
 
 `--check` validates this file against the filesystem: every selector arg exists on disk and holds no
 wildcard, every required trunk field is present, every `file_dependencies` glob matches at least one
-real path, and no group id repeats. It refuses any selector `strategy` other than `pytest-globs`
-rather than guessing an invocation.
+real path, and no group id repeats. It also cross-checks completeness — the ids it parsed from the
+YAML blocks must match the ids the `## Subsystems` table declares as an independent declaration, in
+both directions (a table row with no block, a block with no table row) — which lifts the guarantee
+from "the blocks I found are valid" to "…and they are all of them", so a parser regression matching
+4 of 11 blocks now fails instead of printing `topology check OK — 4 groups` and reading as a pass.
+It refuses any selector `strategy` other than `pytest-globs` rather than guessing an invocation.
 
 Copying group membership into `pyproject.toml` was the alternative, and was rejected: this file is
 what sentinel audits (TT01–TT06) and what `/refresh-topology` regenerates, so a second copy would
@@ -714,7 +718,7 @@ notes: >-
 
 ### Verified runtimes (2026-08-04, single sample each)
 
-Baseline for comparison: full suite 2443 passed in ~296 s.
+Baseline for comparison: full suite 2453 passed in ~296 s.
 
 | Group | Files | Tests | Sequential | `-n 4 --dist loadfile` |
 |---|---:|---:|---:|---:|
@@ -754,18 +758,21 @@ more than eight of the eleven groups cost in total. Each file is instead pinned 
 Pinned files are counted once in the runtime table above and are the only deliberate overlap
 between group `arg` lists.
 
-### Un-grouped tests — the `DESIGN.md` §3 gap, plus one test-infrastructure file
+### Un-grouped tests — the `DESIGN.md` §3 gap, plus two test-infrastructure files
 
 Two different reasons put a file outside every group, and their counts are not interchangeable:
 
 - **The §3 gap — 11 files / 128 tests.** Note 1 documents four module trees with no §3 row.
   `subsystems` entries must resolve to a §3 Built component (sentinel TT01), so no group may name
   them and none does.
-- **Test infrastructure — 1 file / 21 tests.** `test_spine.py` is un-grouped by design (Note 3):
-  its trigger is `tests/conftest.py` + `tests/support/`, which no group's `file_dependencies`
-  covers. It is not a §3 gap, and closing the gap would not group it.
+- **Test infrastructure — 2 files / 31 tests.** `test_spine.py` (21) is un-grouped by design
+  (Note 3): its trigger is `tests/conftest.py` + `tests/support/`, which no group's
+  `file_dependencies` covers. `test_topology_runner.py` (10) covers `scripts/test_group.py`, the
+  runner documented above — dev tooling outside `src/knotica/`, so no §3 row describes it and no
+  group may name it, the same constraint as the four un-modelled trees arriving for a different
+  reason. Neither file is a §3 gap, and closing that gap would group neither.
 
-Together: **12 files / 149 tests** (128 + 21). All of it falls through to **pipeline tier (full
+Together: **13 files / 159 tests** (128 + 31). All of it falls through to **pipeline tier (full
 suite)** — never skipped, only absent from the scoped inner loop:
 
 | Un-modelled tree | Test files |
@@ -775,24 +782,26 @@ suite)** — never skipped, only absent from the scoped inner loop:
 | `src/knotica/service/` | `test_service_manager.py`, `test_service_daemon_env.py`, `test_cli_service.py` |
 | `src/knotica/dashboard/` | `test_http_dashboard.py` |
 | (test infrastructure — not a §3 gap) | `test_spine.py` — see the fitness table above |
+| (test infrastructure — not a §3 gap) | `test_topology_runner.py` — covers `scripts/test_group.py`, outside `src/knotica/` |
 
 `test_log_fmt.py` is an `okf/` test by import (`knotica.okf.log_fmt`) and by nothing else — its
 filename carries no `okf` marker. Enumerate an un-modelled tree's tests by import; a filename glob
 (`test_okf_*.py`) under-reports.
 
 The unblock for the 11/128 §3 gap is the `DESIGN.md` §3 refinement pass recorded as
-`dec-draft-4b91f4f7`, not an edit here. `test_spine.py` stays un-grouped regardless.
+`dec-draft-4b91f4f7`, not an edit here. Both test-infrastructure files stay un-grouped regardless.
 
 ### Partition check
 
-169 test files total. 151 in group `arg` lists + 12 un-grouped + 6 pinned fitness files = 169, no
+170 test files total. 151 in group `arg` lists + 13 un-grouped + 6 pinned fitness files = 170, no
 file assigned to two groups' own membership. Running the eleven groups yields 2294 unique tests;
-2294 + 149 un-grouped = **2443**, exactly the full-suite baseline. The topology covers the suite
+2294 + 159 un-grouped = **2453**, exactly the full-suite baseline. The topology covers the suite
 with no silent drop.
 
-The 149 is the whole un-grouped set — the 11 §3-gap files (128 tests) plus `test_spine.py` (21).
-Use 11/128 when sizing the §3 refinement pass and 12/149 when sizing what a scoped run leaves to
-pipeline tier; they answer different questions.
+The 159 is the whole un-grouped set — the 11 §3-gap files (128 tests) plus the two
+test-infrastructure files, `test_spine.py` (21) and `test_topology_runner.py` (10). Use 11/128 when
+sizing the §3 refinement pass and 13/159 when sizing what a scoped run leaves to pipeline tier; they
+answer different questions.
 
 ### Open divergence from Note 2 — one, and it is not fixable here
 
