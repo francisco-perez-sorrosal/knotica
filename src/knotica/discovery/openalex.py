@@ -34,6 +34,7 @@ from dataclasses import replace
 
 from knotica.core.errors import KnoticaError
 from knotica.discovery.http import SearchHttpClient
+from knotica.discovery.normalize import normalize_doi
 from knotica.discovery.records import SourceCandidate
 
 __all__ = ["OpenAlexEnricher"]
@@ -47,9 +48,6 @@ MAX_DOIS_PER_BATCH = 50
 #: ``select=`` field trim -- confirmed working; cuts payload size and credit cost
 #: to only the fields :func:`_stamp` consumes.
 _SELECT_FIELDS = "id,doi,cited_by_count,fwci,publication_date,open_access,primary_location"
-
-#: The documented, un-normalized DOI URL prefix OpenAlex returns.
-_DOI_URL_PREFIX = "https://doi.org/"
 
 #: arXiv abs/pdf URL -> arXiv id; arXiv assigns DOIs as 10.48550/arXiv.<id>,
 #: which OpenAlex indexes -- so a DOI-less web hit pointing at arXiv still
@@ -172,7 +170,7 @@ def _index_by_doi(payload: Mapping[str, object]) -> dict[str, Mapping[str, objec
     for work in results:
         if not isinstance(work, Mapping):
             continue
-        doi = _normalize_doi(work.get("doi") if isinstance(work.get("doi"), str) else None)
+        doi = normalize_doi(work.get("doi") if isinstance(work.get("doi"), str) else None)
         if doi is not None:
             indexed[doi] = work
     return indexed
@@ -199,25 +197,13 @@ def _resolvable_doi(candidate: SourceCandidate) -> str | None:
     """The candidate's enrichment join key: its DOI, else one derived from an
     arXiv URL (``abs``/``pdf`` form) via arXiv's ``10.48550/arXiv.<id>``
     registration. ``None`` when neither yields a DOI."""
-    normalized = _normalize_doi(candidate.doi)
+    normalized = normalize_doi(candidate.doi)
     if normalized is not None:
         return normalized
     match = _ARXIV_URL_RE.match(candidate.url)
     if match is None:
         return None
     return f"10.48550/arxiv.{match.group('arxiv_id')}"
-
-
-def _normalize_doi(doi: str | None) -> str | None:
-    """Strip the ``https://doi.org/`` prefix (case-insensitively) and lowercase.
-
-    This is the enrichment join key AND the normalized value the P3 consumer
-    contract guarantees by pipeline exit. ``None``/empty stays ``None``.
-    """
-    if not doi:
-        return None
-    stripped = doi[len(_DOI_URL_PREFIX) :] if doi.lower().startswith(_DOI_URL_PREFIX) else doi
-    return stripped.lower()
 
 
 def _chunk(items: Sequence[str], size: int) -> Iterator[Sequence[str]]:

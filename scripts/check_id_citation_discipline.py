@@ -112,7 +112,6 @@ EXEMPT_EXACT_PATHS = frozenset(
 # fixed inline, not baselined.
 BASELINE_EXEMPT_PATHS = frozenset(
     {
-        "src/knotica/discovery/service.py",
         "src/knotica/discovery/youcom.py",
         "tests/discovery/test_openalex.py",
         "tests/discovery/test_records.py",

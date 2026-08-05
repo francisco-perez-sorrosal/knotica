@@ -12,8 +12,8 @@
 # Test Topology — Knotica
 
 Maps the Built structural components of [`.ai-state/DESIGN.md`](DESIGN.md) §3 onto logical test
-groups so that a pipeline step can run a scoped subset instead of the full suite (2534 tests /
-176 test files / ~296 s wall-clock, sampled 2026-08-05).
+groups so that a pipeline step can run a scoped subset instead of the full suite (2551 tests /
+177 test files / ~296 s wall-clock, sampled 2026-08-05).
 
 The groups are runnable by hand, not only by pipeline agents: `make test-groups` lists them and
 `make test-group GROUP=<id>` runs one, both derived from the blocks in this file. See
@@ -58,7 +58,7 @@ that owns its tests. Group ids are kebab-case and collision-free against the tru
 | `src/knotica/okf/` | `okf-conformance` | One format vocabulary with three verbs over it — `check` (read-only findings), `export` (bundle outside the vault), `repair` (the one module here that mutates, and only through `VaultTransaction`). Both `export` and `repair` import `check`, so an OKF field-set change touches all three in a single edit. Its adapters are thin and stay with their surface groups: `cli/okf.py` with `cli-surface`, the `vault_health` dispatcher's `okf_check`/`okf_repair` actions with `mcp-surface`. Enumerate this tree's tests **by import** — one of them carries no `okf` marker in its filename (note 1). |
 | `src/knotica/guillotine/` | `guillotine-audit` | A read-only claim-trial pipeline — search → classify → score → patch → report, composed by `runner`. Deliberately **not** folded into `okf-conformance` despite the single `guillotine.report → okf.frontmatter` edge: the two answer different questions (format conformance vs. claim retraction) and change for different reasons, so sharing a group would fire an okf edit into the guillotine suite for nothing. The group also claims `core/operations/guillotine.py` — the transaction-bearing adapter §3 keeps *outside* the package precisely to hold the analysis layer inward-arrow-clean, and the module whose tests live here rather than in `vault-semantics` (note 2). |
 | `src/knotica/service/` | `service-lifecycle` | Install / uninstall / status / supervise for the headless loop: two platform generators (launchd verified, systemd untested and self-reporting so) behind one interface, plus the daemon entry, with an injectable `Runner` seam that makes the `launchctl`/`systemctl` calls testable without touching the machine. Deliberately **not** folded into `loop-runtime`: §3's contract is that installing or querying the service never drags the loop runtime in (those imports are lazy, inside the supervision cycle), and `loop-runtime` is the slowest group in the project — a three-module OS-lifecycle edit has no business paying for an e2e clone-and-race suite. |
-| Plugin layer (repo root) | `plugin-layer` | `.claude-plugin/`, `.mcp.json`, `commands/`, `hooks/`, `skills/`, and wheel packaging. The only group whose file dependencies live outside `src/` — a `commands/*.md` edit has no business running 2534 tests. |
+| Plugin layer (repo root) | `plugin-layer` | `.claude-plugin/`, `.mcp.json`, `commands/`, `hooks/`, `skills/`, and wheel packaging. The only group whose file dependencies live outside `src/` — a `commands/*.md` edit has no business running 2551 tests. |
 
 **Coverage:** 23 Built components → 14 groups. The map is **total and single-valued** — every Built
 component has exactly one owning group — but not injective: `vault-substrate`, `notes-overlay`,
@@ -882,7 +882,7 @@ notes: >-
 
 ### Verified runtimes (single sample each)
 
-Baseline for comparison: full suite 2534 passed; the ~296 s wall-clock is the last full-suite
+Baseline for comparison: full suite 2551 passed; the ~296 s wall-clock is the last full-suite
 sample, taken at 2520 tests on 2026-08-05 and not re-sampled for the +14 below.
 
 Rows marked ‡ were re-measured after the duplicate-consolidation and `td-031` passes, which gave
@@ -908,14 +908,14 @@ noise.
 | `eval-harness` | 18 | 332 | 20.4 s | 17.0 s |
 | `query-compile` | 6 | 48 | 9.8 s | 8.7 s |
 | `loop-runtime` ‡ | 23 | 198 | 96.6 s | 32.0 s |
-| `discovery-network` | 10 | 130 | 1.3 s | 2.6 s |
+| `discovery-network` ‡ | 11 | 147 | 1.3 s | 2.6 s |
 | `gapfill-spine` | 13 | 196 | 43.5 s | 17.3 s |
 | `okf-conformance` † | 8 | 55 | 6.0 s | 3.9 s |
 | `guillotine-audit` † | 2 | 45 | 6.2 s | 7.2 s |
 | `service-lifecycle` † | 4 | 55 | 2.2 s | 0.9 s |
 | `plugin-layer` | 4 | 29 | 4.8 s | 2.1 s |
 
-The column sums to 2609 against 2483 unique, and the 126-test excess is exactly the pinned overlap:
+The column sums to 2626 against 2500 unique, and the 126-test excess is exactly the pinned overlap:
 `test_file_size_ratchet.py` counted in all 14 groups (13 × 6 = 78) and `test_architecture_boundaries.py`
 in 5 (4 × 12 = 48). That identity is the table's own arithmetic check — it is what forced the four
 unmarked corrections above, since leaving them at their pre-widening values would have made the
@@ -995,17 +995,17 @@ either filename would have misled a glob in the opposite direction.
 
 Re-proved against the live tree after the duplicate-consolidation and `td-031` passes.
 
-**Files — 176 total.** 166 in group `arg` lists as own membership + 6 pinned fitness files + 4
-un-grouped = 176. Exactly two files appear in more than one group's `arg` list
+**Files — 177 total.** 167 in group `arg` lists as own membership + 6 pinned fitness files + 4
+un-grouped = 177. Exactly two files appear in more than one group's `arg` list
 (`test_file_size_ratchet.py` in all 14, `test_architecture_boundaries.py` in 5); both are pinned
 fitness tests, counted once in the runtime table. No file is assigned to two groups' own
 membership.
 
-**Tests — 2534 total.** Running the fourteen groups yields 2483 unique tests; 2483 + 51 un-grouped
-= **2534**, exactly the full-suite collection. The topology covers the suite with no silent drop
+**Tests — 2551 total.** Running the fourteen groups yields 2500 unique tests; 2500 + 51 un-grouped
+= **2551**, exactly the full-suite collection. The topology covers the suite with no silent drop
 and no stray.
 
-**Three movements, in that order.** The §3 gap closed first; this revision then grew the suite
+**Four movements, in that order.** The §3 gap closed first; this revision then grew the suite
 without reopening it. Both are recorded because the second is only legible against the first:
 
 1. **§3 refinement — the gap closed.** The 128 tests that were the §3 gap did not disappear, they
@@ -1035,6 +1035,16 @@ without reopening it. Both are recorded because the second is only legible again
    *entirely* code that §3 does not model by design, so it grows whenever a repo-record gate is
    added and shrinks never. A third `scripts/`-covering file is evidence the gates are multiplying,
    which is the intent.
+4. **The discovery identity leaf — the partition absorbed it with no selector change.**
+   Extracting `discovery/normalize.py` brought `tests/discovery/test_normalize.py` (16), plus one
+   leaf-property assertion in the group's existing `test_discovery_import_boundary.py`, and
+   because `discovery-network` selects the **directory** `tests/discovery/` rather than a file
+   list, the new file joined its group automatically. Own-membership 166 -> 167, files 176 -> 177,
+   grouped-unique 2483 -> 2500, suite 2534 -> 2551; the un-grouped set did not move. This is the
+   case the literal-paths rule is usually accused of making expensive, and it cost nothing —
+   the three directory-selecting groups pay no maintenance for a new file in their own tree.
+   `discovery-network`'s row is marked ‡ for the test-count correction; its runtime is not
+   re-sampled, since a 17-test addition to a group measured at 1.3 s sits inside single-sample noise.
 
 One count still answers what two used to: **4 files / 51 tests** is both the §3-gap size (zero of
 it) and the size of what a scoped run leaves to pipeline tier. The revision before last needed

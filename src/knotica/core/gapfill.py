@@ -877,18 +877,15 @@ def _build_provider(name: str, *, environ: Mapping[str, str] | None) -> SearchPr
 def _source_key(candidate: Mapping[str, object]) -> str:
     """The dedup + identity key of one candidate: normalized DOI, else URL.
 
-    Reuses ``DiscoveryService``'s own normalizers (single source of truth for DOI
-    prefix/case and URL trailing-slash/fragment handling) so the dedup gate cannot
-    drift from the service's own dedup semantics.
+    Delegates to ``discovery.normalize``, the single declaration of the rule, so
+    the queue's dedup cannot drift from the service's. The candidate is an opaque
+    dict here -- what keeps ``core/records.py`` free of an edge into
+    ``discovery/`` -- so its two fields are coerced at this boundary.
     """
-    from knotica.discovery.service import _normalize_doi, _normalize_url
+    from knotica.discovery.normalize import source_key
 
-    doi = candidate.get("doi")
-    normalized_doi = _normalize_doi(doi if isinstance(doi, str) else None)
-    if normalized_doi is not None:
-        return f"doi:{normalized_doi}"
-    url = candidate.get("url")
-    return f"url:{_normalize_url(url if isinstance(url, str) else '')}"
+    doi, url = candidate.get("doi"), candidate.get("url")
+    return source_key(doi if isinstance(doi, str) else None, url if isinstance(url, str) else "")
 
 
 def _suggestion_id(topic: str, gap_id: str, source_key: str) -> str:

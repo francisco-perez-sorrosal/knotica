@@ -54,7 +54,7 @@ OVER_CEILING_BASELINE: dict[str, int] = {
     "core/loop.py": 1146,
     "evals/golden.py": 975,
     "core/records.py": 947,
-    "core/gapfill.py": 938,
+    "core/gapfill.py": 935,
 }
 
 

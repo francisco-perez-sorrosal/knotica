@@ -1,7 +1,7 @@
 """``DiscoveryService`` -- the search -> dedup -> enrich -> score -> rank facade.
 
-Composes every stage of the pipeline in the ``SYSTEMS_PLAN.md`` Interfaces
-diagram behind one call, :meth:`DiscoveryService.discover`:
+Composes every stage of the discovery pipeline behind one call,
+:meth:`DiscoveryService.discover`:
 
 1. **search** -- try each configured :class:`~knotica.discovery.provider.SearchProvider`
    in order (Decision C -- first-non-empty-wins, skip-on-hard-failure): a
@@ -11,11 +11,11 @@ diagram behind one call, :meth:`DiscoveryService.discover`:
    ``[]`` -- never an error.
 2. **dedup** -- by normalized DOI, falling back to normalized URL when no DOI
    is present, preferring the candidate with richer metadata when two
-   providers surface the same source (REQ-09).
+   providers surface the same source.
 3. **enrich** -- via the configured :class:`~knotica.discovery.provider.Enricher`
    (optional; ``None`` skips this stage).
 4. **score** -- via :class:`~knotica.discovery.reputability.ReputabilityScorer`.
-5. **rank** -- a total, explicit sort key ``(tier_rank, -score, url)`` (REQ-10),
+5. **rank** -- a total, explicit sort key ``(tier_rank, -score, url)``,
    so ordering never depends on dict/insertion order and repeated runs over
    the same input produce byte-identical ordering, including the tie-break
    for two candidates sharing an identical ``(tier, score)``.
@@ -25,9 +25,9 @@ from __future__ import annotations
 
 from collections.abc import Callable, Sequence
 from datetime import date
-from urllib.parse import urlsplit, urlunsplit
 
 from knotica.core.errors import KnoticaError
+from knotica.discovery.normalize import source_key
 from knotica.discovery.provider import Enricher, SearchProvider
 from knotica.discovery.records import ReputabilityTier, SearchQuery, SourceCandidate
 from knotica.discovery.reputability import ReputabilityScorer
@@ -44,9 +44,6 @@ _TIER_RANK: dict[ReputabilityTier, int] = {
     ReputabilityTier.GENERAL_WEB: 3,
 }
 _UNSCORED_TIER_RANK = len(_TIER_RANK)
-
-#: The un-normalized DOI URL prefix a provider or enricher may still carry.
-_DOI_URL_PREFIX = "https://doi.org/"
 
 
 class DiscoveryService:
@@ -107,7 +104,7 @@ def _dedup(candidates: Sequence[SourceCandidate]) -> list[SourceCandidate]:
     best_by_key: dict[str, SourceCandidate] = {}
     order: list[str] = []
     for candidate in candidates:
-        key = _dedup_key(candidate)
+        key = source_key(candidate.doi, candidate.url)
         current = best_by_key.get(key)
         if current is None:
             order.append(key)
@@ -115,13 +112,6 @@ def _dedup(candidates: Sequence[SourceCandidate]) -> list[SourceCandidate]:
         elif _richness(candidate) > _richness(current):
             best_by_key[key] = candidate
     return [best_by_key[key] for key in order]
-
-
-def _dedup_key(candidate: SourceCandidate) -> str:
-    doi = _normalize_doi(candidate.doi)
-    if doi is not None:
-        return f"doi:{doi}"
-    return f"url:{_normalize_url(candidate.url)}"
 
 
 def _richness(candidate: SourceCandidate) -> int:
@@ -137,21 +127,6 @@ def _richness(candidate: SourceCandidate) -> int:
         candidate.provider_score,
     )
     return sum(field is not None for field in optional_fields)
-
-
-def _normalize_doi(doi: str | None) -> str | None:
-    """Bare, lowercase DOI for the dedup join key -- ``None``/empty stays ``None``."""
-    if not doi:
-        return None
-    stripped = doi[len(_DOI_URL_PREFIX) :] if doi.lower().startswith(_DOI_URL_PREFIX) else doi
-    return stripped.lower()
-
-
-def _normalize_url(url: str) -> str:
-    """Lowercase scheme/host, strip a trailing slash, drop any fragment."""
-    parsed = urlsplit(url)
-    path = parsed.path.rstrip("/")
-    return urlunsplit((parsed.scheme.lower(), parsed.netloc.lower(), path, parsed.query, ""))
 
 
 # ---------------------------------------------------------------------------

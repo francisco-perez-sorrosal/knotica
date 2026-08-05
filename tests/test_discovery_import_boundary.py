@@ -25,8 +25,10 @@ automatically, not once and never re-run):
   zero edge into ``discovery/`` (Decision B).
 """
 
+import ast
 import subprocess
 import sys
+from pathlib import Path
 
 
 def test_importing_mcp_server_does_not_transitively_import_discovery() -> None:
@@ -80,6 +82,41 @@ def test_importing_discovery_itself_succeeds_with_only_the_base_environment_and_
         f"must stay lazy); child stdout={result.stdout!r} stderr={result.stderr!r}"
     )
     assert "DISCOVERY_HTTPX_ISOLATION_OK" in result.stdout
+
+
+def test_the_normalize_leaf_imports_nothing_from_knotica() -> None:
+    # Both `normalize.py`'s docstring and `.ai-state/DESIGN.md` § 3 state the leaf
+    # property as load-bearing: it is what lets `core.gapfill` reach the shared
+    # identity rule without the direction of the dependency mattering. A stated
+    # property nothing enforces quietly stops being true -- a future
+    # `from knotica.core.errors import ...` here would break nothing at runtime
+    # (that edge is already allowed for the package) while falsifying both
+    # documents.
+    #
+    # Checked structurally rather than through the fresh-interpreter pattern the
+    # rest of this file uses: importing `knotica.discovery.normalize` necessarily
+    # executes `knotica/discovery/__init__.py` first, which imports the package,
+    # so a runtime probe cannot isolate this one module's own edges.
+    module = Path(__file__).resolve().parents[1] / "src" / "knotica" / "discovery" / "normalize.py"
+    tree = ast.parse(module.read_text(encoding="utf-8"))
+
+    knotica_imports = sorted(
+        name
+        for node in ast.walk(tree)
+        for name in (
+            [alias.name for alias in node.names]
+            if isinstance(node, ast.Import)
+            else [node.module or ""]
+            if isinstance(node, ast.ImportFrom)
+            else []
+        )
+        if name == "knotica" or name.startswith("knotica.")
+    )
+
+    assert not knotica_imports, (
+        "discovery/normalize.py must import nothing from knotica -- it is a leaf, "
+        f"and both its docstring and DESIGN.md § 3 say so; found: {knotica_imports}"
+    )
 
 
 def test_importing_core_records_does_not_transitively_import_discovery() -> None:

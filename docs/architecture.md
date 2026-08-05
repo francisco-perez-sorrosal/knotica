@@ -160,7 +160,10 @@ source-discovery layer — a `SearchProvider` protocol with an `httpx`-REST adap
 provider-agnostic OpenAlex enrichment pass stamping citation/venue/open-access metadata, and a deterministic
 metadata-only reputability scorer — producing ranked, frozen `SourceCandidate` records for the loop's gap-fill
 suggestion queue. It is a pure outbound-network boundary (no vault access, no LLM) and stays off the MCP
-cold-start path. **Note:** the you.com API wire shape is documented from the public REST spec but not yet live-verified
+cold-start path. `discovery/normalize.py` is the package's identity leaf — `normalize_doi`, `normalize_url`,
+and `source_key`, the single declaration of when two candidates are the same source (DOI when present, URL
+otherwise). Three callers need that one rule: the service's dedup, the enricher's join, and `core/gapfill.py`'s
+suggestion-queue dedup, which reaches it under the same lazy-import rule as the rest of `discovery/`. **Note:** the you.com API wire shape is documented from the public REST spec but not yet live-verified
 (Step 31 deferred); the fixtures are synthetic. Config stays provider-aware for future extension.
 Contract and rationale: [`.ai-state/DESIGN.md` § 3](../.ai-state/DESIGN.md#3-components) and ADRs `dec-027` /
 `dec-026` (finalize to `dec-NNN` at merge).
