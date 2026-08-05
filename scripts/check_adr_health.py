@@ -38,6 +38,18 @@ DECISIONS_DIR = Path(__file__).resolve().parents[1] / ".ai-state" / "decisions"
 FINALIZED_GLOB = "[0-9][0-9][0-9]-*.md"
 FRONTMATTER_RE = re.compile(r"\A---\n(.*?)\n---", re.DOTALL)
 
+#: Every frontmatter field that names another decision.
+CROSS_REFERENCE_FIELDS = (
+    "supersedes",
+    "superseded_by",
+    "re_affirms",
+    "re_affirmed_by",
+    "retired_by",
+)
+
+#: Prefix of a provisional draft id. Split so this line is a rule, not a citation.
+DRAFT_ID_PREFIX = "dec-" + "draft-"
+
 
 def _as_list(value: Any) -> list[str]:
     """Both fields appear as a bare scalar and as a list across this corpus."""
@@ -78,6 +90,18 @@ def main() -> int:
             finalized[identifier] = frontmatter
 
     for identifier, frontmatter in sorted(finalized.items()):
+        # A finalized record must not point at a draft id. Finalize rewrites
+        # those to dec-NNN as it promotes them -- so one surviving here either
+        # escaped that rewrite, or names a draft that was abandoned and will
+        # never finalize. Either way the pointer can never resolve.
+        for field in CROSS_REFERENCE_FIELDS:
+            for value in _as_list(frontmatter.get(field)):
+                if value.startswith(DRAFT_ID_PREFIX):
+                    failures.append(
+                        f"{identifier}: {field} names `{value}`, a draft id — a finalized record "
+                        f"cannot reference one, since it resolves only if that draft finalizes"
+                    )
+
         for target in _as_list(frontmatter.get("re_affirms")):
             if target not in finalized:
                 failures.append(f"{identifier}: re_affirms `{target}`, which does not exist")

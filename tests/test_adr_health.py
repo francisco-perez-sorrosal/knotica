@@ -134,6 +134,18 @@ def test_rejects_a_re_affirms_pointing_at_a_decision_that_does_not_exist(
     assert "does not exist" in capsys.readouterr().err
 
 
+def test_rejects_a_finalized_record_that_points_at_a_draft_id(
+    corpus: Callable[..., int], capsys
+) -> None:
+    # Finalize rewrites draft ids as it promotes them, so one surviving on a
+    # finalized record either escaped that rewrite or names a draft that was
+    # abandoned -- dec-062 carried exactly the latter.
+    exit_code = corpus({"001-a.md": adr("dec-001", supersedes=DRAFT_ID)})
+
+    assert exit_code == 1
+    assert "a draft id" in capsys.readouterr().err
+
+
 def test_a_draft_pointing_at_a_finalized_decision_is_not_a_reciprocity_failure(
     corpus: Callable[..., int],
 ) -> None:
