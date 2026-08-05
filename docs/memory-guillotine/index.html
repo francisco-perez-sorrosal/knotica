@@ -1,0 +1,691 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Memory Guillotine — Knotica</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,400;0,9..40,500;0,9..40,600;0,9..40,700;1,9..40,400&family=DM+Serif+Display&display=swap" rel="stylesheet" />
+  <style>
+    :root {
+      --bg: #0c1117;
+      --bg-soft: #141c26;
+      --panel: #1a2433;
+      --text: #eef3f8;
+      --muted: #9aabb8;
+      --accent: #e8a838;
+      --accent-soft: rgba(232, 168, 56, 0.14);
+      --teal: #5ecfc6;
+      --teal-soft: rgba(94, 207, 198, 0.12);
+      --danger: #f07178;
+      --type-title: 72px;
+      --type-subtitle: 48px;
+      --type-body: 36px;
+      --type-small: 28px;
+      --type-label: 24px;
+      --pad-top: 96px;
+      --pad-bottom: 88px;
+      --pad-x: 112px;
+      --gap-title: 48px;
+      --gap-item: 28px;
+    }
+
+    * { box-sizing: border-box; }
+
+    html, body {
+      margin: 0;
+      height: 100%;
+      background: #05080c;
+      font-family: "DM Sans", system-ui, sans-serif;
+      color: var(--text);
+    }
+
+    section[data-label] > *:not(img):not(picture):not(video):not(svg):not(canvas) {
+      height: 100%;
+      box-sizing: border-box;
+    }
+
+    .slide {
+      display: flex;
+      flex-direction: column;
+      justify-content: flex-start;
+      padding: var(--pad-top) var(--pad-x) var(--pad-bottom);
+      background: var(--bg);
+      position: relative;
+      overflow: hidden;
+    }
+
+    .slide::before {
+      content: "";
+      position: absolute;
+      inset: 0;
+      background:
+        radial-gradient(ellipse 70% 55% at 100% 0%, rgba(94, 207, 198, 0.08), transparent 55%),
+        radial-gradient(ellipse 50% 40% at 0% 100%, rgba(232, 168, 56, 0.07), transparent 50%);
+      pointer-events: none;
+    }
+
+    .slide > * { position: relative; z-index: 1; }
+
+    .kicker {
+      font-size: var(--type-label);
+      letter-spacing: 0.14em;
+      text-transform: uppercase;
+      color: var(--teal);
+      font-weight: 600;
+      margin: 0 0 24px;
+    }
+
+    h1, h2 {
+      font-family: "DM Serif Display", Georgia, serif;
+      font-weight: 400;
+      margin: 0;
+      line-height: 1.05;
+    }
+
+    h1 { font-size: var(--type-title); max-width: 14ch; }
+    h2 { font-size: var(--type-subtitle); max-width: 22ch; margin-bottom: var(--gap-title); }
+
+    .subtitle {
+      font-size: var(--type-body);
+      color: var(--muted);
+      margin: 28px 0 0;
+      max-width: 36ch;
+      line-height: 1.35;
+    }
+
+    .subtitle-wide { max-width: 44ch; }
+
+    .pull-quote {
+      font-size: var(--type-small);
+      line-height: 1.4;
+      color: var(--text);
+      border-left: 4px solid var(--accent);
+      padding: 8px 0 8px 28px;
+      margin: 0 0 28px;
+      max-width: 50rem;
+    }
+
+    .wiki-basics {
+      margin: 0 0 28px;
+      max-width: 52rem;
+    }
+
+    .wiki-basics p {
+      margin: 0 0 16px;
+      font-size: var(--type-small);
+      line-height: 1.4;
+      color: var(--muted);
+    }
+
+    .wiki-basics p:last-child { margin-bottom: 0; }
+
+    .wiki-basics strong {
+      color: var(--text);
+      font-weight: 600;
+    }
+
+    .footer-tag {
+      margin-top: auto;
+      font-size: var(--type-small);
+      color: var(--muted);
+    }
+
+    ul.bullets {
+      list-style: none;
+      margin: 0;
+      padding: 0;
+      display: flex;
+      flex-direction: column;
+      gap: var(--gap-item);
+      max-width: 52rem;
+    }
+
+    ul.bullets li {
+      font-size: var(--type-body);
+      line-height: 1.35;
+      padding-left: 36px;
+      position: relative;
+    }
+
+    ul.bullets li::before {
+      content: "";
+      position: absolute;
+      left: 0;
+      top: 0.55em;
+      width: 12px;
+      height: 12px;
+      border-radius: 50%;
+      background: var(--accent);
+    }
+
+    .two-col {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 48px;
+      align-items: start;
+    }
+
+    .card {
+      background: var(--panel);
+      border: 1px solid rgba(255, 255, 255, 0.06);
+      border-radius: 20px;
+      padding: 40px 44px;
+    }
+
+    .card h3 {
+      margin: 0 0 20px;
+      font-size: var(--type-body);
+      font-weight: 600;
+      color: var(--accent);
+    }
+
+    .card p, .card li {
+      font-size: var(--type-small);
+      line-height: 1.4;
+      color: var(--muted);
+      margin: 0;
+    }
+
+    .card ul {
+      margin: 0;
+      padding-left: 22px;
+      display: flex;
+      flex-direction: column;
+      gap: 14px;
+    }
+
+    .flow {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 24px;
+      margin-top: 12px;
+    }
+
+    .step {
+      background: var(--panel);
+      border-radius: 18px;
+      padding: 32px 28px;
+      border-top: 4px solid var(--teal);
+      min-height: 220px;
+    }
+
+    .step-num {
+      font-size: var(--type-label);
+      font-weight: 700;
+      color: var(--teal);
+      margin-bottom: 16px;
+    }
+
+    .step-title {
+      font-size: var(--type-small);
+      font-weight: 600;
+      margin-bottom: 12px;
+      color: var(--text);
+    }
+
+    .step-body {
+      font-size: 24px;
+      line-height: 1.35;
+      color: var(--muted);
+      margin: 0;
+    }
+
+    table.verdicts {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: var(--type-small);
+      margin-top: 8px;
+    }
+
+    table.verdicts th,
+    table.verdicts td {
+      text-align: left;
+      padding: 18px 24px;
+      border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+    }
+
+    table.verdicts th {
+      color: var(--muted);
+      font-weight: 500;
+      font-size: var(--type-label);
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+    }
+
+    table.verdicts td:first-child {
+      font-weight: 600;
+      color: var(--accent);
+      white-space: nowrap;
+    }
+
+    .score-box {
+      background: var(--accent-soft);
+      border: 1px solid rgba(232, 168, 56, 0.35);
+      border-radius: 18px;
+      padding: 28px 32px;
+      margin-bottom: 28px;
+    }
+
+    .score-box p {
+      margin: 0;
+      font-size: var(--type-small);
+      line-height: 1.4;
+    }
+
+    .score-box strong { color: var(--accent); }
+
+    .mini-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 20px;
+    }
+
+    .mini-grid h4 {
+      margin: 0 0 12px;
+      font-size: var(--type-label);
+      font-weight: 600;
+    }
+
+    .mini-grid .up h4 { color: var(--danger); }
+    .mini-grid .down h4 { color: var(--teal); }
+
+    .mini-grid ul {
+      margin: 0;
+      padding-left: 20px;
+      font-size: 24px;
+      line-height: 1.35;
+      color: var(--muted);
+    }
+
+    .title-slide {
+      justify-content: center;
+    }
+
+    .title-slide h1 {
+      max-width: none;
+      font-size: 96px;
+    }
+
+    .accent-bar {
+      width: 120px;
+      height: 6px;
+      background: linear-gradient(90deg, var(--accent), var(--teal));
+      border-radius: 3px;
+      margin: 32px 0 0;
+    }
+
+    code {
+      font-family: ui-monospace, monospace;
+      font-size: 0.92em;
+      color: var(--teal);
+    }
+
+    .compile-row {
+      display: grid;
+      grid-template-columns: 1fr auto 1fr;
+      gap: 28px;
+      align-items: stretch;
+      margin-top: 8px;
+    }
+
+    .compile-box {
+      background: var(--panel);
+      border-radius: 18px;
+      padding: 32px 36px;
+      border: 1px solid rgba(255, 255, 255, 0.06);
+    }
+
+    .compile-box h3 {
+      margin: 0 0 14px;
+      font-size: var(--type-small);
+      font-weight: 600;
+    }
+
+    .compile-box.in h3 { color: var(--teal); }
+    .compile-box.out h3 { color: var(--accent); }
+
+    .compile-box p {
+      margin: 0;
+      font-size: 24px;
+      line-height: 1.35;
+      color: var(--muted);
+    }
+
+    .compile-arrow {
+      display: flex;
+      align-items: center;
+      font-size: var(--type-subtitle);
+      color: var(--muted);
+      font-weight: 300;
+    }
+
+    .punk-line {
+      font-size: var(--type-body);
+      font-weight: 600;
+      color: var(--accent);
+      margin: 0 0 28px;
+      max-width: 48rem;
+      line-height: 1.3;
+    }
+
+    .questions {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 18px 40px;
+      margin-top: 4px;
+    }
+
+    .question {
+      display: flex;
+      gap: 16px;
+      align-items: flex-start;
+      font-size: 24px;
+      line-height: 1.35;
+      color: var(--muted);
+    }
+
+    .question-num {
+      flex: 0 0 auto;
+      font-weight: 700;
+      color: var(--teal);
+      font-size: var(--type-label);
+    }
+
+    .question-text { color: var(--text); }
+
+    .closing-line {
+      margin-top: 28px;
+      font-size: var(--type-small);
+      color: var(--muted);
+      max-width: 48rem;
+      line-height: 1.4;
+    }
+
+    .closing-line strong { color: var(--teal); }
+
+    .cmd {
+      background: var(--bg-soft);
+      border: 1px solid rgba(255, 255, 255, 0.08);
+      border-left: 4px solid var(--accent);
+      border-radius: 12px;
+      padding: 22px 26px;
+      font-family: ui-monospace, "SF Mono", Menlo, monospace;
+      font-size: 24px;
+      line-height: 1.5;
+      color: var(--text);
+      margin: 0 0 22px;
+      white-space: pre-wrap;
+    }
+
+    .cmd .c { color: var(--muted); }
+
+    .flow .step.origin { border-top-color: var(--danger); }
+    .flow .step.landing { border-top-color: var(--accent); }
+
+    .loop-note {
+      font-size: var(--type-small);
+      line-height: 1.4;
+      color: var(--muted);
+      margin: 28px 0 0;
+      max-width: 62rem;
+    }
+
+    .loop-note strong { color: var(--teal); }
+  </style>
+</head>
+<body>
+  <deck-stage width="1920" height="1080">
+    <section data-label="Title">
+      <div class="slide title-slide">
+        <p class="kicker">Knotica · LLM-Wiki · Built</p>
+        <h1>Memory Guillotine</h1>
+        <div class="accent-bar"></div>
+        <p class="subtitle subtitle-wide">The right to contest, demote, retract, and re-ground claims inside your AI-maintained memory.</p>
+        <p class="footer-tag">Francisco Perez-Sorrosal · originally a hackathon pitch · shipped and updated 2026-08-05</p>
+      </div>
+    </section>
+
+    <section data-label="What Is an LLM-Wiki?">
+      <div class="slide">
+        <p class="kicker">Karpathy’s LLM-wiki pattern</p>
+        <h2>What Is an LLM-Wiki?</h2>
+        <div class="wiki-basics">
+          <p><strong>A wiki</strong> is a set of linked notes — a personal encyclopedia you write and edit over time. Each page can point to others, so ideas connect instead of living in isolated chat threads.</p>
+          <p><strong>An LLM-wiki</strong> is that same wiki, but an AI helps maintain it: it reads your sources, writes and updates pages, cross-references topics, and stores everything in a git-backed vault you own.</p>
+        </div>
+        <p class="pull-quote">Karpathy’s pattern: not just search over files — the LLM compiles sources into persistent memory that compounds with every ingest. Compounding memory needs a way to <em>un</em>-compound a bad claim, or every error is permanent.</p>
+        <div class="compile-row">
+          <div class="compile-box in">
+            <h3>Compile knowledge in</h3>
+            <p>Ingest sources → synthesize pages → memory grows.</p>
+          </div>
+          <div class="compile-arrow">↔</div>
+          <div class="compile-box out">
+            <h3>Decompile a claim out</h3>
+            <p>Memory Guillotine — the inverse operation Knotica was missing. It is now built, and it does not end at removal: a weakened claim becomes a <em>gap</em> that feeds back into the compile-in direction.</p>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section data-label="What Was Pitched, What Shipped">
+      <div class="slide">
+        <p class="kicker">Pitch → shipped</p>
+        <h2>What Was Pitched, What Shipped</h2>
+        <p class="punk-line">Punk user sovereignty: power over the agent’s accumulated memory — not a deletion button, but memory due process. That held. One design commitment did not.</p>
+        <div class="two-col">
+          <div class="card">
+            <h3>Shipped as pitched</h3>
+            <ul>
+              <li>Put any claim on trial — <code>knotica guillotine "&lt;claim&gt;" --topic &lt;t&gt;</code>.</li>
+              <li>See every place it lives, with its role in each passage.</li>
+              <li>Inspect supporting <em>and</em> contradicting evidence.</li>
+              <li>Transparent verdict + risk score; dry-run is the default.</li>
+              <li>The five risk bands, unchanged, still published in code.</li>
+            </ul>
+          </div>
+          <div class="card">
+            <h3>Changed on contact with the design</h3>
+            <ul>
+              <li><strong>The patch is never applied.</strong> The pitch said “wiki pages are edited”. As built, <code>guillotine/</code> is a <em>read-only</em> analysis layer — the diff is evidence rendered for a human, not an edit.</li>
+              <li><strong>Because removal alone is the wrong end state.</strong> Deleting a claim leaves a hole where knowledge used to be. So an applied verdict files a <em>gap</em> instead, and re-grounding flows through the normal ingest path where a real source and a human approval are required.</li>
+              <li><strong>Persistence lives outside the package</strong> — <code>core/operations/guillotine.py</code> owns the transaction, which is what keeps the analysis layer inward-arrow clean.</li>
+            </ul>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section data-label="A Claim-Level Trial">
+      <div class="slide">
+        <p class="kicker">Memory due process</p>
+        <h2>A Claim-Level Trial</h2>
+        <p class="subtitle" style="margin-top: 0; margin-bottom: 28px;">Eight questions — answered before any edit lands.</p>
+        <div class="questions">
+          <div class="question">
+            <span class="question-num">1</span>
+            <span class="question-text">Where does this claim appear?</span>
+          </div>
+          <div class="question">
+            <span class="question-num">2</span>
+            <span class="question-text">Is it asserted, quoted, contradicted, or merely mentioned?</span>
+          </div>
+          <div class="question">
+            <span class="question-num">3</span>
+            <span class="question-text">Which sources support it?</span>
+          </div>
+          <div class="question">
+            <span class="question-num">4</span>
+            <span class="question-text">Which sources contradict it?</span>
+          </div>
+          <div class="question">
+            <span class="question-num">5</span>
+            <span class="question-text">Which synthesized pages depend on it?</span>
+          </div>
+          <div class="question">
+            <span class="question-num">6</span>
+            <span class="question-text">What would break if we removed it?</span>
+          </div>
+          <div class="question">
+            <span class="question-num">7</span>
+            <span class="question-text">Delete, demote, quarantine, or annotate?</span>
+          </div>
+          <div class="question">
+            <span class="question-num">8</span>
+            <span class="question-text">Can the action be reversed with one git command?</span>
+          </div>
+        </div>
+        <p class="closing-line"><strong>Search → classify → score → patch</strong> — four stages, composed by <code>runner.run_guillotine</code>; rendering and persistence sit outside it, in the adapters. As shipped, <strong>no page prose is ever rewritten</strong> — the diff is evidence for human review, never applied. Raw <code>sources/</code> stay immutable for audit.</p>
+      </div>
+    </section>
+
+    <section data-label="Verdicts and the Risk Score">
+      <div class="slide">
+        <p class="kicker">Outputs</p>
+        <h2>Verdicts and the Risk Score</h2>
+        <div class="two-col">
+          <div>
+            <div class="score-box">
+              <p><strong>Risk score (0–100)</strong> is a triage helper, not “objective truth.” Add up triggered factors, clamp to 0–100, then pick a verdict band.</p>
+            </div>
+            <table class="verdicts">
+              <thead>
+                <tr>
+                  <th>Score</th>
+                  <th>Verdict</th>
+                  <th>In plain English</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td>0–25</td>
+                  <td>KEEP</td>
+                  <td>Looks fine — no change needed.</td>
+                </tr>
+                <tr>
+                  <td>26–45</td>
+                  <td>QUALIFY</td>
+                  <td>Add “maybe” or attribution.</td>
+                </tr>
+                <tr>
+                  <td>46–65</td>
+                  <td>DISPUTE → DEMOTE</td>
+                  <td>Soften universal wording. Shipped refinement: the band recommends <code>DISPUTE</code> only when a refutation was actually found — otherwise it degrades to <code>DEMOTE</code>, because disputing with no counter-evidence is a stronger claim than the evidence supports.</td>
+                </tr>
+                <tr>
+                  <td>66–80</td>
+                  <td>RETRACT</td>
+                  <td>Walk back the claim clearly.</td>
+                </tr>
+                <tr>
+                  <td>81–100</td>
+                  <td>DELETE</td>
+                  <td>Remove unsupported synthesis.</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+          <div>
+            <div class="mini-grid">
+              <div class="up">
+                <h4>Score goes up when…</h4>
+                <ul>
+                  <li>Claim stated as absolute fact</li>
+                  <li>Weak or single source</li>
+                  <li>On overview / index pages</li>
+                  <li>No counterevidence found</li>
+                </ul>
+              </div>
+              <div class="down">
+                <h4>Score goes down when…</h4>
+                <ul>
+                  <li>Already qualified or attributed</li>
+                  <li>Quotes or refutations present</li>
+                  <li>Multiple independent sources</li>
+                  <li>Marked disputed in the wiki</li>
+                </ul>
+              </div>
+            </div>
+            <p class="closing-line">Every verdict ships with a report, a diff, and a JSON record — <strong>one commit, one <code>git revert</code></strong>. The bands above are unchanged from the original pitch: <code>VERDICT_THRESHOLDS</code> in <code>guillotine/models.py</code> still publishes exactly these five.</p>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section data-label="The Loop Closes: Retraction Becomes Research">
+      <div class="slide">
+        <p class="kicker">Integration · gap-fill spine</p>
+        <h2>The Loop Closes: Retraction Becomes Research</h2>
+        <p class="subtitle" style="margin-top: 0; margin-bottom: 28px; max-width: 62rem;">The pitch stopped at “remove the claim.” What shipped turns a weakened claim into a task the system already knows how to finish.</p>
+        <div class="flow">
+          <div class="step origin">
+            <div class="step-num">1 · guillotine</div>
+            <div class="step-title">Verdict applied</div>
+            <p class="step-body">A weakening verdict — <code>RETRACT</code>, <code>DEMOTE</code>, <code>DISPUTE</code>, <code>DELETE_UNSUPPORTED_SYNTHESIS</code> — commits its report, diff and JSON in one transaction.</p>
+          </div>
+          <div class="step">
+            <div class="step-num">2 · gap queue</div>
+            <div class="step-title">A hole is recorded</div>
+            <p class="step-body">The weakened claim is filed as an <code>origin="retracted"</code> gap, in its <em>own</em> transaction and failure-isolated: filing can fail without failing the retraction that already landed.</p>
+          </div>
+          <div class="step">
+            <div class="step-num">3 · discovery</div>
+            <div class="step-title">Sources are proposed</div>
+            <p class="step-body">The gap joins the same queue the loop’s own regression classifier feeds. Discovery searches, enriches and ranks candidate sources for it.</p>
+          </div>
+          <div class="step landing">
+            <div class="step-title" style="margin-top: 34px;">Human approves, then ingest</div>
+            <p class="step-body">A person approves a candidate; the gated ingest path re-grounds the claim in real evidence. No LLM writes prose into the wiki unreviewed.</p>
+          </div>
+        </div>
+        <p class="loop-note"><strong>This is the part that did not exist at pitch time.</strong> Memory Guillotine is not a delete key with paperwork — it is the entry point to a re-grounding pipeline. A claim that fails its trial does not vanish; it becomes an open question with a queue behind it.</p>
+      </div>
+    </section>
+
+    <section data-label="Using It Today">
+      <div class="slide">
+        <p class="kicker">As built · 2026-08-05</p>
+        <h2>Using It Today</h2>
+        <div class="two-col">
+          <div>
+            <p class="cmd"><span class="c"># Try a claim. Dry-run is the default — nothing commits.</span>
+knotica guillotine "X causes Y" --topic optics
+
+<span class="c"># Widen the evidence sweep, or read it as data.</span>
+knotica guillotine "X causes Y" --topic optics \
+  --include-sources --json
+
+<span class="c"># Commit the verdict and open the re-grounding gap.</span>
+knotica guillotine "X causes Y" --topic optics \
+  --apply --verdict demote</p>
+            <div class="card">
+              <h3>What lands in the vault</h3>
+              <ul>
+                <li>A Markdown report, a <code>.diff</code>, and a JSON record under <code>&lt;topic&gt;/reports/guillotine/</code>.</li>
+                <li>A bullet in the root catalog — one commit for all four.</li>
+                <li>On a weakening verdict, a <code>retracted</code> gap in the P1 queue.</li>
+              </ul>
+            </div>
+          </div>
+          <div>
+            <div class="card">
+              <h3>Design properties worth keeping</h3>
+              <ul>
+                <li><strong>A trial cannot cite itself.</strong> <code>paths.is_guillotine_report_path</code> excludes prior reports from the evidence sweep, so yesterday’s verdict never becomes today’s support.</li>
+                <li><strong>Read-only by construction.</strong> The package holds no transaction; the fitness suite enforces that <code>write_text_atomic</code> is callable only from <code>core/transaction.py</code>, codebase-wide.</li>
+                <li><strong>One cross-domain edge</strong>, <code>report.py → okf.frontmatter</code>, one-directional and acyclic.</li>
+                <li><strong>Nine modules, its own test group</strong> (<code>guillotine-audit</code>) — a scoped run takes seconds.</li>
+              </ul>
+            </div>
+            <p class="closing-line">Not yet on the MCP tool surface: the guillotine is <strong>CLI-only</strong> today. A conversational surface is the obvious next step, not a shipped one.</p>
+          </div>
+        </div>
+      </div>
+    </section>
+  </deck-stage>
+
+  <script src="deck-stage.js"></script>
+</body>
+</html>
