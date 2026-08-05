@@ -12,14 +12,14 @@
 # Test Topology — Knotica
 
 Maps the Built structural components of [`.ai-state/DESIGN.md`](DESIGN.md) §3 onto logical test
-groups so that a pipeline step can run a scoped subset instead of the full suite (2461 tests /
-171 test files / ~296 s wall-clock as of 2026-08-05).
+groups so that a pipeline step can run a scoped subset instead of the full suite (2520 tests /
+175 test files / ~296 s wall-clock, sampled 2026-08-05).
 
 The groups are runnable by hand, not only by pipeline agents: `make test-groups` lists them and
 `make test-group GROUP=<id>` runs one, both derived from the blocks in this file. See
 [Running a group](#running-a-group).
 
-The suite is **not** flat: 149 files sit directly in `tests/`, and 22 more are nested under
+The suite is **not** flat: 153 files sit directly in `tests/`, and 22 more are nested under
 `tests/core/` (1), `tests/core/notes/` (13), and `tests/discovery/` (8). Three groups therefore
 select a directory rather than a file list, and any count taken with a `tests/test_*.py` glob
 alone will under-report by 22.
@@ -58,7 +58,7 @@ that owns its tests. Group ids are kebab-case and collision-free against the tru
 | `src/knotica/okf/` | `okf-conformance` | One format vocabulary with three verbs over it — `check` (read-only findings), `export` (bundle outside the vault), `repair` (the one module here that mutates, and only through `VaultTransaction`). Both `export` and `repair` import `check`, so an OKF field-set change touches all three in a single edit. Its adapters are thin and stay with their surface groups: `cli/okf.py` with `cli-surface`, the `vault_health` dispatcher's `okf_check`/`okf_repair` actions with `mcp-surface`. Enumerate this tree's tests **by import** — one of them carries no `okf` marker in its filename (note 1). |
 | `src/knotica/guillotine/` | `guillotine-audit` | A read-only claim-trial pipeline — search → classify → score → patch → report, composed by `runner`. Deliberately **not** folded into `okf-conformance` despite the single `guillotine.report → okf.frontmatter` edge: the two answer different questions (format conformance vs. claim retraction) and change for different reasons, so sharing a group would fire an okf edit into the guillotine suite for nothing. The group also claims `core/operations/guillotine.py` — the transaction-bearing adapter §3 keeps *outside* the package precisely to hold the analysis layer inward-arrow-clean, and the module whose tests live here rather than in `vault-semantics` (note 2). |
 | `src/knotica/service/` | `service-lifecycle` | Install / uninstall / status / supervise for the headless loop: two platform generators (launchd verified, systemd untested and self-reporting so) behind one interface, plus the daemon entry, with an injectable `Runner` seam that makes the `launchctl`/`systemctl` calls testable without touching the machine. Deliberately **not** folded into `loop-runtime`: §3's contract is that installing or querying the service never drags the loop runtime in (those imports are lazy, inside the supervision cycle), and `loop-runtime` is the slowest group in the project — a three-module OS-lifecycle edit has no business paying for an e2e clone-and-race suite. |
-| Plugin layer (repo root) | `plugin-layer` | `.claude-plugin/`, `.mcp.json`, `commands/`, `hooks/`, `skills/`, and wheel packaging. The only group whose file dependencies live outside `src/` — a `commands/*.md` edit has no business running 2461 tests. |
+| Plugin layer (repo root) | `plugin-layer` | `.claude-plugin/`, `.mcp.json`, `commands/`, `hooks/`, `skills/`, and wheel packaging. The only group whose file dependencies live outside `src/` — a `commands/*.md` edit has no business running 2520 tests. |
 
 **Coverage:** 23 Built components → 14 groups. The map is **total and single-valued** — every Built
 component has exactly one owning group — but not injective: `vault-substrate`, `notes-overlay`,
@@ -306,7 +306,9 @@ selectors:
       - tests/test_baseline_probe.py
       - tests/test_config.py
       - tests/test_config_write.py
+      - tests/test_core_jsonl.py
       - tests/test_core_metrics.py
+      - tests/test_core_topics.py
       - tests/test_datasets_inventory.py
       - tests/test_errors.py
       - tests/test_eval_characterization.py
@@ -340,6 +342,7 @@ file_dependencies:
   - "src/knotica/core/golden_review.py"
   - "src/knotica/core/index_catalog.py"
   - "src/knotica/core/ingest_activity.py"
+  - "src/knotica/core/jsonl.py"
   - "src/knotica/core/links.py"
   - "src/knotica/core/lint.py"
   - "src/knotica/core/lock.py"
@@ -352,6 +355,7 @@ file_dependencies:
   - "src/knotica/core/status.py"
   - "src/knotica/core/template.py"
   - "src/knotica/core/text_reflow.py"
+  - "src/knotica/core/topics.py"
   - "src/knotica/core/transaction.py"
   - "src/knotica/core/vault_metadata_tree.py"
   - "src/knotica/core/vault_scaffold.py"
@@ -474,7 +478,7 @@ notes: >-
   `file_dependencies` — `src/knotica/dashboard/**`, the `importlib.resources` loader. The
   repo-root `dashboard/` Preact tree is named in the §3 row and so in `subsystems`, but is
   deliberately **not** a file dependency: the table's own reasoning is that it has no pytest
-  coverage at all, so listing it would claim a `dashboard/src/**` edit triggers a 364-test
+  coverage at all, so listing it would claim a `dashboard/src/**` edit triggers a 366-test
   Python run that could not observe the change. `test_http_dashboard.py` joins this group
   because two of its three tests are pure `create_http_app` mount assertions (CORS preflight;
   the lost-lifespan streamable-HTTP regression).
@@ -614,6 +618,7 @@ selectors:
       - tests/test_branch_scoreboard.py
       - tests/test_candidate_gate_characterization.py
       - tests/test_file_size_ratchet.py
+      - tests/test_loop_attempt.py
       - tests/test_loop_blocked_failure_backoff.py
       - tests/test_loop_cadence.py
       - tests/test_loop_cadence_characterization.py
@@ -622,6 +627,7 @@ selectors:
       - tests/test_loop_eval_error_visibility.py
       - tests/test_loop_factory_cadence_wiring.py
       - tests/test_loop_flock_contention.py
+      - tests/test_loop_noop_attempt_characterization.py
       - tests/test_loop_progress.py
       - tests/test_loop_runner.py
       - tests/test_loop_runner_factory_characterization.py
@@ -637,6 +643,7 @@ file_dependencies:
   - "src/knotica/core/loop_promote.py"
   - "src/knotica/core/loop_retry_backoff.py"
   - "src/knotica/core/loop_cadence_config.py"
+  - "src/knotica/core/loop_attempt.py"
   - "src/knotica/core/arena.py"
   - "src/knotica/core/arena_resolve.py"
   - "src/knotica/core/candidate_gate.py"
@@ -651,7 +658,7 @@ shared_state: tmp_path
 notes: >-
   `e2e` rather than `integration`: these tests drive the deployed daemon's full stack — real
   git clones, worktrees, arena races, flock contention — and are the slowest group by a factor
-  of two (80 s sequential).
+  of two (96.6 s sequential).
 ```
 
 ### `discovery-network`
@@ -822,7 +829,7 @@ shared_state: tmp_path
 notes: >-
   Cheapest non-`unit` group in the project (55 tests / 2.2 s) and the clearest case for §3's
   refusal to fold `service/` into `loop-runtime`: the same edit would otherwise pay
-  `loop-runtime`'s 80 s of clones and arena races. `integration` rather than `unit` despite the
+  `loop-runtime`'s 96.6 s of clones and arena races. `integration` rather than `unit` despite the
   speed — an autouse fixture forbids a *real* `subprocess.run` (so no `launchctl`/`systemctl`
   ever fires), but the tests still write real plists and `.env` files under `tmp_path` and
   `test_cli_service.py` reaches the session `vault_config` fixture, which is what sets
@@ -867,29 +874,47 @@ notes: >-
 
 ### Verified runtimes (single sample each)
 
-Baseline for comparison: full suite 2461 passed in ~296 s.
+Baseline for comparison: full suite 2520 passed; the ~296 s wall-clock is the last full-suite
+sample, taken at 2520 tests on 2026-08-05.
 
-Rows marked † were measured on 2026-08-05 against the fourteen-group revision; the rest are the
-2026-08-04 originals, unchanged because neither their `arg` lists nor the files behind them moved.
+Rows marked ‡ were re-measured after the duplicate-consolidation and `td-031` passes, which gave
+`vault-semantics` and `loop-runtime` two new test files each. Rows marked † are the 2026-08-05
+fourteen-group sample; the rest are the 2026-08-04 originals.
+
+Four unmarked rows moved anyway, by exactly +2 tests each — `mcp-surface`, `cli-surface`,
+`eval-harness`, `okf-conformance`. None of their `arg` lists changed; the pinned
+`test_architecture_boundaries.py` did, growing 10 → 12 (one clause renamed, two added) when the
+sole-writer scan widened from store adapters to `core.transaction`. A pinned fitness file is shared
+by construction, so its growth propagates to every group that pins it — the fifth such group,
+`vault-semantics`, absorbs the same +2 inside its ‡ re-measurement. Their Tests column is corrected
+here; their runtimes are not re-sampled, a two-test fitness addition sitting inside single-sample
+noise.
 
 | Group | Files | Tests | Sequential | `-n 4 --dist loadfile` |
 |---|---:|---:|---:|---:|
 | `vault-substrate` | 5 | 161 | 1.6 s | 2.7 s |
-| `vault-semantics` | 27 | 550 | 24.7 s | 8.9 s |
+| `vault-semantics` ‡ | 29 | 569 | 26.6 s | 13.3 s |
 | `notes-overlay` | 17 | 316 | 23.5 s | 9.7 s |
-| `mcp-surface` † | 38 | 364 | 44.1 s | 19.4 s |
-| `cli-surface` | 12 | 104 | 19.6 s | 10.0 s |
-| `eval-harness` | 18 | 330 | 20.4 s | 17.0 s |
+| `mcp-surface` † | 38 | 366 | 44.1 s | 19.4 s |
+| `cli-surface` | 12 | 106 | 19.6 s | 10.0 s |
+| `eval-harness` | 18 | 332 | 20.4 s | 17.0 s |
 | `query-compile` | 6 | 48 | 9.8 s | 8.7 s |
-| `loop-runtime` | 21 | 159 | 79.8 s | 34.3 s |
+| `loop-runtime` ‡ | 23 | 198 | 96.6 s | 32.0 s |
 | `discovery-network` | 10 | 130 | 1.3 s | 2.6 s |
 | `gapfill-spine` | 13 | 196 | 43.5 s | 17.3 s |
-| `okf-conformance` † | 8 | 53 | 6.0 s | 3.9 s |
+| `okf-conformance` † | 8 | 55 | 6.0 s | 3.9 s |
 | `guillotine-audit` † | 2 | 45 | 6.2 s | 7.2 s |
 | `service-lifecycle` † | 4 | 55 | 2.2 s | 0.9 s |
 | `plugin-layer` | 4 | 29 | 4.8 s | 2.1 s |
 
-The three new groups are cheap — 154 tests for 14.4 s sequential between them, against the ~296 s
+The column sums to 2606 against 2480 unique, and the 126-test excess is exactly the pinned overlap:
+`test_file_size_ratchet.py` counted in all 14 groups (13 × 6 = 78) and `test_architecture_boundaries.py`
+in 5 (4 × 12 = 48). That identity is the table's own arithmetic check — it is what forced the four
+unmarked corrections above, since leaving them at their pre-widening values would have made the
+column contradict the partition check below.
+
+The three groups added when §3 first modelled `okf/`, `guillotine/`, and `service/` are cheap — 155
+tests for 14.4 s sequential between them, against the ~296 s
 they cost at pipeline tier before they had blocks. `guillotine-audit` is the one group that is
 *slower* under `-n 4` (7.2 s vs 6.2 s): 45 of its tests sit in a single file, so `--dist loadfile`
 puts them all on one worker and the run pays worker start-up for nothing. It is still
@@ -934,7 +959,7 @@ TT01). §3's refinement pass gave all four a row, so the three new groups above 
 row's assignment to `mcp-surface` absorb every one of those files. Nothing is un-grouped for lack
 of a §3 row any more.
 
-What remains is **test infrastructure — 3 files / 39 tests**, un-grouped for a different reason
+What remains is **test infrastructure — 3 files / 40 tests**, un-grouped for a different reason
 that closing the §3 gap never addressed: each covers code outside `src/knotica/`, which §3 does not
 model *by design*, so Note 1's prohibition on synthetic subsystem names applies permanently rather
 than pending a refinement pass.
@@ -943,9 +968,9 @@ than pending a refinement pass.
 |---|---:|---|---|
 | `test_spine.py` | 21 | `tests/conftest.py` + `tests/support/` | Test infrastructure; no group's `file_dependencies` covers it (Note 3). Also the most expensive single un-grouped file at ~16.6 s. |
 | `test_topology_runner.py` | 10 | `scripts/test_group.py` | Dev tooling outside `src/knotica/` — the very runner documented above. |
-| `test_adr_health.py` | 8 | `scripts/check_adr_health.py` | Dev tooling outside `src/knotica/`, same constraint. |
+| `test_adr_health.py` | 9 | `scripts/check_adr_health.py` | Dev tooling outside `src/knotica/`, same constraint. |
 
-All 39 fall through to **pipeline tier (full suite)** — never skipped, only absent from the scoped
+All 40 fall through to **pipeline tier (full suite)** — never skipped, only absent from the scoped
 inner loop. The two `scripts/`-covering files are the live illustration of Note 1's closing
 paragraph: inventing an `scripts/` subsystem would be a TT01 FAIL, and folding either into a
 group's `file_dependencies` would make that group claim coverage of a tree §3 does not describe.
@@ -959,27 +984,43 @@ either filename would have misled a glob in the opposite direction.
 
 ### Partition check
 
-Re-proved against the live tree on 2026-08-05, after the three new blocks landed.
+Re-proved against the live tree after the duplicate-consolidation and `td-031` passes.
 
-**Files — 171 total.** 162 in group `arg` lists as own membership + 6 pinned fitness files + 3
-un-grouped = 171. Exactly two files appear in more than one group's `arg` list
+**Files — 175 total.** 166 in group `arg` lists as own membership + 6 pinned fitness files + 3
+un-grouped = 175. Exactly two files appear in more than one group's `arg` list
 (`test_file_size_ratchet.py` in all 14, `test_architecture_boundaries.py` in 5); both are pinned
 fitness tests, counted once in the runtime table. No file is assigned to two groups' own
 membership.
 
-**Tests — 2461 total.** Running the fourteen groups yields 2422 unique tests; 2422 + 39 un-grouped
-= **2461**, exactly the full-suite collection. The topology covers the suite with no silent drop
+**Tests — 2520 total.** Running the fourteen groups yields 2480 unique tests; 2480 + 40 un-grouped
+= **2520**, exactly the full-suite collection. The topology covers the suite with no silent drop
 and no stray.
 
-The 128 tests that were the §3 gap did not disappear — they moved into groups: `okf-conformance`
-claims 37 of them, `guillotine-audit` 39, `service-lifecycle` 49, and `mcp-surface` the dashboard's
-3. Grouped-unique therefore rose 2294 → 2422 (+128) while the full suite rose 2453 → 2461 (+8, the
-new `test_adr_health.py`), and the un-grouped set fell 159 → 39.
+**Two movements, in that order.** The §3 gap closed first; this revision then grew the suite
+without reopening it. Both are recorded because the second is only legible against the first:
 
-One count now answers what two used to: **3 files / 39 tests** is both the §3-gap size (zero of it)
-and the size of what a scoped run leaves to pipeline tier. The earlier revision needed 11/128
-and 13/159 as separate figures precisely because the gap and the infrastructure remainder were
-different sets; with the gap closed they have collapsed into one.
+1. **§3 refinement — the gap closed.** The 128 tests that were the §3 gap did not disappear, they
+   moved into groups: `okf-conformance` claimed 37 of them, `guillotine-audit` 39,
+   `service-lifecycle` 49, and `mcp-surface` the dashboard's 3. Grouped-unique rose 2294 → 2422
+   (+128) while the full suite rose 2453 → 2461 (+8, the then-new `test_adr_health.py`), and the
+   un-grouped set fell 159 → 39. That transition is history; the gap it closed has stayed closed.
+2. **Duplicate consolidation + `td-031` — files added, no gap reopened.** Four new test files
+   landed *inside existing groups*, so the partition widened rather than fraying:
+   `tests/test_core_topics.py` (11) and `tests/test_core_jsonl.py` (6) into `vault-semantics`,
+   `tests/test_loop_attempt.py` (33) and `tests/test_loop_noop_attempt_characterization.py` (6)
+   into `loop-runtime` — 56 tests across 4 files. Adding the pinned
+   `test_architecture_boundaries.py`'s +2 (counted once, though it fires in five groups),
+   grouped-unique rose 2422 → 2480 (+58); the full suite rose 2461 → 2520 (+59), the extra one
+   being a ninth `test_adr_health.py` test — a regression guard for a finalized record pointing at
+   a draft id — which lands un-grouped and takes that set 39 → 40. Files rose 171 → 175, every one
+   of them into a group. No group was created, none dissolved, and no file fell outside the
+   fourteen `arg` lists.
+
+One count still answers what two used to: **3 files / 40 tests** is both the §3-gap size (zero of
+it) and the size of what a scoped run leaves to pipeline tier. The revision before last needed
+11/128 and 13/159 as separate figures precisely because the gap and the infrastructure remainder
+were different sets; with the gap closed they collapsed into one, and movement 2 did not separate
+them again — it added to the grouped side and to the infrastructure side without creating a third.
 
 ### Open divergence — one, and §3 did not close it the way this section predicted
 
