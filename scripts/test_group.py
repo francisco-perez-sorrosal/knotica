@@ -1,0 +1,216 @@
+#!/usr/bin/env python3
+"""Run one test group from `.ai-state/TEST_TOPOLOGY.md`, or validate the file against disk.
+
+The topology maps `DESIGN.md` §3 components onto eleven test groups so a change
+touching one subsystem can run a scoped subset instead of the 2443-test, ~296 s
+full suite. Praxion's pipeline agents already consume it -- the planner tags each
+step with the groups it touches and the implementer translates those into a
+scoped invocation -- but a human at a terminal had no way to use it without
+transcribing paths out of markdown by hand.
+
+This script closes that gap by *deriving* the invocation from the topology rather
+than restating it. The direction matters: `TEST_TOPOLOGY.md` stays the single
+source of truth, because it is what sentinel audits (TT01-TT06) and what
+`/refresh-topology` regenerates on drift. Copying the group membership into
+`pyproject.toml` would fork that truth into two files that must agree, with the
+audited one no longer authoritative.
+
+`--check` is the other half. Until now the topology had no mechanical consumer,
+so drift surfaced only as stale prose that a periodic audit might catch. Wired
+into `make verify`, a renamed or deleted test file becomes a failing gate
+instead.
+
+Usage:
+    python scripts/test_group.py --list                 # groups, tiers, sizes
+    python scripts/test_group.py --check                # validate against disk
+    python scripts/test_group.py notes-overlay          # run one group
+    python scripts/test_group.py notes-overlay -x -q    # ... with pytest flags
+
+Exit codes: 0 success; 1 a check failed or pytest failed; 2 usage error
+(unknown group, unreadable topology). pytest's own exit code is propagated
+unchanged when running a group.
+"""
+
+from __future__ import annotations
+
+import argparse
+import re
+import subprocess
+import sys
+from pathlib import Path
+from typing import Any
+
+import yaml
+
+REPO_ROOT = Path(__file__).resolve().parents[1]
+TOPOLOGY_PATH = REPO_ROOT / ".ai-state" / "TEST_TOPOLOGY.md"
+
+# The topology's group definitions are fenced ```yaml blocks. Prose and tables
+# in the same file are ignored by construction.
+YAML_BLOCK = re.compile(r"```yaml\n(.*?)\n```", re.DOTALL)
+
+# Every field the trunk schema requires of a group block.
+REQUIRED_FIELDS = (
+    "id",
+    "title",
+    "subsystems",
+    "tier",
+    "selectors",
+    "file_dependencies",
+    "parallel_safe",
+    "shared_fixture_scope",
+)
+
+# The only selector strategy this project registers. Anything else is a real
+# topology change that needs a translator here -- failing loudly beats guessing
+# an invocation, which is the trunk's "do not invent a selector" rule.
+SUPPORTED_STRATEGY = "pytest-globs"
+
+
+def load_groups() -> list[dict[str, Any]]:
+    """Parse every group block out of the topology, in file order."""
+    if not TOPOLOGY_PATH.exists():
+        sys.exit(
+            f"error: no topology at {TOPOLOGY_PATH.relative_to(REPO_ROOT)}\n"
+            "       create one with /refresh-topology --init"
+        )
+
+    groups: list[dict[str, Any]] = []
+    for raw in YAML_BLOCK.findall(TOPOLOGY_PATH.read_text(encoding="utf-8")):
+        try:
+            block = yaml.safe_load(raw)
+        except yaml.YAMLError as exc:
+            sys.exit(f"error: malformed YAML block in the topology: {exc}")
+        if isinstance(block, dict) and "id" in block:
+            groups.append(block)
+
+    if not groups:
+        sys.exit("error: the topology contains no group blocks")
+    return groups
+
+
+def selector_args(group: dict[str, Any]) -> list[str]:
+    """Return the pytest path arguments a group selects."""
+    args: list[str] = []
+    for selector in group.get("selectors", []):
+        strategy = selector.get("strategy")
+        if strategy != SUPPORTED_STRATEGY:
+            sys.exit(
+                f"error: group '{group['id']}' uses selector strategy "
+                f"'{strategy}', which this script cannot translate.\n"
+                f"       Only '{SUPPORTED_STRATEGY}' is registered for Python."
+            )
+        args.extend(selector.get("arg", []))
+    return args
+
+
+def cmd_list(groups: list[dict[str, Any]]) -> int:
+    """Print each group with its tier and selected-path count."""
+    width = max(len(str(g["id"])) for g in groups)
+    print(f"{'GROUP'.ljust(width)}  {'TIER':<12} PATHS  TITLE")
+    for group in groups:
+        args = selector_args(group)
+        title = str(group.get("title", ""))
+        print(
+            f"{str(group['id']).ljust(width)}  {group.get('tier', '?'):<12} {len(args):>5}  {title}"
+        )
+    print(f"\n{len(groups)} groups. Run one with: make test-group GROUP=<id>")
+    return 0
+
+
+def cmd_check(groups: list[dict[str, Any]]) -> int:
+    """Validate the topology against the filesystem. Returns 1 on any failure."""
+    failures: list[str] = []
+    seen_ids: set[str] = set()
+
+    for group in groups:
+        gid = str(group["id"])
+        if gid in seen_ids:
+            failures.append(f"{gid}: duplicate group id")
+        seen_ids.add(gid)
+
+        for field in REQUIRED_FIELDS:
+            if field not in group:
+                failures.append(f"{gid}: missing required field '{field}'")
+
+        for arg in selector_args(group):
+            # A wildcard silently resolves to nothing under shell=False, so the
+            # group would appear to pass while running fewer tests than it claims.
+            if "*" in arg or "?" in arg:
+                failures.append(f"{gid}: selector arg contains a wildcard -> {arg}")
+            elif not (REPO_ROOT / arg).exists():
+                failures.append(f"{gid}: selector arg does not exist -> {arg}")
+
+        for dep in group.get("file_dependencies", []):
+            if not list(REPO_ROOT.glob(dep)):
+                failures.append(f"{gid}: file_dependencies matches nothing -> {dep}")
+
+    if failures:
+        print(f"topology check FAILED ({len(failures)} problem(s)):", file=sys.stderr)
+        for failure in failures:
+            print(f"  {failure}", file=sys.stderr)
+        print(
+            "\nThe topology has drifted from the tree. Reconcile it with /refresh-topology.",
+            file=sys.stderr,
+        )
+        return 1
+
+    print(f"topology check OK — {len(groups)} groups, every selector and dependency resolves")
+    return 0
+
+
+def cmd_run(groups: list[dict[str, Any]], name: str, pytest_args: list[str]) -> int:
+    """Run one group's tests, propagating pytest's exit code."""
+    match = next((g for g in groups if str(g["id"]) == name), None)
+    if match is None:
+        available = ", ".join(sorted(str(g["id"]) for g in groups))
+        print(f"error: unknown group '{name}'\n       available: {available}", file=sys.stderr)
+        return 2
+
+    args = selector_args(match)
+    print(f"# {match['id']} — {match.get('title', '')}")
+    print(f"# {len(args)} path(s), tier={match.get('tier', '?')}\n")
+    # pytest writes straight to the terminal fd while our own stdout is block-
+    # buffered when piped, so without this flush the header lands *after* the
+    # test output it introduces.
+    sys.stdout.flush()
+    completed = subprocess.run(  # noqa: S603 - fixed argv, no shell
+        ["pytest", *args, *pytest_args],
+        cwd=REPO_ROOT,
+        check=False,
+    )
+    return completed.returncode
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser(
+        description="Run a test group defined in .ai-state/TEST_TOPOLOGY.md.",
+    )
+    parser.add_argument("group", nargs="?", help="group id to run (see --list)")
+    parser.add_argument(
+        "pytest_args",
+        nargs=argparse.REMAINDER,
+        help="extra arguments forwarded to pytest",
+    )
+    parser.add_argument("--list", action="store_true", help="list the groups and exit")
+    parser.add_argument(
+        "--check",
+        action="store_true",
+        help="validate the topology against the filesystem and exit",
+    )
+    parsed = parser.parse_args()
+
+    groups = load_groups()
+
+    if parsed.list:
+        return cmd_list(groups)
+    if parsed.check:
+        return cmd_check(groups)
+    if not parsed.group:
+        parser.print_help()
+        return 2
+    return cmd_run(groups, parsed.group, parsed.pytest_args)
+
+
+if __name__ == "__main__":
+    sys.exit(main())

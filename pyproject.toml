@@ -48,6 +48,12 @@ dev = [
     "pytest",
     "ruff",
     "mypy",
+    # `scripts/test_group.py` parses the group blocks in
+    # `.ai-state/TEST_TOPOLOGY.md`. Declared here rather than leaned on
+    # transitively: pyyaml arrives today only via dspy, i.e. only under
+    # `--extra evals`, so a plain `uv sync` would leave `make test-group`
+    # broken for anyone who skipped the extra.
+    "pyyaml",
 ]
 # No `evals` group here on purpose. It existed as a byte-identical alias of the
 # `evals` *extra* above during the dec-055 migration window; that migration is
