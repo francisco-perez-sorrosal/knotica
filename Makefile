@@ -47,9 +47,14 @@ install:  ## Sync the venv and (re)install the knotica CLI with headless evals s
 # The topology check runs first because it is the cheapest (filesystem stats,
 # no imports) and because a drifted topology makes every scoped run below it
 # untrustworthy -- a selector naming a deleted file silently shrinks a group.
-verify:  ## Run the canonical checks: topology, ADRs, types, tests, lint
+# The three record checks are grouped ahead of the code checks for the same
+# reason: each compares a committed claim against the tree using filesystem
+# stats alone, and a stale record makes everything below it untrustworthy to
+# read even when it is green.
+verify:  ## Run the canonical checks: topology, ADRs, architecture, types, tests, lint
 	$(UV) run --extra evals python scripts/test_group.py --check
 	$(UV) run --extra evals python scripts/check_adr_health.py
+	$(UV) run --extra evals python scripts/check_architecture_coverage.py
 	$(UV) run --extra evals mypy src/knotica
 	$(UV) run --extra evals pytest
 	$(UV) run --extra evals ruff check .
