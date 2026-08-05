@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import json
 from collections.abc import Sequence
 from datetime import UTC, date, datetime
 from typing import assert_never
@@ -23,7 +22,6 @@ from knotica.guillotine.paths import reports_dir
 from knotica.guillotine.score import verdict_threshold_for
 from knotica.guillotine.search import claim_slug
 from knotica.okf.frontmatter import normalize_concept_frontmatter
-from knotica.store import VaultStore
 
 # Obsidian callout kinds used in human-readable reports.
 _CALLOUT_VERDICT: dict[Verdict, str] = {
@@ -35,52 +33,6 @@ _CALLOUT_VERDICT: dict[Verdict, str] = {
     Verdict.QUARANTINE_SOURCE: "danger",
     Verdict.DELETE_UNSUPPORTED_SYNTHESIS: "danger",
 }
-
-
-def write_artifacts(
-    store: VaultStore,
-    result: GuillotineResult,
-    diff_text: str,
-    *,
-    dry_run: bool,
-    commit_sha: str | None = None,
-) -> tuple[ArtifactPaths, GuillotineReport]:
-    today = date.today().isoformat()
-    slug = claim_slug(result.claim)
-    base_name = f"{today}-{slug}"
-    artifact_dir = reports_dir(result.topic)
-    report_path = f"{artifact_dir}/{base_name}.md"
-    diff_path = f"{artifact_dir}/{base_name}.diff"
-    json_path = f"{artifact_dir}/{base_name}.json"
-
-    report_md = render_report_markdown(
-        result, diff_path, dry_run=dry_run, commit_sha=commit_sha, report_path=report_path
-    )
-    json_payload = render_report_json(result, report_path, diff_path, json_path, dry_run=dry_run)
-
-    store.write_text_atomic(report_path, report_md)
-    store.write_text_atomic(diff_path, diff_text)
-    store.write_text_atomic(
-        json_path, json.dumps(json_payload, ensure_ascii=False, indent=2) + "\n"
-    )
-
-    artifacts = ArtifactPaths(report_path=report_path, diff_path=diff_path, json_path=json_path)
-    final = GuillotineReport(
-        claim=result.claim,
-        normalized_claim=result.normalized_claim,
-        topic=result.topic,
-        recommendation=result.recommendation,
-        risk_score=result.risk_score,
-        summary=result.summary,
-        passages=tuple(result.passages),
-        evidence=result.evidence,
-        patches=tuple(result.patches),
-        artifacts=artifacts,
-        applied=not dry_run,
-        commit_sha=commit_sha,
-        status="dry-run" if dry_run else "applied",
-    )
-    return artifacts, final
 
 
 def build_report(

@@ -18,10 +18,11 @@ paid down:
    baseline. Without this the list silently accumulates stale exemptions and the
    ratchet stops ratcheting.
 
-Two of the six source modules below (``core/gapfill.py`` and
-``guillotine/report.py``) were over the ceiling without any ledger row tracking
-them -- discovered only by measuring every file rather than trusting the
-recorded set. That is the argument for a mechanical check over a hand-maintained
+Two source modules (``core/gapfill.py`` and ``guillotine/report.py``) were over
+the ceiling without any ledger row tracking them -- discovered only by measuring
+every file rather than trusting the recorded set. ``guillotine/report.py`` has
+since fallen under the ceiling (td-036 deleted a dead pre-transaction writer from
+it) and its entry is gone: a paid-down exemption is removed, never kept. That is the argument for a mechanical check over a hand-maintained
 list, and it is the argument that extended this ratchet to ``tests/``.
 
 **``tests/`` is scanned because it was the same blind spot, one directory over.**
@@ -54,7 +55,6 @@ OVER_CEILING_BASELINE: dict[str, int] = {
     "evals/golden.py": 975,
     "core/records.py": 947,
     "core/gapfill.py": 938,
-    "guillotine/report.py": 847,
 }
 
 
