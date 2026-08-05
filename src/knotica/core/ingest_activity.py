@@ -24,6 +24,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
+from knotica.core.jsonl import read_jsonl_dicts
 from knotica.store import VaultStore
 
 __all__ = [
@@ -388,24 +389,10 @@ def _read_events(vault_path: Path) -> list[dict[str, Any]]:
     path = vault_path / ACTIVITY_PATH
     if not path.is_file():
         return []
-    return _parse_jsonl(path.read_text(encoding="utf-8"))
+    return read_jsonl_dicts(path.read_text(encoding="utf-8"))
 
 
 def _read_events_via_store(store: VaultStore) -> list[dict[str, Any]]:
     if not store.exists(ACTIVITY_PATH):
         return []
-    return _parse_jsonl(store.read_text(ACTIVITY_PATH))
-
-
-def _parse_jsonl(text: str) -> list[dict[str, Any]]:
-    rows: list[dict[str, Any]] = []
-    for line in text.splitlines():
-        if not line.strip():
-            continue
-        try:
-            row = json.loads(line)
-        except json.JSONDecodeError:
-            continue
-        if isinstance(row, dict):
-            rows.append(row)
-    return rows
+    return read_jsonl_dicts(store.read_text(ACTIVITY_PATH))

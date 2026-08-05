@@ -21,7 +21,8 @@ from knotica.core.loop import DEFAULT_BRANCH_PREFIX, RESULT_BRANCH_PREFIX
 from knotica.core.loop_state import LoopState, loop_state_path, read_loop_state
 from knotica.core.metrics import read_last_metrics, read_metrics_window
 from knotica.core.page import TopicNotFoundError
-from knotica.core.status import _is_topic, _pending_loop_candidates
+from knotica.core.status import _pending_loop_candidates
+from knotica.core.topics import is_topic
 from knotica.core.vcs import GitError, VaultVcs
 from knotica.store import VaultStore
 
@@ -46,7 +47,7 @@ def gather_branch_scoreboard(
     Raises :class:`~knotica.core.page.TopicNotFoundError` when ``topic`` is invalid.
     """
     cleaned = topic.strip().strip("/")
-    if not cleaned or "/" in cleaned or not _is_topic(store, cleaned):
+    if not cleaned or "/" in cleaned or not is_topic(store, cleaned):
         raise TopicNotFoundError(topic or "(empty)")
 
     loop_state = read_loop_state(store, cleaned)

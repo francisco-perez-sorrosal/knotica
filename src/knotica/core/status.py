@@ -19,7 +19,7 @@ from knotica.core.compiled import load_compiled
 from knotica.core.compile_state import CompileState, empty_compile_state, read_compile_state
 from knotica.core.errors import ErrorCode, KnoticaError
 from knotica.core.links import iter_page_paths
-from knotica.core.lint import LOG_PATH, RESERVED_TOP_LEVEL_NAMES, lint_vault
+from knotica.core.lint import LOG_PATH, lint_vault
 from knotica.core.loop import DEFAULT_BRANCH_PREFIX
 from knotica.core.loop_heartbeat import read_runner_liveness
 from knotica.core.loop_progress import read_progress
@@ -40,6 +40,7 @@ from knotica.core.records import (
     parse_log_entries,
 )
 from knotica.core.schema import overlay_path
+from knotica.core.topics import is_topic
 from knotica.core.trainset import count_query_train_examples
 from knotica.core.vcs import GitError, VaultVcs
 from knotica.evals.golden import EVAL_MIN_GOLDEN, GoldenSetMissingError, load as load_golden
@@ -198,7 +199,7 @@ def _scope_status(store: VaultStore, vault_name: str, *, scope: str) -> dict[str
     non-empty and does not name an existing topic directory.
     """
     if scope:
-        if not _is_topic(store, scope):
+        if not is_topic(store, scope):
             raise TopicNotFoundError(scope)
         names = [scope]
     else:
@@ -214,7 +215,7 @@ def _scope_status(store: VaultStore, vault_name: str, *, scope: str) -> dict[str
 def _topic_statuses(store: VaultStore, vcs: VaultVcs, *, scope: str | None) -> list[TopicStatus]:
     """Gather per-topic status rows (optionally one topic)."""
     if scope:
-        if not _is_topic(store, scope):
+        if not is_topic(store, scope):
             raise TopicNotFoundError(scope)
         names = [scope]
     else:
@@ -512,20 +513,7 @@ def _pending_loop_candidates(
 
 def _topic_directories(store: VaultStore) -> list[str]:
     """Visible top-level directories that are topics (reserved names excluded)."""
-    return [name for name in sorted(store.list_dir("")) if _is_topic(store, name)]
-
-
-def _is_topic(store: VaultStore, name: str) -> bool:
-    """Whether a top-level entry is a topic: a visible, non-reserved directory."""
-    if name.startswith(".") or name in RESERVED_TOP_LEVEL_NAMES:
-        return False
-    if not store.exists(name):
-        return False
-    try:
-        store.list_dir(name)
-    except (NotADirectoryError, FileNotFoundError):
-        return False
-    return True
+    return [name for name in sorted(store.list_dir("")) if is_topic(store, name)]
 
 
 def _page_count(store: VaultStore, topic: str) -> int:

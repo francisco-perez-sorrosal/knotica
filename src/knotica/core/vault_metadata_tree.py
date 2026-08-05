@@ -10,9 +10,9 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
-from knotica.core.lint import RESERVED_TOP_LEVEL_NAMES
 from knotica.core.page import TopicNotFoundError
 from knotica.core.schema import validated_topic
+from knotica.core.topics import is_topic
 from knotica.store import VaultStore
 
 __all__ = ["gather_vault_metadata_tree"]
@@ -34,7 +34,7 @@ def gather_vault_metadata_tree(
             validated_topic(cleaned)
         except ValueError as exc:
             raise TopicNotFoundError(cleaned) from exc
-        if not _is_topic(store, cleaned):
+        if not is_topic(store, cleaned):
             raise TopicNotFoundError(cleaned)
         topic_names = [cleaned]
     else:
@@ -127,16 +127,4 @@ def _looks_like_dir(store: VaultStore, rel_path: str) -> bool:
 
 
 def _topic_directories(store: VaultStore) -> list[str]:
-    return [name for name in sorted(store.list_dir("")) if _is_topic(store, name)]
-
-
-def _is_topic(store: VaultStore, name: str) -> bool:
-    if name.startswith(".") or name in RESERVED_TOP_LEVEL_NAMES:
-        return False
-    if not store.exists(name):
-        return False
-    try:
-        store.list_dir(name)
-    except (NotADirectoryError, FileNotFoundError):
-        return False
-    return True
+    return [name for name in sorted(store.list_dir("")) if is_topic(store, name)]

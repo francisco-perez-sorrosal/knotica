@@ -13,7 +13,7 @@ from pathlib import Path
 from typing import Any
 
 from knotica.core.errors import ErrorCode, KnoticaError
-from knotica.core.page import TopicNotFoundError
+from knotica.core.topics import require_topic
 from knotica.core.transaction import VaultTransaction
 from knotica.store import VaultStore
 
@@ -53,7 +53,7 @@ def load_golden_review(
     vault_name: str = "",
 ) -> dict[str, Any]:
     """Load staging/reviewed candidates plus citation/page enrichment for the UI."""
-    cleaned = _require_topic(store, topic)
+    cleaned = require_topic(store, topic)
     staging = staging_relative_path(cleaned)
     reviewed = reviewed_relative_path(cleaned)
     source = reviewed if store.exists(reviewed) else staging
@@ -104,7 +104,7 @@ def save_golden_review(
     accepted: list[dict[str, Any]],
 ) -> dict[str, Any]:
     """Normalize kept candidates and commit them as ``golden.staging.reviewed.jsonl``."""
-    cleaned = _require_topic(store, topic)
+    cleaned = require_topic(store, topic)
     rows = [_normalized_candidate(row) for row in accepted]
     serialized = "".join(json.dumps(row, ensure_ascii=False) + "\n" for row in rows)
     relative = reviewed_relative_path(cleaned)
@@ -130,19 +130,6 @@ def save_golden_review(
         if probe is not None:
             payload["baseline_probe"] = probe.render()
     return payload
-
-
-def _require_topic(store: VaultStore, topic: str) -> str:
-    cleaned = topic.strip().strip("/")
-    if not cleaned or "/" in cleaned:
-        raise TopicNotFoundError(topic or "(empty)")
-    if not store.exists(cleaned):
-        raise TopicNotFoundError(cleaned)
-    try:
-        store.list_dir(cleaned)
-    except (NotADirectoryError, FileNotFoundError) as exc:
-        raise TopicNotFoundError(cleaned) from exc
-    return cleaned
 
 
 def _read_jsonl(text: str) -> list[dict[str, Any]]:

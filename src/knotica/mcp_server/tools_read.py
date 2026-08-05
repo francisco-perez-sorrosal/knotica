@@ -31,13 +31,14 @@ from mcp.types import CallToolResult
 from knotica.core.config import resolve
 from knotica.core.errors import ErrorCode, KnoticaError
 from knotica.core.links import Link, inbound_links, iter_page_paths, outbound_links
-from knotica.core.lint import RESERVED_TOP_LEVEL_NAMES, lint_vault
+from knotica.core.lint import lint_vault
 from knotica.core.page import (
     PageNotFoundError,
     TopicNotFoundError,
 )
 from knotica.core.page import read_page as read_page_core
 from knotica.core.schema import overlay_path
+from knotica.core.topics import is_topic
 from knotica.core.vault_layout import SCORED_FAMILIES, Family
 from knotica.mcp_server import envelope
 from knotica.search import DEFAULT_PAGE_SIZE, InvalidCursorError, RipgrepBackend
@@ -199,20 +200,9 @@ def _collect_topics(store: VaultStore) -> dict[str, Any]:
     topics = [
         {"name": name, "page_count": _page_count(store, name)}
         for name in store.list_dir("")
-        if _is_topic(store, name)
+        if is_topic(store, name)
     ]
     return envelope.read_ok({"topics": topics})
-
-
-def _is_topic(store: VaultStore, name: str) -> bool:
-    """Whether a top-level entry is a topic: a visible, non-reserved directory."""
-    if name.startswith(".") or name in RESERVED_TOP_LEVEL_NAMES:
-        return False
-    try:
-        store.list_dir(name)
-    except NotADirectoryError:
-        return False
-    return True
 
 
 def _page_count(store: VaultStore, topic: str) -> int:

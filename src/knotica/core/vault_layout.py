@@ -13,16 +13,15 @@ A *folder family* answers "what kind of thing does this path hold?".
 
 **Load-bearing contract: ``notes`` is a member of
 :data:`RESERVED_TOP_LEVEL_NAMES`, and that membership is what keeps notes out
-of topic enumeration.** Several consumers enumerate a vault's topics with the
-shape ``if name.startswith(".") or name in RESERVED_TOP_LEVEL_NAMES: continue``
-(``core.vault_metadata_tree``, ``core.status``, ``mcp_server.tools_read``,
-``service.manager``). Because ``notes`` is reserved, ``notes/`` is skipped by
-all of them for free -- exclusion by omission rather than by a filter list that
-must be grown and kept correct. This is a *contract*, not a happy accident: a
-future simplification of any of those reserved-name checks would silently
-re-admit personal notes into the scored topic corpus, with no error and no
-failing test elsewhere. Keep ``notes`` reserved, or replace the guarantee
-before removing it.
+of topic enumeration.** Every consumer that enumerates a vault's topics does so
+through :func:`knotica.core.topics.is_topic`, whose reserved-name check has the
+shape ``if name.startswith(".") or name in RESERVED_TOP_LEVEL_NAMES: return
+False``. Because ``notes`` is reserved, ``notes/`` is skipped for free --
+exclusion by omission rather than by a filter list that must be grown and kept
+correct. This is a *contract*, not a happy accident: a future simplification of
+that reserved-name check would silently re-admit personal notes into the scored
+topic corpus, with no error and no failing test elsewhere. Keep ``notes``
+reserved, or replace the guarantee before removing it.
 
 :func:`family_of` and :func:`topic_of` preserve the positional rules that
 ``search.ripgrep._classify`` has always applied -- a family directory needs a
