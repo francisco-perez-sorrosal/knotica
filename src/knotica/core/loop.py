@@ -26,7 +26,12 @@ from knotica.core import branch_namespaces
 from knotica.core.arena import ArenaState, ScoreFn, VariantSpec
 from knotica.core.arena_resolve import run_arena_and_resolve
 from knotica.core.best_effort import best_effort
-from knotica.core.loop_retry_backoff import is_retryable_failure, retry_floor_seconds
+from knotica.core.loop_attempt import (
+    is_same_content_retry,
+    note_attempt,
+    record_failed_attempt,
+    retry_hold,
+)
 from knotica.core.loop_state import (
     LoopDecision,
     LoopStage,
@@ -251,7 +256,10 @@ class LoopRunner:
                 message=hold,
             )
 
-        failure_hold = self._failure_retry_hold(state, head, self._now_fn())
+        retrying = is_same_content_retry(state, head, content_changed=self._content_changed_since)
+        failure_hold = retry_hold(
+            self._root, self._topic, state, same_content_retry=retrying, now=self._now_fn()
+        )
         if failure_hold is not None:
             return LoopCycleResult(
                 acted=False,
@@ -275,19 +283,31 @@ class LoopRunner:
                 )
 
         self._ensure_union_log_merge()
-        state = write_loop_state(
-            self._store,
-            self._root,
-            state.model_copy(
-                update={
-                    "stage": LoopStage.evaluating,
-                    "candidate_branch": default,
-                    "candidate_sha": head,
-                    "last_error": None,
-                    "last_eval_started_at": self._now_fn(),
-                }
-            ),
-            title=f"observing {default}@{head[:12]}",
+        started_at = self._now_fn()
+        note_attempt(self._root, self._topic, at=started_at)
+        # What the vault currently records, kept for the failure path to compare
+        # against — ``state`` below becomes the in-flight attempt, which is not
+        # the same thing and would compare equal to itself.
+        stored = state
+        attempt = state.model_copy(
+            update={
+                "stage": LoopStage.evaluating,
+                "candidate_branch": default,
+                "candidate_sha": head,
+                "last_error": None,
+                "last_eval_started_at": started_at,
+            }
+        )
+        # ``evaluating`` → ``failed`` is ONE attempt, so a re-attempt of a failure
+        # already on record must not pay a commit for its first half either (see
+        # :mod:`knotica.core.loop_attempt`). Liveness meanwhile stays visible via
+        # the gitignored heartbeat/progress files, never via commits.
+        state = (
+            attempt
+            if retrying
+            else write_loop_state(
+                self._store, self._root, attempt, title=f"observing {default}@{head[:12]}"
+            )
         )
         # Pin the eval clone AFTER the state commit above: the live side then has
         # no loop-authored commits the merge would have to reconcile — only
@@ -298,25 +318,18 @@ class LoopRunner:
         except Exception as exc:  # noqa: BLE001 — surface into loop-state, keep runner alive
             # Do NOT mark_processed here: the cursor must stay unadvanced so the
             # next tick still sees content-changed against this same head and
-            # re-attempts the eval. last_eval_started_at (set above, before this
-            # try block) throttles that retry via _cadence_hold — it does not
-            # fire on every tick with no delay. candidate_sha is deliberately
-            # KEPT as the failed head (not nulled) so a later tick can tell a
-            # same-content retry apart from a genuinely new content change.
-            write_loop_state(
+            # re-attempts the eval, paced by the attempt clock ``note_attempt``
+            # advanced above. Whether the failure is *written* at all is
+            # loop_attempt's call — an attempt recording nothing new costs no commit.
+            record_failed_attempt(
                 self._store,
                 self._root,
-                state.model_copy(
-                    update={
-                        "stage": LoopStage.failed,
-                        "last_error": str(exc),
-                        "candidate_branch": default,
-                        "candidate_sha": head,
-                        "pending_retry": True,
-                        "last_failure_retryable": is_retryable_failure(exc),
-                    }
-                ),
-                title=f"observation eval error on {default}",
+                stored=stored,
+                attempt=state,
+                branch=default,
+                head=head,
+                exc=exc,
+                same_content=retrying,
             )
             return LoopCycleResult(
                 acted=True,
@@ -478,39 +491,6 @@ class LoopRunner:
         if now - self._pending_since < self._observe_quiet_seconds:
             return f"observation settling ({self._observe_quiet_seconds:g}s quiet window)"
         self._pending_head = None
-        return None
-
-    def _failure_retry_hold(self, state: LoopState, head: str, now: datetime) -> str | None:
-        """Reason to defer a retry of a *failing* observation eval, or ``None``.
-
-        Always-on and independent of ``eval_min_interval_hours``/``eval_window``
-        — the only things it consults are ``state.pending_retry`` (set when the
-        previous observation eval raised), ``state.candidate_sha`` (the head
-        that failed, kept rather than nulled on the failure path), and elapsed
-        time since that eval started. A brand-new content change never has
-        ``pending_retry`` set, and different CONTENT than what failed is never
-        held here — only a same-content retry is. Content equality (not exact
-        sha equality) is the right comparison: the loop's own bookkeeping
-        commits (loop-state / metrics / log) move ``head`` between ticks even
-        when nothing a human wrote has changed.
-
-        The floor itself is chosen by `loop_retry_backoff.retry_floor_seconds`
-        from the kind of failure recorded on the state.
-        """
-        if not state.pending_retry or state.last_eval_started_at is None:
-            return None
-        if state.candidate_sha is None:
-            return None
-        if self._content_changed_since(state.candidate_sha, head):
-            return None
-        elapsed_seconds = (now - state.last_eval_started_at).total_seconds()
-        floor = retry_floor_seconds(retryable=state.last_failure_retryable)
-        if elapsed_seconds < floor:
-            kind = "failure" if state.last_failure_retryable else "blocked"
-            return (
-                f"{kind} retry held: {elapsed_seconds:.0f}s since last eval attempt "
-                f"< {floor}s floor"
-            )
         return None
 
     def _cadence_hold(self, state: LoopState, now: datetime) -> str | None:
