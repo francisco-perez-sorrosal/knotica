@@ -14,6 +14,8 @@ affected_files: [src/knotica/mcp_server/, src/knotica/core/status.py, src/knotic
 affected_reqs: []
 dissent: A Python-stdlib localhost dashboard with a parallel REST/SSE data path (the earlier hackathon-scoped framing) would ship a visible chart sooner, at the cost of a second data contract that drifts from the MCP tool surface and cannot render inside Claude Desktop's MCP-App sandbox.
 re_affirms: [dec-003, dec-007, dec-013]
+re_affirmed_by:
+  - dec-028
 ---
 
 ## Context

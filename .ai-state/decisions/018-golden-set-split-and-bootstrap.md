@@ -4,7 +4,7 @@ title: Golden set — synthetic-from-pages + human review-freeze, held-out split
 status: accepted
 category: architectural
 date: 2026-07-15
-summary: Bootstrap each topic's eval-scalar set by generating synthetic QA pairs from entity pages, then human review-and-freeze into a held-out golden.jsonl (~20-30 pairs) with a sha256 MANIFEST, kept disjoint from the flywheel qa.jsonl (future DSPy trainset) from the start. Frozen records use source: curate_example (no enum change).
+summary: "Bootstrap each topic's eval-scalar set by generating synthetic QA pairs from entity pages, then human review-and-freeze into a held-out golden.jsonl (~20-30 pairs) with a sha256 MANIFEST, kept disjoint from the flywheel qa.jsonl (future DSPy trainset) from the start. Frozen records use source: curate_example (no enum change)."
 tags: [evals, phase-2, golden-set, data-governance, contamination, held-out, dspy]
 made_by: agent
 agent_type: systems-architect

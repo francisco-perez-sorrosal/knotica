@@ -14,6 +14,8 @@ affected_files:
   - src/knotica/mcp/
   - src/knotica/search/
 dissent: An opaque cursor is over-engineering for a filesystem search returning a handful of results at MVP scale; plain offset/limit would be simpler and adequate.
+re_affirmed_by:
+  - dec-028
 ---
 
 ## Context

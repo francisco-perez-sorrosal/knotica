@@ -18,6 +18,8 @@ affected_files:
   - src/knotica/mcp_server/tools_vault.py
   - src/knotica/dashboard/app.html
 dissent: A billed action exposed as an MCP tool is agent-reachable by construction; the two-phase nonce prevents accidental billing but not a willfully-circumventing agent — CLI-only would be structurally stronger but fails the Desktop requirement.
+re_affirmed_by:
+  - dec-051
 ---
 
 ## Context

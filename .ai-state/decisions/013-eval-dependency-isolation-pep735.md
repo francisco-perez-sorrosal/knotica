@@ -15,6 +15,8 @@ affected_files: [pyproject.toml]
 affected_reqs: [REQ-DEP-01]
 dissent: An optional-extra (pip install knotica[evals]) would make the eval tooling installable by an end user via standard packaging, which a dependency-group cannot; if end-user-run eval is ever in scope, the group choice has to be revisited or supplemented.
 re_affirms: dec-007
+re_affirmed_by:
+  - dec-020
 ---
 
 ## Context
