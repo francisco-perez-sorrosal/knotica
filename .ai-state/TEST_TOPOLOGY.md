@@ -12,8 +12,8 @@
 # Test Topology — Knotica
 
 Maps the Built structural components of [`.ai-state/DESIGN.md`](DESIGN.md) §3 onto logical test
-groups so that a pipeline step can run a scoped subset instead of the full suite (2520 tests /
-175 test files / ~296 s wall-clock, sampled 2026-08-05).
+groups so that a pipeline step can run a scoped subset instead of the full suite (2534 tests /
+176 test files / ~296 s wall-clock, sampled 2026-08-05).
 
 The groups are runnable by hand, not only by pipeline agents: `make test-groups` lists them and
 `make test-group GROUP=<id>` runs one, both derived from the blocks in this file. See
@@ -50,7 +50,7 @@ that owns its tests. Group ids are kebab-case and collision-free against the tru
 | `src/knotica/evals/error_capture.py` | `eval-harness` | The shared leaf both `harness.py` and `scorer.py` import; it exists only to serve the harness's per-example outcome seam. |
 | `src/knotica/programs/` | `query-compile` | DSPy query compile (MIPROv2 + bootstrap fallback) → compiled artifact + `CompiledRunner`. Optimization is a distinct concern from measurement: a compile-artifact change should not force a re-run of the LLM-judge suite. |
 | `src/knotica/core/compile_run.py` + `compile_state.py` + `compile_promote.py` + `compiled.py` + `query_engine.py` + `trainset.py` + `models_config.py` + `prompt_diff.py` | `query-compile` | The `core/` half of the same chain: the run pipeline, its pollable state file, promote, the artifact reader, the unified `query_engine` facade, the trainset counts the gate reads, the `[models]` overrides, and the deterministic `query.md` diff. It ships and breaks with `programs/` — an artifact-format change touches the DSPy program and its lifecycle in one edit. Note 2 already subtracted these eight modules from the `vault-semantics` residual on concern grounds; **this row is the §3 anchor that subtraction previously lacked.** |
-| `src/knotica/core/loop.py` + `loop_state.py` + `loop_heartbeat.py` + `loop_progress.py` + `loop_factory.py` + `loop_promote.py` + `loop_retry_backoff.py` + `loop_cadence_config.py` + `arena.py` + `arena_resolve.py` + `candidate_gate.py` + `branch_namespaces.py` + `branch_scoreboard.py` + `branch_delete.py` + `best_effort.py` | `loop-runtime` | The autonomous watcher: observe → gate → heal, together with the arena, branch and pacing siblings the §3 cell now names outright instead of leaving to prose (note 2). The most expensive group by construction — real git clones, worktrees, arena races, flock contention. |
+| `src/knotica/core/loop.py` + `loop_state.py` + `loop_heartbeat.py` + `loop_progress.py` + `loop_factory.py` + `loop_promote.py` + `loop_retry_backoff.py` + `loop_attempt.py` + `loop_cadence_config.py` + `arena.py` + `arena_resolve.py` + `candidate_gate.py` + `branch_namespaces.py` + `branch_scoreboard.py` + `branch_delete.py` + `best_effort.py` | `loop-runtime` | The autonomous watcher: observe → gate → heal, together with the arena, branch and pacing siblings the §3 cell now names outright instead of leaving to prose (note 2). The most expensive group by construction — real git clones, worktrees, arena races, flock contention. |
 | `src/knotica/discovery/` | `discovery-network` | Pure outbound-network boundary: no vault read/write, no state, single inward edge to `core.errors`, enforced by the `mcp_server ⊬ discovery` import-boundary test. The most cleanly dependency-closed group in the project. |
 | `src/knotica/core/gap_classifier.py` + `records.GapRecord` | `gapfill-spine` | P1 — regression → fault-class diagnosis, producing the `GapRecord` queue. |
 | `src/knotica/core/gapfill.py` + `records.SuggestionRecord` + `mcp_server/tools_suggestions.py` + `cli/gapfill.py` | `gapfill-spine` | P3 — gap × ranked-candidate join, suggestion queue, approval surface. |
@@ -58,7 +58,7 @@ that owns its tests. Group ids are kebab-case and collision-free against the tru
 | `src/knotica/okf/` | `okf-conformance` | One format vocabulary with three verbs over it — `check` (read-only findings), `export` (bundle outside the vault), `repair` (the one module here that mutates, and only through `VaultTransaction`). Both `export` and `repair` import `check`, so an OKF field-set change touches all three in a single edit. Its adapters are thin and stay with their surface groups: `cli/okf.py` with `cli-surface`, the `vault_health` dispatcher's `okf_check`/`okf_repair` actions with `mcp-surface`. Enumerate this tree's tests **by import** — one of them carries no `okf` marker in its filename (note 1). |
 | `src/knotica/guillotine/` | `guillotine-audit` | A read-only claim-trial pipeline — search → classify → score → patch → report, composed by `runner`. Deliberately **not** folded into `okf-conformance` despite the single `guillotine.report → okf.frontmatter` edge: the two answer different questions (format conformance vs. claim retraction) and change for different reasons, so sharing a group would fire an okf edit into the guillotine suite for nothing. The group also claims `core/operations/guillotine.py` — the transaction-bearing adapter §3 keeps *outside* the package precisely to hold the analysis layer inward-arrow-clean, and the module whose tests live here rather than in `vault-semantics` (note 2). |
 | `src/knotica/service/` | `service-lifecycle` | Install / uninstall / status / supervise for the headless loop: two platform generators (launchd verified, systemd untested and self-reporting so) behind one interface, plus the daemon entry, with an injectable `Runner` seam that makes the `launchctl`/`systemctl` calls testable without touching the machine. Deliberately **not** folded into `loop-runtime`: §3's contract is that installing or querying the service never drags the loop runtime in (those imports are lazy, inside the supervision cycle), and `loop-runtime` is the slowest group in the project — a three-module OS-lifecycle edit has no business paying for an e2e clone-and-race suite. |
-| Plugin layer (repo root) | `plugin-layer` | `.claude-plugin/`, `.mcp.json`, `commands/`, `hooks/`, `skills/`, and wheel packaging. The only group whose file dependencies live outside `src/` — a `commands/*.md` edit has no business running 2520 tests. |
+| Plugin layer (repo root) | `plugin-layer` | `.claude-plugin/`, `.mcp.json`, `commands/`, `hooks/`, `skills/`, and wheel packaging. The only group whose file dependencies live outside `src/` — a `commands/*.md` edit has no business running 2534 tests. |
 
 **Coverage:** 23 Built components → 14 groups. The map is **total and single-valued** — every Built
 component has exactly one owning group — but not injective: `vault-substrate`, `notes-overlay`,
@@ -107,14 +107,14 @@ under it. The claimed subtractions, by group:
 |---|---|
 | `vault-substrate` | `vault_layout.py` |
 | `notes-overlay` | `notes/`, `notes_config.py`, `operations/capture_note.py`, `operations/promote_note.py`, `operations/reanchor_note.py` |
-| `loop-runtime` | `loop.py`, `loop_state.py`, `loop_heartbeat.py`, `loop_progress.py`, `loop_factory.py`, `loop_promote.py`, `loop_retry_backoff.py`, `loop_cadence_config.py`, `arena.py`, `arena_resolve.py`, `candidate_gate.py`, `branch_namespaces.py`, `branch_scoreboard.py`, `branch_delete.py`, `best_effort.py` |
+| `loop-runtime` | `loop.py`, `loop_state.py`, `loop_heartbeat.py`, `loop_progress.py`, `loop_factory.py`, `loop_promote.py`, `loop_retry_backoff.py`, `loop_attempt.py`, `loop_cadence_config.py`, `arena.py`, `arena_resolve.py`, `candidate_gate.py`, `branch_namespaces.py`, `branch_scoreboard.py`, `branch_delete.py`, `best_effort.py` |
 | `query-compile` | `compile_run.py`, `compile_promote.py`, `compile_state.py`, `compiled.py`, `query_engine.py`, `models_config.py`, `prompt_diff.py`, `trainset.py` |
 | `gapfill-spine` | `gap_classifier.py`, `gapfill.py`, `gapfill_config.py`, `source_gate.py`, `source_ingest.py`, `operations/candidate_scope.py` |
 | `guillotine-audit` | `operations/guillotine.py` |
 
 The `loop-runtime` and `query-compile` subtractions were originally made on concern grounds while
 §3 still filed both clusters under the coarse `core/` row. §3 now carries them outright — a
-compile-chain row, and a loop row widened to name all fifteen siblings — so those two rows are
+compile-chain row, and a loop row widened to name all sixteen siblings — so those two rows are
 **anchored, not asserted**. Grouping by concern rather than by table row is what kept
 `vault-semantics` a coherent mutation-core group in the interim, and §3 has since agreed with it.
 
@@ -124,9 +124,11 @@ outside `guillotine/` on purpose, so that the package stays a pure read-only ana
 tests are `test_guillotine.py`, which imports `apply_guillotine` and `persist_guillotine_artifacts`
 from it directly — while `vault-semantics` currently lists the module in `file_dependencies` and
 runs none of those tests. Editing it therefore fires a group that cannot see it break, exactly as
-`promote_note.py` / `reanchor_note.py` did before they were re-homed. The claim is recorded here;
-reconciling `vault-semantics`' `file_dependencies` against it is a selector change and belongs to
-the test-engineer.
+`promote_note.py` / `reanchor_note.py` did before they were re-homed. **That reconciliation has
+since been made**, in the same edit that created the group: `guillotine-audit`'s
+`file_dependencies` are `src/knotica/guillotine/**` plus `src/knotica/core/operations/guillotine.py`,
+and `vault-semantics`' no longer name the module at all. The Open-divergence section below records
+it among the absorbed divergences; this paragraph states the claim, not a pending action.
 
 `okf/` and `service/` claim nothing under `core/`: `okf.repair` owns its own `VaultTransaction`
 inside the package, and `service/` only *consumes* `core.config` / `errors` / `lint` /
@@ -173,12 +175,18 @@ section.
 `test_vault_targeting.py` assert invariants *across* subsystem boundaries (import direction, file
 ceilings, spine coherence, tool-surface shape, packaging). By construction they have no single
 owning subsystem, and the trunk is explicit that cross-cutting capabilities make no sound
-test-group boundary — so they are deliberately un-grouped.
+test-group boundary — so none of them **owns** a group, and none is given one.
 
 They are also cheap (import-graph walks, `stat` calls, markdown scans) and they are precisely the
-tests a scoped run is blind to. Whether to pin them into every scoped invocation or leave them to
-pipeline tier is a selector decision and belongs to the test-engineer; this note only records that
-the omission is intentional, not an oversight.
+tests a scoped run is blind to. Whether to pin them into scoped invocations or leave them to
+pipeline tier was a selector decision, and it has since been taken — per file rather than in bulk,
+in [Cross-cutting fitness tests](#cross-cutting-fitness-tests--the-selector-decision-note-3-defers-here)
+below. **Six of the seven are now pinned** into the groups whose `file_dependencies` can actually
+break them: `test_file_size_ratchet.py` into all fourteen, `test_architecture_boundaries.py` into
+five, and `test_server_tool_surface.py` / `test_tool_description_guards.py` / `test_vault_targeting.py`
+/ `test_template.py` into one each. Only `test_spine.py` is still un-grouped, because its trigger is
+`tests/conftest.py` + `tests/support/` — test infrastructure no group's `file_dependencies` covers.
+This note records why none of them owns a subsystem; it no longer claims they are all un-grouped.
 
 ## Test Groups
 
@@ -606,7 +614,7 @@ notes: >-
 id: loop-runtime
 title: Loop runtime — the autonomous observe / gate / heal watcher
 subsystems:
-  - "src/knotica/core/loop.py + loop_state.py + loop_heartbeat.py + loop_progress.py + loop_factory.py + loop_promote.py + loop_retry_backoff.py + loop_cadence_config.py + arena.py + arena_resolve.py + candidate_gate.py + branch_namespaces.py + branch_scoreboard.py + branch_delete.py + best_effort.py"
+  - "src/knotica/core/loop.py + loop_state.py + loop_heartbeat.py + loop_progress.py + loop_factory.py + loop_promote.py + loop_retry_backoff.py + loop_attempt.py + loop_cadence_config.py + arena.py + arena_resolve.py + candidate_gate.py + branch_namespaces.py + branch_scoreboard.py + branch_delete.py + best_effort.py"
 tier: e2e
 selectors:
   - strategy: pytest-globs
@@ -874,8 +882,8 @@ notes: >-
 
 ### Verified runtimes (single sample each)
 
-Baseline for comparison: full suite 2520 passed; the ~296 s wall-clock is the last full-suite
-sample, taken at 2520 tests on 2026-08-05.
+Baseline for comparison: full suite 2534 passed; the ~296 s wall-clock is the last full-suite
+sample, taken at 2520 tests on 2026-08-05 and not re-sampled for the +14 below.
 
 Rows marked ‡ were re-measured after the duplicate-consolidation and `td-031` passes, which gave
 `vault-semantics` and `loop-runtime` two new test files each. Rows marked † are the 2026-08-05
@@ -893,7 +901,7 @@ noise.
 | Group | Files | Tests | Sequential | `-n 4 --dist loadfile` |
 |---|---:|---:|---:|---:|
 | `vault-substrate` | 5 | 161 | 1.6 s | 2.7 s |
-| `vault-semantics` ‡ | 29 | 569 | 26.6 s | 13.3 s |
+| `vault-semantics` ‡ | 29 | 572 | 26.6 s | 13.3 s |
 | `notes-overlay` | 17 | 316 | 23.5 s | 9.7 s |
 | `mcp-surface` † | 38 | 366 | 44.1 s | 19.4 s |
 | `cli-surface` | 12 | 106 | 19.6 s | 10.0 s |
@@ -907,7 +915,7 @@ noise.
 | `service-lifecycle` † | 4 | 55 | 2.2 s | 0.9 s |
 | `plugin-layer` | 4 | 29 | 4.8 s | 2.1 s |
 
-The column sums to 2606 against 2480 unique, and the 126-test excess is exactly the pinned overlap:
+The column sums to 2609 against 2483 unique, and the 126-test excess is exactly the pinned overlap:
 `test_file_size_ratchet.py` counted in all 14 groups (13 × 6 = 78) and `test_architecture_boundaries.py`
 in 5 (4 × 12 = 48). That identity is the table's own arithmetic check — it is what forced the four
 unmarked corrections above, since leaving them at their pre-widening values would have made the
@@ -926,7 +934,7 @@ one.
 
 ### Cross-cutting fitness tests — the selector decision Note 3 defers here
 
-Note 3 leaves the disposition of the seven un-grouped fitness tests to this section. Blanket-pinning
+Note 3 leaves the disposition of the seven cross-cutting fitness tests to this section. Blanket-pinning
 all seven into all fourteen groups was rejected on measurement: `test_spine.py` alone costs ~16 s,
 more than ten of the fourteen groups cost in total. Each file is instead pinned to the groups whose
 `file_dependencies` can actually break it:
@@ -950,7 +958,7 @@ tracks the **named** package scans, which is the signal a reader can act on, and
 clause is already carried unpinned by the eight other `src/`-owning groups. It is caught at pipeline
 tier like any other whole-tree invariant.
 
-### Un-grouped tests — now test infrastructure only
+### Un-grouped tests — now test infrastructure and record gates only
 
 **The §3 gap is closed: 0 files.** The previous revision of this section carried 11 files / 128
 tests un-grouped because four module trees — `okf/`, `guillotine/`, `service/`, and the dashboard
@@ -959,8 +967,8 @@ TT01). §3's refinement pass gave all four a row, so the three new groups above 
 row's assignment to `mcp-surface` absorb every one of those files. Nothing is un-grouped for lack
 of a §3 row any more.
 
-What remains is **test infrastructure — 3 files / 40 tests**, un-grouped for a different reason
-that closing the §3 gap never addressed: each covers code outside `src/knotica/`, which §3 does not
+What remains is **test infrastructure and record gates — 4 files / 51 tests**, un-grouped for a
+different reason that closing the §3 gap never addressed: each covers code outside `src/knotica/`, which §3 does not
 model *by design*, so Note 1's prohibition on synthetic subsystem names applies permanently rather
 than pending a refinement pass.
 
@@ -969,9 +977,10 @@ than pending a refinement pass.
 | `test_spine.py` | 21 | `tests/conftest.py` + `tests/support/` | Test infrastructure; no group's `file_dependencies` covers it (Note 3). Also the most expensive single un-grouped file at ~16.6 s. |
 | `test_topology_runner.py` | 10 | `scripts/test_group.py` | Dev tooling outside `src/knotica/` — the very runner documented above. |
 | `test_adr_health.py` | 9 | `scripts/check_adr_health.py` | Dev tooling outside `src/knotica/`, same constraint. |
+| `test_architecture_coverage.py` | 11 | `scripts/check_architecture_coverage.py` | Dev tooling outside `src/knotica/`, same constraint. Its subject is the architecture record itself (td-038), which §3 does not model as a component. |
 
-All 40 fall through to **pipeline tier (full suite)** — never skipped, only absent from the scoped
-inner loop. The two `scripts/`-covering files are the live illustration of Note 1's closing
+All 51 fall through to **pipeline tier (full suite)** — never skipped, only absent from the scoped
+inner loop. The three `scripts/`-covering files are the live illustration of Note 1's closing
 paragraph: inventing an `scripts/` subsystem would be a TT01 FAIL, and folding either into a
 group's `file_dependencies` would make that group claim coverage of a tree §3 does not describe.
 Un-grouped is the correct state for both, not a debt.
@@ -986,17 +995,17 @@ either filename would have misled a glob in the opposite direction.
 
 Re-proved against the live tree after the duplicate-consolidation and `td-031` passes.
 
-**Files — 175 total.** 166 in group `arg` lists as own membership + 6 pinned fitness files + 3
-un-grouped = 175. Exactly two files appear in more than one group's `arg` list
+**Files — 176 total.** 166 in group `arg` lists as own membership + 6 pinned fitness files + 4
+un-grouped = 176. Exactly two files appear in more than one group's `arg` list
 (`test_file_size_ratchet.py` in all 14, `test_architecture_boundaries.py` in 5); both are pinned
 fitness tests, counted once in the runtime table. No file is assigned to two groups' own
 membership.
 
-**Tests — 2520 total.** Running the fourteen groups yields 2480 unique tests; 2480 + 40 un-grouped
-= **2520**, exactly the full-suite collection. The topology covers the suite with no silent drop
+**Tests — 2534 total.** Running the fourteen groups yields 2483 unique tests; 2483 + 51 un-grouped
+= **2534**, exactly the full-suite collection. The topology covers the suite with no silent drop
 and no stray.
 
-**Two movements, in that order.** The §3 gap closed first; this revision then grew the suite
+**Three movements, in that order.** The §3 gap closed first; this revision then grew the suite
 without reopening it. Both are recorded because the second is only legible against the first:
 
 1. **§3 refinement — the gap closed.** The 128 tests that were the §3 gap did not disappear, they
@@ -1015,8 +1024,19 @@ without reopening it. Both are recorded because the second is only legible again
    a draft id — which lands un-grouped and takes that set 39 → 40. Files rose 171 → 175, every one
    of them into a group. No group was created, none dissolved, and no file fell outside the
    fourteen `arg` lists.
+3. **The architecture-doc gate — one file added to each side.** `td-040`'s consolidation added 3
+   tests to `tests/test_core_topics.py`, inside `vault-semantics`, taking grouped-unique
+   2480 → 2483. The new `scripts/check_architecture_coverage.py` brought `tests/test_architecture_coverage.py`
+   (11), which lands **un-grouped** for the same reason its two `scripts/`-covering siblings do —
+   its subject is dev tooling outside `src/knotica/`, so no `subsystems` entry can name it without
+   a synthetic name Note 1 forbids. Un-grouped rose 40 → 51, files 175 → 176, the full suite
+   2520 → 2534. This is the first movement to add to the un-grouped side since the §3 gap closed,
+   and it is worth being precise about why that is not a regression: the un-grouped set is now
+   *entirely* code that §3 does not model by design, so it grows whenever a repo-record gate is
+   added and shrinks never. A third `scripts/`-covering file is evidence the gates are multiplying,
+   which is the intent.
 
-One count still answers what two used to: **3 files / 40 tests** is both the §3-gap size (zero of
+One count still answers what two used to: **4 files / 51 tests** is both the §3-gap size (zero of
 it) and the size of what a scoped run leaves to pipeline tier. The revision before last needed
 11/128 and 13/159 as separate figures precisely because the gap and the infrastructure remainder
 were different sets; with the gap closed they collapsed into one, and movement 2 did not separate
