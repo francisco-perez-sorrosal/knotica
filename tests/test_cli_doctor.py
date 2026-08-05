@@ -404,3 +404,48 @@ def test_doctor_fix_points_at_repair_not_restore_dot(vault_config: Path, templat
     joined = " ".join(guidance["commands"])
     assert "doctor repair" in joined
     assert "git restore ." not in joined
+
+
+def test_importing_doctor_never_pulls_in_an_llm_client() -> None:
+    """ "Runs mechanical, LLM-free checks" survives only as prose in this module's docstring.
+
+    `doctor` is the command a confused user runs first, often before any
+    credential is configured, and `--quick` is advertised as cheap. If a check
+    ever reached for the LLM the cost would land on the user silently -- and a
+    behavioral test cannot prove the absence of a call on paths it does not
+    take, so this pins the stronger structural property: the module cannot call
+    what it cannot import.
+    """
+    script = (
+        "import sys\n"
+        "import knotica.core.doctor, knotica.cli.doctor\n"
+        "leaked = sorted(\n"
+        "    m for m in sys.modules\n"
+        "    if m.split('.')[0] in {'anthropic', 'dspy'} or m.endswith('evals.llm')\n"
+        ")\n"
+        "assert not leaked, leaked\n"
+        "print('DOCTOR_LLM_FREE_OK')\n"
+    )
+
+    result = subprocess.run([sys.executable, "-c", script], capture_output=True, text=True)
+
+    assert result.returncode == 0, (
+        f"doctor must not import an LLM client; stdout={result.stdout!r} stderr={result.stderr!r}"
+    )
+    assert "DOCTOR_LLM_FREE_OK" in result.stdout
+
+
+def test_the_check_set_includes_the_mcp_registration_row(vault_config: Path) -> None:
+    """`core/doctor.py` emits an `mcp` row that no test pinned.
+
+    It is host-dependent, so it may PASS or WARN and the assertions elsewhere
+    deliberately tolerate either -- which is exactly why its *presence* needs
+    pinning separately: a row allowed to warn is a row whose disappearance
+    nothing would notice.
+    """
+    result = _run("doctor", "--json")
+
+    rows = json.loads(result.stdout)["checks"]
+    names = [row["name"] for row in rows]
+
+    assert "mcp" in names, f"doctor must report an mcp registration row; got {names}"

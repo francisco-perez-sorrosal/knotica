@@ -659,3 +659,54 @@ def test_candidate_scoped_store_source_then_write_page_share_the_worktree_branch
     assert not (template_vault / TOPIC / "candidate-mcp-page.md").exists(), (
         "the candidate-scoped page must never appear in the canonical working tree"
     )
+
+
+#: Every mutating tool, with a fully-populated argument set so the only thing
+#: under test is the topic. Populating them matters: an incomplete set fails
+#: schema validation first and the test would pass for the wrong reason.
+_MUTATING_TOOL_CALLS = [
+    ("create_topic", {}),
+    ("write_page", {"page": NEW_PAGE, "content": VALID_PAGE, "summary": "x"}),
+    (
+        "store_source",
+        {
+            "citation_key": "k",
+            "title": "T",
+            "content": "b",
+            "source_url": "https://example.com/x",
+        },
+    ),
+    ("curate_example", {"query": "q", "answer": "a", "pages_used": [], "verdict": "good"}),
+]
+
+
+@pytest.mark.parametrize(("tool", "extra"), _MUTATING_TOOL_CALLS)
+@pytest.mark.parametrize("empty", ["", "   "])
+def test_a_mutating_tool_refuses_an_empty_topic_and_makes_no_commit(
+    vault_config: Path, template_vault: Path, tool: str, extra: dict[str, Any], empty: str
+) -> None:
+    """Every mutating tool requires a non-empty topic.
+
+    The asymmetry is the point: an empty ``topic`` means "all topics" on the
+    *read* band, so the same argument that widens a read must never widen a
+    write -- a mutation that accepted it would have to invent a target. The
+    only assertion covering empty-topic rejection was on a read tool
+    (``metrics_read``), so this clause held by implementation rather than by
+    test.
+
+    Whitespace is included because ``"   "`` is the shape that survives a
+    client's string interpolation of an unset variable, and it must be refused
+    for the same reason ``""`` is.
+
+    What is asserted here is the *safety* clause -- refused, and no commit.
+    The four tools refuse in three different shapes (two typed envelopes,
+    two raw exception strings), which is a real inconsistency but a separate
+    one; pinning a specific code per tool here would freeze that divergence
+    into a test instead of leaving it visible as debt.
+    """
+    before = git_commit_count(template_vault)
+
+    result = call_tool(tool, {"topic": empty, **extra})
+
+    assert result.isError, f"{tool} accepted an empty topic"
+    assert git_commit_count(template_vault) == before, "a refused mutation makes no commit"

@@ -167,3 +167,82 @@ def test_unconfigured_vault_exits_three_with_the_setup_remediation(
         f"unconfigured must exit 3 (got {result.returncode}); stderr: {result.stderr!r}"
     )
     assert UNCONFIGURED_MESSAGE in result.stderr
+
+
+# ---------------------------------------------------------------------------
+# The three counts §4.2 names beside pages: curated, last lint, unpushed
+# ---------------------------------------------------------------------------
+
+
+def _write_qa_record(vault: Path, topic: str, query: str) -> None:
+    """Append one query-train curated example, the way the flywheel would."""
+    from knotica.core.operations.create_topic import qa_dataset_path
+
+    path = vault / qa_dataset_path(topic)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    record = {
+        "id": query.replace(" ", "-"),
+        "schema_version": 1,
+        "topic": topic,
+        "created": "2026-08-05",
+        "query": query,
+        "pages_used": [],
+        "answer": "an answer",
+        "citations": [],
+        "verdict": "good",
+        "corrected_answer": None,
+        "source": "curate_example",
+        "model": "test-model",
+    }
+    with path.open("a", encoding="utf-8") as handle:
+        handle.write(json.dumps(record) + "\n")
+    run_git(vault, "add", "-A")
+    run_git(vault, "commit", "-m", "test: curate an example")
+
+
+def test_curated_example_count_tracks_a_real_curated_example(
+    vault_config: Path, template_vault: Path
+):
+    """The curated count is derived from `qa.jsonl`, not reported as a constant."""
+    before = json.loads(_run("status", "--json").stdout)["totals"]["curated"]
+
+    _write_qa_record(template_vault, SEED_TOPIC, "what is agent workflow memory")
+
+    after = json.loads(_run("status", "--json").stdout)["totals"]["curated"]
+    assert after == before + 1, f"curated must track qa.jsonl; {before} -> {after}"
+
+
+def test_last_lint_reports_the_latest_lint_date_recorded_in_the_log(
+    vault_config: Path, template_vault: Path
+):
+    """`last_lint` reads `log.md`; the fixture has no lint entry, so it starts empty."""
+    assert json.loads(_run("status", "--json").stdout)["last_lint"] is None
+
+    log = template_vault / "log.md"
+    log.write_text(
+        log.read_text(encoding="utf-8")
+        + f"\n## 2026-08-05\n* **Update**: lint · {SEED_TOPIC} — clean ([[index]])\n",
+        encoding="utf-8",
+    )
+    run_git(template_vault, "add", "-A")
+    run_git(template_vault, "commit", "-m", "test: record a lint run")
+
+    assert json.loads(_run("status", "--json").stdout)["last_lint"] == "2026-08-05"
+
+
+def test_unpushed_counts_commits_the_remote_has_not_seen(
+    vault_config: Path, template_vault: Path, tmp_path: Path
+):
+    """`unpushed` is `None` without an upstream and a real count once one exists."""
+    assert json.loads(_run("status", "--json").stdout)["unpushed"] is None
+
+    remote = tmp_path / "remote.git"
+    run_git(template_vault, "init", "--bare", str(remote))
+    run_git(template_vault, "remote", "add", "origin", str(remote))
+    branch = run_git(template_vault, "rev-parse", "--abbrev-ref", "HEAD").strip()
+    run_git(template_vault, "push", "-u", "origin", branch)
+    assert json.loads(_run("status", "--json").stdout)["unpushed"] == 0
+
+    _add_content_page(template_vault, SEED_TOPIC, "unpushed-page.md")
+
+    assert json.loads(_run("status", "--json").stdout)["unpushed"] == 1

@@ -684,3 +684,41 @@ def test_future_provenance_schema_version_with_extra_fields_still_parses():
 
     assert parsed is not None
     assert str(_field(parsed, "citation_key")) == "vaswani2017attention"
+
+
+# ---------------------------------------------------------------------------
+# The constitution documents what this module freezes
+# ---------------------------------------------------------------------------
+
+#: The five record formats the root constitution must document, in its own
+#: numbering. The grammars below are re-declared in `tests/support/vault.py`
+#: rather than read back from the file, so nothing otherwise compares the two
+#: and the doc could drift from the code silently.
+_FROZEN_RECORD_SECTIONS = (
+    "`qa.jsonl`",
+    "`metrics.jsonl`",
+    "Log entry",
+    "Commit message",
+    "Source provenance frontmatter",
+)
+
+
+def test_root_constitution_documents_all_five_frozen_record_formats() -> None:
+    """`SCHEMA.md` §Machine-record schemas is this module's cited contract source.
+
+    The citation is prose-only everywhere else: the module docstring names the
+    section, and the frozen grammars are re-declared in the test support
+    package. That leaves the document free to drop or rename a record format
+    while every record test keeps passing against its own copy of the rules.
+    """
+    schema = (Path(__file__).resolve().parents[1] / "vault-template" / "SCHEMA.md").read_text(
+        encoding="utf-8"
+    )
+    body = schema.split("## Machine-record schemas (frozen)", 1)
+
+    assert len(body) == 2, "the frozen machine-record section must exist by that exact heading"
+    for index, section in enumerate(_FROZEN_RECORD_SECTIONS, start=1):
+        heading = f"### {index}."
+        assert heading in body[1], f"record format {index} has no numbered section"
+        line = next(ln for ln in body[1].splitlines() if ln.startswith(heading))
+        assert section in line, f"section {index} should document {section}; got {line!r}"

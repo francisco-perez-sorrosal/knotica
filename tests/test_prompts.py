@@ -311,3 +311,27 @@ def test_operation_bodies_point_at_the_resolved_schema_resource(store: VaultStor
     """Resources are not auto-loaded; each schema-guided body must direct the
     client at the merged resolved-schema resource explicitly."""
     assert "knotica://schema/resolved/" in resolve_prompt(store, operation).body
+
+
+def test_the_query_prompt_body_mandates_citation_discipline() -> None:
+    """Citations are the product's claim, so the prompt that produces them must say so.
+
+    The existing prompt assertions cover the topic-inference block, curation
+    solicitation, the resolved-schema pointer, and exact tool names. Citation
+    discipline was not among them -- and grepping for it is deceptive, because
+    the only `citation` matches in this module are the substring inside
+    *soli-citation* and the `citation_key` tool argument, either of which makes
+    a naive search look satisfied.
+    """
+    body = (
+        Path(__file__).resolve().parents[1] / "vault-template" / ".knotica" / "prompts" / "query.md"
+    ).read_text(encoding="utf-8")
+
+    assert "Citation discipline is mandatory" in body, (
+        "the query prompt must state the citation requirement in a form a model "
+        "cannot read as optional"
+    )
+    assert "not from memory" in body, (
+        "the requirement is grounding, not decoration: answering from memory with "
+        "citations attached satisfies the letter and not the contract"
+    )

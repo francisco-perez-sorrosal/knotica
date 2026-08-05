@@ -443,3 +443,31 @@ def test_every_check_id_has_a_planting_test() -> None:
         LintCheck.CITATION_UNRESOLVED,
     }
     assert covered == set(LintCheck)
+
+
+def test_a_core_read_path_completes_while_the_write_lock_is_held(template_vault: Path) -> None:
+    """Reads never acquire the mutation lock — proven behaviorally, not structurally.
+
+    The zero-commit half of this contract is asserted on every read path, and
+    the never-locks half is asserted only *structurally for adapters* (they
+    cannot import `core.lock`). That leaves the `core` read paths themselves
+    unproven, and they are the ones that could regress: `lint`, `links`, and
+    `search` are free to import `core.lock`, so nothing but their own
+    implementation stops them taking it.
+
+    Holding the lock and then reading is the falsifiable form. If `lint_vault`
+    ever acquired it, this call would block until the acquire timeout and fail
+    rather than return -- so the assertion distinguishes a correct
+    implementation from a broken one, which a structural check on adapters
+    cannot do for `core`.
+    """
+    from knotica.core.lock import vault_lock
+
+    commits_before = git_commit_count(template_vault)
+
+    with vault_lock(template_vault):
+        violations = lint(template_vault)
+
+    assert isinstance(violations, list)
+    assert git_commit_count(template_vault) == commits_before
+    assert git_status_porcelain(template_vault) == ""

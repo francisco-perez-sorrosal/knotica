@@ -218,3 +218,50 @@ def test_warm_path_makes_exactly_one_status_nudge_call_and_stays_fast(
         f"call, got {nudge_calls!r}"
     )
     assert elapsed < 3.0, f"warm path with a fast stub took {elapsed:.2f}s -- unexpectedly slow"
+
+
+def test_the_prewarm_invokes_the_plugin_root_version_check_in_the_background() -> None:
+    """The pre-warm's whole purpose is to be invisible, which is what makes it fragile.
+
+    The existing coverage asserts the *effect* -- the warm path stays fast and
+    makes exactly one status nudge. It does not assert the pre-warm command
+    itself, so dropping the `&`, or pointing `--from` somewhere other than the
+    plugin root, would keep every current test green while making the hook
+    block a user's session start or warm the wrong package.
+    """
+    script = (Path(__file__).resolve().parents[1] / "hooks" / "session_start.sh").read_text(
+        encoding="utf-8"
+    )
+
+    prewarm = [line for line in script.splitlines() if "knotica --version" in line and "&" in line]
+
+    assert prewarm, "the pre-warm line must invoke `knotica --version` in the background"
+    line = prewarm[0]
+    assert '--from "$ROOT"' in line, "the pre-warm must resolve from the plugin root"
+    assert line.strip().startswith("("), (
+        "the pre-warm must run in a subshell so the job-control notice never "
+        "reaches the user's terminal"
+    )
+    assert "</dev/null" in line and ">/dev/null" in line, (
+        "stdin and stdout must be detached or the hook can block on a prompt "
+        "or leak output into the session transcript"
+    )
+
+
+def test_the_prewarm_never_writes_to_the_vault_so_it_is_idempotent() -> None:
+    """`knotica --version` is chosen precisely because it is a pure read.
+
+    Idempotence here is a property of the *command*, not of a guard around it:
+    the hook runs on every session start with no memo of previous runs, so the
+    only thing making repetition safe is that the command mutates nothing.
+    """
+    script = (Path(__file__).resolve().parents[1] / "hooks" / "session_start.sh").read_text(
+        encoding="utf-8"
+    )
+
+    prewarm = next(
+        line for line in script.splitlines() if "knotica --version" in line and "&" in line
+    )
+
+    for mutating in ("write_page", "create_topic", "curate_example", "store_source", "migrate"):
+        assert mutating not in prewarm, f"the pre-warm must not invoke {mutating}"
