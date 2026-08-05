@@ -69,12 +69,12 @@ component has exactly one owning group — but not injective: `vault-substrate`,
 
 A group's `subsystems` entries must resolve to §3 Built components (sentinel TT01), so this table
 *inherits* its granularity rather than choosing it. That binding is the standing rule
-(`dec-draft-4b91f4f7`); what follows is where it currently leaves us.
+(`dec-069`); what follows is where it currently leaves us.
 
 **The four un-modelled trees are closed.** `src/knotica/okf/`, `src/knotica/guillotine/`,
 `src/knotica/service/`, and the dashboard pair each had **no §3 row at all**, so no group could
 name them and their tests fell through to pipeline-tier execution. The §3 refinement pass
-(`dec-draft-c20759d6`, realizing reversal trigger (a) of `dec-draft-4b91f4f7`) gave three of them a
+(`dec-070`, realizing reversal trigger (a) of `dec-069`) gave three of them a
 row apiece and modelled the dashboard as one row spanning the repo-root client and its packaging
 loader. All four are mapped in the table above — the first three to new groups, the dashboard onto
 `mcp-surface` for the reason its row states. `td-032` stays `in-flight` until the group blocks

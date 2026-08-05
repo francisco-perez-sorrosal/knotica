@@ -1,7 +1,7 @@
 ---
-id: dec-draft-7f4c1a92
+id: dec-072
 title: An observation attempt that records nothing new costs the vault no commit
-status: proposed
+status: accepted
 category: architectural
 date: 2026-08-05
 summary: The loop suppresses a loop-state write whose content would repeat what is already stored -- same content, and every LoopState field equal outside a named timing deny-list -- and moves the retry clock to a gitignored runtime marker so suppression cannot turn commit spam into eval spam.

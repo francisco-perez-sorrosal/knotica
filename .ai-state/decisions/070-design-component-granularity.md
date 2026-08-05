@@ -1,7 +1,7 @@
 ---
-id: dec-draft-c20759d6
+id: dec-070
 title: Component granularity for the four un-modeled packages, and a concern-level split of core/
-status: proposed
+status: accepted
 category: architectural
 date: 2026-08-04
 summary: "okf/, guillotine/ and service/ each become one DESIGN.md section-3 row; the 24-line dashboard loader becomes part of a Dashboard row rather than a row of its own; core/ sheds its compile chain to a new row and is re-labelled an explicit residual."
@@ -10,7 +10,7 @@ made_by: agent
 agent_type: systems-architect
 branch: feat-test-topology
 pipeline_tier: standard
-re_affirms: dec-draft-4b91f4f7
+re_affirms: dec-069
 affected_files:
   - .ai-state/DESIGN.md
   - docs/architecture.md
@@ -27,7 +27,7 @@ dissent: "One row for guillotine/ hides a real seam: report.py is 847 lines and 
 while `CLAUDE.md` § Current status describes the guillotine's behavior in detail — the narrative and
 structural surfaces disagreed about what the system contains.
 
-`dec-draft-4b91f4f7` bound test-topology group granularity to §3 granularity and, rather than invent
+`dec-069` bound test-topology group granularity to §3 granularity and, rather than invent
 synthetic subsystem names, recorded the gap inside `TEST_TOPOLOGY.md` notes 1–3 and named the unblock:
 a §3 refinement pass. Its reversal trigger (a) reads *"revisit when `DESIGN.md` §3 gains rows for any
 of the four un-modeled packages."* This pass is that trigger firing, on purpose. Ledger row `td-032`
@@ -116,7 +116,7 @@ Both artifacts are updated in the same pass, since the gap existed in both.
   the architect document and the developer guide.
 - The developer guide's `Path (verified on disk)` column no longer implies `guillotine/` does not
   exist. Every path in it was re-checked on disk during this pass.
-- `dec-draft-4b91f4f7`'s reversal trigger (a) is discharged: `/refresh-topology` can now create
+- `dec-069`'s reversal trigger (a) is discharged: `/refresh-topology` can now create
   `okf`, `guillotine`, `service`, and `dashboard` groups, plus a `query-compile` anchor that
   previously had none, and can shrink `vault-semantics` accordingly.
 - §3 now records **where each non-`core` domain layer sits relative to the inward-arrow rule** as a
@@ -159,7 +159,7 @@ suite after these rows land, which would mean the split was aimed at the wrong s
 
 ## Prior Decision
 
-`dec-draft-4b91f4f7` is **re-affirmed, not superseded.** Its binding rule — a topology group's
+`dec-069` is **re-affirmed, not superseded.** Its binding rule — a topology group's
 `subsystems` entries resolve only to verbatim §3 Built components, and where §3 is silent no group is
 created — was correct, and is the reason this gap was visible enough to fix rather than absorbed into
 a widened glob. Nothing about that rule changes here; what changes is §3, which is precisely the

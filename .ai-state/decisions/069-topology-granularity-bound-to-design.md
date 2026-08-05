@@ -1,7 +1,7 @@
 ---
-id: dec-draft-4b91f4f7
+id: dec-069
 title: Test-topology group granularity is bound to DESIGN.md §3 component granularity
-status: proposed
+status: accepted
 category: architectural
 date: 2026-08-04
 summary: Topology groups bind to DESIGN.md §3 Built components; coarse rows stay coarse and un-modeled packages stay un-grouped rather than getting synthetic subsystem names.
@@ -14,7 +14,7 @@ affected_files:
   - .ai-state/TEST_TOPOLOGY.md
   - .ai-state/DESIGN.md
 re_affirmed_by:
-  - dec-draft-c20759d6
+  - dec-070
 dissent: A topology that silently under-covers ~24 modules is arguably worse than one with four honest synthetic subsystem names, because the gap is invisible at the point of use (a scoped run just quietly skips them).
 ---
 

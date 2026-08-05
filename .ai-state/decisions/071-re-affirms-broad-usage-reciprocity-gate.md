@@ -1,7 +1,7 @@
 ---
-id: dec-draft-df837e3b
+id: dec-071
 title: "`re_affirms` carries a broad builds-on meaning here, and reciprocity is enforced mechanically"
-status: proposed
+status: accepted
 category: behavioral
 date: 2026-08-05
 summary: "This project uses `re_affirms` as a general builds-on pointer rather than the narrow challenged-and-re-examined protocol, and closes the resulting one-directional-pointer failure with a check in `make verify` rather than with author discipline."

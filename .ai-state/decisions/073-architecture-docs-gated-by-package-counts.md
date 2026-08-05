@@ -1,7 +1,7 @@
 ---
-id: dec-draft-9a3f24c7
+id: dec-073
 title: The architecture documents are gated by per-package module counts, not by per-module naming
-status: proposed
+status: accepted
 category: architectural
 date: 2026-08-05
 summary: A new `scripts/check_architecture_coverage.py` fails `make verify` when a package's module count drifts from DESIGN.md §3's inventory table or a cited path stops resolving; per-module naming was measured and rejected because it reverses the residual decision.
@@ -62,7 +62,7 @@ whose entire lesson is "the ungated claim lags" would be self-refuting.
 The rule the finding's wording implies, and the strongest-sounding invariant. **Measured and
 rejected.** Requiring the literal `<name>.py` or a full path flags **60** modules today. Closing that
 means naming 60 modules — which is precisely the five-way `core/` decomposition considered and
-rejected on 2026-08-04 (the steelmanned runner-up in `dec-draft-c20759d6`), arrived at by the back
+rejected on 2026-08-04 (the steelmanned runner-up in `dec-070`), arrived at by the back
 door. `DESIGN.md`'s `core/` row is deliberately a residual: "Read it as a subtraction, never as
 `core/**`." A gate that cannot be satisfied without reversing a recorded decision is not a gate, it
 is a re-litigation.

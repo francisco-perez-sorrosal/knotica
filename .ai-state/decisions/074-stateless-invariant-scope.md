@@ -1,7 +1,7 @@
 ---
-id: dec-draft-b7e05d13
+id: dec-074
 title: The stateless-server invariant is scoped, not widened, to exclude daemon runtime markers
-status: proposed
+status: accepted
 category: behavioral
 date: 2026-08-05
 summary: "`.knotica/locks/` holds gitignored loop-daemon runtime markers that are neither session nor durable state; the 'vault and config.toml are the only state' sentence is restated once in PRE_PLAN.md and the other three sites point at it."
@@ -58,7 +58,7 @@ exception is equally available, which is exactly the erosion the invariant exist
 
 ### Amend all four sentences with the same carve-out
 
-Rejected on the same ground the architecture-doc gate rests on (`dec-draft-9a3f24c7`): a claim
+Rejected on the same ground the architecture-doc gate rests on (`dec-073`): a claim
 published four times is a claim that drifts three ways. Four independently-worded carve-outs would
 reproduce the defect being fixed, one abstraction level up.
 
