@@ -12,14 +12,14 @@
 # Test Topology — Knotica
 
 Maps the Built structural components of [`.ai-state/DESIGN.md`](DESIGN.md) §3 onto logical test
-groups so that a pipeline step can run a scoped subset instead of the full suite (2453 tests /
-170 test files / ~296 s wall-clock as of 2026-08-04).
+groups so that a pipeline step can run a scoped subset instead of the full suite (2461 tests /
+171 test files / ~296 s wall-clock as of 2026-08-05).
 
 The groups are runnable by hand, not only by pipeline agents: `make test-groups` lists them and
 `make test-group GROUP=<id>` runs one, both derived from the blocks in this file. See
 [Running a group](#running-a-group).
 
-The suite is **not** flat: 148 files sit directly in `tests/`, and 22 more are nested under
+The suite is **not** flat: 149 files sit directly in `tests/`, and 22 more are nested under
 `tests/core/` (1), `tests/core/notes/` (13), and `tests/discovery/` (8). Three groups therefore
 select a directory rather than a file list, and any count taken with a `tests/test_*.py` glob
 alone will under-report by 22.
@@ -44,58 +44,64 @@ that owns its tests. Group ids are kebab-case and collision-free against the tru
 | `src/knotica/core/notes_config.py` | `notes-overlay` | The `[notes]` thresholds the ladder consumes; validated as a cross-key pair, so it is untestable apart from the ladder it parameterizes. |
 | `src/knotica/core/operations/capture_note.py` | `notes-overlay` | The one-shot note write and its fidelity-degradation ladder. Constraints §7 keeps `notes/` out of every scoring surface and forbids the loop from writing into it — so the overlay is structurally isolated from the eval/loop spine and makes a clean group. |
 | `src/knotica/mcp_server/` | `mcp-surface` | FastMCP tool/dispatcher/resource/prompt surface incl. §3c's seven action dispatchers and the dashboard app-UI mount. Thin and stateless by contract, so its tests are surface tests, not semantics tests. |
+| Dashboard: `dashboard/` (repo root) + `src/knotica/dashboard/` | `mcp-surface` | **Mapped onto the surface group rather than given one of its own.** The Python half is a 22-line `importlib.resources` loader; the repo-root Preact tree has no pytest coverage at all, so a `dashboard/src/**` edit is not a Python test trigger under any grouping. Every Python test that exercises the loader also drives an `mcp_server` mount: `test_mcp_app_ui.py` (already `mcp-surface`) via `app_ui`, and `test_http_dashboard.py` via `http_app.create_http_app` — where two of its three tests are pure mount assertions (CORS preflight; the lost-lifespan streamable-HTTP regression). A separate group would therefore either co-claim a file `mcp-surface` owns or take a mount test away from its mount. §3 makes the same call one level up: the loader is a packaging seam, not a component, and both mounts stay with `mcp_server/`. |
 | `src/knotica/cli/` | `cli-surface` | The `knotica` entry point registry. A sibling delivery surface to `mcp-surface` over the same `core.operations`; both are thin, and neither may write the vault directly. |
 | `src/knotica/evals/` | `eval-harness` | Frozen-corpus evaluator: runner, judge, cache, scorer, scalar, golden set, config fingerprint. Carries the `evals` extra (`anthropic`, `dspy`) that is deliberately off the MCP launch path. |
 | `src/knotica/evals/error_capture.py` | `eval-harness` | The shared leaf both `harness.py` and `scorer.py` import; it exists only to serve the harness's per-example outcome seam. |
 | `src/knotica/programs/` | `query-compile` | DSPy query compile (MIPROv2 + bootstrap fallback) → compiled artifact + `CompiledRunner`. Optimization is a distinct concern from measurement: a compile-artifact change should not force a re-run of the LLM-judge suite. |
-| `src/knotica/core/loop.py` + `loop_state.py` + `loop_heartbeat.py` + `loop_progress.py` | `loop-runtime` | The autonomous watcher: observe → gate → heal, plus its extracted siblings (note 2). The most expensive group by construction — real git clones, worktrees, arena races, flock contention. |
+| `src/knotica/core/compile_run.py` + `compile_state.py` + `compile_promote.py` + `compiled.py` + `query_engine.py` + `trainset.py` + `models_config.py` + `prompt_diff.py` | `query-compile` | The `core/` half of the same chain: the run pipeline, its pollable state file, promote, the artifact reader, the unified `query_engine` facade, the trainset counts the gate reads, the `[models]` overrides, and the deterministic `query.md` diff. It ships and breaks with `programs/` — an artifact-format change touches the DSPy program and its lifecycle in one edit. Note 2 already subtracted these eight modules from the `vault-semantics` residual on concern grounds; **this row is the §3 anchor that subtraction previously lacked.** |
+| `src/knotica/core/loop.py` + `loop_state.py` + `loop_heartbeat.py` + `loop_progress.py` + `loop_factory.py` + `loop_promote.py` + `loop_retry_backoff.py` + `loop_cadence_config.py` + `arena.py` + `arena_resolve.py` + `candidate_gate.py` + `branch_namespaces.py` + `branch_scoreboard.py` + `branch_delete.py` + `best_effort.py` | `loop-runtime` | The autonomous watcher: observe → gate → heal, together with the arena, branch and pacing siblings the §3 cell now names outright instead of leaving to prose (note 2). The most expensive group by construction — real git clones, worktrees, arena races, flock contention. |
 | `src/knotica/discovery/` | `discovery-network` | Pure outbound-network boundary: no vault read/write, no state, single inward edge to `core.errors`, enforced by the `mcp_server ⊬ discovery` import-boundary test. The most cleanly dependency-closed group in the project. |
 | `src/knotica/core/gap_classifier.py` + `records.GapRecord` | `gapfill-spine` | P1 — regression → fault-class diagnosis, producing the `GapRecord` queue. |
 | `src/knotica/core/gapfill.py` + `records.SuggestionRecord` + `mcp_server/tools_suggestions.py` + `cli/gapfill.py` | `gapfill-spine` | P3 — gap × ranked-candidate join, suggestion queue, approval surface. |
 | `src/knotica/core/source_gate.py` + `source_ingest.py` + `records.SuggestionRecord.gate_outcome` + `mcp_server/tools_source_ingest.py` + `core/operations/candidate_scope.py` + page-subset filter on `evals/train_bootstrap.py`+`evals/golden.py` | `gapfill-spine` | P4 — worktree-scoped candidate ingest and the merge-or-quarantine gate. P1/P3/P4 are three §3 rows but one hand-forward contract over shared `records.*` schemas and the `.knotica/{gaps,suggestions}` JSONL files; they change together and are meaningless apart. |
-| Plugin layer (repo root) | `plugin-layer` | `.claude-plugin/`, `.mcp.json`, `commands/`, `hooks/`, `skills/`, and wheel packaging. The only group whose file dependencies live outside `src/` — a `commands/*.md` edit has no business running 2453 tests. |
+| `src/knotica/okf/` | `okf-conformance` | One format vocabulary with three verbs over it — `check` (read-only findings), `export` (bundle outside the vault), `repair` (the one module here that mutates, and only through `VaultTransaction`). Both `export` and `repair` import `check`, so an OKF field-set change touches all three in a single edit. Its adapters are thin and stay with their surface groups: `cli/okf.py` with `cli-surface`, the `vault_health` dispatcher's `okf_check`/`okf_repair` actions with `mcp-surface`. Enumerate this tree's tests **by import** — one of them carries no `okf` marker in its filename (note 1). |
+| `src/knotica/guillotine/` | `guillotine-audit` | A read-only claim-trial pipeline — search → classify → score → patch → report, composed by `runner`. Deliberately **not** folded into `okf-conformance` despite the single `guillotine.report → okf.frontmatter` edge: the two answer different questions (format conformance vs. claim retraction) and change for different reasons, so sharing a group would fire an okf edit into the guillotine suite for nothing. The group also claims `core/operations/guillotine.py` — the transaction-bearing adapter §3 keeps *outside* the package precisely to hold the analysis layer inward-arrow-clean, and the module whose tests live here rather than in `vault-semantics` (note 2). |
+| `src/knotica/service/` | `service-lifecycle` | Install / uninstall / status / supervise for the headless loop: two platform generators (launchd verified, systemd untested and self-reporting so) behind one interface, plus the daemon entry, with an injectable `Runner` seam that makes the `launchctl`/`systemctl` calls testable without touching the machine. Deliberately **not** folded into `loop-runtime`: §3's contract is that installing or querying the service never drags the loop runtime in (those imports are lazy, inside the supervision cycle), and `loop-runtime` is the slowest group in the project — a three-module OS-lifecycle edit has no business paying for an e2e clone-and-race suite. |
+| Plugin layer (repo root) | `plugin-layer` | `.claude-plugin/`, `.mcp.json`, `commands/`, `hooks/`, `skills/`, and wheel packaging. The only group whose file dependencies live outside `src/` — a `commands/*.md` edit has no business running 2461 tests. |
 
-**Coverage:** 18 Built components → 11 groups, 1:1 (each component has exactly one owning group).
+**Coverage:** 23 Built components → 14 groups. The map is **total and single-valued** — every Built
+component has exactly one owning group — but not injective: `vault-substrate`, `notes-overlay`,
+`gapfill-spine`, `eval-harness`, `query-compile`, and `mcp-surface` each own more than one row.
 `src/knotica/agent/` is `Planned` and is deliberately absent — it gets a row when it is Built.
 
 ### Note 1 — group granularity is bounded by `DESIGN.md` §3 granularity
 
-A group's `subsystems` entries must resolve to §3 Built components (sentinel TT01). Two
-consequences follow, and neither is fixable from inside this file:
+A group's `subsystems` entries must resolve to §3 Built components (sentinel TT01), so this table
+*inherits* its granularity rather than choosing it. That binding is the standing rule
+(`dec-draft-4b91f4f7`); what follows is where it currently leaves us.
 
-- **`vault-semantics` is unavoidably the largest group.** `src/knotica/core/` is one §3 row
-  covering ~50 modules. Splitting the group requires splitting the §3 row first.
-- **Un-modeled packages get no group.** `src/knotica/okf/` (11 modules), `src/knotica/guillotine/`
-  (9), `src/knotica/service/` (3), and `src/knotica/dashboard/` (1) have **no §3 row at all**, so
-  no group may name them. Their tests — **11 files / 128 tests** — fall through to pipeline-tier
-  (full-suite) execution until §3 gains rows for them:
+**The four un-modelled trees are closed.** `src/knotica/okf/`, `src/knotica/guillotine/`,
+`src/knotica/service/`, and the dashboard pair each had **no §3 row at all**, so no group could
+name them and their tests fell through to pipeline-tier execution. The §3 refinement pass
+(`dec-draft-c20759d6`, realizing reversal trigger (a) of `dec-draft-4b91f4f7`) gave three of them a
+row apiece and modelled the dashboard as one row spanning the repo-root client and its packaging
+loader. All four are mapped in the table above — the first three to new groups, the dashboard onto
+`mcp-surface` for the reason its row states. `td-032` stays `in-flight` until the group blocks
+under `## Test Groups` exist and are measured; that is the test-engineer's half, not this table's.
 
-  | Un-modeled tree | Test files |
-  |---|---|
-  | `okf/` | `test_okf_cli.py`, `test_okf_frontmatter.py`, `test_okf_links.py`, `test_okf_notes_isolation.py`, `test_okf_repair_characterization.py`, **`test_log_fmt.py`** |
-  | `guillotine/` | `test_guillotine.py` |
-  | `service/` | `test_service_manager.py`, `test_service_daemon_env.py`, `test_cli_service.py` |
-  | `dashboard/` | `test_http_dashboard.py` |
+**`vault-semantics` is still the largest group, and still not fixable from inside this file.**
+`src/knotica/core/` remains one §3 row. It is a narrower row than it was — §3 split the compile
+chain out and widened the loop row to name its fifteen siblings, which moved both clusters from
+"claimed by note 2 on concern grounds" to "anchored in §3" — but what is left is a residual over a
+coarse row (note 2), and splitting the group further still requires splitting the row first.
 
-  `test_log_fmt.py` is the trap: it covers `okf/` — it imports `knotica.okf.log_fmt` at line 5 —
-  but its filename carries no `okf` marker, so a name-pattern sweep (`test_okf_*.py`) misses it and
-  reports five files where there are six. Enumerate this set by import, never by filename glob.
+**Enumerate a tree's tests by import, never by filename glob.** `test_log_fmt.py` is the standing
+proof: it covers `okf/` — it imports `knotica.okf.log_fmt` at line 5 — and its filename carries no
+`okf` marker, so a `test_okf_*.py` sweep silently under-reports that tree by one file. The lesson
+outlives the gap that surfaced it and applies to every group's selector list.
 
-Adding the two files un-grouped for a *different* reason — `test_spine.py` (see note 3) and
-`test_topology_runner.py`, both test infrastructure rather than a §3 gap — gives the whole-file
-un-grouped total of **13 files / 159 tests**. The two figures are not interchangeable: 11/128 is
-the size of the §3 gap this note is about, and 13/159 is what a scoped run leaves to pipeline tier.
-
-The unblock for both is a `.ai-state/DESIGN.md` §3 refinement pass, not a topology edit. Recorded
-as `dec-draft-4b91f4f7`. Do **not** invent synthetic subsystem names to close the gap — an
-unresolvable `subsystems` entry is a TT01 FAIL, and folding `okf/` or `guillotine/` silently into
-another group's `file_dependencies` makes this table lie about what it covers.
+Do **not** invent synthetic subsystem names for anything §3 does not model — dev tooling outside
+`src/knotica/` (e.g. `scripts/test_group.py`) is the live example. An unresolvable `subsystems`
+entry is a TT01 FAIL, and quietly folding an unmodelled tree into another group's
+`file_dependencies` makes this table lie about what it covers. The unblock is always a §3
+refinement pass first, a topology edit second.
 
 ### Note 2 — `vault-semantics` is a *residual*, not a directory
 
 Read `vault-semantics` as `src/knotica/core/` **minus** the modules other groups claim. Writing
-`src/knotica/core/**` as its `file_dependencies` would swallow four other groups whole. The
-claimed subtractions, by group:
+`src/knotica/core/**` as its `file_dependencies` would swallow every other group that owns modules
+under it. The claimed subtractions, by group:
 
 | Group | Modules under `core/` it claims |
 |---|---|
@@ -104,11 +110,27 @@ claimed subtractions, by group:
 | `loop-runtime` | `loop.py`, `loop_state.py`, `loop_heartbeat.py`, `loop_progress.py`, `loop_factory.py`, `loop_promote.py`, `loop_retry_backoff.py`, `loop_cadence_config.py`, `arena.py`, `arena_resolve.py`, `candidate_gate.py`, `branch_namespaces.py`, `branch_scoreboard.py`, `branch_delete.py`, `best_effort.py` |
 | `query-compile` | `compile_run.py`, `compile_promote.py`, `compile_state.py`, `compiled.py`, `query_engine.py`, `models_config.py`, `prompt_diff.py`, `trainset.py` |
 | `gapfill-spine` | `gap_classifier.py`, `gapfill.py`, `gapfill_config.py`, `source_gate.py`, `source_ingest.py`, `operations/candidate_scope.py` |
+| `guillotine-audit` | `operations/guillotine.py` |
 
-The `loop-runtime` and `query-compile` rows are the ones §3 files under the coarse `core/` row but
-that are loop- and compile-concern in fact (the P-A/loop-py-extraction siblings and the
-compile-artifact chain). Grouping them by concern rather than by table row is what keeps
-`vault-semantics` a coherent mutation-core group instead of a catch-all.
+The `loop-runtime` and `query-compile` subtractions were originally made on concern grounds while
+§3 still filed both clusters under the coarse `core/` row. §3 now carries them outright — a
+compile-chain row, and a loop row widened to name all fifteen siblings — so those two rows are
+**anchored, not asserted**. Grouping by concern rather than by table row is what kept
+`vault-semantics` a coherent mutation-core group in the interim, and §3 has since agreed with it.
+
+**`operations/guillotine.py` moves to `guillotine-audit`, and this is the note-2 slip pattern
+again.** The module is the transaction-bearing adapter for the guillotine pipeline: §3 keeps it
+outside `guillotine/` on purpose, so that the package stays a pure read-only analysis layer. Its
+tests are `test_guillotine.py`, which imports `apply_guillotine` and `persist_guillotine_artifacts`
+from it directly — while `vault-semantics` currently lists the module in `file_dependencies` and
+runs none of those tests. Editing it therefore fires a group that cannot see it break, exactly as
+`promote_note.py` / `reanchor_note.py` did before they were re-homed. The claim is recorded here;
+reconciling `vault-semantics`' `file_dependencies` against it is a selector change and belongs to
+the test-engineer.
+
+`okf/` and `service/` claim nothing under `core/`: `okf.repair` owns its own `VaultTransaction`
+inside the package, and `service/` only *consumes* `core.config` / `errors` / `lint` /
+`loop_heartbeat`, all of which are owned elsewhere.
 
 **All three note operations are claimed, not just `capture_note.py`.** The `notes-overlay` row
 originally listed `operations/capture_note.py` alone, which left `promote_note.py` and
@@ -160,9 +182,11 @@ the omission is intentional, not an oversight.
 
 ## Test Groups
 
-Eleven groups, one per row-owner in the table above. Every block was authored against the live
+Fourteen groups, one per row-owner in the table above. Every block was authored against the live
 suite and every `selectors` entry was executed before it was written down — see
-`.ai-work/test-topology-init/TEST_RESULTS.md` for the per-group verification run.
+`.ai-work/test-topology-init/TEST_RESULTS.md` for the original eleven and
+`.ai-work/sentinel-remediation/TEST_RESULTS.md` for the three added when §3 first modelled `okf/`,
+`guillotine/`, and `service/`.
 
 ### Running a group
 
@@ -186,7 +210,10 @@ real path, and no group id repeats. It also cross-checks completeness — the id
 YAML blocks must match the ids the `## Subsystems` table declares as an independent declaration, in
 both directions (a table row with no block, a block with no table row) — which lifts the guarantee
 from "the blocks I found are valid" to "…and they are all of them", so a parser regression matching
-4 of 11 blocks now fails instead of printing `topology check OK — 4 groups` and reading as a pass.
+4 of 14 blocks now fails instead of printing `topology check OK — 4 groups` and reading as a pass.
+The same cross-check is what caught this section lagging §3's refinement pass: the architect's table
+gained `okf-conformance` / `guillotine-audit` / `service-lifecycle` rows and `make verify` went red
+until the matching blocks below existed.
 It refuses any selector `strategy` other than `pytest-globs` rather than guessing an invocation.
 
 Copying group membership into `pyproject.toml` was the alternative, and was rejected: this file is
@@ -205,7 +232,7 @@ The `arg` lists hold **literal paths, never wildcards**. Verified: pytest does n
 itself — `pytest "tests/test_evals_ca*.py"` exits 4 with `file or directory not found`. A wildcard
 in this file would therefore only work when the runner happens to go through a shell. Literal
 paths work under `subprocess.run(..., shell=False)` too, and they make group membership auditable:
-the un-grouped set below is provably the complement of the eleven `arg` lists, not an accident.
+the un-grouped set below is provably the complement of the fourteen `arg` lists, not an accident.
 
 The cost is drift, and it is caught at two speeds. The fast path is `make verify`, which runs
 `scripts/test_group.py --check` before mypy / pytest / ruff: a selector pointing at a renamed or
@@ -223,7 +250,7 @@ everywhere. It needs **no** filelock under xdist: the seed is created through
 `tmp_path_factory.mktemp`, which is worker-local, so workers build independent seeds rather than
 racing for one path.
 
-`parallel_safe: true` on all eleven groups is measured, not assumed — each group was re-run under
+`parallel_safe: true` on all fourteen groups is measured, not assumed — each group was re-run under
 `-n 4 --dist loadfile` and passed with an identical test count (`pytest-xdist` is not a project
 dependency; verification used an ephemeral `uv run --with pytest-xdist` environment, which is
 itself occasionally flaky at worker start-up — that flakiness is the harness, not the tests).
@@ -333,7 +360,6 @@ file_dependencies:
   - "src/knotica/core/operations/create_topic.py"
   - "src/knotica/core/operations/curate_example.py"
   - "src/knotica/core/operations/doctor_repair.py"
-  - "src/knotica/core/operations/guillotine.py"
   - "src/knotica/core/operations/migrate.py"
   - "src/knotica/core/operations/reflow_sources.py"
   - "src/knotica/core/operations/store_source.py"
@@ -344,7 +370,9 @@ shared_fixture_scope: per-suite
 shared_state: tmp_path
 notes: >-
   Enumerated module-by-module on purpose: this group is the `core/` residual of Note 2, so a
-  `src/knotica/core/**` glob here would swallow four other groups whole.
+  `src/knotica/core/**` glob here would swallow five other groups whole.
+  `operations/guillotine.py` was dropped from this list when `guillotine-audit` landed: Note 2
+  reassigns it there, and the tests that cover it (`test_guillotine.py`) never ran here.
 ```
 
 ### `notes-overlay`
@@ -389,6 +417,7 @@ id: mcp-surface
 title: MCP surface — FastMCP tools, dispatchers, resources, prompts
 subsystems:
   - "src/knotica/mcp_server/"
+  - "Dashboard: dashboard/ (repo root) + src/knotica/dashboard/"
 tier: integration
 selectors:
   - strategy: pytest-globs
@@ -404,6 +433,7 @@ selectors:
       - tests/test_dispatch_vault.py
       - tests/test_dispatch_vault_health.py
       - tests/test_file_size_ratchet.py
+      - tests/test_http_dashboard.py
       - tests/test_loop_dispatch_cadence_run_eval.py
       - tests/test_loop_dispatch_run_once.py
       - tests/test_mcp_app_ui.py
@@ -432,6 +462,7 @@ selectors:
       - tests/test_wiki_status_suggestions.py
 file_dependencies:
   - "src/knotica/mcp_server/**"
+  - "src/knotica/dashboard/**"
 integration_boundaries: []   # planner-owned; populates lazily in later pipelines
 parallel_safe: true
 shared_fixture_scope: per-suite
@@ -439,7 +470,14 @@ shared_state: tmp_path
 notes: >-
   The glob deliberately overlaps `gapfill-spine` on `tools_suggestions.py` and
   `tools_source_ingest.py`: a change there should fire both the surface tests and the spine
-  tests.
+  tests. The Dashboard subsystem contributes only its *Python* half to
+  `file_dependencies` — `src/knotica/dashboard/**`, the `importlib.resources` loader. The
+  repo-root `dashboard/` Preact tree is named in the §3 row and so in `subsystems`, but is
+  deliberately **not** a file dependency: the table's own reasoning is that it has no pytest
+  coverage at all, so listing it would claim a `dashboard/src/**` edit triggers a 364-test
+  Python run that could not observe the change. `test_http_dashboard.py` joins this group
+  because two of its three tests are pure `create_http_app` mount assertions (CORS preflight;
+  the lost-lifespan streamable-HTTP regression).
 ```
 
 ### `cli-surface`
@@ -525,6 +563,7 @@ id: query-compile
 title: Query compile — DSPy optimization and the compiled artifact chain
 subsystems:
   - "src/knotica/programs/"
+  - "src/knotica/core/compile_run.py + compile_state.py + compile_promote.py + compiled.py + query_engine.py + trainset.py + models_config.py + prompt_diff.py"
 tier: integration
 selectors:
   - strategy: pytest-globs
@@ -551,7 +590,10 @@ shared_fixture_scope: per-suite
 shared_state: tmp_path
 notes: >-
   `evals/compiled_runner.py` and `evals/program.py` stay with `eval-harness` (directory
-  ownership) even though the DESIGN.md prose for this row names CompiledRunner.
+  ownership) even though the DESIGN.md prose for this row names CompiledRunner. The eight
+  `core/` modules in `file_dependencies` predate their `subsystems` entry: they were claimed on
+  concern grounds under Note 2 while §3 still filed them under the coarse `core/` row, and the
+  second `subsystems` entry is the §3 anchor arriving after the fact — not a widening.
 ```
 
 ### `loop-runtime`
@@ -560,7 +602,7 @@ notes: >-
 id: loop-runtime
 title: Loop runtime — the autonomous observe / gate / heal watcher
 subsystems:
-  - "src/knotica/core/loop.py + loop_state.py + loop_heartbeat.py + loop_progress.py"
+  - "src/knotica/core/loop.py + loop_state.py + loop_heartbeat.py + loop_progress.py + loop_factory.py + loop_promote.py + loop_retry_backoff.py + loop_cadence_config.py + arena.py + arena_resolve.py + candidate_gate.py + branch_namespaces.py + branch_scoreboard.py + branch_delete.py + best_effort.py"
 tier: e2e
 selectors:
   - strategy: pytest-globs
@@ -683,6 +725,113 @@ notes: >-
   `core/gapfill_config.py`.
 ```
 
+### `okf-conformance`
+
+```yaml
+id: okf-conformance
+title: OKF conformance — check, export, repair over one format vocabulary
+subsystems:
+  - "src/knotica/okf/"
+tier: integration
+selectors:
+  - strategy: pytest-globs
+    arg:
+      - tests/test_architecture_boundaries.py
+      - tests/test_file_size_ratchet.py
+      - tests/test_log_fmt.py
+      - tests/test_okf_cli.py
+      - tests/test_okf_frontmatter.py
+      - tests/test_okf_links.py
+      - tests/test_okf_notes_isolation.py
+      - tests/test_okf_repair_characterization.py
+file_dependencies:
+  - "src/knotica/okf/**"
+integration_boundaries: []   # planner-owned; populates lazily in later pipelines
+parallel_safe: true
+shared_fixture_scope: per-suite
+shared_state: tmp_path
+notes: >-
+  Membership was enumerated **by import**, not by filename: `test_log_fmt.py` imports
+  `knotica.okf.log_fmt` and carries no `okf` marker in its name, so a `test_okf_*.py` glob
+  under-reports this tree by one file (Note 1's standing proof). `test_okf_cli.py` is the
+  mirror-image trap — it is named for a CLI it never drives, importing `okf.check` /
+  `okf.export` / `okf.repair` directly, so it belongs here rather than to `cli-surface`.
+  `test_architecture_boundaries.py` is pinned in because `okf/` is a named member of that
+  file's `RAW_WRITE_PACKAGES` scan (td-020: `repair.py` mutates the live vault and must stay on
+  the `core.transaction` path) — this is the fifth group to pin it, and the pin is a scan
+  membership, not a courtesy. `test_okf_notes_isolation.py` stays here rather than in
+  `notes-overlay` for the same by-import rule: the invariant is the overlay's, but the
+  regression it pins was an `okf/` bug and an `okf/` edit is what must re-run it — the overlay
+  side already has `tests/core/notes/test_contamination.py`.
+```
+
+### `guillotine-audit`
+
+```yaml
+id: guillotine-audit
+title: Guillotine audit — claim trial, verdict, risk report, gap filing
+subsystems:
+  - "src/knotica/guillotine/"
+tier: integration
+selectors:
+  - strategy: pytest-globs
+    arg:
+      - tests/test_file_size_ratchet.py
+      - tests/test_guillotine.py
+file_dependencies:
+  - "src/knotica/guillotine/**"
+  - "src/knotica/core/operations/guillotine.py"
+integration_boundaries: []   # planner-owned; populates lazily in later pipelines
+parallel_safe: true
+shared_fixture_scope: per-suite
+shared_state: tmp_path
+notes: >-
+  Claims `core/operations/guillotine.py`, which §3 keeps *outside* the package so the analysis
+  layer stays read-only and inward-arrow-clean; Note 2 records the reassignment and
+  `vault-semantics` dropped it in the same edit. The single test file is dense (39 tests) and
+  drives real git commits plus a ripgrep search, hence `integration`. `test_gapfill_integration.py`
+  also imports `run_guillotine` and `apply_guillotine` but stays sole-owned by `gapfill-spine`:
+  it is one cross-spine flywheel test (2.9 s) in which the guillotine is a *step*, and this
+  group already covers the guillotine's own contract 39 ways. That is the same shape
+  `mcp-surface` accepts on `tools_suggestions.py` — a file dependency whose extra coverage lives
+  in a sibling group — not the Note 2 slip pattern, which is a module with *no* tests in its
+  owning group.
+```
+
+### `service-lifecycle`
+
+```yaml
+id: service-lifecycle
+title: Service lifecycle — install / uninstall / status / supervise the loop daemon
+subsystems:
+  - "src/knotica/service/"
+tier: integration
+selectors:
+  - strategy: pytest-globs
+    arg:
+      - tests/test_cli_service.py
+      - tests/test_file_size_ratchet.py
+      - tests/test_service_daemon_env.py
+      - tests/test_service_manager.py
+file_dependencies:
+  - "src/knotica/service/**"
+integration_boundaries: []   # planner-owned; populates lazily in later pipelines
+parallel_safe: true
+shared_fixture_scope: per-suite
+shared_state: tmp_path
+notes: >-
+  Cheapest non-`unit` group in the project (55 tests / 2.2 s) and the clearest case for §3's
+  refusal to fold `service/` into `loop-runtime`: the same edit would otherwise pay
+  `loop-runtime`'s 80 s of clones and arena races. `integration` rather than `unit` despite the
+  speed — an autouse fixture forbids a *real* `subprocess.run` (so no `launchctl`/`systemctl`
+  ever fires), but the tests still write real plists and `.env` files under `tmp_path` and
+  `test_cli_service.py` reaches the session `vault_config` fixture, which is what sets
+  `shared_fixture_scope: per-suite`. `test_cli_service.py` sits here rather than in
+  `cli-surface` by the by-import rule: it drives `knotica.cli.main` only to reach
+  `knotica.service.manager`, and a `service/` edit is what breaks it. That leaves `cli/service.py`
+  covered by `cli-surface`'s glob without its own test — see the divergence subsection below.
+```
+
 ### `plugin-layer`
 
 ```yaml
@@ -716,23 +865,35 @@ notes: >-
   the instantiated vault).
 ```
 
-### Verified runtimes (2026-08-04, single sample each)
+### Verified runtimes (single sample each)
 
-Baseline for comparison: full suite 2453 passed in ~296 s.
+Baseline for comparison: full suite 2461 passed in ~296 s.
+
+Rows marked † were measured on 2026-08-05 against the fourteen-group revision; the rest are the
+2026-08-04 originals, unchanged because neither their `arg` lists nor the files behind them moved.
 
 | Group | Files | Tests | Sequential | `-n 4 --dist loadfile` |
 |---|---:|---:|---:|---:|
 | `vault-substrate` | 5 | 161 | 1.6 s | 2.7 s |
 | `vault-semantics` | 27 | 550 | 24.7 s | 8.9 s |
 | `notes-overlay` | 17 | 316 | 23.5 s | 9.7 s |
-| `mcp-surface` | 37 | 361 | 41.6 s | 19.2 s |
+| `mcp-surface` † | 38 | 364 | 44.1 s | 19.4 s |
 | `cli-surface` | 12 | 104 | 19.6 s | 10.0 s |
 | `eval-harness` | 18 | 330 | 20.4 s | 17.0 s |
 | `query-compile` | 6 | 48 | 9.8 s | 8.7 s |
 | `loop-runtime` | 21 | 159 | 79.8 s | 34.3 s |
 | `discovery-network` | 10 | 130 | 1.3 s | 2.6 s |
 | `gapfill-spine` | 13 | 196 | 43.5 s | 17.3 s |
+| `okf-conformance` † | 8 | 53 | 6.0 s | 3.9 s |
+| `guillotine-audit` † | 2 | 45 | 6.2 s | 7.2 s |
+| `service-lifecycle` † | 4 | 55 | 2.2 s | 0.9 s |
 | `plugin-layer` | 4 | 29 | 4.8 s | 2.1 s |
+
+The three new groups are cheap — 154 tests for 14.4 s sequential between them, against the ~296 s
+they cost at pipeline tier before they had blocks. `guillotine-audit` is the one group that is
+*slower* under `-n 4` (7.2 s vs 6.2 s): 45 of its tests sit in a single file, so `--dist loadfile`
+puts them all on one worker and the run pays worker start-up for nothing. It is still
+`parallel_safe: true` — the count is identical and the mode is correct, it just buys nothing here.
 
 `expected_runtime_envelope` is deliberately omitted: one sample per group is a measurement, not a
 p50/p95 distribution, and the trunk makes the field optional until M3 precisely so nobody invents
@@ -741,14 +902,14 @@ one.
 ### Cross-cutting fitness tests — the selector decision Note 3 defers here
 
 Note 3 leaves the disposition of the seven un-grouped fitness tests to this section. Blanket-pinning
-all seven into all eleven groups was rejected on measurement: `test_spine.py` alone costs ~16 s,
-more than eight of the eleven groups cost in total. Each file is instead pinned to the groups whose
+all seven into all fourteen groups was rejected on measurement: `test_spine.py` alone costs ~16 s,
+more than ten of the fourteen groups cost in total. Each file is instead pinned to the groups whose
 `file_dependencies` can actually break it:
 
 | Fitness test | Cost | Pinned into | Why |
 |---|---:|---|---|
-| `test_file_size_ratchet.py` | 0.1 s | all 11 groups | Its trigger is literally "a file under `src/` grew"; no group can be exempt and the cost is noise. |
-| `test_architecture_boundaries.py` | 0.8 s | `vault-semantics`, `mcp-surface`, `cli-surface`, `eval-harness` | It AST-scans exactly those four trees for the single-writer invariant. |
+| `test_file_size_ratchet.py` | 0.1 s | all 14 groups | Its trigger is literally "a file under `src/` grew"; no group can be exempt and the cost is noise. |
+| `test_architecture_boundaries.py` | 0.8 s | `vault-semantics`, `mcp-surface`, `cli-surface`, `eval-harness`, `okf-conformance` | It AST-scans exactly those five trees: `ADAPTER_PACKAGES` (`cli`, `mcp_server`, `evals`) for the adapter-boundary clauses, plus `okf` — `RAW_WRITE_PACKAGES` is `ADAPTER_PACKAGES + ("okf",)` because `okf/repair.py` mutates the live vault (td-020). |
 | `test_server_tool_surface.py` | — | `mcp-surface` | Asserts the shape of the MCP tool surface. |
 | `test_tool_description_guards.py` | — | `mcp-surface` | Asserts MCP tool description content. |
 | `test_vault_targeting.py` | — | `mcp-surface` | Asserts the per-call `vault` selector reaches `config.resolve` through the tools. |
@@ -758,60 +919,94 @@ more than eight of the eleven groups cost in total. Each file is instead pinned 
 Pinned files are counted once in the runtime table above and are the only deliberate overlap
 between group `arg` lists.
 
-### Un-grouped tests — the `DESIGN.md` §3 gap, plus two test-infrastructure files
+One clause inside `test_architecture_boundaries.py` — `test_core_transaction_is_the_only_caller_of_mutating_vcs_methods` — walks `SRC_ROOT.rglob("*.py")`, i.e. the whole tree, so *any* group could in
+principle break it. Pinning it into all fourteen on that basis was rejected: the pin list above
+tracks the **named** package scans, which is the signal a reader can act on, and the codebase-wide
+clause is already carried unpinned by the eight other `src/`-owning groups. It is caught at pipeline
+tier like any other whole-tree invariant.
 
-Two different reasons put a file outside every group, and their counts are not interchangeable:
+### Un-grouped tests — now test infrastructure only
 
-- **The §3 gap — 11 files / 128 tests.** Note 1 documents four module trees with no §3 row.
-  `subsystems` entries must resolve to a §3 Built component (sentinel TT01), so no group may name
-  them and none does.
-- **Test infrastructure — 2 files / 31 tests.** `test_spine.py` (21) is un-grouped by design
-  (Note 3): its trigger is `tests/conftest.py` + `tests/support/`, which no group's
-  `file_dependencies` covers. `test_topology_runner.py` (10) covers `scripts/test_group.py`, the
-  runner documented above — dev tooling outside `src/knotica/`, so no §3 row describes it and no
-  group may name it, the same constraint as the four un-modelled trees arriving for a different
-  reason. Neither file is a §3 gap, and closing that gap would group neither.
+**The §3 gap is closed: 0 files.** The previous revision of this section carried 11 files / 128
+tests un-grouped because four module trees — `okf/`, `guillotine/`, `service/`, and the dashboard
+pair — had no §3 row, and `subsystems` entries must resolve to a §3 Built component (sentinel
+TT01). §3's refinement pass gave all four a row, so the three new groups above plus the Dashboard
+row's assignment to `mcp-surface` absorb every one of those files. Nothing is un-grouped for lack
+of a §3 row any more.
 
-Together: **13 files / 159 tests** (128 + 31). All of it falls through to **pipeline tier (full
-suite)** — never skipped, only absent from the scoped inner loop:
+What remains is **test infrastructure — 3 files / 39 tests**, un-grouped for a different reason
+that closing the §3 gap never addressed: each covers code outside `src/knotica/`, which §3 does not
+model *by design*, so Note 1's prohibition on synthetic subsystem names applies permanently rather
+than pending a refinement pass.
 
-| Un-modelled tree | Test files |
-|---|---|
-| `src/knotica/okf/` | `test_okf_cli.py`, `test_okf_frontmatter.py`, `test_okf_links.py`, `test_okf_notes_isolation.py`, `test_okf_repair_characterization.py`, `test_log_fmt.py` |
-| `src/knotica/guillotine/` | `test_guillotine.py` |
-| `src/knotica/service/` | `test_service_manager.py`, `test_service_daemon_env.py`, `test_cli_service.py` |
-| `src/knotica/dashboard/` | `test_http_dashboard.py` |
-| (test infrastructure — not a §3 gap) | `test_spine.py` — see the fitness table above |
-| (test infrastructure — not a §3 gap) | `test_topology_runner.py` — covers `scripts/test_group.py`, outside `src/knotica/` |
+| Un-grouped file | Tests | Covers | Why no group |
+|---|---:|---|---|
+| `test_spine.py` | 21 | `tests/conftest.py` + `tests/support/` | Test infrastructure; no group's `file_dependencies` covers it (Note 3). Also the most expensive single un-grouped file at ~16.6 s. |
+| `test_topology_runner.py` | 10 | `scripts/test_group.py` | Dev tooling outside `src/knotica/` — the very runner documented above. |
+| `test_adr_health.py` | 8 | `scripts/check_adr_health.py` | Dev tooling outside `src/knotica/`, same constraint. |
 
-`test_log_fmt.py` is an `okf/` test by import (`knotica.okf.log_fmt`) and by nothing else — its
-filename carries no `okf` marker. Enumerate an un-modelled tree's tests by import; a filename glob
-(`test_okf_*.py`) under-reports.
+All 39 fall through to **pipeline tier (full suite)** — never skipped, only absent from the scoped
+inner loop. The two `scripts/`-covering files are the live illustration of Note 1's closing
+paragraph: inventing an `scripts/` subsystem would be a TT01 FAIL, and folding either into a
+group's `file_dependencies` would make that group claim coverage of a tree §3 does not describe.
+Un-grouped is the correct state for both, not a debt.
 
-The unblock for the 11/128 §3 gap is the `DESIGN.md` §3 refinement pass recorded as
-`dec-draft-4b91f4f7`, not an edit here. Both test-infrastructure files stay un-grouped regardless.
+**The by-import rule survives the gap it surfaced.** `test_log_fmt.py` is an `okf/` test by import
+(`knotica.okf.log_fmt`) and by nothing else — its filename carries no `okf` marker, and a
+`test_okf_*.py` glob would have left it here. Its mirror image, `test_okf_cli.py`, is named for a
+CLI it never drives. Both are now in `okf-conformance`; both were placed by reading imports, and
+either filename would have misled a glob in the opposite direction.
 
 ### Partition check
 
-170 test files total. 151 in group `arg` lists + 13 un-grouped + 6 pinned fitness files = 170, no
-file assigned to two groups' own membership. Running the eleven groups yields 2294 unique tests;
-2294 + 159 un-grouped = **2453**, exactly the full-suite baseline. The topology covers the suite
-with no silent drop.
+Re-proved against the live tree on 2026-08-05, after the three new blocks landed.
 
-The 159 is the whole un-grouped set — the 11 §3-gap files (128 tests) plus the two
-test-infrastructure files, `test_spine.py` (21) and `test_topology_runner.py` (10). Use 11/128 when
-sizing the §3 refinement pass and 13/159 when sizing what a scoped run leaves to pipeline tier; they
-answer different questions.
+**Files — 171 total.** 162 in group `arg` lists as own membership + 6 pinned fitness files + 3
+un-grouped = 171. Exactly two files appear in more than one group's `arg` list
+(`test_file_size_ratchet.py` in all 14, `test_architecture_boundaries.py` in 5); both are pinned
+fitness tests, counted once in the runtime table. No file is assigned to two groups' own
+membership.
 
-### Open divergence from Note 2 — one, and it is not fixable here
+**Tests — 2461 total.** Running the fourteen groups yields 2422 unique tests; 2422 + 39 un-grouped
+= **2461**, exactly the full-suite collection. The topology covers the suite with no silent drop
+and no stray.
 
-`src/knotica/cli/**` (`cli-surface`) covers `cli/service.py`, `cli/okf.py`, and
-`cli/guillotine.py`, whose tests are un-grouped for lack of a §3 row — so editing any of those
-three fires `cli-surface` without running its own tests. It is the last mismatch between this
-section and Note 2, and it closes itself when §3 gains rows for those trees, not by an edit here.
+The 128 tests that were the §3 gap did not disappear — they moved into groups: `okf-conformance`
+claims 37 of them, `guillotine-audit` 39, `service-lifecycle` 49, and `mcp-surface` the dashboard's
+3. Grouped-unique therefore rose 2294 → 2422 (+128) while the full suite rose 2453 → 2461 (+8, the
+new `test_adr_health.py`), and the un-grouped set fell 159 → 39.
 
-*Resolved, recorded so they are not re-opened:* the two earlier divergences are absorbed by the
-amended Note 2 — `promote_note.py` / `reanchor_note.py` now appear under `notes-overlay` in the
-subtraction table, and `baseline_probe.py` / `core/metrics.py` are recorded there as deliberate
-residual placement (multi-consumer core substrate). Both agree with the `file_dependencies` in the
-group blocks above as written; neither needed a selector change.
+One count now answers what two used to: **3 files / 39 tests** is both the §3-gap size (zero of it)
+and the size of what a scoped run leaves to pipeline tier. The earlier revision needed 11/128
+and 13/159 as separate figures precisely because the gap and the infrastructure remainder were
+different sets; with the gap closed they have collapsed into one.
+
+### Open divergence — one, and §3 did not close it the way this section predicted
+
+`src/knotica/cli/**` (`cli-surface`) covers three thin adapters whose tests are not `cli-surface`
+tests. The previous revision predicted this would close itself once §3 gained rows for `okf/`,
+`guillotine/`, and `service/`. §3 gained them; it did not close, and the reason is worth recording
+because it was a wrong prediction rather than a delayed one — the divergence was never about §3
+rows at all:
+
+| Adapter | Its tests | Where they live now | Why `cli-surface` still misses them |
+|---|---|---|---|
+| `cli/service.py` | `test_cli_service.py` (9) | `service-lifecycle` | It drives `knotica.cli.main` only to reach `knotica.service.manager`; a `service/` edit is what breaks it, so the by-import rule homes it there. `cli-surface` covers the adapter without running its test. |
+| `cli/okf.py` | none | — | `test_okf_cli.py` is named for this adapter but imports `okf.check`/`export`/`repair` directly and never invokes the CLI. The adapter has **no** test anywhere. |
+| `cli/guillotine.py` | none | — | Nothing in the suite drives `knotica.cli` with `guillotine` argv. The adapter has **no** test anywhere. |
+
+So the residue is one genuine group-placement divergence (`cli/service.py`) and two genuine
+coverage holes (`cli/okf.py`, `cli/guillotine.py`) that no grouping can fix — an ungrouped test
+cannot be re-homed if it does not exist. The placement divergence is a selector call and *is*
+fixable here: pinning `test_cli_service.py` into `cli-surface` as a third overlap would cost ~1 s.
+It was not taken in this pass, which was scoped to the three missing blocks; the choice is between
+accepting the divergence and admitting a non-fitness file to a second group's `arg` list, and it
+deserves its own decision rather than a side effect of this one.
+
+*Resolved, recorded so they are not re-opened:* three earlier divergences are absorbed.
+`promote_note.py` / `reanchor_note.py` appear under `notes-overlay` in Note 2's subtraction table;
+`baseline_probe.py` / `core/metrics.py` are recorded there as deliberate residual placement
+(multi-consumer core substrate) — neither needed a selector change. `operations/guillotine.py` did
+need one and got it: it left `vault-semantics`' `file_dependencies` for `guillotine-audit`'s in the
+same edit that created that group, so the module and the 39 tests that cover it are finally in the
+same place.
