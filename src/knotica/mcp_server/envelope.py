@@ -78,6 +78,40 @@ def map_read_exception(exc: Exception) -> CallToolResult:
     raise exc
 
 
+def map_write_exception(exc: Exception) -> CallToolResult:
+    """Map an exception escaping a mutating operation to its failure result.
+
+    The write-side counterpart to :func:`map_read_exception`, and it exists
+    because the write path had no equivalent at all: mutating tools rendered
+    the envelopes their operations *returned*, but anything an operation
+    *raised* went straight out of the tool, where FastMCP stringifies it. The
+    result contradicted this module's own contract for exactly one class of
+    input -- argument validation. ``write_page`` answered a missing topic with
+    a typed ``TOPIC_NOT_FOUND`` and an empty one with the bare text
+    ``Error executing tool write_page: Topic must not be empty.`` (td-041).
+
+    ``ValueError`` is the argument-validation signal across ``core``: the
+    topic/citation-key guards in :mod:`knotica.core.page`,
+    :mod:`knotica.core.schema`, and ``operations.store_source`` all raise it
+    for an empty or path-bearing name. It maps to ``INVALID_ARGUMENT``, whose
+    published fix -- "Correct the named argument and call again" -- is exactly
+    the remediation the raw string could not carry.
+
+    Anything else is re-raised, matching the read side: an unrecognized
+    exception is a genuine bug and must not be dressed up as a user error.
+
+    **Ordering hazard if this grows.** ``InvalidCursorError`` subclasses
+    ``ValueError``, so any future branch for it must sit *above* the
+    ``ValueError`` one or it will silently render as ``INVALID_ARGUMENT``. No
+    write path takes a cursor today, which is why no such branch exists yet.
+    """
+    if isinstance(exc, KnoticaError):
+        return _error_result(exc.envelope())
+    if isinstance(exc, ValueError):
+        return _error_result(err(ErrorCode.INVALID_ARGUMENT, str(exc)))
+    raise exc
+
+
 def _error_result(envelope: dict[str, Any]) -> CallToolResult:
     """Wrap a ``{"error": {...}}`` envelope as an ``isError=True`` tool result.
 

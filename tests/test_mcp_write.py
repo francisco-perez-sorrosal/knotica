@@ -699,10 +699,13 @@ def test_a_mutating_tool_refuses_an_empty_topic_and_makes_no_commit(
     for the same reason ``""`` is.
 
     What is asserted here is the *safety* clause -- refused, and no commit.
-    The four tools refuse in three different shapes (two typed envelopes,
-    two raw exception strings), which is a real inconsistency but a separate
-    one; pinning a specific code per tool here would freeze that divergence
-    into a test instead of leaving it visible as debt.
+    The *shape* of the refusal is asserted separately, by
+    ``test_every_argument_validation_failure_rides_as_a_typed_envelope``: when
+    this test was written the four tools refused in three different shapes and
+    that divergence was ledgered rather than pinned here, because freezing a
+    per-tool code into this test would have turned the defect into a contract.
+    It was fixed under td-041; the two assertions stay separate because
+    "is it refused" and "how is the refusal shaped" fail for different reasons.
     """
     before = git_commit_count(template_vault)
 
@@ -710,3 +713,78 @@ def test_a_mutating_tool_refuses_an_empty_topic_and_makes_no_commit(
 
     assert result.isError, f"{tool} accepted an empty topic"
     assert git_commit_count(template_vault) == before, "a refused mutation makes no commit"
+
+
+@pytest.mark.parametrize(
+    ("tool", "args", "expected_code"),
+    [
+        # Argument validation: an empty or path-bearing name, caught before the
+        # vault is touched. `create_topic` and `curate_example` already answered
+        # these with typed envelopes; `write_page` and `store_source` raised a
+        # bare ValueError that escaped the adapter as transport-level text.
+        ("write_page", {"topic": ""}, "INVALID_ARGUMENT"),
+        ("write_page", {"topic": "a/b"}, "INVALID_ARGUMENT"),
+        ("store_source", {"topic": ""}, "INVALID_ARGUMENT"),
+        ("store_source", {"topic": TOPIC, "citation_key": ""}, "INVALID_ARGUMENT"),
+        ("create_topic", {"topic": ""}, "RESERVED_NAME"),
+        ("curate_example", {"topic": ""}, "TOPIC_NOT_FOUND"),
+        # Operational failure on the same tool, unchanged by the mapper: proof
+        # the fix narrowed to what escaped rather than flattening every error.
+        ("write_page", {"topic": "no-such-topic"}, "TOPIC_NOT_FOUND"),
+    ],
+)
+def test_every_argument_validation_failure_rides_as_a_typed_envelope(
+    vault_config: Path, template_vault: Path, tool: str, args: dict[str, Any], expected_code: str
+) -> None:
+    """No mutating tool answers a bad argument with a transport-level string.
+
+    `envelope.py` opens by stating the contract this pins -- "every outcome
+    rides IN the result, never as an exception" -- and the write path had no
+    mapper enforcing it. Reads had `map_read_exception`; writes rendered the
+    envelopes their operations *returned* and let anything *raised* escape, so
+    the same tool answered a missing topic with a typed `TOPIC_NOT_FOUND` and
+    an empty one with `Error executing tool write_page: Topic must not be
+    empty.` (td-041).
+
+    The `fix` field is asserted because it is the whole point: a client cannot
+    branch on an opaque string, and the user loses the remediation sentence.
+    """
+    defaults = dict(_MUTATING_TOOL_CALLS)[tool]
+    result = call_tool(tool, {**defaults, **args})
+
+    error = error_of(result)
+    assert error["code"] == expected_code
+    assert error["fix"], "a typed envelope must carry the remediation the raw string could not"
+    assert error["retryable"] is False
+
+
+def test_the_write_mapper_re_raises_what_it_cannot_type() -> None:
+    """An unrecognized exception stays a crash rather than becoming a user error.
+
+    This is the clause that keeps the broad `except Exception` in `_write`
+    honest. Catching everything and rendering it as a failure envelope would
+    turn a `KeyError` in the mutation core into a polite message telling the
+    user to correct an argument -- hiding a bug behind advice that cannot
+    possibly help. The read-side mapper draws the same line ("anything else is
+    a genuine bug and is re-raised"), and the write side must not be laxer.
+    """
+    from knotica.mcp_server import envelope as envelope_module
+
+    bug = KeyError("commit_sha")
+
+    with pytest.raises(KeyError):
+        envelope_module.map_write_exception(bug)
+
+
+def test_the_write_mapper_preserves_an_already_typed_core_error() -> None:
+    """A `KnoticaError` carries its own code; the mapper must not overwrite it."""
+    from knotica.core.errors import ErrorCode, KnoticaError
+    from knotica.mcp_server import envelope as envelope_module
+
+    typed = KnoticaError(
+        code=ErrorCode.NOT_CONFIGURED, message="no vault configured", fix="run knotica init"
+    )
+
+    result = envelope_module.map_write_exception(typed)
+
+    assert json.loads(result.content[0].text)["error"]["code"] == "NOT_CONFIGURED"

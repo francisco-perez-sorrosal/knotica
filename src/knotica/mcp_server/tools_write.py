@@ -226,7 +226,10 @@ def _write(
     except KnoticaError as error:
         return envelope.error_envelope(error)
     store = LocalFSStore(resolved.path)
-    result_envelope = operation(store, resolved.path)
+    try:
+        result_envelope = operation(store, resolved.path)
+    except Exception as error:  # noqa: BLE001 -- mapper re-raises what it cannot type
+        return envelope.map_write_exception(error)
     if activity is not None and "error" not in result_envelope:
         _best_effort_activity(store, resolved.path, activity(result_envelope))
     return _render(result_envelope)
