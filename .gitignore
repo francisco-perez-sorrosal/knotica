@@ -30,6 +30,15 @@ skills-lock.json
 .claude/*.local.md
 .claude/*.local.json
 
+# Praxion seeds this rule-disable template into every project it is active in
+# (SessionStart hook `inject_rules.py::_ensure_template_present`, and again in
+# `/onboard-project`). Both are create-if-absent, so deleting it just brings it
+# back next session. It is a reference template, never read -- the hook reads
+# `.claude/praxion-rules.yaml`, without the suffix. Ignored rather than
+# committed: it is upstream's file, upstream edits it, and the seeder never
+# refreshes an existing copy, so a committed one would silently go stale.
+.claude/praxion-rules.yaml.example
+
 # OS
 .DS_Store
 
