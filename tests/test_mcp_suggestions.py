@@ -4,7 +4,9 @@ Derived from ``INTERFACE_DESIGN.md`` §D1/D3/D4/D5 -- never from the
 implementation. Two tools front the committed
 ``suggestions.jsonl`` queue: ``suggestions_read`` (pure, no ``discovery``
 import) and ``suggestions_review`` (the ``dry-run|apply`` two-phase mutating
-tool, ``action in {approve, reject, defer, mark_ingested}``). Drives the
+tool, ``action in {approve, reject, defer, mark_ingested}``). Two more front
+the ``gaps.jsonl`` queue upstream of it: ``gap_report`` (write) and
+``gaps_read`` (read). Drives the
 FastMCP server through the official in-memory transport so assertions pin the
 *wire* contract, matching ``test_mcp_status.py``.
 
@@ -186,6 +188,7 @@ def test_suggestion_tools_are_registered() -> None:
     assert "suggestions_read" in names
     assert "suggestions_review" in names
     assert "gap_report" in names
+    assert "gaps_read" in names
 
 
 @pytest.mark.parametrize(
@@ -197,6 +200,7 @@ def test_suggestion_tools_are_registered() -> None:
             {"topic": TOPIC, "suggestion_id": "abc", "action": "approve"},
         ),
         ("gap_report", {"topic": TOPIC, "question": "Why does X outperform Y?"}),
+        ("gaps_read", {"topic": TOPIC}),
     ],
 )
 def test_suggestion_tools_return_not_configured_when_unconfigured(
@@ -753,3 +757,299 @@ def test_gap_report_write_is_visible_to_an_independently_built_server_instance(
     assert len(gaps) == 1, (
         "the report must be durable on disk regardless of which server instance reads it"
     )
+
+
+# ---------------------------------------------------------------------------
+# gaps_read -- the P1 queue, readable before discovery promotes anything
+#
+# `gap_report` above proves a gap lands on disk. These prove it can be read
+# back: before this tool, `gaps.jsonl` had a writer and no reader on the MCP
+# surface at all, so a filed gap was invisible to every client and to the
+# dashboard until a discovery drain turned it into a suggestion.
+# ---------------------------------------------------------------------------
+
+
+def _gap_record(
+    *,
+    gap_id: str,
+    status: str = "open",
+    origin: str = "measured",
+    fault_class: str = "genuine_gap",
+    detected_at: str = "2026-07-19T07:30:00Z",
+    **overrides: object,
+):
+    """A gap shaped per the P1 record contract, seeded directly.
+
+    Direct construction for the same reason `_suggestion_record` uses it: the
+    classify-and-file path is covered by tests/test_gap_classifier.py, and this
+    file needs only a well-formed record to read back.
+    """
+    from knotica.core.records import GapEvidence, GapRecord
+
+    payload: dict[str, object] = {
+        "gap_id": gap_id,
+        "topic": TOPIC,
+        "qa_id": f"golden-{gap_id}",
+        "fault_class": fault_class,
+        "status": status,
+        "classifier_version": 1,
+        "detected_generation": 42,
+        "detected_at": detected_at,
+        "scalar_at_detection": 0.5,
+        "baseline_scalar": 0.6,
+        "question": f"What does {gap_id} fail to answer?",
+        "reference_pages": ("speculative-decoding",),
+        "reference_pages_exist": True,
+        "evidence": GapEvidence(
+            quality_delta=-0.1,
+            qa_accuracy_delta=-0.1,
+            citation_validity_delta=0.0,
+            retrieval_trace=(),
+            pages_added=(),
+            pages_removed=(),
+            prior_generation=41,
+        ),
+        "manifest_ref": "",
+        "origin": origin,
+    }
+    payload.update(overrides)
+    return GapRecord(**payload)
+
+
+def _seed_gaps(vault: Path, records) -> None:
+    """Commit gap records directly, bypassing the classifier and gap_report."""
+    from knotica.core.gap_classifier import gaps_path
+    from knotica.store import LocalFSStore
+
+    store = LocalFSStore(vault)
+    body = "\n".join(record.to_json_line() for record in records) + "\n"
+    with VaultTransaction(store, vault, "test_seed", TOPIC, "seed gaps for test") as txn:
+        txn.write(gaps_path(TOPIC), body)
+
+
+def test_gaps_read_empty_queue_is_an_honest_zero_state(vault_config: Path) -> None:
+    del vault_config
+    body = assert_success(call_tool("gaps_read", {"topic": TOPIC}))
+
+    assert body["gaps"] == []
+    assert body["total_count"] == 0
+    assert body["status_counts"] == {"open": 0, "resolved": 0, "dismissed": 0}
+    assert body["origin_counts"] == {"measured": 0, "reported": 0, "retracted": 0}
+    assert body["has_more"] is False
+    assert body["skipped_malformed"] == 0
+
+
+def test_gaps_read_defaults_to_open(vault_config: Path, template_vault: Path) -> None:
+    del vault_config
+    _seed_gaps(
+        template_vault,
+        [
+            _gap_record(gap_id="a1", status="open"),
+            _gap_record(gap_id="b2", status="resolved"),
+            _gap_record(gap_id="c3", status="dismissed"),
+        ],
+    )
+
+    body = assert_success(call_tool("gaps_read", {"topic": TOPIC}))
+
+    assert [gap["gap_id"] for gap in body["gaps"]] == ["a1"]
+    assert body["status_counts"] == {"open": 1, "resolved": 1, "dismissed": 1}
+
+
+def test_gaps_read_all_filter_includes_terminal_gaps(
+    vault_config: Path, template_vault: Path
+) -> None:
+    """`all` means all three statuses -- deliberately unlike suggestions_read.
+
+    There, `all` is a *non-terminal* view that hides rejected/ingested. A gap's
+    terminal statuses are resolved and dismissed, so carrying that convention
+    over would leave `all` returning only open gaps: a synonym for the default,
+    and a filter that answers a different question than the one asked.
+    """
+    del vault_config
+    _seed_gaps(
+        template_vault,
+        [
+            _gap_record(gap_id="a1", status="open"),
+            _gap_record(gap_id="b2", status="resolved"),
+            _gap_record(gap_id="c3", status="dismissed"),
+        ],
+    )
+
+    body = assert_success(call_tool("gaps_read", {"topic": TOPIC, "status": "all"}))
+
+    assert body["total_count"] == 3
+    assert sorted(gap["gap_id"] for gap in body["gaps"]) == ["a1", "b2", "c3"]
+
+
+def test_gaps_read_shows_dilution_gaps_that_a_drain_would_skip(
+    vault_config: Path, template_vault: Path
+) -> None:
+    """A reader answers "what is on this queue", not "what may a drain query for".
+
+    `gapfill._open_genuine_gaps` drops `dilution` because discovery has nothing
+    to search for on one. Reusing it here would have hidden a real, open gap
+    from every surface -- the exact class of invisibility this tool exists to end.
+    """
+    del vault_config
+    _seed_gaps(
+        template_vault,
+        [
+            _gap_record(gap_id="a1", fault_class="genuine_gap"),
+            _gap_record(gap_id="b2", fault_class="dilution"),
+        ],
+    )
+
+    body = assert_success(call_tool("gaps_read", {"topic": TOPIC}))
+
+    assert sorted(gap["gap_id"] for gap in body["gaps"]) == ["a1", "b2"]
+
+
+def test_gaps_read_orders_newest_first_so_a_reported_gap_is_not_buried(
+    vault_config: Path, template_vault: Path
+) -> None:
+    """Ordering keys on detected_at, not detected_generation.
+
+    A reported gap carries a constant-zero generation by construction (no eval
+    backs it), so a generation sort sinks every hand-filed gap below every
+    measured one -- burying precisely the gaps a human just filed and came
+    looking for.
+    """
+    del vault_config
+    _seed_gaps(
+        template_vault,
+        [
+            _gap_record(
+                gap_id="older-measured",
+                origin="measured",
+                detected_at="2026-07-01T00:00:00Z",
+                detected_generation=99,
+            ),
+            _gap_record(
+                gap_id="newer-reported",
+                origin="reported",
+                detected_at="2026-08-06T00:00:00Z",
+                detected_generation=0,
+            ),
+        ],
+    )
+
+    body = assert_success(call_tool("gaps_read", {"topic": TOPIC}))
+
+    assert [gap["gap_id"] for gap in body["gaps"]] == ["newer-reported", "older-measured"]
+
+
+def test_gaps_read_counts_origins_so_a_surface_can_badge_them(
+    vault_config: Path, template_vault: Path
+) -> None:
+    del vault_config
+    _seed_gaps(
+        template_vault,
+        [
+            _gap_record(gap_id="a1", origin="measured"),
+            _gap_record(gap_id="b2", origin="reported"),
+            _gap_record(gap_id="c3", origin="reported"),
+            _gap_record(gap_id="d4", origin="retracted"),
+        ],
+    )
+
+    body = assert_success(call_tool("gaps_read", {"topic": TOPIC}))
+
+    assert body["origin_counts"] == {"measured": 1, "reported": 2, "retracted": 1}
+
+
+def test_gaps_read_skips_a_malformed_line_instead_of_hiding_the_queue(
+    vault_config: Path, template_vault: Path
+) -> None:
+    """One corrupt line must cost one record, not the whole queue.
+
+    `parse_gaps_jsonl` raises on the first bad line, which on a display surface
+    turns a single bad record into a total blackout.
+    """
+    del vault_config
+    from knotica.core.gap_classifier import gaps_path
+    from knotica.store import LocalFSStore
+
+    store = LocalFSStore(template_vault)
+    good = _gap_record(gap_id="a1").to_json_line()
+    body_text = f"{good}\n{{not json at all\n"
+    with VaultTransaction(
+        store, template_vault, "test_seed", TOPIC, "seed a corrupt gap queue"
+    ) as txn:
+        txn.write(gaps_path(TOPIC), body_text)
+
+    body = assert_success(call_tool("gaps_read", {"topic": TOPIC}))
+
+    assert [gap["gap_id"] for gap in body["gaps"]] == ["a1"]
+    assert body["skipped_malformed"] == 1
+
+
+def test_gaps_read_paginates_via_cursor(vault_config: Path, template_vault: Path) -> None:
+    del vault_config
+    _seed_gaps(
+        template_vault,
+        [
+            _gap_record(gap_id=f"g{index}", detected_at=f"2026-07-{index + 10:02d}T00:00:00Z")
+            for index in range(3)
+        ],
+    )
+
+    first = assert_success(call_tool("gaps_read", {"topic": TOPIC, "limit": 2}))
+    assert len(first["gaps"]) == 2
+    assert first["has_more"] is True
+    assert first["total_count"] == 3
+
+    second = assert_success(
+        call_tool("gaps_read", {"topic": TOPIC, "limit": 2, "cursor": first["next_cursor"]})
+    )
+    assert len(second["gaps"]) == 1
+    assert second["has_more"] is False
+
+    paged = [gap["gap_id"] for gap in first["gaps"] + second["gaps"]]
+    assert sorted(paged) == ["g0", "g1", "g2"], "pagination must not drop or repeat a gap"
+
+
+def test_a_gaps_cursor_cannot_be_replayed_against_suggestions_read(
+    vault_config: Path, template_vault: Path
+) -> None:
+    """The two queues mint cursors under different sort contracts.
+
+    Both tools page with the same opaque token type, so without distinct sort
+    ids a cursor from one queue would decode cleanly against the other and
+    silently page into unrelated records.
+    """
+    del vault_config
+    _seed_gaps(
+        template_vault,
+        [_gap_record(gap_id=f"g{index}") for index in range(3)],
+    )
+    gaps_cursor = assert_success(call_tool("gaps_read", {"topic": TOPIC, "limit": 2}))[
+        "next_cursor"
+    ]
+    assert gaps_cursor
+
+    err = error_of(call_tool("suggestions_read", {"topic": TOPIC, "cursor": gaps_cursor}))
+    assert_error_shape(err, code="INVALID_CURSOR")
+
+
+def test_bad_status_filter_on_gaps_read_is_invalid_argument(vault_config: Path) -> None:
+    del vault_config
+    err = error_of(call_tool("gaps_read", {"topic": TOPIC, "status": "pending"}))
+    assert_error_shape(err, code="INVALID_ARGUMENT")
+    assert "pending" in err["message"], (
+        "the message must name the rejected value -- 'pending' is a *suggestion* "
+        "status, and confusing the two queues is the likeliest caller mistake"
+    )
+
+
+def test_the_gaps_read_status_vocabulary_matches_the_record_contract() -> None:
+    """The tool's fixed status order must cover the record vocabulary exactly.
+
+    `_GAP_STATUS_VALUES` is hand-ordered (lifecycle, not alphabetical) so it
+    cannot be derived from the frozenset; this pins the two together so a new
+    status cannot be added to records and silently missing from status_counts.
+    """
+    from knotica.core.records import GAP_STATUSES
+    from knotica.mcp_server.tools_suggestions import _GAP_STATUS_VALUES
+
+    assert set(_GAP_STATUS_VALUES) == GAP_STATUSES

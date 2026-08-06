@@ -15,7 +15,7 @@ loop at the level a real client actually sees: the one, fully-wired
 Three checks, corresponding to this integration checkpoint's server-level
 proof obligations:
 
-1. tool-count/shape census -- 33 unique names, none carrying a deprecation
+1. tool-count/shape census -- 34 unique names, none carrying a deprecation
    suffix;
 2. every dispatcher is reachable end-to-end through the full server with one
    representative action each (`payload_of` requires a structured JSON
@@ -51,11 +51,11 @@ DISPATCHER_NAMES = (
     "vault_health",
 )
 
-#: The 20 conversational-core tools + `open_dashboard` -- neither a
-#: dispatcher nor a standalone diagnostic. Derived by elimination: 33 tools
+#: The 21 conversational-core tools + `open_dashboard` -- neither a
+#: dispatcher nor a standalone diagnostic. Derived by elimination: 34 tools
 #: total, minus the 9 dispatchers, minus 4 standalone diagnostics not
 #: wrapped by any dispatcher (`baseline_probe`, `ingest_activity_read`,
-#: `metrics_read`, `prompt_diff`), leaves these 20. `note_capture` joins this
+#: `metrics_read`, `prompt_diff`), leaves these 21. `note_capture` joins this
 #: set -- per INTERFACE_DESIGN.md §1, it is deliberately a flat conversational
 #: tool (capture friction is fatal to the feature), not a `notes` action.
 CORE_AND_DASHBOARD = frozenset(
@@ -63,6 +63,7 @@ CORE_AND_DASHBOARD = frozenset(
         "create_topic",
         "curate_example",
         "gap_report",
+        "gaps_read",
         "ingest_progress",
         "lint_check",
         "list_links",
@@ -109,11 +110,11 @@ REPRESENTATIVE_CALLS: dict[str, tuple[dict[str, Any], str | None]] = {
 }
 
 
-def test_tool_surface_has_33_unique_names(vault_config: Path, template_vault: Path) -> None:
+def test_tool_surface_has_34_unique_names(vault_config: Path, template_vault: Path) -> None:
     del vault_config, template_vault
     names = [tool.name for tool in list_tools(build_full_server())]
-    assert len(names) == 33
-    assert len(set(names)) == 33
+    assert len(names) == 34
+    assert len(set(names)) == 34
 
 
 def test_no_tool_carries_a_deprecation_suffix(vault_config: Path, template_vault: Path) -> None:
