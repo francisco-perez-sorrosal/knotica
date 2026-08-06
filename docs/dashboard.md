@@ -194,8 +194,15 @@ Manage the [trainset and golden set](self-improvement.md) for a topic — `?pane
 - Expanding `candidates`/`reviewed` loads editable cards: question/answer text, a
   duplicate-of-trainset flag, and a Discard/Restore toggle.
 - **Save reviewed** (enabled once you've made changes) writes the staged reviewed set.
-- **Freeze** (enabled only once the reviewed count clears the floor and nothing overlaps the
-  trainset; confirms before running) writes the sealed golden set and its manifest.
+- **Freeze** (confirms before running) writes the sealed golden set and its manifest. It is
+  disabled only for the one condition that genuinely blocks it — a reviewed set overlapping the
+  trainset — and when there is nothing reviewed to freeze. Below the recommended floor it stays
+  **enabled** and warns instead, inline and in the confirm: the floor governs how noisy the eval
+  scalar will be, not whether the set is valid, and `evals/golden.py::freeze` freezes under it by
+  design ("the human is the gate"). Disabling it there stranded a small vault with no way to
+  establish a first baseline, and so no way to run the gated ingest that requires one. Note this
+  floor is separate from compile's hard **≥ 20 frozen records** precondition
+  ([self-improvement](self-improvement.md)) — freezing 9 is allowed; compiling on 9 is not.
 - A contamination banner surfaces train∩held-out / train∩reviewed / train∩candidates overlap
   counts whenever nonzero — freezing refuses any overlap between the reviewed set it freezes and
   the trainset.

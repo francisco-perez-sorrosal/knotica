@@ -728,6 +728,17 @@ aside[role="alert"] {
   font-size: .85rem;
 }
 .datasets-contam-ok { margin: 0 0 1rem; font-size: .82rem; }
+/* Advisory, not blocking — warn tone rather than the contamination banner's bad
+   tone, because freezing below the floor is a sanctioned judgement call. */
+.datasets-floor-note {
+  margin: 0 0 1rem;
+  padding: .75rem 1rem;
+  border: 1px solid color-mix(in srgb, var(--warn) 45%, var(--line));
+  border-left: 3px solid var(--warn);
+  background: var(--surface);
+  color: var(--text);
+  font-size: .85rem;
+}
 .datasets-section { margin-top: 1.25rem; }
 .datasets-section header h3 {
   margin: 0 0 .25rem;

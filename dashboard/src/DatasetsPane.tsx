@@ -69,9 +69,23 @@ export function DatasetsPane({
     [candidates],
   );
   const floor = inventory?.floor ?? 20;
-  const freezeReady =
-    (inventory?.pipeline.reviewed_n ?? 0) >= floor &&
-    (inventory?.overlaps.train_reviewed ?? 0) === 0;
+  const reviewedN = inventory?.pipeline.reviewed_n ?? 0;
+  /**
+   * The one hard precondition. `freeze` refuses a reviewed set that overlaps the
+   * trainset outright — a held-out question the model was trained on measures
+   * nothing — so the button genuinely cannot proceed here.
+   */
+  const freezeBlocked = (inventory?.overlaps.train_reviewed ?? 0) > 0;
+  /**
+   * The floor is advisory, not a block. `evals/golden.py::freeze` freezes below
+   * it and emits a `GoldenSetFloorWarning`: "the human is the gate". This pane
+   * used to disable Freeze under the floor, which took that judgement away and
+   * presented a quality recommendation as a hard requirement — leaving a vault
+   * with 9 reviewed candidates unable to establish any baseline at all, and so
+   * unable to run the gated ingest that needs one.
+   */
+  const belowFloor = reviewedN > 0 && reviewedN < floor;
+  const freezeReady = reviewedN > 0 && !freezeBlocked;
   const contamination =
     (inventory?.overlaps.train_held_out ?? 0) +
     (inventory?.overlaps.train_reviewed ?? 0) +
@@ -157,9 +171,19 @@ export function DatasetsPane({
 
   async function runFreeze() {
     if (!client) return;
+    // The shortfall is stated before the write, not after: freezing below the
+    // floor is a judgement the human is entitled to make, but only if they are
+    // told what they are trading away.
+    const shortfallWarning = belowFloor
+      ? `\n\nOnly ${reviewedN} reviewed candidate${reviewedN === 1 ? "" : "s"} — below the ` +
+        `recommended ${floor}. The eval scalar will be noisier until the set grows. ` +
+        `You can refreeze at any time; freeze replaces the held-out set wholesale ` +
+        `rather than appending, so nothing is lost by starting small.`
+      : "";
     if (
       !window.confirm(
-        `Freeze ${inventory?.pipeline.reviewed_n ?? "?"} reviewed candidates into held-out golden.jsonl + MANIFEST.json?`,
+        `Freeze ${reviewedN} reviewed candidate${reviewedN === 1 ? "" : "s"} into held-out ` +
+          `golden.jsonl + MANIFEST.json?${shortfallWarning}`,
       )
     ) {
       return;
@@ -170,7 +194,11 @@ export function DatasetsPane({
       const result = await client.datasetsFreeze(topic, vault);
       setNote(
         `Frozen ${result.n_frozen} into held-out` +
-          (result.below_floor ? " (below floor — still wrote)" : "") +
+          (result.below_floor
+            ? ` (below the recommended ${floor} — the scalar will be noisy). To improve it: ` +
+              `run Bootstrap for more candidates, review them, then Freeze again to replace ` +
+              `this set.`
+            : "") +
           ` · ${result.commit_sha.slice(0, 8)}`,
       );
       await reloadInventory();
@@ -233,9 +261,13 @@ export function DatasetsPane({
             class="primary"
             disabled={busy !== null || !freezeReady}
             title={
-              !freezeReady
-                ? `Need Reviewed ≥ ${floor} and zero train overlap`
-                : "Promote Reviewed → held-out golden.jsonl"
+              freezeBlocked
+                ? "Freeze refuses a Reviewed set that overlaps the trainset — clear the overlap first"
+                : reviewedN === 0
+                  ? "No reviewed candidates to freeze"
+                  : belowFloor
+                    ? `Freezes ${reviewedN}, below the recommended ${floor} — allowed, but the eval scalar will be noisier`
+                    : "Promote Reviewed → held-out golden.jsonl"
             }
             onClick={() => void runFreeze()}
           >
@@ -243,6 +275,17 @@ export function DatasetsPane({
           </button>
         </div>
       </header>
+
+      {belowFloor ? (
+        <aside class="datasets-floor-note" role="status">
+          <strong>{reviewedN}</strong> reviewed, below the recommended <strong>{floor}</strong>.
+          Freezing is still allowed — the floor governs how noisy the eval scalar will be, not
+          whether the set is valid. A small held-out set is what unblocks a first baseline, and the
+          gated ingest that needs one. To grow it afterwards: <strong>Bootstrap</strong> for more
+          candidates, review them, then Freeze again — freeze replaces the held-out set wholesale
+          rather than appending, so nothing is lost by starting small.
+        </aside>
+      ) : null}
 
       {contamination > 0 ? (
         <aside class="datasets-contam" role="status">
