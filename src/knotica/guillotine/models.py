@@ -14,7 +14,14 @@ PatchAction = Literal["replace", "insert", "annotate", "remove"]
 
 
 class PassageRole(StrEnum):
-    """How a passage relates to the target claim."""
+    """How a passage relates to the target claim.
+
+    Every member here is one ``classify._classify_one`` can actually assign — the
+    enum is the classifier's vocabulary, not a wish list. A declared-but-unassigned
+    member is worse than absent: the role legend rendered into every vault report
+    enumerates these values, so an unreachable one promises the reader a role that
+    can never appear. A ``DEPENDS_ON`` member did exactly that until it was removed.
+    """
 
     ASSERTS = "ASSERTS"
     QUALIFIES = "QUALIFIES"
@@ -22,7 +29,6 @@ class PassageRole(StrEnum):
     REFUTES = "REFUTES"
     QUOTES = "QUOTES"
     MENTIONS = "MENTIONS"
-    DEPENDS_ON = "DEPENDS_ON"
     IRRELEVANT = "IRRELEVANT"
 
 

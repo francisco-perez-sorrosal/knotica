@@ -36,7 +36,7 @@ def propose_patches(
     for passage in passages:
         if passage.is_source:
             continue
-        if passage.role not in {PassageRole.ASSERTS, PassageRole.DEPENDS_ON}:
+        if passage.role != PassageRole.ASSERTS:
             continue
         if passage.suggested_action == "keep":
             continue

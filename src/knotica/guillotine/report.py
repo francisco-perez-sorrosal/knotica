@@ -554,7 +554,6 @@ def _claim_inventory_intro() -> str:
             "  - `CONTRADICTS` — Asserts something incompatible with the claim.",
             "  - `QUOTES` — Quotes the claim without endorsing it (common in `sources/`).",
             "  - `MENTIONS` — Names the claim without clearly asserting or refuting it.",
-            "  - `DEPENDS_ON` — Treats the claim as a premise for further reasoning.",
             "  - `IRRELEVANT` — Keyword overlap only; not clearly about this claim.",
             "- **Local risk** — How strongly this *single mention* reads as problematic "
             "(none / low / medium / high), based on its role and wording. Wiki rows only; "

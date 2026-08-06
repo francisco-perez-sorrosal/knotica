@@ -123,8 +123,7 @@ def _load_file_contents(store: VaultStore, passages: list[Passage]) -> dict[str,
 
 def _has_actionable_assertions(passages: list[Passage]) -> bool:
     return any(
-        passage.role in {PassageRole.ASSERTS, PassageRole.DEPENDS_ON} and not passage.is_source
-        for passage in passages
+        passage.role == PassageRole.ASSERTS and not passage.is_source for passage in passages
     )
 
 

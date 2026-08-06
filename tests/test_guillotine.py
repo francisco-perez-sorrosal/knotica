@@ -181,6 +181,29 @@ def test_guillotine_classifies_quote(guillotine_vault: Path) -> None:
     assert PassageRole.QUOTES in source_roles
 
 
+def test_an_asserts_passage_reads_high_local_risk_with_or_without_harm_vocabulary() -> None:
+    """Local risk for ASSERTS is unconditional on the passage wording.
+
+    A user-harm term check once sat in this branch, but both arms returned "high",
+    so it tokenized the passage and discarded the result; deleting it changed no
+    output byte, and this pins that. It also fences the tempting inverse -- giving
+    the non-harm arm "medium" -- which would tie an unqualified assertion with a
+    hedged one and flip the "Local risk" column of every future report.
+    """
+    from knotica.guillotine.classify import _infer_risk
+
+    for text in (
+        "Open-source agents are inherently unsafe for serious users.",
+        "Open-source agents are inherently broken for everyday workflows.",
+        "SECURITY, PRIVACY; and HARM -- upper-cased and glued to punctuation.",
+        "",
+    ):
+        assert _infer_risk(PassageRole.ASSERTS, text, False) == "high", text
+    assert _infer_risk(PassageRole.QUALIFIES, "any wording at all", False) == "medium", (
+        "an unqualified assertion must stay strictly riskier than a hedged one"
+    )
+
+
 def test_guillotine_preserves_refutation_in_patch(guillotine_vault: Path) -> None:
     store = LocalFSStore(guillotine_vault)
     result, diff = run_guillotine(store, guillotine_vault, DEMO_CLAIM, topic="agentic-systems")
@@ -472,6 +495,39 @@ def test_guillotine_report_explains_risk_score_calculation(guillotine_vault: Pat
     # Every wiki row whose passage produced a patch is marked as landing in the diff.
     if result.patches:
         assert "(in diff)" in report_md
+
+
+def test_the_report_role_legend_advertises_exactly_the_roles_the_classifier_can_assign() -> None:
+    """The role legend ships to the reader, so every bullet is a promise.
+
+    ``_classify_one`` is the sole producer of roles -- ``_build_passage`` is its only
+    caller and the only ``Passage(...)`` site in the repo, and nothing deserializes a
+    role back out of the JSON sidecar -- so the roles it names are the reachable set.
+
+    A ``DEPENDS_ON`` member was once declared, wired into four lookups and advertised
+    in this legend, yet no branch could ever assign it and ``make verify`` never
+    noticed: an enum member is invisible to the architecture-coverage gate. This pins
+    legend, enum and classifier together so the next unwired member fails here.
+    """
+    import inspect
+    import re
+
+    from knotica.guillotine import classify
+    from knotica.guillotine.report import _claim_inventory_intro
+
+    declared = {role.value for role in PassageRole}
+    producer = inspect.getsource(classify._classify_one)
+    assignable = {role.value for role in PassageRole if f"PassageRole.{role.name}" in producer}
+    advertised = set(re.findall(r"^\s*- `([A-Z_]+)` —", _claim_inventory_intro(), re.MULTILINE))
+
+    assert advertised, "the legend regex matched nothing -- the bullet format changed"
+    assert advertised == assignable, (
+        f"legend and classifier roles diverged; legend-only={sorted(advertised - assignable)} "
+        f"classifier-only={sorted(assignable - advertised)}"
+    )
+    assert assignable == declared, (
+        f"every declared PassageRole must be assignable; unreachable={sorted(declared - assignable)}"
+    )
 
 
 def test_guillotine_synthesis_graph_excludes_sources(guillotine_vault: Path) -> None:

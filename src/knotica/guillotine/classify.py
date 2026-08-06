@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import re
+from typing import assert_never
 
 from knotica.guillotine.models import (
     Modality,
@@ -49,21 +50,6 @@ _QUALIFY_MARKERS = (
 )
 
 _NEGATION_MARKERS = ("not ", "never ", "no longer ", "cannot ", "can't ", "don't ")
-
-_USER_HARM_TERMS = frozenset(
-    {
-        "unsafe",
-        "security",
-        "privacy",
-        "health",
-        "legal",
-        "finance",
-        "identity",
-        "dangerous",
-        "harm",
-        "risk",
-    }
-)
 
 
 def classify_passages(claim: str, hits: list[CandidateHit]) -> list[Passage]:
@@ -178,11 +164,20 @@ def _infer_risk(role: PassageRole, text: str, is_source: bool) -> RiskLevel:
     if role == PassageRole.QUALIFIES:
         return "medium"
     if role == PassageRole.ASSERTS:
-        tokens = set(re.split(r"[^a-z]+", text.lower()))
-        if tokens & _USER_HARM_TERMS:
-            return "high"
+        # Unconditional. An unattributed assertion of the claim is the worst a single
+        # passage can read, and ``RiskLevel`` tops out at "high" — so this branch has
+        # nowhere above it to go. A user-harm term check used to sit here, but both of
+        # its arms returned "high", making the tokenization pure waste. Do not restore
+        # it: the 4-level scale cannot express the distinction, and the same idea is
+        # already carried, with the headroom to mean something, by
+        # ``score._affects_user_agency`` on the 0-100 triage scale.
         return "high"
-    return "medium"
+    # The branches above cover every PassageRole member, so mypy proves this
+    # unreachable. assert_never (not deletion) keeps the exhaustiveness check live:
+    # adding a role without a matching branch here now fails loudly at both
+    # type-check and runtime, instead of silently inheriting a "medium" default --
+    # which is the same silence that let an unwired DEPENDS_ON member ship.
+    assert_never(role)
 
 
 def _suggest_action(role: PassageRole, is_source: bool) -> SuggestedAction:
@@ -195,7 +190,6 @@ def _suggest_action(role: PassageRole, is_source: bool) -> SuggestedAction:
         PassageRole.REFUTES: "keep",
         PassageRole.QUOTES: "keep",
         PassageRole.MENTIONS: "keep",
-        PassageRole.DEPENDS_ON: "qualify",
         PassageRole.IRRELEVANT: "ignore",
     }
     return actions[role]
@@ -213,7 +207,6 @@ def _reason_for_role(role: PassageRole, is_source: bool, claim_in_text: bool) ->
         PassageRole.REFUTES: "The passage explicitly argues the claim is wrong, unsupported, or too broad.",
         PassageRole.QUOTES: "The passage quotes the claim without endorsing it.",
         PassageRole.MENTIONS: "The passage mentions the claim without clearly asserting or refuting it.",
-        PassageRole.DEPENDS_ON: "The passage appears to rely on the claim as a premise.",
         PassageRole.IRRELEVANT: "Overlapping terms but not clearly about the target claim.",
     }
     base = reasons[role]
