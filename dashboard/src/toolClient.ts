@@ -17,6 +17,7 @@ import type {
   DatasetsInventory,
   DoctorRepairResult,
   DoctorReport,
+  GapfillDiscoverResult,
   GapsReadResult,
   GapsStatusFilter,
   GoldenCandidate,
@@ -174,6 +175,12 @@ export interface ToolClient {
     limit?: number,
     vault?: string,
   ): Promise<GapsReadResult>;
+  gapfillDiscover(
+    topic: string,
+    maxGaps?: number,
+    confirm?: string,
+    vault?: string,
+  ): Promise<GapfillDiscoverResult>;
   suggestionsReview(
     topic: string,
     suggestionId: string,
@@ -511,6 +518,16 @@ abstract class BaseToolClient implements ToolClient {
     vault = "",
   ): Promise<GapsReadResult> {
     return this.call("gaps_read", { topic, status, cursor, limit, vault });
+  }
+
+  /** Billed and two-phase: omit `confirm` to preview, pass the returned nonce to run. */
+  gapfillDiscover(
+    topic: string,
+    maxGaps = 0,
+    confirm = "",
+    vault = "",
+  ): Promise<GapfillDiscoverResult> {
+    return this.call("gapfill_discover", { topic, max_gaps: maxGaps, confirm, vault });
   }
 
   suggestionsReview(

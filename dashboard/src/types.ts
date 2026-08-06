@@ -864,6 +864,30 @@ export interface GapRecord {
   detected_generation: number;
 }
 
+/**
+ * `gapfill_discover`'s two phases share one wire shape.
+ *
+ * Phase 1 (preview, free) carries `confirm_nonce` + the quote; phase 2 (the
+ * drain, billed) carries the counts. Discriminate on `confirm_nonce` — its
+ * presence means nothing has been spent yet.
+ */
+export interface GapfillDiscoverResult {
+  action: "gapfill_discover";
+  topic: string;
+  provider_configured: boolean;
+  // phase 1 — preview
+  open_gaps?: number;
+  would_drain?: number;
+  max_gaps?: number | null;
+  estimated_cost?: string;
+  confirm_nonce?: string;
+  ttl?: number;
+  // phase 2 — executed
+  gaps_considered?: number;
+  gaps_drained?: number;
+  suggestions_staged?: number;
+}
+
 export interface GapsReadResult {
   topic: string;
   status_filter: GapsStatusFilter;

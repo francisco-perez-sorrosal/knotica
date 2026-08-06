@@ -225,6 +225,7 @@ it. Quarantine branches are pruned beyond the newest 5 per topic.
 | Surface | Call | Stage |
 |---|---|---|
 | CLI | `knotica gapfill discover --topic NAME [--max-gaps N] [--vault PATH]` | P2 |
+| MCP | `gapfill_discover(topic, max_gaps=0, confirm="", vault="")` | P2 (billed, two-phase) |
 | MCP | `gap_report(topic, question, reason="", reference_pages=None, vault="")` | P1 (reported gap) |
 | MCP | `gaps_read(topic, status="open", cursor="", limit=20, vault="")` | P1 (read the queue) |
 | MCP | `suggestions_read(topic, status="pending", cursor="", limit=20, vault="")` | P3 |
@@ -233,8 +234,11 @@ it. Quarantine branches are pruned beyond the newest 5 per topic.
 | MCP | `source_ingest_submit(topic, suggestion_id, mode="dry-run", vault="")` | P4 |
 
 There is no `gapfill decide` or `gapfill ingest` subcommand: approval and ingest are MCP-only by
-design — the client's LLM does the judging, the server exposes deterministic tools — while `discover`
-is on the CLI because it is a pure batch drain with no judgement in it. Per-topic queue counts also
+design — the client's LLM does the judging, the server exposes deterministic tools. `discover` is on
+**both** surfaces: it is a pure batch drain with no judgement in it, so the CLI form is a plain
+batch command, while the MCP form is two-phase because it spends. A gap is filed and read on the
+MCP surface, so leaving the one step between those two on the CLI alone meant a gap could be seen
+and never acted on without dropping to a terminal. Per-topic queue counts also
 surface in `wiki_status`, including `refused_awaiting_rework` (approved suggestions whose last gate
 outcome was a refusal); the [dashboard](dashboard.md) renders the same data.
 

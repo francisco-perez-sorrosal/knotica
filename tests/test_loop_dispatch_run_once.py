@@ -84,7 +84,7 @@ def test_expired_nonce_is_rejected_and_does_not_bill(
     vault_config: Path, template_vault: Path
 ) -> None:
     """A nonce past its TTL is rejected on phase 2 -- billing never fires."""
-    from knotica.mcp_server import tools_vault
+    from knotica.mcp_server import confirm_nonce
     from knotica.mcp_server.tools_vault import _loop_once_payload, _run_once_nonce_path
 
     store, vault_path = _store_and_path(template_vault)
@@ -99,7 +99,7 @@ def test_expired_nonce_is_rejected_and_does_not_bill(
         nonce_path = _run_once_nonce_path(vault_path, TOPIC)
         record = json.loads(nonce_path.read_text(encoding="utf-8"))
         record["minted_at"] = (
-            datetime.now(UTC) - timedelta(seconds=tools_vault._RUN_EVAL_NONCE_TTL_SECONDS + 5)
+            datetime.now(UTC) - timedelta(seconds=confirm_nonce.NONCE_TTL_SECONDS + 5)
         ).isoformat()
         nonce_path.write_text(json.dumps(record), encoding="utf-8")
 

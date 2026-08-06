@@ -21,6 +21,7 @@ from pathlib import Path
 from typing import Any
 
 import anyio
+import pytest
 
 from knotica.core.transaction import VaultTransaction
 
@@ -385,6 +386,169 @@ def test_the_gaps_read_status_vocabulary_matches_the_record_contract() -> None:
     status cannot be added to records and silently missing from status_counts.
     """
     from knotica.core.records import GAP_STATUSES
-    from knotica.mcp_server.tools_suggestions import _GAP_STATUS_VALUES
+    from knotica.mcp_server.tools_gaps import _GAP_STATUS_VALUES
 
     assert set(_GAP_STATUS_VALUES) == GAP_STATUSES
+
+
+# ---------------------------------------------------------------------------
+# gapfill_discover -- the billed hop from the gap queue to the suggestion queue
+#
+# Discovery was CLI-only, which left the P1 -> P3 hop unreachable from the two
+# surfaces a gap is filed and read on. These pin the two-phase gate, because the
+# failure mode of getting it wrong is spending the user's money without asking.
+# ---------------------------------------------------------------------------
+
+
+def _seed_one_open_gap(vault: Path) -> None:
+    _seed_gaps(vault, [_gap_record(gap_id="drainable", fault_class="genuine_gap")])
+
+
+@pytest.fixture
+def no_live_discovery(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Force the drain's service to None so a confirmed phase 2 cannot bill.
+
+    This is not belt-and-braces. `resolve_api_key` falls back to `./.env` after
+    the process environment, and this repo's own `.env.example` invites a key
+    there -- so on a maintainer's machine a search key *does* resolve under
+    pytest, and any test passing a valid confirm would issue real, billed search
+    calls on every run. Confirmed by measurement, not assumed.
+
+    Every test that reaches phase 2 must take this fixture. Phase-1 tests do not
+    need it: the preview constructs the service to report `provider_configured`
+    but never calls `discover`, so it stays free either way.
+    """
+    monkeypatch.setattr(
+        "knotica.mcp_server.tools_gaps.build_default_discovery_service",
+        lambda *args, **kwargs: None,
+    )
+
+
+def test_a_bare_discover_call_previews_and_never_bills(
+    vault_config: Path, template_vault: Path
+) -> None:
+    """Phase 1 mints a nonce and stages nothing.
+
+    `refresh_suggestions_for_gaps` is the billing boundary; a preview that
+    reached it would spend before the user ever saw a cost.
+    """
+    del vault_config
+    _seed_one_open_gap(template_vault)
+
+    body = assert_success(call_tool("gapfill_discover", {"topic": TOPIC}))
+
+    assert body["action"] == "gapfill_discover"
+    assert body["open_gaps"] == 1
+    assert body["would_drain"] == 1
+    assert body["confirm_nonce"]
+    assert body["ttl"] > 0
+    assert "suggestions_staged" not in body, "a preview must not report a drain it did not run"
+    assert not (template_vault / TOPIC / ".knotica" / "suggestions").exists(), (
+        "phase 1 must stage nothing"
+    )
+
+
+def test_max_gaps_caps_what_the_preview_quotes(vault_config: Path, template_vault: Path) -> None:
+    del vault_config
+    _seed_gaps(
+        template_vault,
+        [_gap_record(gap_id=f"g{index}") for index in range(3)],
+    )
+
+    body = assert_success(call_tool("gapfill_discover", {"topic": TOPIC, "max_gaps": 1}))
+
+    assert body["open_gaps"] == 3
+    assert body["would_drain"] == 1, "the quote must reflect the cap, not the queue"
+
+
+def test_the_preview_counts_only_gaps_a_drain_would_query_for(
+    vault_config: Path, template_vault: Path
+) -> None:
+    """`dilution` gaps are visible in gaps_read but not drainable.
+
+    Counting them here would quote a drain larger than the one that runs --
+    an over-estimate on a billed action, which is the wrong direction to be wrong.
+    """
+    del vault_config
+    _seed_gaps(
+        template_vault,
+        [
+            _gap_record(gap_id="a1", fault_class="genuine_gap"),
+            _gap_record(gap_id="b2", fault_class="dilution"),
+        ],
+    )
+
+    body = assert_success(call_tool("gapfill_discover", {"topic": TOPIC}))
+
+    assert body["open_gaps"] == 1
+
+
+def test_a_wrong_confirm_falls_back_to_a_fresh_preview_rather_than_running(
+    vault_config: Path, template_vault: Path
+) -> None:
+    """A bad nonce must not execute, and must not leak whether one was live."""
+    del vault_config
+    _seed_one_open_gap(template_vault)
+    minted = assert_success(call_tool("gapfill_discover", {"topic": TOPIC}))["confirm_nonce"]
+
+    body = assert_success(
+        call_tool("gapfill_discover", {"topic": TOPIC, "confirm": "not-the-nonce"})
+    )
+
+    assert "confirm_nonce" in body, "a mismatch falls through to phase 1"
+    assert body["confirm_nonce"] != minted
+    assert "suggestions_staged" not in body
+
+
+def test_a_nonce_is_single_use(
+    vault_config: Path, template_vault: Path, no_live_discovery: None
+) -> None:
+    """Consuming deletes the file, so a replayed confirm cannot bill twice.
+
+    The only test here that passes a *valid* confirm, and therefore the only one
+    that reaches the drain -- hence `no_live_discovery`. What is under test is
+    that the nonce is gone afterwards, not the drain itself.
+    """
+    del vault_config, no_live_discovery
+    _seed_one_open_gap(template_vault)
+    nonce = assert_success(call_tool("gapfill_discover", {"topic": TOPIC}))["confirm_nonce"]
+
+    first = assert_success(call_tool("gapfill_discover", {"topic": TOPIC, "confirm": nonce}))
+    assert "suggestions_staged" in first, "a matching nonce must execute"
+
+    replay = assert_success(call_tool("gapfill_discover", {"topic": TOPIC, "confirm": nonce}))
+    assert "confirm_nonce" in replay, "the same nonce must not execute a second time"
+    assert "suggestions_staged" not in replay
+
+
+def test_a_run_eval_nonce_cannot_confirm_a_discovery_drain(
+    vault_config: Path, template_vault: Path
+) -> None:
+    """Nonces are keyed per action, so one billed action cannot authorize another.
+
+    Both actions mint the same token shape into the same directory; only the
+    per-action `kind` in the filename keeps a cheap confirmation from unlocking
+    an expensive one.
+    """
+    del vault_config
+    from knotica.mcp_server import confirm_nonce
+
+    _seed_one_open_gap(template_vault)
+    foreign = confirm_nonce.mint(template_vault, "run-eval", TOPIC, {})
+
+    body = assert_success(call_tool("gapfill_discover", {"topic": TOPIC, "confirm": foreign}))
+
+    assert "confirm_nonce" in body, "a run-eval nonce must not confirm a drain"
+    assert "suggestions_staged" not in body
+
+
+def test_negative_max_gaps_is_invalid_argument(vault_config: Path) -> None:
+    del vault_config
+    err = error_of(call_tool("gapfill_discover", {"topic": TOPIC, "max_gaps": -1}))
+    assert_error_shape(err, code="INVALID_ARGUMENT")
+
+
+def test_discover_is_registered_and_needs_configuration(unconfigured_env: Path) -> None:
+    del unconfigured_env
+    err = error_of(call_tool("gapfill_discover", {"topic": TOPIC}))
+    assert_error_shape(err, code="NOT_CONFIGURED")

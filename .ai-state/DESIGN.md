@@ -79,7 +79,7 @@ and the `TEST_TOPOLOGY.md` rule change it forced, are `dec-075`.
 | `src/knotica/core/` | Vault semantics and the sole mutation path. **Read this row as a subtraction:** `core/operations/` and `core/notes/` carve packages out of it, and four § 3b capabilities — the write path, the loop lifecycle, query compile, and the gap-fill spine — carve clusters out of it; what remains is `transaction`/`lock`/`vcs`/`scrub`, the vault vocabulary (`config`, `config_write`, `schema`, `page`, `links`, `lint`, `records`, `errors`, `template`, `vault_layout`, `topics`, `jsonl`), and the shared read/aggregate substrate every surface renders from (`status`, `doctor`, `metrics`, `prompts`, `datasets_inventory`, `golden_review`, `index_catalog`, `vault_metadata_tree`, `vault_scaffold`, `ingest_activity`, `text_reflow`, `baseline_probe`) | Built |
 | `src/knotica/core/operations/` | Mostly one module per mutating operation, though `guillotine.py` exports two and `reanchor_note.py` three. Nine modules open a `VaultTransaction`, each opening exactly one; `doctor_repair.py` and `promote_note.py` open none — the latter delegates to `curate_example` or `gapfill.report_gap`, which carry their own. `__init__.py` re-exports a subset (`write_page`, `store_source`, `create_topic`, `curate_example`, `migrate`, `doctor_repair`, `apply_guillotine`, `persist_guillotine_artifacts`) while the notes operations and `reflow_sources` are imported by path. `candidate_scope.py` is a routing helper, not an operation | Built |
 | `src/knotica/core/notes/` | Personal-notes overlay model: `anchor` (document + append-only anchor history), `resolve` (the read-time resolution ladder, rungs 0–10), `candidates` + `scoring` (fuzzy candidate generation and the Hypothesis-weighted scorer), `supersession` (page-replaced vs passage-reworded), `reconcile` (post-merge drift-queue notification), `store` (read-only enumeration). `dec-058`, `dec-061` | Built |
-| `src/knotica/mcp_server/` | FastMCP adapter: 23 flat conversational tools, 9 operator dispatchers, `open_dashboard`, 4 resources + 1 UI resource, 4 prompts. `vault_ctx.with_resolved_vault` is the per-call config-resolution and error-mapping seam every tool routes through — the concrete form of the stateless-server invariant. Named `mcp_server` to avoid shadowing the `mcp` SDK (`dec-009`) | Built |
+| `src/knotica/mcp_server/` | FastMCP adapter: 25 flat conversational tools, 9 operator dispatchers, `open_dashboard`, 4 resources + 1 UI resource, 4 prompts. `vault_ctx.with_resolved_vault` is the per-call config-resolution and error-mapping seam every tool routes through — the concrete form of the stateless-server invariant. Named `mcp_server` to avoid shadowing the `mcp` SDK (`dec-009`) | Built |
 | `src/knotica/cli/` | `knotica` console entry point. `cli/__init__.py::COMMAND_NAMES` is the single declaration of the subcommand set; one module per command plus `common.py` (Console, exit codes, stdout=data / stderr=messages) | Built |
 | `src/knotica/evals/` | Frozen-corpus evaluator: clones the vault at a pinned SHA, scores a held-out golden set through `dspy.Evaluate` over a baseline runner and a cached LLM-as-judge, composes one stable scalar, and appends a `MetricsRecord` **on the clone**. `anthropic`/`dspy` are isolated in the `evals` extra and imported lazily | Built |
 | `src/knotica/programs/` | The DSPy query program: MIPROv2 with a bootstrap fallback, recording `optimizer`/`fallback_reason` on the artifact, plus `CompiledRunner` | Built |
@@ -100,7 +100,7 @@ none of them is a § 3a row.
 |---|---|---|---|
 | **Single-mutation vault write path** | flock → buffer + secret-scrub at declaration → atomic per-path write → append `log.md` → one path-scoped git commit. A no-op transaction makes **zero** commits. `work_dir=` redirects commit/rollback to a git worktree while still taking the flock against the canonical root — the mechanism behind source-ingest candidates. `dec-008`, `dec-046` | `store/`, `core/`, `core/operations/` | Built |
 | **Autonomous loop lifecycle** | observe → gate → heal, per topic, on a clone. Baseline policy, instrument re-freeze, four observation guards, candidate gating, arena prompt-healing. `dec-043`, `dec-048`, `dec-068`, `dec-072` | `core/`, `evals/`, `cli/`, `service/` | Built |
-| **MCP tool surface** | Two-tier topology: 23 flat conversational tools carry the high-density verbs; 9 action-parameterized dispatchers route the operator long tail. `dec-041`, `dec-045`, `dec-050` | `mcp_server/` | Built |
+| **MCP tool surface** | Two-tier topology: 25 flat conversational tools carry the high-density verbs; 9 action-parameterized dispatchers route the operator long tail. `dec-041`, `dec-045`, `dec-050` | `mcp_server/` | Built |
 | **Query compile & promote** | Curated trainset → MIPROv2 compile on a clone → `compile/*` branch → human review → promote. `query_engine` is the one answer path shared by the MCP `query` tool, the dashboard Ask pane, and the arena. `dec-021`, `dec-022`, `dec-049` | `programs/`, `core/`, `mcp_server/`, Dashboard | Built |
 | **Gap-fill spine** | P1 diagnose (fault classifier) → P2 discover (ranked candidates) → P3 approve (suggestion queue) → P4 gated ingest (candidate branch, merge or quarantine). `dec-024`, `dec-025`, `dec-029`, `dec-030`, `dec-036`, `dec-037`, `dec-038` | `core/`, `discovery/`, `mcp_server/`, `cli/`, `evals/` | Built |
 | **Notes overlay** | capture → resolve → recall → correct → promote. Personal marginalia outside the scored corpus, anchored to KB prose by quote + commit, re-resolved on every read. `dec-056`, `dec-057`, `dec-058`, `dec-060`, `dec-061`, `dec-066` | `core/notes/`, `core/operations/`, `mcp_server/`, Dashboard, Plugin layer | Built |
@@ -129,7 +129,7 @@ for the gate, but it is not a component and owns no responsibility. The gate pro
 | `src/knotica/discovery/` | 10 |
 | `src/knotica/evals/` | 16 |
 | `src/knotica/guillotine/` | 9 |
-| `src/knotica/mcp_server/` | 37 |
+| `src/knotica/mcp_server/` | 39 |
 | `src/knotica/okf/` | 11 |
 | `src/knotica/programs/` | 2 |
 | `src/knotica/search/` | 4 |
@@ -178,7 +178,7 @@ path.
 
 ### MCP tool surface
 
-**33 tools**: 23 flat conversational tools, 9 operator dispatchers, and `open_dashboard`. Every tool
+**35 tools**: 25 flat conversational tools, 9 operator dispatchers, and `open_dashboard`. Every tool
 resolves config per call through `mcp_server/vault_ctx.py` and returns a structured envelope, never a
 transport exception (`dec-001`). Mutating dispatcher actions accept `mode=dry-run|apply`.
 
@@ -194,10 +194,11 @@ transport exception (`dec-001`). Mutating dispatcher actions accept `mode=dry-ru
 | `vault` | `list` \| `status` \| `use` \| `add` \| `create` |
 | `vault_health` | `doctor` \| `repair` \| `okf_check` \| `okf_repair` \| `lint` \| `metadata_tree` |
 
-The 23 flat tools, by module: `tools_read.py` — `list_topics`, `read_page`, `search`, `list_links`,
+The 25 flat tools, by module: `tools_read.py` — `list_topics`, `read_page`, `search`, `list_links`,
 `lint_check`; `tools_write.py` — `write_page`, `store_source`, `create_topic`, `curate_example`;
 `tools_status.py` — `wiki_status`, `metrics_read`, `baseline_probe`; `tools_suggestions.py` —
-`suggestions_read`, `suggestions_review`, `gap_report`; `tools_source_ingest.py` —
+`suggestions_read`, `suggestions_review`; `tools_gaps.py` — `gap_report`, `gaps_read`,
+`gapfill_discover`; `tools_source_ingest.py` —
 `source_ingest_open`, `source_ingest_submit`; `tools_ingest.py` — `ingest_progress`,
 `ingest_activity_read`; `tools_query.py` — `query`; `tools_notes.py` — `note_capture`;
 `tools_prompt_diff.py` — `prompt_diff`; `tools_guide.py` — `read_protocol`.

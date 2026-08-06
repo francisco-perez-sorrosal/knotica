@@ -2610,6 +2610,9 @@ button.danger:hover:not(:disabled) {
 /* A dashed left edge distinguishes "diagnosed, nothing to act on yet" from the
    solid-bordered suggestion cards, which do carry actions. */
 .sources-gap-card { border-left: 3px dashed var(--line); }
+/* Reuses the loop pane's billed-confirm treatment verbatim — the same warning
+   border users already associate with "this spends money". */
+.sources-discover-confirm { margin-top: .6rem; }
 
 .sources-list {
   display: flex;

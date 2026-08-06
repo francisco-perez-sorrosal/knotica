@@ -217,10 +217,12 @@ RAW_WRITE_FUNCTION_ALLOWLIST = frozenset(
         "cli/init.py::patch_desktop",
         # Mints a single-use nonce under the gitignored `.knotica/locks/`
         # directory -- the same runtime-lock class the vault flock
-        # (core/lock.py) uses, never vault content.
-        "mcp_server/tools_vault.py::_mint_nonce",
+        # (core/lock.py) uses, never vault content. Extracted from
+        # `tools_vault` into the shared `confirm_nonce` seam when
+        # `gapfill_discover` became a third billed action in a second module.
+        "mcp_server/confirm_nonce.py::mint",
         # Consumes (and deletes) the same gitignored nonce file minted above.
-        "mcp_server/tools_vault.py::_consume_nonce",
+        "mcp_server/confirm_nonce.py::consume",
     }
 )
 

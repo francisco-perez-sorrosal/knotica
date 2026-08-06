@@ -12,11 +12,8 @@ imported directly by ``tools_dispatch_vault_health.py`` and
 from __future__ import annotations
 
 import json
-import os
-import secrets
-from datetime import UTC, datetime
 from functools import partial
-from pathlib import Path, PurePath
+from pathlib import Path
 from typing import Any
 
 from mcp.types import CallToolResult
@@ -31,7 +28,7 @@ from knotica.core.loop_cadence_config import LOOP_CONFIG_SECTION, resolve_loop_c
 from knotica.core.models_config import resolve_models_config
 from knotica.core.operations.doctor_repair import doctor_repair
 from knotica.core.page import TopicNotFoundError
-from knotica.mcp_server import envelope
+from knotica.mcp_server import confirm_nonce, envelope
 from knotica.okf.check import check_vault
 from knotica.okf.repair import RepairOptions, repair_vault
 from knotica.store import VaultStore
@@ -199,7 +196,7 @@ def _loop_once_payload(
                 "at most one pending candidate-gate eval"
             ),
             "confirm_nonce": nonce,
-            "ttl": _RUN_EVAL_NONCE_TTL_SECONDS,
+            "ttl": confirm_nonce.NONCE_TTL_SECONDS,
         }
     )
 
@@ -323,15 +320,6 @@ def _loop_rebaseline_payload(
     )
 
 
-#: Single-use nonce lifetime for the ``run_eval`` two-phase decision envelope.
-_RUN_EVAL_NONCE_TTL_SECONDS = 300.0
-
-#: Runtime (gitignored) directory the nonce file lives in -- same home as the
-#: loop heartbeat and vault mutation lock. Never vault content, never a
-#: ``VaultStore`` write, never a git commit.
-_LOOP_LOCKS_DIR = PurePath(".knotica/locks")
-
-
 def _loop_cadence_payload(
     topic: str,
     *,
@@ -446,7 +434,7 @@ def _loop_run_eval_payload(
                 f"topic's golden-set size)"
             ),
             "confirm_nonce": nonce,
-            "ttl": _RUN_EVAL_NONCE_TTL_SECONDS,
+            "ttl": confirm_nonce.NONCE_TTL_SECONDS,
         }
     )
 
@@ -486,71 +474,14 @@ def _execute_run_eval(
     )
 
 
-def _nonce_path(vault_path: Path, kind: str, topic: str) -> Path:
-    """Nonce file location for a given billed action ``kind`` (e.g. ``run-eval``,
-    ``run-once``) and topic -- one file per (kind, topic) pair so concurrent
-    billed actions never collide."""
-    safe_topic = topic.replace("/", "-") or "vault"
-    return vault_path / _LOOP_LOCKS_DIR / f"{kind}-nonce-{safe_topic}.json"
-
-
-def _mint_nonce(vault_path: Path, kind: str, topic: str, extra: dict[str, Any]) -> str:
-    """Mint + persist a single-use nonce for a billed action.
-
-    Shared mechanism behind both ``run_eval`` and ``run_once``'s two-phase
-    decision envelopes -- see ``_loop_run_eval_payload``/``_loop_once_payload``.
-    """
-    nonce = secrets.token_urlsafe(16)
-    path = _nonce_path(vault_path, kind, topic)
-    path.parent.mkdir(parents=True, exist_ok=True)
-    payload = {
-        "nonce": nonce,
-        "topic": topic,
-        "minted_at": datetime.now(UTC).isoformat(),
-        **extra,
-    }
-    tmp = path.with_suffix(".tmp")
-    tmp.write_text(json.dumps(payload), encoding="utf-8")
-    os.replace(tmp, path)
-    return nonce
-
-
-def _consume_nonce(vault_path: Path, kind: str, topic: str, confirm: str) -> dict[str, Any] | None:
-    """Verify + consume a single-use nonce; returns the minted payload or ``None``.
-
-    The nonce file is deleted unconditionally on read (single-use, no probing
-    a live nonce by sending a wrong ``confirm`` value) -- a mismatch or
-    expiry falls through to phase 1, minting a fresh nonce.
-    """
-    path = _nonce_path(vault_path, kind, topic)
-    try:
-        raw = path.read_text(encoding="utf-8")
-        payload = json.loads(raw)
-    except (OSError, json.JSONDecodeError):
-        return None
-    path.unlink(missing_ok=True)
-    if not isinstance(payload, dict):
-        return None
-    if payload.get("nonce") != confirm:
-        return None
-    try:
-        minted_at = datetime.fromisoformat(str(payload["minted_at"]))
-    except (KeyError, ValueError):
-        return None
-    age = (datetime.now(UTC) - minted_at).total_seconds()
-    if age > _RUN_EVAL_NONCE_TTL_SECONDS:
-        return None
-    return payload
-
-
 def _run_eval_nonce_path(vault_path: Path, topic: str) -> Path:
-    return _nonce_path(vault_path, "run-eval", topic)
+    return confirm_nonce.nonce_path(vault_path, "run-eval", topic)
 
 
 def _mint_run_eval_nonce(
     vault_path: Path, topic: str, *, worker: str, judge: str, num_threads: int
 ) -> str:
-    return _mint_nonce(
+    return confirm_nonce.mint(
         vault_path,
         "run-eval",
         topic,
@@ -559,16 +490,16 @@ def _mint_run_eval_nonce(
 
 
 def _consume_run_eval_nonce(vault_path: Path, topic: str, confirm: str) -> dict[str, Any] | None:
-    return _consume_nonce(vault_path, "run-eval", topic, confirm)
+    return confirm_nonce.consume(vault_path, "run-eval", topic, confirm)
 
 
 def _run_once_nonce_path(vault_path: Path, topic: str) -> Path:
-    return _nonce_path(vault_path, "run-once", topic)
+    return confirm_nonce.nonce_path(vault_path, "run-once", topic)
 
 
 def _mint_run_once_nonce(vault_path: Path, topic: str) -> str:
-    return _mint_nonce(vault_path, "run-once", topic, {})
+    return confirm_nonce.mint(vault_path, "run-once", topic, {})
 
 
 def _consume_run_once_nonce(vault_path: Path, topic: str, confirm: str) -> dict[str, Any] | None:
-    return _consume_nonce(vault_path, "run-once", topic, confirm)
+    return confirm_nonce.consume(vault_path, "run-once", topic, confirm)

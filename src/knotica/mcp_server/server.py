@@ -33,6 +33,7 @@ from knotica.mcp_server.tools_dispatch_loop import register_dispatch_loop_tools
 from knotica.mcp_server.tools_dispatch_notes import register_dispatch_notes_tools
 from knotica.mcp_server.tools_dispatch_vault import register_dispatch_vault_tools
 from knotica.mcp_server.tools_dispatch_vault_health import register_dispatch_vault_health_tools
+from knotica.mcp_server.tools_gaps import register_gaps_tools
 from knotica.mcp_server.tools_guide import register_guide_tools
 from knotica.mcp_server.tools_ingest import register_ingest_tools
 from knotica.mcp_server.tools_notes import register_notes_tools
@@ -98,6 +99,7 @@ def _build_server(*, stateless_http: bool = False) -> FastMCP:
     register_prompt_diff_tools(mcp)
     register_status_tools(mcp)
     register_suggestions_tools(mcp)
+    register_gaps_tools(mcp)
     register_source_ingest_tools(mcp)
     register_ingest_tools(mcp)
     register_notes_tools(mcp)

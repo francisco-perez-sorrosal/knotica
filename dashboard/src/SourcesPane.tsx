@@ -2,6 +2,7 @@ import { useEffect, useState } from "preact/hooks";
 
 import type { ToolClient } from "./toolClient";
 import type {
+  GapfillDiscoverResult,
   GapOrigin,
   GapRecord,
   GapsReadResult,
@@ -57,6 +58,47 @@ export function SourcesPane({
   const [rejectOpenId, setRejectOpenId] = useState<string | null>(null);
   const [gaps, setGaps] = useState<GapsReadResult | null>(null);
   const [gapsError, setGapsError] = useState<string | null>(null);
+  const [discoverPreview, setDiscoverPreview] = useState<GapfillDiscoverResult | null>(null);
+  const [discoverBusy, setDiscoverBusy] = useState<"preview" | "confirm" | null>(null);
+  const [discoverDone, setDiscoverDone] = useState<GapfillDiscoverResult | null>(null);
+
+  /** Phase 1: quote the cost. Never bills — the server mints a nonce and stops. */
+  async function previewDiscover(maxGaps: number) {
+    if (!client || discoverBusy) return;
+    setDiscoverBusy("preview");
+    setGapsError(null);
+    setDiscoverDone(null);
+    try {
+      setDiscoverPreview(await client.gapfillDiscover(topic, maxGaps, "", vault));
+    } catch (cause) {
+      setGapsError(cause instanceof Error ? cause.message : String(cause));
+    } finally {
+      setDiscoverBusy(null);
+    }
+  }
+
+  /** Phase 2: the billing boundary. Only reachable from an explicit second click. */
+  async function confirmDiscover() {
+    if (!client || discoverBusy || !discoverPreview?.confirm_nonce) return;
+    setDiscoverBusy("confirm");
+    setGapsError(null);
+    try {
+      const done = await client.gapfillDiscover(
+        topic,
+        discoverPreview.max_gaps ?? 0,
+        discoverPreview.confirm_nonce,
+        vault,
+      );
+      setDiscoverPreview(null);
+      setDiscoverDone(done);
+      // Both queues moved: gaps may have drained, suggestions may have appeared.
+      await Promise.all([load(), loadGaps(), onStatusRefresh?.()]);
+    } catch (cause) {
+      setGapsError(cause instanceof Error ? cause.message : String(cause));
+    } finally {
+      setDiscoverBusy(null);
+    }
+  }
 
   async function loadGaps() {
     if (!client || !topic) return;
@@ -206,10 +248,68 @@ export function SourcesPane({
             </h3>
             <p class="muted">
               Diagnosed and waiting for source discovery — there is nothing to approve on them yet.
-              Run <code>knotica gapfill discover --topic {topic}</code> to search for candidate
-              sources; each one that ranks becomes a card below.
+              Discovery searches for candidate sources; each one that ranks becomes a card below.
             </p>
+            {/* Deliberately section-level, not per-gap: the server drains by
+                count (max_gaps), not by gap id, so a button on one row would
+                drain the highest-priority gap rather than that row's. */}
+            <button
+              type="button"
+              class="ghost"
+              disabled={!client || discoverBusy !== null || discoverPreview !== null}
+              onClick={() => void previewDiscover(0)}
+            >
+              {discoverBusy === "preview" ? "Checking…" : "Discover sources…"}
+            </button>
           </div>
+
+          {discoverPreview ? (
+            <div class="heal-policy-controls heal-run-eval-confirm sources-discover-confirm">
+              <p class="heal-step-body">
+                {discoverPreview.provider_configured ? (
+                  <>
+                    Would search for <strong>{discoverPreview.would_drain}</strong> of{" "}
+                    <strong>{discoverPreview.open_gaps}</strong> open gap
+                    {discoverPreview.open_gaps === 1 ? "" : "s"} — {discoverPreview.estimated_cost}.
+                    This has <strong>NOT</strong> billed yet; confirm to run and bill.
+                  </>
+                ) : (
+                  <>
+                    No search provider is configured, so this would stage nothing. Set{" "}
+                    <code>KNOTICA_YOUCOM_API_KEY</code> and try again.
+                  </>
+                )}
+              </p>
+              <button
+                type="button"
+                class="heal-freeze-primary"
+                disabled={!client || discoverBusy !== null || !discoverPreview.provider_configured}
+                onClick={() => void confirmDiscover()}
+              >
+                {discoverBusy === "confirm" ? "Searching…" : "Confirm — run and bill"}
+              </button>
+              <button
+                type="button"
+                class="ghost"
+                disabled={discoverBusy !== null}
+                onClick={() => setDiscoverPreview(null)}
+              >
+                Cancel
+              </button>
+            </div>
+          ) : null}
+
+          {discoverDone ? (
+            <p class="muted sources-partial-note">
+              Discovery drained {discoverDone.gaps_drained} of {discoverDone.gaps_considered} gap
+              {discoverDone.gaps_considered === 1 ? "" : "s"} and staged{" "}
+              {discoverDone.suggestions_staged} suggestion
+              {discoverDone.suggestions_staged === 1 ? "" : "s"}.
+              {discoverDone.suggestions_staged === 0
+                ? " Nothing ranked — the gap stays open."
+                : ""}
+            </p>
+          ) : null}
           <ul class="sources-list">
             {openGaps.map((gap) => (
               <GapCard key={gap.gap_id} gap={gap} />
