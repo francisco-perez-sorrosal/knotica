@@ -1,7 +1,7 @@
 ---
-id: dec-draft-cbac8bf4
+id: dec-079
 title: Commitizen releases, bumped only in CI
-status: proposed
+status: accepted
 category: implementation
 date: 2026-08-05
 summary: "Versioning adopts Commitizen with the `uv` version provider so one commit moves pyproject.toml, uv.lock and plugin.json together; `cz bump` runs only from a dispatched CI workflow, and the dashboard is deliberately left out of the version set."
