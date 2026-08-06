@@ -88,3 +88,45 @@ State defaults explicitly. A flag documented without its default is half-documen
 2. Run `make verify` locally before pushing. CI re-runs the same chain on the PR, but a local run is faster and keeps the branch history free of fix-the-build commits.
 3. Keep the PR focused; describe *what* changed and *why*.
 4. Address review feedback in follow-up commits.
+
+## Releases
+
+Releases are cut by **dispatching a workflow**, never by bumping locally:
+
+```bash
+gh workflow run release.yml --ref main -f increment=auto   # or patch | minor | major
+```
+
+`/i-am:release` does the same thing with preconditions checked for you.
+
+[`.github/workflows/release.yml`](.github/workflows/release.yml) runs Commitizen on a clean runner, and that is the **only** mechanism in this repo that changes a version string. A local `cz bump` produces a tag and a version no workflow run accounts for, which is the divergence the single-mechanism rule exists to prevent. To see what a release *would* do without changing anything:
+
+```bash
+uvx --from commitizen==4.17.0 cz bump --dry-run
+```
+
+One release is one commit, and it moves four files before tagging them together:
+
+| File | Why it moves |
+|---|---|
+| `pyproject.toml` | `[project].version` — the only version string a human writes |
+| `uv.lock` | Records the project's own version; CI runs `uv sync --locked`, so a stale lock fails the build |
+| `.claude-plugin/plugin.json` | Claude Code reads this as a **cache key** — installed copies serve the version it names |
+| `CHANGELOG.md` | Regenerated into the same commit, so the tag documents its own version |
+
+### What your commit type does
+
+The bump is derived from the conventional commits since the last tag, and the project is pre-1.0 (`major_version_zero`), so a breaking change is still a minor bump:
+
+| Commit | Bump | In the changelog? |
+|---|---|---|
+| `feat:` | minor | yes |
+| `feat!:` / `BREAKING CHANGE:` | minor (would be major after 1.0) | yes |
+| `fix:` · `refactor:` · `perf:` | patch | yes |
+| `docs:` · `chore:` · `test:` · `ci:` · `build:` · `style:` | none | no |
+
+A release whose commits are *all* from the bottom row bumps nothing and the workflow stops — that is correct, not a failure. It also means a real user-visible change committed as `chore:` is invisible twice over: it moves no version and appears in no changelog. Pick the type that describes the change, not the one that keeps the diff quiet.
+
+### After the release
+
+The external [`bit-agora`](https://github.com/francisco-perez-sorrosal/bit-agora) marketplace manifest carries its own `version` field for this plugin, and Claude Code treats it as the cache key. Bump it to match the tag you just cut — while the two disagree, installed copies keep serving the older plugin and nothing surfaces the gap to their users.

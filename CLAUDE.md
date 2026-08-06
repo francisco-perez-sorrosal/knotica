@@ -53,6 +53,7 @@ For the inner loop, `make test-groups` lists the groups and `make test-group GRO
 - **Never point a finalized ADR at a `dec-draft-<hash>` id** — the ADR health check rejects it. Drafts are *not* gated on numbering, so a hand-numbered draft passes and collides at finalize.
 - **`uv sync --group evals` is a hard error.** Use `--extra evals`. A test fails the build on any surviving instruction; a deliberate migration note must carry an `allow-stale-invocation` HTML comment.
 - **Quote shell extras** — `'.[evals]'`, not `.[evals]`. Unquoted brackets are a zsh glob.
+- **Never bump a version by hand.** `cz bump`, dispatched through `.github/workflows/release.yml`, is the only mechanism that changes one — see [CONTRIBUTING.md](CONTRIBUTING.md#releases). A bump must move `uv.lock` with `pyproject.toml`, because CI runs `uv sync --locked`; Commitizen's `uv` version provider is what does that, and swapping it for the obvious-looking `pep621` turns `main` red on the release commit itself.
 - **`tests/test_hooks_session_start.py` is load-sensitive.** The hook bounds its warmth probe at one second, so a saturated machine can make it flake in a full-suite run while it passes standalone.
 - **The dashboard's built artifact is committed.** CI rebuilds and `git diff --exit-code`s it, so a source change without a rebuild fails.
 - **Docs are ground-truthed against code, not against other docs.** State defaults explicitly; a flag documented without its default is half-documented.
