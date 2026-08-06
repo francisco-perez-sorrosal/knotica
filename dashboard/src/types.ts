@@ -831,6 +831,51 @@ export interface SuggestionsReadResult {
   skipped_malformed: number;
 }
 
+/** Lifecycle of a P1 gap record. P1 writes ``open``; P3/P4 flip it terminal. */
+export type GapStatus = "open" | "resolved" | "dismissed";
+
+export type GapsStatusFilter = GapStatus | "all";
+
+/** Why the wiki fell short. Only knowledge-cause verdicts are ever persisted. */
+export type GapFaultClass = "genuine_gap" | "dilution";
+
+/**
+ * One diagnosed gap, as ``gaps_read`` returns it.
+ *
+ * This is the queue *upstream* of `SuggestionRecord`: a gap exists from the
+ * moment it is filed, and only gains candidate sources once a discovery drain
+ * promotes it. Fields that a `reported` or `retracted` gap cannot have are
+ * zero by construction, never measured — do not present them as measurements.
+ */
+export interface GapRecord {
+  gap_id: string;
+  topic: string;
+  qa_id: string;
+  fault_class: GapFaultClass;
+  status: GapStatus;
+  detected_at: string;
+  question: string;
+  reference_pages: string[];
+  reference_pages_exist: boolean;
+  origin: GapOrigin;
+  /** Prose supplied by the reporter; only ever set on ``origin: "reported"``. */
+  reported_reason?: string | null;
+  /** Constant zero on reported/retracted gaps — no eval generation backs them. */
+  detected_generation: number;
+}
+
+export interface GapsReadResult {
+  topic: string;
+  status_filter: GapsStatusFilter;
+  gaps: GapRecord[];
+  status_counts: Record<GapStatus, number>;
+  origin_counts: Record<GapOrigin, number>;
+  next_cursor: string;
+  has_more: boolean;
+  total_count: number;
+  skipped_malformed: number;
+}
+
 export type SuggestionAction = "approve" | "reject" | "defer" | "mark_ingested";
 
 export interface SuggestionReviewResult {

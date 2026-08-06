@@ -2599,6 +2599,18 @@ button.danger:hover:not(:disabled) {
   border-radius: var(--radius);
 }
 
+/* Open gaps sit above the suggestion list — the same queue one step earlier,
+   so the cards reuse .sources-card and only the section header is new. */
+.sources-gaps { margin-top: 1rem; }
+.sources-gaps-head h3 {
+  margin: 0 0 .2rem;
+  font-size: 1rem;
+}
+.sources-gaps-head p { margin: 0; }
+/* A dashed left edge distinguishes "diagnosed, nothing to act on yet" from the
+   solid-bordered suggestion cards, which do carry actions. */
+.sources-gap-card { border-left: 3px dashed var(--line); }
+
 .sources-list {
   display: flex;
   flex-direction: column;

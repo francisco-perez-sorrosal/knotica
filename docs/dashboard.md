@@ -109,14 +109,21 @@ Observe → Gate → Heal → Merged stepper.
 A runner-liveness chip shows "runner: watching · pid N" or "runner: off". Below the stepper, a
 chart plots the gate scalar over generations.
 
-### Sources — the gap-fill suggestion queue
+### Sources — open gaps and the gap-fill suggestion queue
 
 See [gap-fill.md](gap-fill.md) for the diagnose → discover → approve pipeline this pane sits in
-(stage P3, human approval).
+(stages P1 and P3).
 
+- **Open gaps** lists diagnosed gaps that discovery has not drained yet — the P1 queue, read via
+  `gaps_read`. Each card carries the fault class, the filed date, a gap-origin badge, the
+  unanswered question, its reference pages, and (on a `reported` gap) the reason given for filing
+  it. There is nothing to approve on a gap, so the cards carry no actions; run
+  `knotica gapfill discover --topic <topic>` to search for sources. Generation and scalar are
+  deliberately not shown: both are constant zeros on a reported or retracted gap, and rendering
+  `gen-0` beside a hand-filed gap presents a placeholder as a measurement.
 - Filter tabs: **pending** / **approved** / **all**, with count badges: approved, a topic-wide
   **refused** count (approved suggestions whose latest gate pass failed, awaiting rework), and
-  ingested.
+  ingested. The tabs filter *suggestions* only — the open-gap list is unaffected by them.
 - Each card shows the fault class, generation, rank, a gap-origin badge (measured / reported /
   retracted), a source-reputability badge, the failed question, and the suggested source
   (title, link, venue/authors/citations, DOI, open-access signal).

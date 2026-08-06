@@ -303,6 +303,12 @@ export function App() {
   const baselineLabel =
     baselineScalar != null ? baselineScalar.toFixed(4) : "—";
   const sourcesPendingCount = topicRow?.suggestions?.pending ?? 0;
+  // Open gaps count toward the Sources badge too. A gap you just filed has no
+  // suggestion yet — discovery has not run — so counting suggestions alone left
+  // the tab bare and the gap unfindable without opening the pane and knowing to
+  // look. Both are "something here wants a decision", which is what the badge means.
+  const sourcesOpenGapCount = topicRow?.gaps?.open_total ?? 0;
+  const sourcesAttentionCount = sourcesPendingCount + sourcesOpenGapCount;
   // Drifted, not total: the badge is an attention signal, matching Sources' pending count.
   // Absent on a server whose wiki_status predates the notes summary — then no badge.
   const notesDriftedCount = topicRow?.notes?.drifted ?? 0;
@@ -517,8 +523,13 @@ export function App() {
                 onClick={() => selectPane("sources")}
               >
                 Sources
-                {sourcesPendingCount > 0 ? (
-                  <span class="pane-tab-badge">{sourcesPendingCount}</span>
+                {sourcesAttentionCount > 0 ? (
+                  <span
+                    class="pane-tab-badge"
+                    title={`${sourcesPendingCount} suggestion(s) awaiting review · ${sourcesOpenGapCount} open gap(s) awaiting discovery`}
+                  >
+                    {sourcesAttentionCount}
+                  </span>
                 ) : null}
               </button>
               <button

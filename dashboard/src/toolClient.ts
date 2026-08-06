@@ -17,6 +17,8 @@ import type {
   DatasetsInventory,
   DoctorRepairResult,
   DoctorReport,
+  GapsReadResult,
+  GapsStatusFilter,
   GoldenCandidate,
   GoldenReview,
   GoldenSaveResult,
@@ -165,6 +167,13 @@ export interface ToolClient {
     limit?: number,
     vault?: string,
   ): Promise<SuggestionsReadResult>;
+  gapsRead(
+    topic: string,
+    status?: GapsStatusFilter,
+    cursor?: string,
+    limit?: number,
+    vault?: string,
+  ): Promise<GapsReadResult>;
   suggestionsReview(
     topic: string,
     suggestionId: string,
@@ -492,6 +501,16 @@ abstract class BaseToolClient implements ToolClient {
     vault = "",
   ): Promise<SuggestionsReadResult> {
     return this.call("suggestions_read", { topic, status, cursor, limit, vault });
+  }
+
+  gapsRead(
+    topic: string,
+    status: GapsStatusFilter = "open",
+    cursor = "",
+    limit = 20,
+    vault = "",
+  ): Promise<GapsReadResult> {
+    return this.call("gaps_read", { topic, status, cursor, limit, vault });
   }
 
   suggestionsReview(

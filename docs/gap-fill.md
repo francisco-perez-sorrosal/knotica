@@ -49,6 +49,11 @@ Gap records land at `<topic>/.knotica/gaps/gaps.jsonl`, one commit per non-empty
 whose `(qa_id, fault_class)` pair is already open is dropped — a regression that persists across
 cycles does not spam the queue.
 
+Read that queue back with `gaps_read` — in conversation, or in the dashboard's **Sources** pane,
+which lists open gaps above the suggestion cards. This matters most right after you file one by
+hand: a gap has no candidate sources until [discovery](#p2--discover) runs, so the suggestion list
+is legitimately empty and the gap is the only evidence anything happened.
+
 ## Where gaps come from
 
 Every gap record carries an `origin`. Two of the three never touch the classifier.
@@ -221,6 +226,7 @@ it. Quarantine branches are pruned beyond the newest 5 per topic.
 |---|---|---|
 | CLI | `knotica gapfill discover --topic NAME [--max-gaps N] [--vault PATH]` | P2 |
 | MCP | `gap_report(topic, question, reason="", reference_pages=None, vault="")` | P1 (reported gap) |
+| MCP | `gaps_read(topic, status="open", cursor="", limit=20, vault="")` | P1 (read the queue) |
 | MCP | `suggestions_read(topic, status="pending", cursor="", limit=20, vault="")` | P3 |
 | MCP | `suggestions_review(topic, suggestion_id, action, mode="dry-run", reason="", vault="")` | P3 |
 | MCP | `source_ingest_open(topic, suggestion_id, vault="")` | P4 |

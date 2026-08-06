@@ -3,6 +3,8 @@ import { useEffect, useState } from "preact/hooks";
 import type { ToolClient } from "./toolClient";
 import type {
   GapOrigin,
+  GapRecord,
+  GapsReadResult,
   GateOutcome,
   SuggestionAction,
   SuggestionRecord,
@@ -53,6 +55,22 @@ export function SourcesPane({
   const [busyId, setBusyId] = useState<string | null>(null);
   const [reasonDraft, setReasonDraft] = useState<Record<string, string>>({});
   const [rejectOpenId, setRejectOpenId] = useState<string | null>(null);
+  const [gaps, setGaps] = useState<GapsReadResult | null>(null);
+  const [gapsError, setGapsError] = useState<string | null>(null);
+
+  async function loadGaps() {
+    if (!client || !topic) return;
+    setGapsError(null);
+    try {
+      setGaps(await client.gapsRead(topic, "open", "", 20, vault));
+    } catch (cause) {
+      // Kept off `error` on purpose: gaps and suggestions are independent
+      // queues read by independent calls, and the pane stays useful with
+      // either one. Folding this into the suggestions error would let a gaps
+      // failure blank a suggestions list that loaded perfectly well.
+      setGapsError(cause instanceof Error ? cause.message : String(cause));
+    }
+  }
 
   async function load(cursor = "", append = false) {
     if (!client || !topic) return;
@@ -77,6 +95,13 @@ export function SourcesPane({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [client, topic, vault, filter]);
 
+  // Not keyed on `filter` — that selects a *suggestion* status and says nothing
+  // about which gaps to show.
+  useEffect(() => {
+    void loadGaps();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [client, topic, vault]);
+
   async function decide(suggestionId: string, action: SuggestionAction, reason = "") {
     if (!client || busyId) return;
     setBusyId(suggestionId);
@@ -99,6 +124,9 @@ export function SourcesPane({
 
   const suggestions = result?.suggestions ?? [];
   const counts = result?.status_counts;
+  const openGaps = gaps?.gaps ?? [];
+  const gapCount = gaps?.total_count ?? openGaps.length;
+  const gapsPageIsPartial = gaps?.has_more ?? false;
   // Single-sourced from wiki_status (topic-wide), not a page-local recount —
   // avoids undercounting refused suggestions outside the current filter/page.
   const refusedCount =
@@ -163,17 +191,56 @@ export function SourcesPane({
         </p>
       ) : null}
 
+      {gapsError ? (
+        <p class="sources-error" role="alert">
+          Open gaps could not be loaded: {gapsError}
+        </p>
+      ) : null}
+
+      {openGaps.length > 0 ? (
+        <section class="sources-gaps" aria-label="Open gaps awaiting discovery">
+          <div class="sources-gaps-head">
+            <h3>
+              Open gaps · {gapCount}
+              {gapsPageIsPartial ? ` (showing ${openGaps.length})` : ""}
+            </h3>
+            <p class="muted">
+              Diagnosed and waiting for source discovery — there is nothing to approve on them yet.
+              Run <code>knotica gapfill discover --topic {topic}</code> to search for candidate
+              sources; each one that ranks becomes a card below.
+            </p>
+          </div>
+          <ul class="sources-list">
+            {openGaps.map((gap) => (
+              <GapCard key={gap.gap_id} gap={gap} />
+            ))}
+          </ul>
+        </section>
+      ) : null}
+
       {loading && suggestions.length === 0 ? (
         <p class="muted">Loading suggestions…</p>
       ) : suggestions.length === 0 ? (
         <div class="sources-empty">
           <p>No gap-fill suggestions yet.</p>
-          <p class="muted">
-            The loop writes suggestions here after it diagnoses a <code>genuine_gap</code> and
-            discovery finds ranked sources. To exercise it: freeze a golden question the vault
-            lacks, regress, let the loop classify, then run{" "}
-            <code>knotica gapfill discover --topic {topic}</code>.
-          </p>
+          {gapCount > 0 ? (
+            // The state that used to be indistinguishable from "nothing has
+            // happened": gaps exist, discovery has not run, so the queue this
+            // list reads is legitimately empty. Say which step is outstanding
+            // rather than sending the reader off to manufacture a new gap.
+            <p class="muted">
+              {gapCount === 1 ? "1 gap is" : `${gapCount} gaps are`} already open above, waiting on
+              discovery — run <code>knotica gapfill discover --topic {topic}</code> to search for
+              sources.
+            </p>
+          ) : (
+            <p class="muted">
+              The loop writes suggestions here after it diagnoses a <code>genuine_gap</code> and
+              discovery finds ranked sources. To exercise it: freeze a golden question the vault
+              lacks, regress, let the loop classify, then run{" "}
+              <code>knotica gapfill discover --topic {topic}</code>.
+            </p>
+          )}
         </div>
       ) : (
         <ul class="sources-list">
@@ -397,6 +464,45 @@ function GateOutcomeNote({ outcome }: { outcome?: GateOutcome | null }) {
         </div>
       ) : null}
     </div>
+  );
+}
+
+/**
+ * One diagnosed gap, before discovery has found anything for it.
+ *
+ * Deliberately shows no generation and no scalar. Both are constant zeros on a
+ * `reported` or `retracted` gap — placeholders, never measurements — and
+ * rendering `gen-0` next to a hand-filed gap presents a filler value as a
+ * finding. What the reader needs here is what was asked and why it went
+ * unanswered.
+ */
+function GapCard({ gap }: { gap: GapRecord }) {
+  return (
+    <li class="sources-card sources-gap-card">
+      <div class="sources-card-head">
+        <span class="status-chip">
+          {gap.fault_class} · filed {gap.detected_at.slice(0, 10)}
+        </span>
+        <span class="sources-card-badges">
+          <GapOriginBadge origin={gap.origin} />
+        </span>
+      </div>
+
+      <div class="sources-card-question">
+        <span class="stat-label">Unanswered question</span>
+        <p>“{gap.question}”</p>
+        {gap.reference_pages.length > 0 ? (
+          <p class="muted">references: {gap.reference_pages.join(", ")}</p>
+        ) : null}
+      </div>
+
+      {gap.reported_reason ? (
+        <div class="sources-card-source">
+          <span class="stat-label">Why the wiki fell short</span>
+          <p class="muted">{gap.reported_reason}</p>
+        </div>
+      ) : null}
+    </li>
   );
 }
 
