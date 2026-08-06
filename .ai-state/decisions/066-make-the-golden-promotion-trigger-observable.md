@@ -17,7 +17,7 @@ affected_files:
   - src/knotica/core/page.py
   - src/knotica/core/operations/curate_example.py
   - src/knotica/core/operations/promote_note.py
-  - docs/designs/notes-overlay/STEP3_GOLDEN_PROMOTION.md
+  - .ai-state/measurements/STEP3_GOLDEN_PROMOTION.md
 ---
 
 # Keep deferring golden promotion, and make its reversal trigger observable
@@ -32,7 +32,7 @@ permanently ineligible for the held-out set.
 The Phase 4 brief named three inputs as required before revisiting, and flagged the third as
 unmeasured — *"that last number is the cost of continued deferral, and nobody has measured it."*
 
-All three were measured (`docs/designs/notes-overlay/STEP3_GOLDEN_PROMOTION.md`), read-only, on
+All three were measured (`.ai-state/measurements/STEP3_GOLDEN_PROMOTION.md`), read-only, on
 clones of **both** configured vaults — `main` and the active `decision-making`.
 
 ## Decision

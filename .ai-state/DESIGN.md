@@ -2,7 +2,8 @@
 
 <!-- Design-target architecture document. Abstracts above concrete code to define the space of valid
      implementations; carries rationale, Status markers, and Planned components. The code-verified
-     developer navigation guide is docs/architecture.md. Canonical converged design: docs/PRE_PLAN.md.
+     developer navigation guide is docs/architecture.md. This document is the design canon; the
+     superseded original pre-plan is archived at .ai-state/design-history/PRE_PLAN.md.
      Created by systems-architect, updated by implementer, validated by verifier/sentinel.
      Section ownership: skills/software-planning/references/architecture-documentation.md. -->
 
@@ -22,7 +23,7 @@ in an Obsidian vault, with per-topic self-improving loops (DSPy inner, SIA outer
 is the brain** for interactive work; the server exposes deterministic tools and is **stateless** — the
 vault (a git repo) and `~/.config/knotica/config.toml` are the only durable state, resolved per call.
 (The loop daemon's gitignored `.knotica/locks/` runtime markers are neither session nor durable state —
-scoped once in [`docs/PRE_PLAN.md`](../docs/PRE_PLAN.md) § Settled design decisions, `dec-074`.)
+scoped once in [§ 7 Constraints](#7-constraints), `dec-074`.)
 
 The load-bearing structural property is that **every vault mutation flows through one code path** — a
 `VaultTransaction` in `core` that flock-guards the operation, buffers and secret-scrubs writes, applies
@@ -367,7 +368,17 @@ snippet extraction, and BM25 scoring run in one shared Python pass, so results a
 ## 7. Constraints
 
 Locked invariants. Each is stated with the mechanism that holds it — an invariant with no enforcement
-is a wish. Do not violate without updating [`docs/PRE_PLAN.md`](../docs/PRE_PLAN.md) first.
+is a wish. Do not violate without updating this section first.
+
+**Scope of "the only state" — the one place this is spelled out.** The stateless-server invariant is
+about the *server* and about *durable* state. The loop **daemon** is a separate process, and it keeps
+gitignored runtime markers under `<topic>/.knotica/locks/`: runner heartbeat liveness, in-flight
+per-question eval progress, and the failed-attempt retry clock (`dec-068`, td-031). These are neither
+session state nor durable state. Nothing reads them to decide what is *true* — each is a liveness or
+pacing signal that a fresh process recomputes or safely ignores, so deleting the directory costs at
+most a re-derived interval, and none of them is committed. The invariant is therefore unchanged rather
+than widened. `CLAUDE.md` and `docs/architecture.md` state the invariant in their own words and point
+here rather than restating this paragraph.
 
 | Invariant | Enforcement |
 |---|---|

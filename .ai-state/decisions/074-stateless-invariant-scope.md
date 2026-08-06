@@ -11,7 +11,7 @@ agent_type: orchestrator
 branch: feat-test-topology
 pipeline_tier: standard
 affected_files:
-  - docs/PRE_PLAN.md
+  - .ai-state/design-history/PRE_PLAN.md
   - CLAUDE.md
   - .ai-state/DESIGN.md
 ---

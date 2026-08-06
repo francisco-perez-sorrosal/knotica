@@ -13,8 +13,8 @@ pipeline_tier: standard
 re_affirms: dec-058
 dissent: Both closures rest on a single vault with seven ordinary rewrite events and one topic; a corpus with a different rewrite mix — or a future loop tuned toward heavier paraphrase — could push the residual rate back above the accepted band, and closing the spikes discards a pre-registered experiment that was cheap to keep open.
 affected_files:
-  - docs/designs/notes-overlay/STEP1_ORPHAN_RATE.md
-  - docs/designs/notes-overlay/SPIKE_2_CITATIONS.md
+  - .ai-state/measurements/STEP1_ORPHAN_RATE.md
+  - .ai-state/measurements/SPIKE_2_CITATIONS.md
   - scripts/measure_orphan_rate.py
   - scripts/measure_rewrite_severity.py
   - scripts/measure_real_rewrites.py

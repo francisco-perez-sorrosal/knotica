@@ -15,7 +15,7 @@ dissent: The shipped thresholds have been validated on exactly one vault with on
 affected_files:
   - src/knotica/core/notes/resolve.py
   - src/knotica/core/notes_config.py
-  - docs/designs/notes-overlay/STEP1_ORPHAN_RATE.md
+  - .ai-state/measurements/STEP1_ORPHAN_RATE.md
 ---
 
 # Close adaptive threshold tuning — thresholds are not the binding constraint on anything measured

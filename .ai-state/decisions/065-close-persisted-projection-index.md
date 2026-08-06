@@ -14,7 +14,7 @@ re_affirms: dec-058
 dissent: Falsifier 2 said "costs enough to be user-visible", and it does — 14.8s at 100 notes is not a marginal breach, and this ADR declines the remedy the falsifier named on the strength of a repair plan whose 6x improvement is modelled rather than measured; if the three fixes underdeliver, the index will have been declined twice on reasoning rather than once on evidence.
 affected_files:
   - scripts/measure_read_latency.py
-  - docs/designs/notes-overlay/STEP1_READ_LATENCY.md
+  - .ai-state/measurements/STEP1_READ_LATENCY.md
   - src/knotica/core/vcs.py
   - src/knotica/core/notes/store.py
   - src/knotica/core/notes/reconcile.py
@@ -54,7 +54,7 @@ defensible *because* they exist and are cheap.
 ### Ground 1 — the falsifier's predicate is met, and its premise is nonetheless correct
 
 Measured on a seeded, isolated vault (`scripts/measure_read_latency.py`; full method and tables in
-`docs/designs/notes-overlay/STEP1_READ_LATENCY.md`):
+`.ai-state/measurements/STEP1_READ_LATENCY.md`):
 
 | notes x anchors | drift-queue open | git share | resolution (cpu) |
 |---|---|---|---|

@@ -2,7 +2,7 @@
 
 <!-- Developer navigation guide. Every component name and file path here is verified against the
      codebase; only what exists on disk is listed. Design rationale, invariants, planned components,
-     and the data-flow narratives live in .ai-state/DESIGN.md; the converged design is docs/PRE_PLAN.md.
+     and the data-flow narratives live in .ai-state/DESIGN.md, which is the design canon.
      Created by systems-architect; updated by implementer; verified by doc-engineer at checkpoints. -->
 
 ## 1. Overview
@@ -199,4 +199,6 @@ uv run knotica mcp --http   # + dashboard at http://127.0.0.1:8765/
 ```
 
 The vault is a separate git repo at a user-configured path; never hardcode vault paths — all access
-goes through `VaultStore`. Design canon: [`docs/PRE_PLAN.md`](./PRE_PLAN.md).
+goes through `VaultStore`. Design canon: [`.ai-state/DESIGN.md`](../.ai-state/DESIGN.md); the
+stateless-server invariant's exact scope is stated once, in its
+[§ 7 Constraints](../.ai-state/DESIGN.md#7-constraints).
