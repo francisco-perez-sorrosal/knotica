@@ -14,6 +14,7 @@ since a malformed draft breaks finalize itself.
 from __future__ import annotations
 
 import importlib.util
+import re
 from collections.abc import Callable
 from pathlib import Path
 from types import ModuleType
@@ -28,6 +29,9 @@ SCRIPT_PATH = REPO_ROOT / "scripts" / "check_adr_health.py"
 DRAFT_ID = "dec-draft-abc12345"  # id-citation-discipline:ignore
 DRAFT_FILE = "20260804-1200-u-b-slug.md"
 
+# A *valid* record by default. The fixture has to be healthy or every test that
+# is about something else fails on the disconfirmation rule instead; the canaries
+# below strip what they mean to test.
 ADR = """\
 ---
 id: {id}
@@ -38,11 +42,18 @@ date: 2026-08-04
 summary: {summary}
 tags: [x]
 made_by: agent
+dissent: A one-line strongest objection.
 {extra}---
 
 ## Context
 
 Body.
+
+## Disconfirmation
+
+- **Falsifier.** Something measurable.
+- **Steelmanned runner-up.** The next-best option.
+- **Reversal trigger.** The signal to revisit.
 """
 
 
@@ -64,15 +75,37 @@ def corpus(
     decisions = tmp_path / "decisions"
     (decisions / "drafts").mkdir(parents=True)
     monkeypatch.setattr(checker, "DECISIONS_DIR", decisions)
+    # The index and affected_files checks read outside DECISIONS_DIR, so the
+    # throwaway tree has to redirect those roots too or every test inherits the
+    # committed corpus's index and the repo's real file layout.
+    monkeypatch.setattr(checker, "INDEX_PATH", decisions / "DECISIONS_INDEX.md")
+    monkeypatch.setattr(checker, "REPO_ROOT", tmp_path)
 
-    def run(finalized: dict[str, str], drafts: dict[str, str] | None = None) -> int:
+    def run(
+        finalized: dict[str, str],
+        drafts: dict[str, str] | None = None,
+        index: str | None = None,
+    ) -> int:
         for name, body in finalized.items():
             (decisions / name).write_text(body)
         for name, body in (drafts or {}).items():
             (decisions / "drafts" / name).write_text(body)
+        # Default to an index that agrees with the records, so a test that is not
+        # about index freshness is not testing index freshness by accident.
+        if index is None:
+            rows = "".join(
+                f"| {identifier} | t | accepted | architectural | 2026-01-01 | tags | s |\n"
+                for identifier in sorted(_ids(finalized))
+            )
+            index = f"# Decisions Index\n\n| ID | Title | Status |\n|--|--|--|\n{rows}"
+        (decisions / "DECISIONS_INDEX.md").write_text(index)
         return int(checker.main())
 
     return run
+
+
+def _ids(finalized: dict[str, str]) -> list[str]:
+    return re.findall(r"^id: (dec-\S+)$", "\n".join(finalized.values()), re.MULTILINE)
 
 
 def adr(identifier: str, summary: str = "a summary", **fields: str) -> str:
@@ -169,3 +202,81 @@ def test_a_draft_with_invalid_yaml_still_fails(corpus: Callable[..., int], capsy
 
     assert exit_code == 1
     assert "not valid YAML" in capsys.readouterr().err
+
+
+def test_rejects_a_one_directional_supersedes(corpus: Callable[..., int], capsys) -> None:
+    # The same defect the re_affirms pair was gated against, on the field that
+    # answers "which decision replaced this one?". It went unchecked because
+    # CROSS_REFERENCE_FIELDS was consumed only by the draft-id scan.
+    exit_code = corpus(
+        {"001-a.md": adr("dec-001"), "002-b.md": adr("dec-002", supersedes="dec-001")}
+    )
+
+    assert exit_code == 1
+    assert "does not list it back in superseded_by" in capsys.readouterr().err
+
+
+def test_rejects_an_architectural_record_with_no_disconfirmation_section(
+    corpus: Callable[..., int], capsys
+) -> None:
+    # dec-021 shipped architectural with no Disconfirmation and nothing objected.
+    body = adr("dec-001").replace("## Disconfirmation", "## Something Else")
+
+    exit_code = corpus({"001-a.md": body})
+
+    assert exit_code == 1
+    assert "no `## Disconfirmation` section" in capsys.readouterr().err
+
+
+def test_rejects_an_architectural_record_with_an_empty_dissent(
+    corpus: Callable[..., int], capsys
+) -> None:
+    body = adr("dec-001").replace("dissent: A one-line strongest objection.", "dissent: ")
+
+    exit_code = corpus({"001-a.md": body})
+
+    assert exit_code == 1
+    assert "`dissent:` is missing or empty" in capsys.readouterr().err
+
+
+def test_a_non_architectural_record_needs_neither(corpus: Callable[..., int]) -> None:
+    # The rule is scoped to `architectural` by the ADR conventions; applying it to
+    # every category would demand a falsifier for a config tweak.
+    body = (
+        adr("dec-001")
+        .replace("category: architectural", "category: implementation")
+        .replace("dissent: A one-line strongest objection.\n", "")
+        .replace("## Disconfirmation", "## Something Else")
+    )
+
+    assert corpus({"001-a.md": body}) == 0
+
+
+def test_rejects_affected_files_that_do_not_resolve(corpus: Callable[..., int], capsys) -> None:
+    # Six records named src/knotica/mcp/, a path dec-009 renamed away the same day.
+    exit_code = corpus({"001-a.md": adr("dec-001", affected_files="[src/knotica/ghost/]")})
+
+    assert exit_code == 1
+    assert "which is not on disk" in capsys.readouterr().err
+
+
+def test_rejects_an_index_whose_status_disagrees_with_the_record(
+    corpus: Callable[..., int], capsys
+) -> None:
+    stale = "# Decisions Index\n\n| ID | Title | Status |\n|--|--|--|\n" + (
+        "| dec-001 | t | superseded | architectural | 2026-01-01 | tags | s |\n"
+    )
+
+    exit_code = corpus({"001-a.md": adr("dec-001")}, index=stale)
+
+    assert exit_code == 1
+    assert "DECISIONS_INDEX.md says status `superseded`" in capsys.readouterr().err
+
+
+def test_rejects_an_index_missing_a_decision(corpus: Callable[..., int], capsys) -> None:
+    empty = "# Decisions Index\n\n| ID | Title | Status |\n|--|--|--|\n"
+
+    exit_code = corpus({"001-a.md": adr("dec-001")}, index=empty)
+
+    assert exit_code == 1
+    assert "absent from DECISIONS_INDEX.md" in capsys.readouterr().err
