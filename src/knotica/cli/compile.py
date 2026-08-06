@@ -49,6 +49,7 @@ def configure(
     compile_sub = parser.add_subparsers(dest="compile_command", metavar="<subcommand>")
     promote = compile_sub.add_parser(
         "promote",
+        parents=[common_parent(nested=True)],
         help="merge a reviewed compile/<topic>/… branch into the default branch",
         description=(
             "Human gate after compile_run: merge compile/<topic>/<sha> into main/master "

@@ -67,7 +67,7 @@ def _configure_install(
 ) -> None:
     subparsers.add_parser(
         "install",
-        parents=[common_parent()],
+        parents=[common_parent(nested=True)],
         help="write (or refresh) the Claude Desktop MCP entry",
         description=(
             "Patch the Claude Desktop config so its `knotica` MCP server points "
@@ -83,7 +83,7 @@ def _configure_status(
 ) -> None:
     subparsers.add_parser(
         "status",
-        parents=[common_parent()],
+        parents=[common_parent(nested=True)],
         help="report what the Claude Desktop entry currently points at",
         description="Read-only: report the current Claude Desktop MCP entry for knotica.",
     )

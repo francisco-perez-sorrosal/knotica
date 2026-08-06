@@ -53,7 +53,7 @@ def configure(
     sub = parser.add_subparsers(dest="gapfill_command", metavar="<subcommand>")
     discover = sub.add_parser(
         "discover",
-        parents=[common_parent()],
+        parents=[common_parent(nested=True)],
         help="drain open genuine_gaps into pending suggestions (real search calls)",
         description=(
             "Read the topic's open genuine_gap records, run the configured search "

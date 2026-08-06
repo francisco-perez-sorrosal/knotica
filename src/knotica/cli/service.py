@@ -64,7 +64,7 @@ def configure(
 def _configure_install(service_sub: argparse._SubParsersAction[argparse.ArgumentParser]) -> None:
     install = service_sub.add_parser(
         "install",
-        parents=[common_parent()],
+        parents=[common_parent(nested=True)],
         help="write and register the loop service unit",
         description=(
             "Write the launchd/systemd unit for the configured vault and register "
@@ -80,7 +80,7 @@ def _configure_install(service_sub: argparse._SubParsersAction[argparse.Argument
 def _configure_uninstall(service_sub: argparse._SubParsersAction[argparse.ArgumentParser]) -> None:
     uninstall = service_sub.add_parser(
         "uninstall",
-        parents=[common_parent()],
+        parents=[common_parent(nested=True)],
         help="deregister and remove the loop service unit",
         description=(
             "Deregister and remove the unit file. A clean no-op if nothing is "
@@ -95,7 +95,7 @@ def _configure_uninstall(service_sub: argparse._SubParsersAction[argparse.Argume
 def _configure_status(service_sub: argparse._SubParsersAction[argparse.ArgumentParser]) -> None:
     status = service_sub.add_parser(
         "status",
-        parents=[common_parent()],
+        parents=[common_parent(nested=True)],
         help="report install state and per-topic runner liveness",
         description=(
             "Report whether the unit is installed and each configured topic's "

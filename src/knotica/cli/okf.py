@@ -35,7 +35,11 @@ def configure(
     )
     okf_sub = parser.add_subparsers(dest="okf_command", metavar="<subcommand>")
 
-    check_parser = okf_sub.add_parser("check", help="check native OKF compatibility")
+    check_parser = okf_sub.add_parser(
+        "check",
+        parents=[common_parent(nested=True)],
+        help="check native OKF compatibility",
+    )
     check_parser.add_argument("--strict", action="store_true", help="fail on broken links")
     check_parser.add_argument(
         "--export-ready",
@@ -43,7 +47,11 @@ def configure(
         help="preview export cleanliness",
     )
 
-    export_parser = okf_sub.add_parser("export", help="export a pure OKF bundle")
+    export_parser = okf_sub.add_parser(
+        "export",
+        parents=[common_parent(nested=True)],
+        help="export a pure OKF bundle",
+    )
     export_parser.add_argument("--output", "-o", required=True, type=Path)
     export_parser.add_argument("--pure", action="store_true", help="strip Knotica extensions")
     export_parser.add_argument(
@@ -59,7 +67,11 @@ def configure(
         help="fail when bundle is not fully Markdown-link clean",
     )
 
-    repair_parser = okf_sub.add_parser("repair", help="repair vault OKF compatibility")
+    repair_parser = okf_sub.add_parser(
+        "repair",
+        parents=[common_parent(nested=True)],
+        help="repair vault OKF compatibility",
+    )
     repair_group = repair_parser.add_mutually_exclusive_group(required=True)
     repair_group.add_argument("--dry-run", action="store_true")
     repair_group.add_argument("--apply", action="store_true")

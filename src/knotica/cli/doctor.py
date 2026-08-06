@@ -60,6 +60,7 @@ def configure(
     doctor_sub = parser.add_subparsers(dest="doctor_command", metavar="<subcommand>")
     repair = doctor_sub.add_parser(
         "repair",
+        parents=[common_parent(nested=True)],
         help="path-scoped restore of dirty worktree paths to HEAD",
         description=(
             "Restore explicitly selected dirty paths to HEAD. Never runs "

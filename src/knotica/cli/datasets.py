@@ -45,6 +45,7 @@ def configure(
     sub = parser.add_subparsers(dest="datasets_command", metavar="<subcommand>")
     boot = sub.add_parser(
         "bootstrap-train",
+        parents=[common_parent(nested=True)],
         help="synthesize seeded train examples from the topic's own pages (LLM)",
         description=(
             "Generate query-style QA pairs grounded in the topic's entity pages "
@@ -61,6 +62,7 @@ def configure(
     boot.add_argument("--json", action="store_true", help="emit machine-readable JSON")
     freeze_cmd = sub.add_parser(
         "freeze",
+        parents=[common_parent(nested=True)],
         help="freeze reviewed golden candidates into held-out golden.jsonl",
         description=(
             "Promote golden.staging.reviewed.jsonl into golden.jsonl + MANIFEST.json "

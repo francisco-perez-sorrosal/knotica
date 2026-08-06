@@ -31,6 +31,7 @@ RED until the ``doctor`` command lands: the registered stub raises
 below fails until the paired ``doctor`` implementation commits.
 """
 
+import argparse
 import json
 import os
 import subprocess
@@ -39,6 +40,7 @@ from pathlib import Path
 
 import pytest
 
+from knotica.cli import _register_commands
 from knotica.cli.common import UNCONFIGURED_MESSAGE
 from support.vault import run_git
 
@@ -449,3 +451,128 @@ def test_the_check_set_includes_the_mcp_registration_row(vault_config: Path) -> 
     names = [row["name"] for row in rows]
 
     assert "mcp" in names, f"doctor must report an mcp registration row; got {names}"
+
+
+# ---------------------------------------------------------------------------
+# common_parent() placement — the whole nested-subparser surface
+# ---------------------------------------------------------------------------
+#
+# `doctor repair` is one of the nested subparsers walked below, and it is the
+# riskiest of them (a required --dry-run|--apply group guarding a vault
+# mutation), so the registry-wide flag-placement guard lives beside it rather
+# than in a file of its own. The walk is derived from the *live* parser tree,
+# never a hardcoded list, so a subcommand added later cannot silently regress.
+
+
+def _root_parser() -> argparse.ArgumentParser:
+    """Build the live parser tree the way ``knotica.cli.main`` builds it."""
+    parser = argparse.ArgumentParser(prog="knotica")
+    _register_commands(parser.add_subparsers(dest="command", metavar="<command>"))
+    return parser
+
+
+def _subparser_actions(parser: argparse.ArgumentParser) -> list[argparse._SubParsersAction]:
+    return [a for a in parser._actions if isinstance(a, argparse._SubParsersAction)]
+
+
+def _nested_sites() -> list[tuple[str, str, argparse.ArgumentParser]]:
+    """Every ``<command> <subcommand>`` pair in the tree, discovered not listed."""
+    sites = []
+    for action in _subparser_actions(_ROOT):
+        for command, command_parser in action.choices.items():
+            for nested in _subparser_actions(command_parser):
+                for subcommand, nested_parser in nested.choices.items():
+                    sites.append((command, subcommand, nested_parser))
+    return sites
+
+
+def _required_argv(parser: argparse.ArgumentParser) -> list[str]:
+    """Synthesize the minimum argv a nested subparser needs to parse at all.
+
+    Several nested subcommands demand `--topic`/`--output`/`--branch` or a
+    required mutually-exclusive branch; without them argparse exits 2 before it
+    can tell us anything about flag placement.
+    """
+    argv: list[str] = []
+    actions = [a for a in parser._actions if a.option_strings and a.required]
+    for group in parser._mutually_exclusive_groups:
+        if group.required:
+            actions.append(group._group_actions[0])
+    for action in actions:
+        argv.append(action.option_strings[0])
+        if action.nargs != 0:
+            argv.append(str(next(iter(action.choices))) if action.choices else "1")
+    return argv
+
+
+_ROOT = _root_parser()
+_NESTED_SITES = _nested_sites()
+_SITE_IDS = [f"{command} {subcommand}" for command, subcommand, _ in _NESTED_SITES]
+
+#: ``common_parent()``'s four flags, as (option string, namespace dest).
+_COMMON_FLAGS = [
+    ("--quiet", "quiet"),
+    ("--verbose", "verbose"),
+    ("--no-color", "no_color"),
+    ("--no-input", "no_input"),
+]
+
+
+def test_the_parser_tree_actually_has_nested_subcommands_to_walk() -> None:
+    """The walk below is only a guard if it found something to guard."""
+    assert len(_NESTED_SITES) >= 13, (
+        f"expected the nested-subparser walk to find the known sites; got {_SITE_IDS}"
+    )
+
+
+@pytest.mark.parametrize(("flag", "dest"), _COMMON_FLAGS, ids=[f for f, _ in _COMMON_FLAGS])
+@pytest.mark.parametrize(("command", "subcommand", "parser"), _NESTED_SITES, ids=_SITE_IDS)
+def test_a_common_flag_reads_the_same_before_or_after_the_nested_subcommand_name(
+    command: str, subcommand: str, parser: argparse.ArgumentParser, flag: str, dest: str
+) -> None:
+    """`knotica okf --quiet check` and `knotica okf check --quiet` must agree.
+
+    Two failure modes are pinned at once. A nested subparser with no
+    `common_parent()` rejects the post-name form outright (exit 2). One that
+    attaches the plain `common_parent()` accepts both and silently drops the
+    pre-name form, because argparse copies the nested parser's own defaults
+    over the command-level namespace.
+    """
+    required = _required_argv(parser)
+
+    before = _ROOT.parse_args([command, flag, subcommand, *required])
+    after = _ROOT.parse_args([command, subcommand, flag, *required])
+
+    assert getattr(before, dest) is True, (
+        f"`knotica {command} {flag} {subcommand}` must set {dest}; the nested "
+        f"subparser's default clobbered the command-level value"
+    )
+    assert getattr(after, dest) is True, f"`knotica {command} {subcommand} {flag}` must set {dest}"
+
+
+@pytest.mark.parametrize(("command", "subcommand", "parser"), _NESTED_SITES, ids=_SITE_IDS)
+def test_omitting_the_common_flags_leaves_them_false_at_every_nested_subcommand(
+    command: str, subcommand: str, parser: argparse.ArgumentParser
+) -> None:
+    """Suppressing the nested *default* must not suppress the attribute itself.
+
+    The command-level parser still carries a real `False` default, so every
+    reader -- `console_from_args`'s getattr fallback and the direct `args.verbose`
+    reads in `cli/okf.py` alike -- keeps seeing a boolean.
+    """
+    args = _ROOT.parse_args([command, subcommand, *_required_argv(parser)])
+
+    assert (args.quiet, args.verbose, args.no_color, args.no_input) == (
+        False,
+        False,
+        False,
+        False,
+    ), f"`knotica {command} {subcommand}` with no flags must leave all four off"
+
+
+def test_doctor_repair_still_requires_a_dry_run_or_apply_branch() -> None:
+    """The flag surface may not weaken the gate on a vault-mutating subcommand."""
+    with pytest.raises(SystemExit) as exit_info:
+        _ROOT.parse_args(["doctor", "repair"])
+
+    assert exit_info.value.code == 2

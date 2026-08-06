@@ -63,35 +63,67 @@ class Status:
     FAIL = "FAIL"
 
 
-def common_parent() -> argparse.ArgumentParser:
+def common_parent(*, nested: bool = False) -> argparse.ArgumentParser:
     """Return a parent parser carrying the flags every subcommand shares.
 
     Added via ``parents=[common_parent()]`` so each subcommand inherits the same
     ``--quiet``/``--verbose``/``--no-color``/``--no-input`` surface. ``--json``
     is *not* here -- it belongs only to the machine-parseable commands
     (``doctor``/``status``/``migrate``), so each of those adds it itself.
+
+    **Pass ``nested=True`` on every nested subparser** (``okf check``, ``doctor
+    repair``, ``service status``, ...) and never on a top-level one. The
+    asymmetry is not cosmetic and must not be "simplified" away: it is the only
+    thing that makes ``knotica okf --quiet check`` and ``knotica okf check
+    --quiet`` mean the same thing.
+
+    Attaching the *plain* parent to a nested subparser looks correct and is
+    silently wrong. ``argparse._SubParsersAction.__call__`` parses the nested
+    subparser into a **fresh** namespace -- so every default it declares is
+    applied -- and then copies every key of that namespace onto the parent's::
+
+        subnamespace, arg_strings = parser.parse_known_args(arg_strings, None)
+        for key, value in vars(subnamespace).items():
+            setattr(namespace, key, value)
+
+    A nested ``--quiet`` defaulting to ``False`` therefore *overwrites* the
+    ``True`` the command-level parser already stored, and the flag the user
+    typed before the subcommand name is discarded with no error at all.
+    ``default=argparse.SUPPRESS`` leaves an unpassed flag out of the
+    subnamespace entirely, so nothing is copied and the command-level value
+    survives; a flag that *is* passed nested is present and wins.
+
+    Top-level parsers keep the ordinary ``False`` default, which is what
+    guarantees the attribute always exists on the namespace -- ``args.verbose``
+    is read directly in a few command modules, not only through
+    :func:`console_from_args`'s ``getattr`` fallback.
     """
+    default = argparse.SUPPRESS if nested else False
     parent = argparse.ArgumentParser(add_help=False)
     parent.add_argument(
         "--quiet",
         "-q",
         action="store_true",
+        default=default,
         help="suppress informational output (errors still print to stderr)",
     )
     parent.add_argument(
         "--verbose",
         "-v",
         action="store_true",
+        default=default,
         help="emit debug context to stderr (never on by default)",
     )
     parent.add_argument(
         "--no-color",
         action="store_true",
+        default=default,
         help="disable color (also auto-off when not a TTY, NO_COLOR, or TERM=dumb)",
     )
     parent.add_argument(
         "--no-input",
         action="store_true",
+        default=default,
         help="never prompt; fail fast if required input is missing",
     )
     return parent
