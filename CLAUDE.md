@@ -17,7 +17,8 @@ AI-maintained, compounding knowledge wiki (Karpathy's llm-wiki pattern) living i
 
 - Python 3.12+, **uv-managed** (`uv sync`, `uv run`); src layout under `src/knotica/`.
 - Dual-role repo: Python package + Claude plugin marketplace (`.claude-plugin/`, `commands/`, `hooks/`, `skills/`, `.mcp.json`).
-- MCP server built on FastMCP; CLI entry point `knotica` (subcommands: `init`, `mcp`, `doctor`, `status`, `migrate`, `eval`, `datasets`, `compile`, `loop`, `gapfill`, `service`).
+- MCP server built on FastMCP; CLI entry point `knotica`. The subcommand set is declared once, in
+  `src/knotica/cli/__init__.py::COMMAND_NAMES` — read it there rather than trusting a copy.
 - `knotica loop --topic <t>` is the autonomous self-improvement watcher: observes default-branch content changes (eval on a clone, 4 parallel scoring threads by default; debounced — holds during active ingests and until HEAD is stable), gates `loop/c/*` candidates, heals regressions via the arena, and heartbeats to `.knotica/locks/`. Gate baseline policy is per-topic (`latest` tracks reality, `best` ratchets a high-water mark; instrument changes auto-refreeze); drive it via the `loop action=baseline_policy`/`loop action=rebaseline` dispatcher actions, the dashboard toggle, or CLI flags. Merged `loop/r/*` audit pointers auto-prune beyond the newest 5.
 - Tests with pytest in `tests/`; run via `uv run pytest`.
 - Build/tooling output to `/dev/null` or `tmp/` — never commit artifacts.
@@ -40,6 +41,11 @@ This project follows Praxion's tier-driven agent pipeline (Direct → Lightweigh
 When Praxion's assistant tooling is active, its agent coordination protocol rule and `software-planning` skill carry the full agent roster, delegation checklists, and pipeline-branch handling. Always include expected deliverables when delegating to an agent.
 
 Human-readable process overview: [Praxion documentation](https://github.com/francisco-perez-sorrosal/praxion#readme).
+
+Architecture: design target at [`.ai-state/DESIGN.md`](.ai-state/DESIGN.md), developer guide at
+[`docs/architecture.md`](docs/architecture.md). Read the guide for current state, DESIGN for intent;
+update both when a structural change lands. `make verify` gates their package inventory and every
+`src/knotica/...` path they cite.
 
 ## Behavioral Contract
 
@@ -70,9 +76,10 @@ This `CLAUDE.md` is the **index**; `docs/` and the skills it points to are the *
 
 ### Verification
 
-`make verify` is the canonical chain, in order: topology check, ADR health, mypy, the full suite,
-ruff. Run it before every commit and fix at each step before moving on — the two leading checks
-are cheap and a failure there makes everything below it untrustworthy.
+`make verify` is the canonical chain, in order: topology check, ADR health, architecture coverage,
+mypy, the full suite, ruff check, ruff format. Run it before every commit and fix at each step before
+moving on — the three leading checks are cheap and a failure there makes everything below it
+untrustworthy.
 
 For the inner loop, `make test-groups` lists the test groups and `make test-group GROUP=<id>` runs
 one — seconds against the full suite's ~5 minutes. Membership is derived from
