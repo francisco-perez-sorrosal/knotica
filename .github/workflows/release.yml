@@ -1,0 +1,134 @@
+# Release — manual-only stable releases via workflow_dispatch.
+#
+# Commitizen computes the semver bump from the conventional commits since the
+# last tag and, in a SINGLE commit, updates every version surface AND
+# regenerates CHANGELOG.md (`update_changelog_on_bump` in pyproject.toml), then
+# tags that commit — so the release tag points at a tree that already documents
+# its own version. This workflow then pushes and publishes the GitHub release.
+#
+# `cz bump` is the only mechanism that changes a version string in this repo and
+# this dispatch is the only sanctioned way to invoke it. `/i-am:release`
+# dispatches this workflow rather than bumping locally; a local bump would
+# produce a tag and a version no workflow run accounts for.
+#
+# The version surfaces it moves, all in that one commit:
+#   pyproject.toml [project].version   — via commitizen's `uv` version provider
+#   uv.lock, the `knotica` stanza      — same provider, and NOT optional: CI runs
+#                                        `uv sync --locked`, so a bump that left
+#                                        the lock behind would turn `main` red on
+#                                        the release commit itself
+#   .claude-plugin/plugin.json         — the marketplace cache key
+#
+# Actions are SHA-pinned rather than tag-pinned, matching ci.yml: a tag is
+# mutable, a commit is not. The trailing `# vN.N.N` comment is what lets
+# Dependabot bump the pin and the version together.
+
+name: Release
+
+on:
+  workflow_dispatch:
+    inputs:
+      increment:
+        description: "Bump type (auto = detect from the conventional commits)"
+        required: false
+        type: choice
+        default: auto
+        options:
+          - auto
+          - patch
+          - minor
+          - major
+
+permissions: {}  # least-privilege; the job below grants only what it needs
+
+jobs:
+  release:
+    name: bump, tag, publish
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    permissions:
+      contents: write  # pushes the bump commit and its tag, and creates the release
+
+    steps:
+      # Releases are cut from the default branch. `workflow_dispatch --ref` will
+      # happily run this from any branch, which would tag a tree that never
+      # passed the branch's own gate — so the guard is explicit rather than
+      # implied by convention.
+      - name: Refuse to release from a non-default branch
+        if: github.ref_name != 'main'
+        run: |
+          echo "::error::releases are cut from main; this run targets '${{ github.ref_name }}'"
+          exit 1
+
+      # fetch-depth: 0 — Commitizen reads the full tag and commit history to
+      # compute the increment and regenerate the changelog. A shallow clone
+      # silently yields the wrong bump.
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        with:
+          fetch-depth: 0
+
+      # uv rather than setup-python: this repo already SHA-pins setup-uv, and
+      # `uvx` runs Commitizen at an exact version without a second pinned action
+      # or a resolve step. Commitizen's `uv` provider edits uv.lock with tomlkit
+      # and never shells out to uv, so uv is here only to launch it.
+      - name: Set up uv
+        uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9  # v9.0.0
+        with:
+          python-version: "3.12"
+
+      - name: Configure git identity
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+      # Commitizen is pinned exactly. Bump semantics (increment rules, changelog
+      # grouping, the uv provider's lockfile write) are behaviour this release
+      # depends on; letting them float means a release could differ from the one
+      # rehearsed against the same commits.
+      - name: Bump version, changelog, and tag
+        id: cz
+        env:
+          INCREMENT: ${{ inputs.increment }}
+        run: |
+          set -euo pipefail
+          CZ=(uvx --from commitizen==4.17.0 cz)
+
+          # --check-consistency fails loudly when a version_files target has
+          # drifted away from the current version, rather than bumping half the
+          # surfaces and leaving the rest behind.
+          if [ "$INCREMENT" = "auto" ] || [ -z "$INCREMENT" ]; then
+            "${CZ[@]}" bump --yes --check-consistency
+          else
+            "${CZ[@]}" bump --yes --check-consistency \
+              --increment "$(echo "$INCREMENT" | tr '[:lower:]' '[:upper:]')"
+          fi
+
+          echo "version=$("${CZ[@]}" version --project)" >> "$GITHUB_OUTPUT"
+
+      - name: Push with tags
+        run: git push --follow-tags
+
+      - name: Create the GitHub release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          VERSION: ${{ steps.cz.outputs.version }}
+        run: |
+          set -euo pipefail
+          TAG="v${VERSION}"
+
+          # Idempotent: a re-run after a partial failure must not fail on the
+          # release that already exists.
+          if gh release view "$TAG" > /dev/null 2>&1; then
+            echo "release $TAG already exists, skipping"
+            exit 0
+          fi
+
+          # Ask Commitizen for exactly this version's changelog section rather
+          # than slicing CHANGELOG.md with a regex — the section boundaries are
+          # its own output format, so it is the only thing that reliably knows
+          # where they are.
+          uvx --from commitizen==4.17.0 cz changelog --dry-run "$TAG" > release-notes.md
+
+          gh release create "$TAG" --title "$TAG" --notes-file release-notes.md

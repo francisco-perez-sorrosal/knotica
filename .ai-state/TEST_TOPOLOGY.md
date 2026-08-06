@@ -878,6 +878,7 @@ file_dependencies:
   - "hooks/**"
   - "skills/**"
   - "pyproject.toml"
+  - "uv.lock"
   - "vault-template/**"
 integration_boundaries: []   # planner-owned; populates lazily in later pipelines
 parallel_safe: true
@@ -886,7 +887,9 @@ shared_state: tmp_path
 notes: >-
   `contract` tier because its tests pin agreements between shipped declarations and the launch
   paths that consume them (the `evals` extra vs the Desktop argv; the template inventory vs
-  the instantiated vault).
+  the instantiated vault; the one release version carried by `pyproject.toml`, `uv.lock` and
+  the plugin manifest at once — which is why `uv.lock` is a file dependency here and nowhere
+  else).
 ```
 
 ### Verified runtimes (single sample each)

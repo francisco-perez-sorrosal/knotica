@@ -19,11 +19,16 @@ Two properties, and they fail in opposite directions:
   cold-start discipline the import-boundary tests exist to protect. Its
   absence is a deliberate choice and therefore worth pinning; a key that is
   *supposed* to be missing is the kind nobody notices being added.
+
+The file has since taken on two more shipped-declaration couplings that fail the
+same silent way: the autofix hub's workflow-name array, and the release version
+carried by three files at once.
 """
 
 from __future__ import annotations
 
 import json
+import tomllib
 from pathlib import Path
 
 import yaml
@@ -32,6 +37,9 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 MCP_MANIFEST = REPO_ROOT / ".mcp.json"
 WORKFLOWS_DIR = REPO_ROOT / ".github" / "workflows"
 AUTOFIX_WORKFLOW = WORKFLOWS_DIR / "ci-autofix.yml"
+PYPROJECT = REPO_ROOT / "pyproject.toml"
+PLUGIN_MANIFEST = REPO_ROOT / ".claude-plugin" / "plugin.json"
+UV_LOCK = REPO_ROOT / "uv.lock"
 
 #: The launch line the plugin loader must find, argument for argument.
 EXPECTED_COMMAND = "uvx"
@@ -134,4 +142,69 @@ def test_every_workflow_the_autofix_hub_watches_actually_exists() -> None:
         f"those runs, silently. Either restore the workflow's `name:` field or "
         f"drop the entry from its `workflow_run.workflows` array -- the two "
         f"are coupled by string literal and nothing else keeps them in step."
+    )
+
+
+# --- the release version, carried by three files ---------------------------
+#
+# One release moves `pyproject.toml`, the `knotica` stanza of `uv.lock`, and
+# `.claude-plugin/plugin.json` together, and each drifts in its own silent way:
+#
+#   - pyproject vs uv.lock: CI runs `uv sync --locked`, so a lock left behind
+#     does not mis-report a version, it fails the build outright -- but only
+#     after the release commit is already tagged and pushed.
+#   - pyproject vs plugin.json: Claude Code reads the plugin `version` as a
+#     CACHE KEY. A stale one is invisible here and total for the user: every
+#     installed copy keeps serving the old plugin while this repo looks correct.
+#
+# `cz bump --check-consistency` checks this at bump time. That is one moment, on
+# a CI runner, on a tree nobody reads. These run on every `make verify`, which is
+# where a hand-edit to any of the three would actually be caught.
+
+
+def _pyproject() -> dict:
+    return tomllib.loads(PYPROJECT.read_text(encoding="utf-8"))
+
+
+def _lockfile_version(package: str) -> str | None:
+    """The version `uv.lock` records for one package, or None if it is absent."""
+    lock = tomllib.loads(UV_LOCK.read_text(encoding="utf-8"))
+    return next(
+        (entry["version"] for entry in lock.get("package", []) if entry.get("name") == package),
+        None,
+    )
+
+
+def test_the_declared_version_is_the_same_in_all_three_files() -> None:
+    declared = _pyproject()["project"]["version"]
+
+    assert json.loads(PLUGIN_MANIFEST.read_text(encoding="utf-8"))["version"] == declared, (
+        "the plugin manifest version is Claude Code's cache key -- while it "
+        "disagrees with pyproject.toml, installed copies keep serving the "
+        "version it names and nothing surfaces the gap to their users"
+    )
+    assert _lockfile_version("knotica") == declared, (
+        "uv.lock records this project's own version, and CI runs "
+        "`uv sync --locked` -- so this disagreement fails the build rather "
+        "than mis-reporting anything. Run `uv lock` to resolve it"
+    )
+
+
+def test_the_bump_is_still_configured_to_write_the_lockfile() -> None:
+    # The single load-bearing line of the commitizen config. `pep621` -- the
+    # obvious-looking choice, and the one a config copied from a non-uv project
+    # would carry -- writes pyproject.toml alone and leaves uv.lock stale, which
+    # turns `main` red on the release commit itself. Nothing else in the config
+    # fails this way, so this is the one key worth pinning to a test rather than
+    # to a comment.
+    commitizen = _pyproject()["tool"]["commitizen"]
+
+    assert commitizen["version_provider"] == "uv", (
+        "only the `uv` provider updates uv.lock alongside pyproject.toml; any "
+        "other provider bumps one and leaves the other stale"
+    )
+    assert "version" not in commitizen, (
+        "the `uv` provider reads [project].version, so a `version` key here is "
+        "a second copy that nothing keeps in step -- delete it rather than "
+        "syncing it by hand"
     )

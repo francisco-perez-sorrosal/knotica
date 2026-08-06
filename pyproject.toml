@@ -76,6 +76,50 @@ packages = ["src/knotica"]
 "vault-template" = "knotica/vault-template"
 "src/knotica/dashboard/app.html" = "knotica/dashboard/app.html"
 
+# Versioning and releases. `cz bump` is the ONLY mechanism that changes a version
+# string in this repo, and `.github/workflows/release.yml` (workflow_dispatch) is
+# the only sanctioned way to invoke it. Bumping locally creates a tag and a
+# version the workflow did not produce, which is exactly the divergence the
+# single-mechanism rule exists to prevent. To preview without changing anything:
+#
+#     uvx --from commitizen==4.17.0 cz bump --dry-run
+#
+# There is deliberately no `version = ` key here. The `uv` provider reads and
+# writes `[project].version` above, so this file holds ONE version string rather
+# than two that must be hand-kept equal.
+[tool.commitizen]
+name = "cz_conventional_commits"
+# Not `pep621`, and the difference is load-bearing. `uv.lock` records this
+# project's own version in its `[[package]] name = "knotica"` stanza, and CI runs
+# `uv sync --locked` -- so a bump that touches only pyproject.toml leaves the lock
+# stale and turns `main` red on the release commit itself. The `uv` provider
+# rewrites both, in the same commit, via tomlkit: a one-line lock diff, no
+# resolver run and no network. Anything that updates pyproject alone is wrong here.
+version_provider = "uv"
+# `.claude-plugin/plugin.json` is not documentation -- Claude Code reads the
+# marketplace `version` as a CACHE KEY, so an installed copy keeps serving the old
+# plugin until this number moves. The entry is `glob:regex`, where the regex is
+# matched per line and every occurrence of the *current* version on a matching
+# line is replaced; anchoring on the indented key keeps it to the one line that
+# means it.
+#
+# `dashboard/package.json` is deliberately absent. It is a private build input,
+# never published, and bumping it would desync `dashboard/package-lock.json`
+# (whose root version cannot be targeted safely -- every dependency line in it
+# contains the word "version") and fire the Dashboard workflow's
+# `git diff --exit-code` gate for no gain.
+version_files = ['.claude-plugin/plugin.json:^  "version":']
+tag_format = "v$version"
+annotated_tag = true
+# Regenerate CHANGELOG.md during the bump and fold it into the bump commit, so
+# the release tag points at a tree that already documents its own version. The
+# release workflow depends on this: without it the tag precedes its changelog.
+update_changelog_on_bump = true
+# Pre-1.0: `feat` and breaking changes both produce MINOR, keeping the project in
+# the 0.x range. Remove this (or set it false) in the commit that means to ship
+# 1.0.0 -- until then a breaking change is a minor bump, by design.
+major_version_zero = true
+
 [tool.ruff]
 target-version = "py312"
 line-length = 100
