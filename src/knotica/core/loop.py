@@ -1034,8 +1034,12 @@ def harness_evaluate(
 
     Streams per-example progress into the vault's runtime progress file (read
     by ``wiki_status``) so a minutes-long eval is watchable, not a black box.
+
+    The base run config resolves from ``[models]``, so an operator's worker/judge
+    snapshots reach every eval, unattended ones included; ``**overrides`` still wins.
     """
     from knotica.core.loop_progress import clear_progress, write_progress
+    from knotica.core.models_config import resolve_models_config
     from knotica.evals.harness import run_eval
 
     # Question + substage context persists across events -- an outcome write
@@ -1096,12 +1100,29 @@ def harness_evaluate(
             )
             _write_locked()
 
+    # Resolve `[models]` HERE, not at the call sites and not in `build_loop_runner`:
+    # the watcher, the service daemon, MCP `run_once` and the ingest candidate gate
+    # all pass `evaluate=harness_evaluate` explicitly, bypassing the factory's
+    # `evaluate=None` default, so a factory-sited fix would reach none of them --
+    # this callable is the seam they genuinely share. Without it they scored on the
+    # packaged snapshots while `knotica eval` scored on the operator's: two
+    # `harness_version` values alternating on one topic, each switch tripping the
+    # instrument-changed re-freeze, so the gate re-baselined instead of comparing.
+    # Explicit `**overrides` still win -- `run_eval` layers them onto this base via
+    # `with_overrides`, the same caller-wins contract `query_engine` gives
+    # `[models].query`. One-time cost on an install that HAS a `[models]` table: the
+    # first eval after this rotates `harness_version` and re-freezes the baseline
+    # once. That is the designed response to an instrument change, NOT a regression,
+    # and it replaces the repeated thrash above; a default install is unchanged.
+    models_base = resolve_models_config().to_harness_base()
+
     write_progress(source_root, topic, phase="preparing", detail="clone + golden set")
     try:
         result = run_eval(
             topic,
             source_root=source_root,
             ref=ref,
+            config=models_base,
             on_example=_on_example,
             on_substage=_on_substage,
             on_outcome=_on_outcome,

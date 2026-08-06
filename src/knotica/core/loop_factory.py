@@ -12,7 +12,7 @@ from datetime import datetime
 from datetime import time as _time_of_day
 from pathlib import Path
 
-from knotica.core.arena import ScoreFn, VariantSpec
+from knotica.core.arena import ScoreFn, VariantSpec, heuristic_arena_score
 from knotica.core.gapfill_config import GapfillHookConfig
 from knotica.core.loop import EvaluateFn, LoopRunner, _local_now, harness_evaluate
 from knotica.core.loop import DEFAULT_BRANCH_PREFIX
@@ -49,7 +49,11 @@ def build_loop_runner(
     **effective config values** intact: every knob a caller omits falls through to
     the same default the raw ``LoopRunner`` would have used, so the watcher's 20s
     quiet window and the gate's immediate-observe default remain divergent by design
-    (value convergence is a separate, deferred decision).
+    (value convergence is a separate, deferred decision). Three knobs are deliberate
+    exceptions, resolved *here* when omitted rather than passed through:
+    ``eval_min_interval_hours``, ``eval_window`` and ``arena_score``. Each is inert
+    at its raw default and each was in fact forgotten by real call sites -- see the
+    comments in the body for what that silently cost.
 
     ``gapfill_config`` folds the two loop-side gap-fill knobs
     (``discover_on_regression`` / ``max_gaps``) into one object: pass a resolved
@@ -67,8 +71,29 @@ def build_loop_runner(
     # through an MCP tool, yet reaches no runner. Defaulting in the one shared
     # factory makes forgetting it impossible; an explicit value still wins, which
     # is what tests and `--eval-*` style overrides pass.
-    if eval_min_interval_hours is None:
-        eval_min_interval_hours = resolve_loop_cadence_config().eval_min_interval_hours
+    if eval_min_interval_hours is None or eval_window is None:
+        cadence = resolve_loop_cadence_config()
+        if eval_min_interval_hours is None:
+            eval_min_interval_hours = cadence.eval_min_interval_hours
+        if eval_window is None:
+            # `eval_window` is the same knob's sibling: same `[loop]` table, same
+            # resolver, and fully implemented downstream (`LoopRunner._cadence_hold`
+            # / `_within_window`, midnight wrap included) -- but it was resolved
+            # nowhere, so no call site ever handed one to a runner and the
+            # documented window held nothing back. Same treatment for the same
+            # reason; an explicit window still wins.
+            eval_window = cadence.parsed_window()
+    # The same trap one knob over: `arena_enabled` defaults True while
+    # `arena_score` defaults None, and both guards that gate the arena
+    # (`LoopRunner`'s regression branch and `candidate_gate`'s gate-fail branch)
+    # require BOTH -- so the bare signature reads "arena on" and behaves "arena
+    # off". The service daemon and `loop action=run_eval` both built runners that
+    # way, and a regression there recorded "observation regression (arena
+    # disabled)" instead of healing. Defaulting the scorer here makes that
+    # omission unexpressible; `--no-arena` still wins because it flips
+    # `arena_enabled`, and an explicit scorer still wins.
+    if arena_enabled and arena_score is None:
+        arena_score = heuristic_arena_score
     return runner_cls(
         vault,
         topic,
