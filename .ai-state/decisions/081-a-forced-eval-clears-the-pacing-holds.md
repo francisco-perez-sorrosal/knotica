@@ -1,7 +1,7 @@
 ---
-id: dec-draft-3b2926a6
+id: dec-081
 title: A forced eval clears the pacing holds
-status: proposed
+status: accepted
 category: behavioral
 date: 2026-08-06
 summary: "`observe_default(force=True)` now clears the blocked/failure retry floor as well as cadence, because both pace the unattended watcher and the floor could not observe its own precondition being fixed; the observation hold (live ingest, quiet window) still applies, and the two-phase legs are now logged distinctly."
