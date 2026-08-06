@@ -95,6 +95,26 @@ capability rather than a component, which is a slightly weaker check: a capabili
 directory, so AC06-style "does this name a real module" verification does not apply to it — the same
 exemption the contract already grants § 3b generally.
 
+## Disconfirmation
+
+- **Falsifier.** A § 3b capability row that nobody can place. The tiering rests on a clean test — name
+  the directory — and if a shipped feature turns out to own *part* of a directory and part of another in
+  a way neither tier accepts, the two-tier split has replaced one unplaceable row with an unplaceable
+  taxonomy. The nearby warning sign is a capability row whose "Composed from" cell lists every § 3a
+  component, which would mean the row is describing the system rather than a feature of it.
+- **Steelmanned runner-up.** Option B — TT01 restricted to § 3a, matching upstream exactly. Its case is
+  that a capability names no directory, so "does this resolve to real code?" is a weaker question asked
+  of it than of a component, and a check that accepts weaker answers catches less. Divergence from
+  upstream also has a real cost, paid by whoever next syncs Praxion. It loses only because six topology
+  entries have no § 3a home *by construction*, and the alternatives to that are synthetic subsystem
+  names (which the topology forbids by name) or folding six groups into the one group most in need of
+  splitting.
+- **Reversal trigger.** Revisit if upstream Praxion adopts a capability-aware TT01 — the divergence
+  ends and this record is superseded by the sync — or if the § 3b tier stops earning its keep, which
+  would show as capability rows drifting toward one-per-package until they duplicate § 3a. At that
+  point the honest move is to collapse back to one table and accept the row-count growth the contract
+  was trying to prevent.
+
 ## Prior Decision
 
 `dec-069` bound topology-group granularity to § 3 granularity and named "a § 3 refinement pass" as the

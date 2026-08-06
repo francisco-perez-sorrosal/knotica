@@ -4,7 +4,7 @@ title: Notes overlay tool decomposition -- one flat capture tool plus one notes 
 status: accepted
 category: architectural
 date: 2026-07-29
-summary: Note capture gets a flat conversational tool (note_capture); all note management collapses into a new notes action-dispatcher.
+summary: Note capture gets a flat conversational tool (note_capture); all note management collapses into a new notes action-dispatcher. As built the dispatcher is four modules on the read/mutate seam -- a thin router, tools_dispatch_notes_read.py (list/read/drift), tools_dispatch_notes_mutations.py (reanchor/detach/promote/archive), and a shared tools_dispatch_notes_common.py leaf -- which is an implementation split beneath the one tool this decision specifies, not a second dispatcher.
 tags: [mcp, tool-surface, notes, interface-design, dec-045]
 made_by: agent
 agent_type: interface-designer
@@ -145,3 +145,18 @@ special standing; (b) telemetry shows capture mis-selection at or above the disp
 meaning the hop was not the bottleneck; or (c) a second latency-critical conversational
 capability appears, at which point the right move is a "conversational core" grouping decision,
 not another one-off slot.
+
+## As-built note — the read/mutate split (2026-08-05)
+
+The dispatcher ships as four modules rather than one. `tools_dispatch_notes.py` is a thin router
+carrying only the MCP registration and the dispatch table; `tools_dispatch_notes_read.py` holds
+`list`/`read`/`drift`; `tools_dispatch_notes_mutations.py` holds `reanchor`/`detach`/`promote`/`archive`;
+`tools_dispatch_notes_common.py` is the leaf both sit on (cursor helpers, argument validation, the
+`_ANCHOR_STATUSES` severity ladder, `_MODES`).
+
+This is recorded rather than decided: the split happened during Phase 2 and appears in the corpus only
+incidentally, in `dec-065`'s `affected_files`, which left this record describing a single undivided
+module (`td-043`). **The decision itself is unchanged** — one `notes` tool, seven actions, one entry
+point for the model. The seam is internal, and it is the read/mutate boundary because the mutating
+actions carry `mode=dry-run|apply` and a `VaultTransaction` while the read actions carry neither, so the
+two halves have almost no shared surface beyond the leaf.

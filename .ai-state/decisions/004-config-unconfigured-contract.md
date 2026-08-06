@@ -16,6 +16,7 @@ dissent: Caching the resolved config with an mtime check (instead of re-reading 
 re_affirmed_by:
   - dec-036
   - dec-037
+  - dec-076
 ---
 
 ## Context
