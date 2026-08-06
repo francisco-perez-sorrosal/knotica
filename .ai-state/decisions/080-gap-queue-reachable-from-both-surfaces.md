@@ -1,7 +1,7 @@
 ---
-id: dec-draft-01620c50
+id: dec-080
 title: Gap queue reachable from both surfaces
-status: proposed
+status: accepted
 category: architectural
 date: 2026-08-06
 summary: "`gaps_read` makes the P1 gap queue readable and `gapfill_discover` makes the P2 drain runnable from MCP, closing a write-only queue; the drain is the first billed *flat* tool, so the two-phase nonce mechanism is extracted from `tools_vault` into a shared `confirm_nonce` module."
