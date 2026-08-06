@@ -12,17 +12,17 @@
 # Test Topology — Knotica
 
 Maps the Built structural components of [`.ai-state/DESIGN.md`](DESIGN.md) §3 onto logical test
-groups so that a pipeline step can run a scoped subset instead of the full suite (2583 tests /
-178 test files / ~296 s wall-clock, sampled 2026-08-05).
+groups so that a pipeline step can run a scoped subset instead of the full suite (2700 tests /
+179 test files / ~383 s wall-clock, sampled 2026-08-06).
 
 The groups are runnable by hand, not only by pipeline agents: `make test-groups` lists them and
 `make test-group GROUP=<id>` runs one, both derived from the blocks in this file. See
 [Running a group](#running-a-group).
 
-The suite is **not** flat: 153 files sit directly in `tests/`, and 22 more are nested under
-`tests/core/` (1), `tests/core/notes/` (13), and `tests/discovery/` (8). Three groups therefore
+The suite is **not** flat: 156 files sit directly in `tests/`, and 23 more are nested under
+`tests/core/` (1), `tests/core/notes/` (13), and `tests/discovery/` (9). Three groups therefore
 select a directory rather than a file list, and any count taken with a `tests/test_*.py` glob
-alone will under-report by 22.
+alone will under-report by 23.
 
 Schema, tier vocabulary, selector registries, and closure semantics:
 `skills/testing-strategy/references/test-topology.md`.
@@ -722,6 +722,7 @@ selectors:
       - tests/test_gapfill_discovery_default.py
       - tests/test_gapfill_integration.py
       - tests/test_loop_gapfill_hook.py
+      - tests/test_mcp_gaps_read.py
       - tests/test_mcp_source_ingest.py
       - tests/test_mcp_suggestions.py
       - tests/test_records_gap.py
@@ -921,13 +922,19 @@ noise.
 | `query-compile` | 6 | 48 | 9.8 s | 8.7 s |
 | `loop-runtime` ‡ | 23 | 198 | 96.6 s | 32.0 s |
 | `discovery-network` ‡ | 11 | 147 | 1.3 s | 2.6 s |
-| `gapfill-spine` | 13 | 196 | 43.5 s | 17.3 s |
+| `gapfill-spine` ◇ | 14 | 209 | 49.1 s | 17.3 s |
 | `okf-conformance` † | 8 | 55 | 6.0 s | 3.9 s |
 | `guillotine-audit` † | 2 | 45 | 6.2 s | 7.2 s |
 | `service-lifecycle` † | 4 | 55 | 2.2 s | 0.9 s |
 | `plugin-layer` ‡ | 5 | 35 | 4.8 s | 2.1 s |
 
-The column sums to 2658 against 2532 unique, and the 126-test excess is exactly the pinned overlap:
+Row marked ◇ was re-measured when `gaps_read` arrived and `test_mcp_gaps_read.py` was split out of
+`test_mcp_suggestions.py` (which had crossed the 800-line ceiling). Its Files, Tests, and Sequential
+columns are a fresh sample; its `-n 4` figure is **not** re-sampled and remains the prior one —
+`pytest-xdist` is not in this project's dev dependencies, so that column cannot be reproduced here
+without adding one. Stated rather than silently carried forward.
+
+The column sums to 2671 against 2545 unique, and the 126-test excess is exactly the pinned overlap:
 `test_file_size_ratchet.py` counted in all 14 groups (13 × 6 = 78) and `test_architecture_boundaries.py`
 in 5 (4 × 12 = 48). That identity is the table's own arithmetic check — it is what forced the four
 unmarked corrections above, since leaving them at their pre-widening values would have made the
@@ -1005,10 +1012,11 @@ either filename would have misled a glob in the opposite direction.
 
 ### Partition check
 
-Re-proved against the live tree after the duplicate-consolidation and `td-031` passes.
+Re-proved against the live tree after the duplicate-consolidation and `td-031` passes, and again
+when `test_mcp_gaps_read.py` was split out of `test_mcp_suggestions.py`.
 
-**Files — 178 total.** 168 in group `arg` lists as own membership + 6 pinned fitness files + 4
-un-grouped = 178. Exactly two files appear in more than one group's `arg` list
+**Files — 179 total.** 169 in group `arg` lists as own membership + 6 pinned fitness files + 4
+un-grouped = 179. Exactly two files appear in more than one group's `arg` list
 (`test_file_size_ratchet.py` in all 14, `test_architecture_boundaries.py` in 5); both are pinned
 fitness tests, counted once in the runtime table. No file is assigned to two groups' own
 membership.
