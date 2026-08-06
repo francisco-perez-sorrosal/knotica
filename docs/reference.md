@@ -165,7 +165,7 @@ Every dispatcher validates `action` against a fixed tuple; an unrecognized actio
 | `golden` | `load`, `save` | No | `accepted_json=""` |
 | `loop` | `run_once`, `set_baseline`, `baseline_policy`, `rebaseline`, `cadence`, `run_eval` | No (nonce-confirmed instead — see below) | `scalar`, `policy=""`, `mode="best"`, `eval_min_interval_hours`, `eval_window`, `eval_num_threads`, `confirm=""`, `num_threads` |
 | `notes` | `list`, `read`, `drift`, `reanchor`, `detach`, `promote`, `archive` | Yes, on the 4 mutating actions | `note_id=""`, `intent="all"`, `status="all"`, `cursor=""`, `limit=20`, `anchor=0`, `page=""`, `quote=""`, `target="trainset"`, `question=""`, `answer=""`, `verdict="good"` |
-| `vault` | `list`, `status`, `use`, `add`, `create` | No | `name=""`, `path=""`, `make_default=False` — **no `vault` param**; this dispatcher IS the vault-selection surface |
+| `vault` | `list`, `status`, `use`, `add`, `create` | No | `name=""` (letters, digits, `-`, `_` only), `path=""`, `make_default=False` — **no `vault` param**; this dispatcher IS the vault-selection surface |
 | `vault_health` | `doctor`, `repair`, `okf_check`, `okf_repair`, `lint`, `metadata_tree` | Yes, on `repair`/`okf_repair` | `quick=False`, `fix=False`, `paths_json="[]"`, `all_tracked=False`, `delete_untracked=False`, `strict=False`, `force=False` |
 
 **`loop`'s `run_once` and `run_eval` are two-phase billed.** Call once with no `confirm` to

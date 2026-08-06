@@ -92,6 +92,12 @@ wrong.
 ## Vaults: default and named
 
 Several vaults may be configured under `[vaults.<name>]`; exactly one is active per call.
+
+A vault name accepts **letters, digits, `-` and `_`** and nothing else. The name is written verbatim
+as a TOML table header and typed back as a CLI flag (`--vault NAME`) and a tool argument, so a space
+would make the file unparseable and a dot would silently nest it into a phantom vault. Anything else
+is rejected when you name the vault, not when the file is next read.
+
 Resolution order:
 
 1. An explicit vault name — the CLI's `--vault NAME`, or the MCP tools' `vault` parameter — wins

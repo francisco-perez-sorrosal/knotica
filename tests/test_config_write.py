@@ -153,6 +153,73 @@ def test_upsert_vault_preserves_a_nested_gapfill_search_table(tmp_path: Path):
     assert data["gapfill"]["search"] == {"provider": "youcom", "mailto": "me@example.com"}
 
 
+def test_dump_config_toml_rejects_a_vault_name_that_is_not_a_toml_bare_key():
+    """A space in the name emitted ``[vaults.my name]``, which does not parse."""
+    with pytest.raises(KnoticaError) as exc:
+        config_write.dump_config_toml({"vaults": {"my name": {"path": "/data/x"}}})
+
+    assert exc.value.code is ErrorCode.INVALID_ARGUMENT
+    assert "[A-Za-z0-9_-]+" in exc.value.message, "the error must name the allowed characters"
+
+
+def test_dump_config_toml_rejects_a_dotted_vault_name_that_would_silently_nest():
+    """The quieter half of the same defect: ``[vaults.my.name]`` parses, wrongly.
+
+    It reads back as ``vaults -> my -> name``, so the vault the caller asked for
+    never exists and a phantom ``my`` with no path takes its place.
+    """
+    with pytest.raises(KnoticaError) as exc:
+        config_write.dump_config_toml({"vaults": {"my.name": {"path": "/data/x"}}})
+
+    assert exc.value.code is ErrorCode.INVALID_ARGUMENT
+
+
+def test_dump_config_toml_still_accepts_hyphen_underscore_and_digit_names():
+    """The guard must not narrow past the TOML bare-key set the schema allows."""
+    original = {"vaults": {"work-notes_2": {"path": "/data/x"}}}
+
+    assert tomllib.loads(config_write.dump_config_toml(original)) == original
+
+
+def test_upsert_vault_rejects_an_invalid_name_leaving_the_config_byte_identical(tmp_path: Path):
+    cfg = tmp_path / "config.toml"
+    config_write.upsert_vault(cfg, "main", "/data/main", make_default=True)
+    before = cfg.read_text(encoding="utf-8")
+
+    with pytest.raises(KnoticaError) as exc:
+        config_write.upsert_vault(cfg, "my name", "/data/x", make_default=True)
+
+    assert exc.value.code is ErrorCode.INVALID_ARGUMENT
+    assert cfg.read_text(encoding="utf-8") == before, "a rejected write must not touch the file"
+
+
+def test_an_invalid_vault_name_cannot_destroy_the_config_on_the_following_write(tmp_path: Path):
+    """The amplification path this guard exists to close.
+
+    An unparseable header is silently swallowed by ``read_config`` (which answers
+    a ``TOMLDecodeError`` with ``{}``), so the *next* write used to rebuild the
+    file from nothing -- dropping every vault, ``default_vault`` and sibling table.
+    """
+    cfg = tmp_path / "config.toml"
+    cfg.write_text(
+        'schema_version = 1\ndefault_vault = "main"\n\n'
+        '[vaults.main]\npath = "/data/main"\n\n'
+        "[loop]\neval_min_interval_hours = 1\n\n"
+        '[gapfill.search]\nprovider = "youcom"\n',
+        encoding="utf-8",
+    )
+
+    with pytest.raises(KnoticaError):
+        config_write.upsert_vault(cfg, "my name", "/data/x", make_default=False)
+    config_write.upsert_vault(cfg, "later", "/data/later", make_default=False)
+
+    data = _load(cfg)
+    assert set(data["vaults"]) == {"main", "later"}
+    assert data["default_vault"] == "main"
+    assert data["loop"]["eval_min_interval_hours"] == 1
+    assert data["gapfill"]["search"]["provider"] == "youcom"
+
+
 def test_atomic_write_replaces_contents_and_leaves_no_temp_file(tmp_path: Path):
     target = tmp_path / "config.toml"
     target.write_text("old", encoding="utf-8")
@@ -184,3 +251,25 @@ def test_set_default_vault_rejects_an_unconfigured_vault(tmp_path: Path):
 
     assert exc.value.code is ErrorCode.INVALID_ARGUMENT
     assert _load(cfg)["default_vault"] == "main", "a rejected switch must not change the config"
+
+
+def test_a_vault_path_with_an_astral_character_survives_the_next_write(tmp_path: Path):
+    # The key axis is guarded by `is_bare_key`; this is the value axis, and it
+    # reaches the same amplifier. `json.dumps` at its default escapes an
+    # astral-plane character as a UTF-16 surrogate pair, which TOML rejects --
+    # so the config stopped parsing and the write after it rebuilt the file
+    # from nothing, taking every other vault with it.
+    cfg = tmp_path / "config.toml"
+    emoji_path = "/data/\U0001f4da/vault"
+
+    config_write.upsert_vault(cfg, "main", "/data/main", make_default=True)
+    config_write.upsert_vault(cfg, "picto", emoji_path, make_default=False)
+    config_write.upsert_vault(cfg, "later", "/data/later", make_default=False)
+
+    data = _load(cfg)
+    assert data["vaults"]["picto"]["path"] == emoji_path
+    assert sorted(data["vaults"]) == ["later", "main", "picto"], (
+        "an unparseable config is answered with {}, so the following write "
+        "would silently rebuild it from nothing"
+    )
+    assert data["default_vault"] == "main"

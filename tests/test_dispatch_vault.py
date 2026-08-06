@@ -128,6 +128,29 @@ def test_add_requires_a_path(vault_config: Path) -> None:
         vd._add_payload("research", "   ", make_default=False)
 
 
+def test_add_rejects_a_name_that_is_not_a_toml_bare_key(
+    vault_config: Path, template_vault: Path
+) -> None:
+    """A space or a dot in the name corrupts config.toml at the write seam."""
+    with pytest.raises(KnoticaError) as exc:
+        vd._add_payload("my vault", str(template_vault), make_default=False)
+
+    assert exc.value.code is ErrorCode.INVALID_ARGUMENT
+    assert "[A-Za-z0-9_-]+" in exc.value.message, "the error must name the allowed characters"
+    catalog = config_mod.list_vaults()
+    assert {v["name"] for v in catalog["vaults"]} == {"main"}, "the config must be untouched"
+
+
+def test_add_rejects_a_dotted_name_that_would_register_a_phantom_vault(
+    vault_config: Path, template_vault: Path
+) -> None:
+    with pytest.raises(KnoticaError) as exc:
+        vd._add_payload("my.vault", str(template_vault), make_default=False)
+
+    assert exc.value.code is ErrorCode.INVALID_ARGUMENT
+    assert {v["name"] for v in config_mod.list_vaults()["vaults"]} == {"main"}
+
+
 # ---------------------------------------------------------------------------
 # create
 # ---------------------------------------------------------------------------
@@ -165,6 +188,24 @@ def test_create_requires_a_name(vault_config: Path, tmp_path: Path) -> None:
 def test_create_requires_a_path(vault_config: Path) -> None:
     with pytest.raises(KnoticaError):
         vd._create_payload("scratch", "   ", "", make_default=False)
+
+
+def test_create_rejects_an_invalid_name_before_scaffolding_anything(
+    vault_config: Path, tmp_path: Path
+) -> None:
+    """The name check must precede the scaffold, or a rejected create still writes.
+
+    ``create`` is the one action with a filesystem side effect ahead of the config
+    write, so validating late would leave an orphan vault on disk that no config
+    entry points at.
+    """
+    target = tmp_path / "new-vault"
+
+    with pytest.raises(KnoticaError) as exc:
+        vd._create_payload("my vault", str(target), "", make_default=False)
+
+    assert exc.value.code is ErrorCode.INVALID_ARGUMENT
+    assert not target.exists(), "nothing may be scaffolded for a name that cannot be registered"
 
 
 def test_create_rejects_clobbering_a_non_empty_non_vault_directory(

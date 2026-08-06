@@ -145,14 +145,41 @@ def _use_payload(name: str) -> dict[str, Any]:
     )
 
 
-def _add_payload(name: str, path: str, make_default: bool) -> dict[str, Any]:
+def _vault_name(action: str, name: str) -> str:
+    """Clean and validate a caller-supplied vault name, or raise.
+
+    The authoritative guard lives at the shared write seam
+    (:func:`knotica.core.config_write.dump_config_toml`), which makes an
+    unwritable name unreachable no matter which caller forgets. This is the
+    user-facing layer on top of it: it names the constraint in the caller's own
+    vocabulary and, for ``create``, fires *before* anything is scaffolded on disk.
+    """
     cleaned = name.strip()
     if not cleaned:
         raise KnoticaError(
             code=ErrorCode.INVALID_ARGUMENT,
-            message="vault action=add requires a name.",
+            message=f"vault action={action} requires a name.",
             fix="Pass name=<vault name> and path=<filesystem path>.",
         )
+    if not config_write.is_bare_key(cleaned):
+        raise KnoticaError(
+            code=ErrorCode.INVALID_ARGUMENT,
+            message=(
+                f"vault name {cleaned!r} is not usable: a vault name is written "
+                "verbatim as a TOML table header in config.toml and is typed back "
+                "as a CLI flag and tool argument, so it accepts only "
+                f"{config_write.BARE_KEY_DESCRIPTION}."
+            ),
+            fix=(
+                "Replace anything else with '-' — e.g. pass name='my-vault' rather "
+                "than 'my vault' or 'my.vault'."
+            ),
+        )
+    return cleaned
+
+
+def _add_payload(name: str, path: str, make_default: bool) -> dict[str, Any]:
+    cleaned = _vault_name("add", name)
     cleaned_path = path.strip()
     if not cleaned_path:
         raise KnoticaError(
@@ -176,13 +203,7 @@ def _add_payload(name: str, path: str, make_default: bool) -> dict[str, Any]:
 
 
 def _create_payload(name: str, path: str, topic: str, make_default: bool) -> dict[str, Any]:
-    cleaned = name.strip()
-    if not cleaned:
-        raise KnoticaError(
-            code=ErrorCode.INVALID_ARGUMENT,
-            message="vault action=create requires a name.",
-            fix="Pass name=<vault name> and path=<filesystem path>.",
-        )
+    cleaned = _vault_name("create", name)
     cleaned_path = path.strip()
     if not cleaned_path:
         raise KnoticaError(
