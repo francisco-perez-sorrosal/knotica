@@ -10,8 +10,21 @@ readme = "README.md"
 license = "MIT"
 license-files = ["LICENSE"]
 requires-python = ">=3.12"
+# `mcp<2` is a hard API bound, not caution. The 2.0 SDK removed
+# `mcp.server.fastmcp`, which `mcp_server/server.py` imports at module level, so
+# every launch path dies on `ModuleNotFoundError` the moment a resolver picks it.
+#
+# The bound is load-bearing because `uv.lock` does not protect the paths that
+# matter most here. The lock pins 1.28.1 and covers `uv sync` (the repo venv,
+# CI), but every *install* path resolves fresh from this file:
+# `uv tool install --from '.[evals]'` (what `make install` runs),
+# `uvx --from ${CLAUDE_PLUGIN_ROOT} knotica mcp` (the plugin's own launch line in
+# .mcp.json), and `pip install knotica[evals]`. So a green CI coexisted with a
+# uv-tool environment on 2.0.0 whose `knotica mcp` could not start at all --
+# measured, not hypothetical. Moving to 2.x is a deliberate migration of the
+# server module, not something a resolver may choose.
 dependencies = [
-    "mcp>=1.28",
+    "mcp>=1.28,<2",
     "pydantic>=2.13.4",
 ]
 

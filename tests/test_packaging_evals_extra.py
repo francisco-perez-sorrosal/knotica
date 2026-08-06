@@ -173,3 +173,29 @@ def test_guillotine_command_description_does_not_overpromise_a_rewrite() -> None
         "the description should say the diff is for human review, matching the "
         "never-applied contract in guillotine/patch.py"
     )
+
+
+def test_the_mcp_runtime_dependency_is_capped_below_2() -> None:
+    """`mcp` must carry an upper bound, and it must exclude 2.x.
+
+    The 2.0 SDK removed ``mcp.server.fastmcp``, which ``mcp_server/server.py``
+    imports at module level -- so an unbounded requirement lets any resolver pick
+    a version whose ``knotica mcp`` cannot start.
+
+    ``uv.lock`` does not make this test redundant. The lock covers ``uv sync``
+    (repo venv, CI) and pinned 1.28.1 throughout, while every *install* path
+    resolves from ``pyproject.toml`` instead: ``uv tool install --from '.[evals]'``,
+    the plugin's own ``uvx --from ${CLAUDE_PLUGIN_ROOT} knotica mcp`` launch line,
+    and ``pip install``. Green CI therefore coexisted with a uv-tool environment on
+    2.0.0 that could not serve MCP at all, which is exactly the gap a lockfile is
+    least able to see.
+    """
+    runtime = _pyproject()["project"]["dependencies"]  # type: ignore[index]
+    mcp_specs = [spec for spec in runtime if spec.split("[")[0].split(">")[0].strip() == "mcp"]
+
+    assert len(mcp_specs) == 1, f"expected exactly one mcp requirement, got {mcp_specs}"
+    spec = mcp_specs[0]
+    assert "<2" in spec.replace(" ", ""), (
+        "mcp must be capped below 2.x until mcp_server/server.py migrates off "
+        f"mcp.server.fastmcp, which 2.0 removed; got {spec!r}"
+    )
