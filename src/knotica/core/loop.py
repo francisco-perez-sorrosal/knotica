@@ -221,66 +221,53 @@ class LoopRunner:
         state = read_loop_state(self._store, self._topic) or empty_loop_state(self._topic)
         default = self._vcs.default_branch()
         head = self._vcs.head_sha()
-        cursor = state.cursors.get(default)
-        if cursor == head:
+
+        def _declined(message: str) -> LoopCycleResult:
+            """A no-op cycle: observed, chose not to evaluate, wrote nothing."""
             return LoopCycleResult(
                 acted=False,
                 branch=default,
                 sha=head,
                 decision=LoopDecision.none,
                 scalar=None,
-                message="default branch unchanged since last observation",
+                message=message,
             )
+
+        cursor = state.cursors.get(default)
+        if cursor == head:
+            return _declined("default branch unchanged since last observation")
         if cursor is not None and not self._content_changed_since(cursor, head):
             # Only bookkeeping moved since the cursor (loop-state / metrics / log
             # commits written by the loop itself). Deliberately no state write:
             # the cursor stays put until real content lands, so the loop never
             # commits (or evals) in response to its own writes.
-            return LoopCycleResult(
-                acted=False,
-                branch=default,
-                sha=head,
-                decision=LoopDecision.none,
-                scalar=None,
-                message="only loop bookkeeping changed since last observation",
-            )
+            return _declined("only loop bookkeeping changed since last observation")
 
         hold = self._observation_hold(head)
         if hold is not None:
-            return LoopCycleResult(
-                acted=False,
-                branch=default,
-                sha=head,
-                decision=LoopDecision.none,
-                scalar=None,
-                message=hold,
-            )
+            return _declined(hold)
 
         retrying = is_same_content_retry(state, head, content_changed=self._content_changed_since)
-        failure_hold = retry_hold(
-            self._root, self._topic, state, same_content_retry=retrying, now=self._now_fn()
-        )
-        if failure_hold is not None:
-            return LoopCycleResult(
-                acted=False,
-                branch=default,
-                sha=head,
-                decision=LoopDecision.none,
-                scalar=None,
-                message=failure_hold,
-            )
 
+        # ``force`` clears BOTH pacing holds, not cadence alone. Both pace the
+        # *unattended* watcher; neither is a correctness gate. The retry floor in
+        # particular cannot see its own precondition being fixed -- freezing a
+        # golden set is a ``.knotica/`` write, which ``is_same_content_retry``
+        # ignores by design -- so waiting it out was the only way past it. ``force``
+        # reaches here solely from a two-phase, cost-quoted human confirm; every
+        # autonomous caller leaves it false, which
+        # ``test_loop_blocked_failure_backoff`` pins along with the incident this
+        # floor exists to prevent.
         if not force:
+            failure_hold = retry_hold(
+                self._root, self._topic, state, same_content_retry=retrying, now=self._now_fn()
+            )
+            if failure_hold is not None:
+                return _declined(failure_hold)
+
             cadence_hold = self._cadence_hold(state, self._now_fn())
             if cadence_hold is not None:
-                return LoopCycleResult(
-                    acted=False,
-                    branch=default,
-                    sha=head,
-                    decision=LoopDecision.none,
-                    scalar=None,
-                    message=cadence_hold,
-                )
+                return _declined(cadence_hold)
 
         self._ensure_union_log_merge()
         started_at = self._now_fn()

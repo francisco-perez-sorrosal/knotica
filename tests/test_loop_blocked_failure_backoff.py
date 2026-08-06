@@ -186,3 +186,51 @@ def test_new_content_re_attempts_a_blocked_topic_immediately(template_vault: Pat
         "new content is a new question for the evaluator; the block on the prior "
         "content must not suppress it"
     )
+
+
+def test_a_forced_eval_overrides_the_blocked_floor(template_vault: Path) -> None:
+    """The human escape hatch the floor left no room for.
+
+    Freezing a golden set is the correct remedy for this exact failure, and it
+    lands under ``<topic>/.knotica/`` -- which ``is_same_content_retry`` ignores
+    by design. So the floor could not tell the precondition had been fixed, and
+    waiting it out was the *only* way past: no correct action cleared it.
+
+    ``force`` reaches here solely from the two-phase, cost-quoted confirm, the one
+    caller that cannot loop. The watcher this floor exists to restrain never
+    passes it, which the held assertion below pins.
+    """
+    clock = _FakeClock()
+    attempts: list[str] = []
+
+    def _counting_evaluate(topic: str, source_root: Path, ref: str | None):
+        attempts.append(topic)
+        raise _missing_golden_error()
+
+    runner = LoopRunner(
+        template_vault,
+        TOPIC,
+        evaluate=_counting_evaluate,
+        arena_enabled=False,
+        now_fn=clock,
+    )
+    _commit_content_change(template_vault, "content the eval cannot score")
+    runner.observe_default()
+    assert len(attempts) == 1, "the first observation attempts the eval and records the failure"
+
+    held = runner.observe_default()
+
+    assert held.acted is False
+    assert "retry held" in (held.message or ""), held.message
+    assert len(attempts) == 1, (
+        "the unattended path must still be held -- this is the 14.8k-commit guard "
+        "and force must not weaken it"
+    )
+
+    forced = runner.observe_default(force=True)
+
+    assert forced.acted is True
+    assert len(attempts) == 2, (
+        "an explicit, cost-confirmed human request must reach the evaluator rather "
+        "than be answered with a hold it has no way to clear"
+    )

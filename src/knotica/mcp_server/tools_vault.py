@@ -28,7 +28,7 @@ from knotica.core.loop_cadence_config import LOOP_CONFIG_SECTION, resolve_loop_c
 from knotica.core.models_config import resolve_models_config
 from knotica.core.operations.doctor_repair import doctor_repair
 from knotica.core.page import TopicNotFoundError
-from knotica.mcp_server import confirm_nonce, envelope
+from knotica.mcp_server import confirm_nonce, dispatch_telemetry, envelope
 from knotica.okf.check import check_vault
 from knotica.okf.repair import RepairOptions, repair_vault
 from knotica.store import VaultStore
@@ -185,8 +185,17 @@ def _loop_once_payload(
     if confirm.strip():
         consumed = _consume_run_once_nonce(vault_path, cleaned, confirm.strip())
         if consumed is not None:
+            dispatch_telemetry.record_two_phase(
+                "loop", "run_once", cleaned, outcome=dispatch_telemetry.OUTCOME_CONFIRMED
+            )
             return _execute_run_once(store, vault_path, cleaned)
+        dispatch_telemetry.record_two_phase(
+            "loop", "run_once", cleaned, outcome=dispatch_telemetry.OUTCOME_STALE_CONFIRM
+        )
     nonce = _mint_run_once_nonce(vault_path, cleaned)
+    dispatch_telemetry.record_two_phase(
+        "loop", "run_once", cleaned, outcome=dispatch_telemetry.OUTCOME_PREVIEW
+    )
     return envelope.read_ok(
         {
             "action": "run_once",
@@ -394,8 +403,10 @@ def _loop_run_eval_payload(
     fresh preview envelope and returns -- never calls ``observe_default``,
     never bills. Phase 2 (a ``confirm`` matching the unexpired, unconsumed
     nonce): consumes the nonce (single-use) and runs the eval with
-    ``force=True``, bypassing cadence only -- ``_observation_hold`` still
-    applies.
+    ``force=True``, which clears both *pacing* holds -- cadence and the
+    blocked/failure retry floor. ``_observation_hold`` (a live ingest, or the
+    quiet window) still applies: those describe a vault that is mid-write, not a
+    loop being paced, so a human cannot usefully override them.
     """
     cleaned = topic.strip().strip("/")
     if not cleaned or "/" in cleaned:
@@ -403,6 +414,9 @@ def _loop_run_eval_payload(
     if confirm.strip():
         consumed = _consume_run_eval_nonce(vault_path, cleaned, confirm.strip())
         if consumed is not None:
+            dispatch_telemetry.record_two_phase(
+                "loop", "run_eval", cleaned, outcome=dispatch_telemetry.OUTCOME_CONFIRMED
+            )
             return _execute_run_eval(
                 store,
                 vault_path,
@@ -411,6 +425,9 @@ def _loop_run_eval_payload(
                 judge=str(consumed["judge"]),
                 num_threads=int(consumed["num_threads"]),
             )
+        dispatch_telemetry.record_two_phase(
+            "loop", "run_eval", cleaned, outcome=dispatch_telemetry.OUTCOME_STALE_CONFIRM
+        )
     models = resolve_models_config()
     cadence = resolve_loop_cadence_config()
     requested_threads = num_threads if num_threads is not None else cadence.eval_num_threads
@@ -420,6 +437,9 @@ def _loop_run_eval_payload(
         worker=models.worker,
         judge=models.judge,
         num_threads=requested_threads,
+    )
+    dispatch_telemetry.record_two_phase(
+        "loop", "run_eval", cleaned, outcome=dispatch_telemetry.OUTCOME_PREVIEW
     )
     return envelope.read_ok(
         {

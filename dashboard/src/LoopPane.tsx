@@ -113,6 +113,10 @@ export function LoopPane({
   });
   const [runEvalThreads, setRunEvalThreads] = useState("");
   const [runEvalPreview, setRunEvalPreview] = useState<LoopRunEvalResult | null>(null);
+  /** Outcome of the last confirm, shown at the button rather than at the foot of the pane. */
+  const [runEvalOutcome, setRunEvalOutcome] = useState<{ acted: boolean; message: string } | null>(
+    null,
+  );
   const autoProbeAttempted = useRef(false);
   const measureDisabled = !client || busy !== null || !topicReady;
   const vShape = detectVShape(
@@ -330,6 +334,7 @@ export function LoopPane({
     const numThreads = Number.isInteger(threads) && threads > 0 ? threads : undefined;
     setBusy("run-eval-preview");
     setActionNote(null);
+    setRunEvalOutcome(null);
     try {
       const preview = await client.loopRunEval(topicName, "", numThreads, vault ?? "");
       setRunEvalPreview(preview);
@@ -344,6 +349,7 @@ export function LoopPane({
     if (!client || busy || !runEvalPreview?.confirm_nonce) return;
     setBusy("run-eval-confirm");
     setActionNote(null);
+    setRunEvalOutcome(null);
     try {
       const result = await client.loopRunEval(
         topicName,
@@ -352,6 +358,13 @@ export function LoopPane({
         vault ?? "",
       );
       setRunEvalPreview(null);
+      // Reported where the click happened, not only in `actionNote` at the foot
+      // of the pane. A confirm can legitimately bill nothing -- a retry or
+      // cadence hold answers instantly with `acted: false` -- and when the only
+      // sign of that was a line hundreds of pixels below the button, the banner
+      // simply vanished and the action read as broken. A button that says "run
+      // and bill" owes its answer to the same place it asked the question.
+      setRunEvalOutcome({ acted: result.acted === true, message: result.message ?? "" });
       setActionNote(result.message ?? "Eval run finished");
       onStatusRefresh?.();
     } catch (cause) {
@@ -480,6 +493,38 @@ export function LoopPane({
   }
 
   function runEvalControls() {
+    if (runEvalOutcome) {
+      return (
+        <div
+          class={`heal-policy-controls heal-run-eval-outcome ${
+            runEvalOutcome.acted ? "" : "no-charge"
+          }`}
+          role="status"
+        >
+          {/* The headline answers the question the button raises -- "did that
+              cost me anything?" -- and nothing else. Whether the eval then
+              passed, failed or regressed lives in the message: `acted` means
+              the loop did work, not that the work succeeded, so promoting it to
+              "Eval ran." sat a success headline above a failure message. */}
+          <p class="heal-step-body">
+            {runEvalOutcome.acted ? (
+              <>
+                <strong>Eval ran — this billed.</strong>{" "}
+                {runEvalOutcome.message || "No further detail was reported."}
+              </>
+            ) : (
+              <>
+                <strong>Nothing ran, nothing was billed.</strong>{" "}
+                {runEvalOutcome.message || "The loop declined this observation."}
+              </>
+            )}
+          </p>
+          <button type="button" class="ghost" onClick={() => setRunEvalOutcome(null)}>
+            Dismiss
+          </button>
+        </div>
+      );
+    }
     if (runEvalPreview) {
       return (
         <div class="heal-policy-controls heal-run-eval-confirm">

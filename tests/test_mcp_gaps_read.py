@@ -552,3 +552,35 @@ def test_discover_is_registered_and_needs_configuration(unconfigured_env: Path) 
     del unconfigured_env
     err = error_of(call_tool("gapfill_discover", {"topic": TOPIC}))
     assert_error_shape(err, code="NOT_CONFIGURED")
+
+
+def test_a_stale_confirm_is_logged_distinctly_from_a_real_one(
+    vault_config: Path, template_vault: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    """The three legs of a billed action must be distinguishable in the log.
+
+    `record_dispatch` emits only tool/action/topic, which is byte-identical for a
+    free preview, a confirm that billed, and a confirm whose nonce had gone stale
+    and silently fell back to a preview. Telling those apart once required
+    standing up an instrumented server and driving the real UI through it,
+    because the log could not answer "did that click cost anything?".
+    """
+    import logging
+
+    del vault_config
+    _seed_one_open_gap(template_vault)
+
+    with caplog.at_level(logging.INFO, logger="knotica.mcp_server.dispatch_telemetry"):
+        call_tool("gapfill_discover", {"topic": TOPIC})
+        call_tool("gapfill_discover", {"topic": TOPIC, "confirm": "not-a-live-nonce"})
+
+    outcomes = [record.getMessage() for record in caplog.records if "two-phase" in record.message]
+
+    assert any("outcome=preview" in line and "billed=False" in line for line in outcomes), outcomes
+    assert any("outcome=stale-confirm" in line for line in outcomes), (
+        "a confirm that bought nothing must say so; it is indistinguishable from a "
+        "successful one at the tool surface"
+    )
+    assert not any("outcome=confirmed" in line for line in outcomes), (
+        "nothing here presented a live nonce, so nothing may claim to have billed"
+    )

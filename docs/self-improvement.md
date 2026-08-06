@@ -99,8 +99,11 @@ The quiet window is a debounce: a burst of commits — a multi-page ingest, a ba
 coalesces into one eval at its natural boundary, and any change to HEAD restarts the 20-second timer;
 `--once` forces it to `0.0`. The two retry floors key on the error's own contract: **60 s** for a
 transient failure, **3600 s** when the error reports itself non-retryable (no frozen golden set, no
-credential). If a blocked topic sits idle for an hour, that is why. Both are always on and
-independent of cadence.
+credential). If a blocked topic sits idle for an hour, that is why. Both are independent of cadence,
+and both pace the **unattended** watcher only: `loop action=run_eval`'s confirmed leg clears them,
+because the remedy for a blocked topic — freezing a golden set — is a `.knotica/` write that the
+content-change check ignores by design, so no correct action would otherwise clear the floor before
+it expired.
 
 ## Branch namespaces
 
@@ -257,8 +260,11 @@ four engines. `eval_window` accepts a midnight wrap — `22:00-06:00` means over
 At all defaults the cadence check short-circuits before touching either knob. When it holds, it says
 which one: `"cadence held: 0.42h since last eval start < 24h interval"`, or `"cadence held: outside
 eval window 22:00:00-06:00:00"`. The candidate-gate path bypasses cadence entirely and is always
-eager, and `loop action=run_eval` forces the observation — forcing bypasses cadence **only**, so the
-ingest hold, quiet window, and retry floors still apply.
+eager, and `loop action=run_eval` forces the observation. Forcing clears both **pacing** holds —
+cadence and the retry floors — since both exist to pace the unattended watcher and `force` arrives
+only from a two-phase, cost-quoted human confirm that cannot loop. The **ingest hold** and **quiet
+window** still apply: those say the vault is mid-write, which no amount of human intent makes safe
+to evaluate through.
 
 Every eval resolves the `[models]` table: the watcher, the daemon, `loop action=run_once`, the
 candidate gate, `loop action=run_eval`, and `knotica eval` all score with the operator's worker and

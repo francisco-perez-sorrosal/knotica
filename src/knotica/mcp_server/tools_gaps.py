@@ -48,7 +48,7 @@ from knotica.core.gapfill import (
 )
 from knotica.core.page import TopicNotFoundError
 from knotica.core.records import GAP_ORIGINS, GapRecord, RecordParseError
-from knotica.mcp_server import confirm_nonce, envelope
+from knotica.mcp_server import confirm_nonce, dispatch_telemetry, envelope
 from knotica.mcp_server.vault_ctx import with_resolved_vault
 from knotica.search.cursor import Cursor, InvalidCursorError, decode_cursor, encode_cursor
 from knotica.store import VaultStore
@@ -401,9 +401,28 @@ def _discover_payload(
             vault_path, _DISCOVER_NONCE_KIND, cleaned_topic, confirm.strip()
         )
         if consumed is not None:
+            dispatch_telemetry.record_two_phase(
+                "gapfill_discover",
+                "discover",
+                cleaned_topic,
+                outcome=dispatch_telemetry.OUTCOME_CONFIRMED,
+            )
             return _execute_discover(store, vault_path, cleaned_topic, cap)
+        dispatch_telemetry.record_two_phase(
+            "gapfill_discover",
+            "discover",
+            cleaned_topic,
+            outcome=dispatch_telemetry.OUTCOME_STALE_CONFIRM,
+        )
 
-    return envelope.read_ok(_discover_preview(store, vault_path, cleaned_topic, cap))
+    payload = _discover_preview(store, vault_path, cleaned_topic, cap)
+    dispatch_telemetry.record_two_phase(
+        "gapfill_discover",
+        "discover",
+        cleaned_topic,
+        outcome=dispatch_telemetry.OUTCOME_PREVIEW,
+    )
+    return envelope.read_ok(payload)
 
 
 def _discover_preview(
