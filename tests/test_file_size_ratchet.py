@@ -1,7 +1,7 @@
 """File-size ratchet: the over-ceiling set may shrink, never grow.
 
 The project's coding conventions target 200-400 line modules with a hard
-ceiling of 800. Six modules already exceed it, for historical reasons that are
+ceiling of 800. Five modules already exceed it, for historical reasons that are
 recorded in the tech-debt ledger. Splitting them is a large, risky refactor --
 ``evals/harness.py`` is the eval instrument, and ``core/loop.py`` is the most
 carefully adversarially-reviewed code in the tree -- so this test does not

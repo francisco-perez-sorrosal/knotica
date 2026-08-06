@@ -101,7 +101,7 @@ def _build_server(*, stateless_http: bool = False) -> FastMCP:
     register_source_ingest_tools(mcp)
     register_ingest_tools(mcp)
     register_notes_tools(mcp)
-    # Operator long-tail two-tier surface: 7 action-parameterized dispatchers.
+    # Operator long-tail two-tier surface: action-parameterized dispatchers.
     register_dispatch_loop_tools(mcp)
     register_dispatch_branches_tools(mcp)
     register_dispatch_compile_tools(mcp)

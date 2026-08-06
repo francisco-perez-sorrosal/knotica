@@ -1,4 +1,4 @@
-"""The anchor resolution ladder -- rungs 0-9, the ceiling for this phase.
+"""The anchor resolution ladder -- rungs 0-10.
 
 A pure function of two text blobs, an :class:`~knotica.core.notes.anchor.AnchorRecord`,
 and two threshold floats: no store, no vault handle, no lock, no write, no config read. That

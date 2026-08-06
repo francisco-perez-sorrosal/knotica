@@ -4,7 +4,7 @@
 
 Pure routing: every action calls the same payload builder the replaced thin
 tool called, with the same arguments and the same dry-run/apply semantics.
-Registered on ``server.py`` alongside the deprecated thin-tool aliases;
+Registered on ``server.py``;
 the governing two-tier tool-surface ADRs live in ``.ai-state/decisions/``.
 """
 

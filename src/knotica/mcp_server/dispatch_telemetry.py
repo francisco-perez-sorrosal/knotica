@@ -1,6 +1,6 @@
-"""Dispatcher mis-selection telemetry for the seven action dispatchers.
+"""Dispatcher mis-selection telemetry for the operator action dispatchers.
 
-The operator long-tail was collapsed into seven action-parameterized
+The operator long-tail was collapsed into action-parameterized
 dispatchers. The dissent on that consolidation is that an ``action`` enum can
 reintroduce god-endpoint selection ambiguity. This module is the lightweight,
 dependency-free instrument that keeps a future per-domain revert
