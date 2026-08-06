@@ -108,9 +108,11 @@ def dump_config_toml(data: dict[str, Any]) -> str:
     """Serialize the config table additively.
 
     Handles three shapes: top-level scalars, the ``[vaults.<name>]`` nested-table
-    family, and any other dict-valued top-level key rendered as a flat ``[<key>]``
-    table (e.g. ``[loop]``, ``[models]``, ``[gapfill]``). Callers mutate only the
-    one key they own, so every untouched sibling section round-trips intact.
+    family, and any other dict-valued top-level key rendered as a ``[<key>]``
+    table (e.g. ``[loop]``, ``[models]``, ``[gapfill]``). Tables nest to any
+    depth: a dict inside a table becomes its own dotted-header table, so the
+    shipped ``[gapfill.search]`` section round-trips. Callers mutate only the one
+    key they own, so every untouched sibling section round-trips intact.
     """
     lines: list[str] = []
     for key, value in data.items():
@@ -119,18 +121,40 @@ def dump_config_toml(data: dict[str, Any]) -> str:
         if isinstance(value, (str, int, float, bool)):
             lines.append(f"{key} = {_toml_scalar(value)}")
     for name, entry in data.get("vaults", {}).items():
-        lines.append("")
-        lines.append(f"[vaults.{name}]")
-        for key, value in entry.items():
-            lines.append(f"{key} = {_toml_scalar(value)}")
+        _emit_table(f"vaults.{name}", entry, lines)
     for key, value in data.items():
         if key == "vaults" or not isinstance(value, dict):
             continue
-        lines.append("")
-        lines.append(f"[{key}]")
-        for sub_key, sub_value in value.items():
-            lines.append(f"{sub_key} = {_toml_scalar(sub_value)}")
+        _emit_table(key, value, lines)
     return "\n".join(lines) + "\n"
+
+
+def _emit_table(header: str, table: dict[str, Any], lines: list[str]) -> None:
+    """Emit ``[header]`` with its own keys, then recurse into its sub-tables.
+
+    The two passes are load-bearing and must not be collapsed into one. TOML
+    attributes every key to the most recently opened header, so a scalar written
+    *after* a sub-table header is silently reparented into that sub-table --
+    ``enabled`` following ``[gapfill.search]`` would come back as
+    ``gapfill.search.enabled``. Emitting all of this table's own keys before any
+    sub-table header is what keeps the round-trip faithful.
+
+    Recursing (rather than rendering a nested dict as a value) is what the
+    ``[vaults.<name>]`` family always did; this generalizes it to arbitrary depth
+    so the shipped ``[gapfill.search]`` table survives a rewrite. Rendering it
+    inline instead produced JSON object syntax, which TOML cannot parse -- and
+    because :func:`read_config` answers a parse error with ``{}``, the *next*
+    mutation then rebuilt the file from nothing and silently dropped every vault
+    and sibling table.
+    """
+    lines.append("")
+    lines.append(f"[{header}]")
+    for key, value in table.items():
+        if not isinstance(value, dict):
+            lines.append(f"{key} = {_toml_scalar(value)}")
+    for key, value in table.items():
+        if isinstance(value, dict):
+            _emit_table(f"{header}.{key}", value, lines)
 
 
 def atomic_write(path: Path, text: str) -> None:
