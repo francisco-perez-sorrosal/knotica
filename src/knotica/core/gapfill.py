@@ -28,7 +28,6 @@ isolation is the loop hook's single ``try/except`` boundary, not this module's.
 
 from __future__ import annotations
 
-import os
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, replace
 from datetime import UTC, datetime
@@ -846,26 +845,27 @@ def _resolve_search_config(config_path: str | None) -> SearchConfig:
 
 
 def _build_provider(name: str, *, environ: Mapping[str, str] | None) -> SearchProvider | None:
-    """Build the search adapter for ``name`` when its key is in the environment.
+    """Build the search adapter for ``name`` when its credential resolves.
 
-    The auto-factory treats the **process environment** as the sole source of
-    provider credentials (``os.environ`` by default, or an injected ``environ``) --
-    it does not consult the ``.env`` fallback ``resolve_api_key`` offers, so the
-    drain's configured/unconfigured decision is fully controllable and matches the
-    live-demo's exported-``KNOTICA_YOUCOM_API_KEY`` usage. A missing key degrades
-    that provider to absent (the factory then returns ``None``), never raising.
-    you.com is the sole shipped adapter (exa was cut); an unrecognized-but-keyed
-    name is skipped rather than trusted.
+    Credentials resolve through :func:`~knotica.discovery.config.resolve_api_key`
+    -- the process environment (or an injected ``environ``), then ``./.env`` and
+    ``~/.config/knotica/.env``. Sharing that one chain with
+    ``gapfill_config._discovery_key_available``, the probe computing the
+    ``discover_on_regression`` conditional default from the same "is a key
+    configured?" question, is load-bearing: this factory once read ``os.environ``
+    alone, so a key kept in ``.env`` (which the repo's own ``.env.example``
+    invites) flipped discovery *on* at config time and then yielded no provider at
+    run time -- the drain reported itself enabled and did nothing. Do not narrow
+    this back to the environment; the two sites must answer identically or the
+    feature lies about its own state. A missing key or an unrecognized name raises
+    ``NOT_CONFIGURED``, caught here so the factory returns ``None`` rather than
+    raising. you.com is the sole shipped adapter (exa was cut).
     """
-    from knotica.discovery.config import env_var_for
+    from knotica.discovery.config import resolve_api_key
 
-    env = os.environ if environ is None else environ
     try:
-        env_var = env_var_for(name)
+        api_key = resolve_api_key(name, environ=environ)
     except KnoticaError:
-        return None
-    api_key = env.get(env_var)
-    if not api_key:
         return None
     if name == "youcom":
         from knotica.discovery.youcom import YouComProvider

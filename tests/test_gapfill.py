@@ -407,13 +407,56 @@ def test_a_failure_from_the_injected_service_propagates_uncaught(template_vault:
 # ---------------------------------------------------------------------------
 
 
+@pytest.fixture
+def hermetic_credentials(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
+    """Cut every credential source the factory consults down to ``tmp_path``.
+
+    Credentials resolve from the process environment *and* the ``./.env`` /
+    ``~/.config/knotica/.env`` fallback files, so clearing the env vars alone
+    does not make a test hermetic -- a developer's real ``.env`` (the repo ships
+    a ``.env.example`` inviting one) would leak a live key in and turn a
+    "no key configured" test into a false pass. Mirrors
+    ``test_gapfill_discovery_default.py``'s ``_hermetic_discovery_env``.
+    """
+    monkeypatch.delenv("KNOTICA_YOUCOM_API_KEY", raising=False)
+    monkeypatch.delenv("KNOTICA_EXA_API_KEY", raising=False)
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("HOME", str(tmp_path))
+    return tmp_path
+
+
 def test_build_default_discovery_service_returns_none_without_an_api_key(
-    monkeypatch: pytest.MonkeyPatch,
+    hermetic_credentials: Path,
 ):
     mod = _gapfill_module()
-    monkeypatch.delenv("KNOTICA_YOUCOM_API_KEY", raising=False)
 
     assert mod.build_default_discovery_service() is None
+
+
+def test_a_dotenv_only_key_builds_a_provider_just_as_it_turns_the_config_default_on(
+    hermetic_credentials: Path,
+):
+    """The run-time factory and the config-time probe must answer "is a key
+    configured?" from the same sources. A key kept only in ``./.env`` -- which
+    ``.env.example`` invites -- used to flip ``discover_on_regression`` on at
+    config time and then silently yield no provider at run time, so the drain
+    reported itself enabled and did nothing."""
+    from knotica.core.gapfill_config import resolve_gapfill_config
+
+    mod = _gapfill_module()
+    (hermetic_credentials / ".env").write_text(
+        "KNOTICA_YOUCOM_API_KEY=sk-dotenv-only-key\n", encoding="utf-8"
+    )
+    missing_config = hermetic_credentials / "does-not-exist.toml"
+
+    assert resolve_gapfill_config(config_path=missing_config).discover_on_regression is True, (
+        "precondition: the .env-kept key is exactly what turns the conditional default on"
+    )
+    assert mod.build_default_discovery_service(config_path=str(missing_config)) is not None, (
+        "the factory must resolve credentials through the same chain as the config-time "
+        "probe -- reading os.environ only reports discovery enabled and then hands the "
+        "drain no provider at all"
+    )
 
 
 def test_drain_with_no_configured_service_writes_nothing_and_does_not_raise(template_vault: Path):
