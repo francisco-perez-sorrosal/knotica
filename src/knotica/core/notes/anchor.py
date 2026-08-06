@@ -189,8 +189,11 @@ class NoteDocument:
     ``gap:<id>``, or ``eval:<id>``. It is a **first-class field rather than a
     loose frontmatter key on purpose** -- :func:`serialize_note` emits a fixed
     field set, so an unmodelled key would be silently dropped the first time
-    ``reanchor`` or ``detach`` round-trips the document, erasing the audit
-    trail exactly when the note is being corrected.
+    the document is re-serialized through it. ``reanchor`` and ``detach`` are
+    *not* that occasion -- both splice bytes via :func:`append_anchor_text`
+    and never call :func:`serialize_note` -- but ``archive`` is: it rewrites
+    the whole file through :func:`serialize_note`, which would erase the
+    audit trail on the exact note an eval-bridge crossing just touched.
     """
 
     id: str

@@ -2,12 +2,12 @@
 
 One command owns the whole autonomous loop for a topic:
 
-* ``--watch`` (default): poll forever. Each tick observes the default branch
-  (new content → eval on a clone → metrics merged home; first observation
-  auto-freezes the gate baseline), then processes at most one pending
-  ``loop/c/*`` candidate. A regression below baseline triggers the arena
-  prompt-heal. A heartbeat under ``.knotica/locks/`` lets ``wiki_status`` and
-  the dashboard report the runner as alive.
+* Watching (the default): pass no mode flag and it polls forever. Each tick
+  observes the default branch (new content → eval on a clone → metrics merged
+  home; first observation auto-freezes the gate baseline), then processes at
+  most one pending ``loop/c/*`` candidate. A regression below baseline
+  triggers the arena prompt-heal. A heartbeat under ``.knotica/locks/`` lets
+  ``wiki_status`` and the dashboard report the runner as alive.
 * ``--once``: one watch tick (observation + at most one candidate), then exit.
 * ``--set-baseline SCALAR``: freeze the gate baseline explicitly and exit
   (rarely needed now that the first observation freezes itself).
