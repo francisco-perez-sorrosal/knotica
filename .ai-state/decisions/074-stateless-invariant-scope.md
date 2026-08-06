@@ -1,7 +1,8 @@
 ---
 id: dec-074
 title: The stateless-server invariant is scoped, not widened, to exclude daemon runtime markers
-status: accepted
+status: superseded
+superseded_by: dec-077
 category: behavioral
 date: 2026-08-05
 summary: "`.knotica/locks/` holds gitignored loop-daemon runtime markers that are neither session nor durable state; the 'vault and config.toml are the only state' sentence is restated once in PRE_PLAN.md and the other three sites point at it."
