@@ -4,7 +4,7 @@ title: Tiered MCP tool-surface topology — one server, action dispatchers now, 
 status: superseded
 category: architectural
 date: 2026-07-21
-summary: Architect ruling on Challenge 1 — adopt the interface-designer's two-tier surface (thin core + 7 operator dispatchers) on a single server (Option A) now; reserve the lazy catalog meta-tool (Option B) as the preferred future evolution gated on client dynamic-tool-loading; reject a second MCP server (Option C); record as a re-affirmation-with-narrowed-universality of dec-003, with an additive-alias non-breaking migration.
+summary: Architect ruling on Challenge 1 — adopt the interface-designer's two-tier surface (thin core + operator dispatchers, 7 at the time and 9 since notes and vault landed) on a single server (Option A) now; reserve the lazy catalog meta-tool (Option B) as the preferred future evolution gated on client dynamic-tool-loading; reject a second MCP server (Option C); record as a re-affirmation-with-narrowed-universality of dec-003, with an additive-alias non-breaking migration. Only that last clause is superseded (dec-050 removed the aliases outright); the two-tier topology this record establishes still governs the shipped surface.
 tags: [mcp, tool-surface, server-topology, progressive-disclosure, consolidation, routing]
 made_by: agent
 agent_type: systems-architect

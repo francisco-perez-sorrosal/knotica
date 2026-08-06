@@ -4,7 +4,7 @@ title: Eval LLM access — direct Messages API, pinned judge, and a new knotica-
 status: accepted
 category: architectural
 date: 2026-07-15
-summary: The eval harness reaches Anthropic via the direct Messages API behind a BaselineRunner interface (baseline answerer) and a pinned Opus-class judge; it authenticates from the environment only, OAuth-first per a 2026-07-16 user override — CLAUDE_CODE_OAUTH_TOKEN (subscription, no metered spend) preferred, noisy fallback to the metered ANTHROPIC_API_KEY only when the OAuth token is absent. This is the first knotica-owned LLM access — a new trust boundary distinct from client-as-brain, confined to the headless eval CLI and never on the MCP server launch path.
+summary: The eval harness reaches Anthropic via the direct Messages API behind a BaselineRunner interface (baseline answerer) and a pinned judge (Opus-class at decision time; claude-sonnet-5 since dec-049); it authenticates from the environment only, OAuth-first per a 2026-07-16 user override — CLAUDE_CODE_OAUTH_TOKEN (subscription, no metered spend) preferred, noisy fallback to the metered ANTHROPIC_API_KEY only when the OAuth token is absent. This is the first knotica-owned LLM access — a new trust boundary distinct from client-as-brain, confined to the headless eval CLI and never on the MCP server launch path.
 tags: [evals, phase-2, llm, anthropic, judge, trust-boundary, security, cost-accounting, auth, oauth, user-override]
 made_by: user
 branch: worktree-pipeline-eval-harness
@@ -13,6 +13,7 @@ affected_files: [src/knotica/evals/llm.py, src/knotica/evals/runner.py, src/knot
 affected_reqs: [REQ-RUN-01, REQ-RUN-02, REQ-RUN-03, REQ-JUDGE-01, REQ-JUDGE-02, REQ-JUDGE-03, REQ-JUDGE-04]
 dissent: The Claude Agent SDK (SIA's own SDK, subscription-credit capable) would avoid provisioning a knotica-owned API key and align the eval runner with the Phase-3b SIA runtime, at the cost of coarse per-run cost accounting (a credit pool hides per-run USD) and lower determinism — a poor trade for an objective function whose whole point is a stable, cost-bearing scalar.
 re_affirms: dec-007
+re_affirmed_by: [dec-049]
 ---
 
 ## Context

@@ -22,8 +22,6 @@ affected_reqs:
   - REQ-JUDGE-03
   - REQ-GOLDEN-04
   - REQ-RUN-04
-supersedes: null
-re_affirms: null
 ---
 
 ## Context

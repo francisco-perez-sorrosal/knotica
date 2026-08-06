@@ -10,7 +10,7 @@ made_by: agent
 agent_type: systems-architect
 branch: pipeline-wiki-mvp-core
 pipeline_tier: standard
-affected_files: [src/knotica/mcp/, pyproject.toml]
+affected_files: [src/knotica/mcp_server/, pyproject.toml]
 affected_reqs: [REQ-PLUGIN-01, REQ-PROMPT-01]
 dissent: A protocol-heavy Phase 4 (auth providers, CIMD) plus a large MCP-integration test surface would have favored jlowin fastmcp's batteries and in-memory Client(server) transport.
 re_affirmed_by: [dec-008, dec-014, dec-013, dec-020]
@@ -29,7 +29,7 @@ window on first launch/update.
 ## Decision
 
 Use the **official `mcp` SDK 1.28.1** via `mcp.server.fastmcp.FastMCP`. Dependency policy: floor
-`mcp>=1.28`, not an exact pin. The swap surface is confined to `src/knotica/mcp/`.
+`mcp>=1.28`, not an exact pin. The swap surface is confined to `src/knotica/mcp_server/`.
 
 ## Considered Options
 

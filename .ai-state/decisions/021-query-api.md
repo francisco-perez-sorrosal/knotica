@@ -33,3 +33,16 @@ PRE_PLAN Phase 3a named an "optimized `wiki_query` tool" after DSPy compile. The
 - Dashboard Ask and Arena never mention engines.
 - Tool count stays thin (no parallel answer tool).
 - Claude Code `/knotica:query` can call the tool or browse; both surfaces stay the `query` operation.
+
+## Disconfirmation
+
+- **Falsifier.** A consumer that genuinely needs to choose its engine per call. If the dashboard, the
+  arena, or an agent ever has to ask for "the baseline answer" specifically — to compare engines, or
+  because a compiled artifact is wrong for its use — then hiding the backend behind one tool has cost
+  more than the surface simplicity bought, and the engine belongs in the contract.
+- **Steelmanned runner-up.** Two named tools (`query` and `wiki_query`) make the compile investment
+  legible in the tool surface: a user can see that compilation happened and reach the compiled path
+  deliberately. Selection ambiguity is the price, and with only two answer tools it is small.
+- **Reversal trigger.** Revisit if a second answer path acquires semantics the first cannot express
+  under an optional argument — or if `QueryEngine.select_runner` grows caller-specific branches, which
+  would mean the callers are choosing the engine anyway, just through a worse channel.

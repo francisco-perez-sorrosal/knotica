@@ -17,6 +17,7 @@ affected_files:
   - src/knotica/cli/eval.py
   - src/knotica/core/query_engine.py
   - src/knotica/mcp_server/tools_query.py
+re_affirms: dec-014
 dissent: Downgrading the judge from Opus 4.6 to Sonnet 5 trades a maximally-stable reference grader and temperature-0 determinism for cost; if judge variance inflates, the cost saving will not have been worth the measurement instability.
 ---
 

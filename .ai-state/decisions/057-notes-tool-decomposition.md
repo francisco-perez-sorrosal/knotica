@@ -10,7 +10,7 @@ made_by: agent
 agent_type: interface-designer
 branch: main
 pipeline_tier: standard
-dissent: The flat core is already at 31 tools, well past dec-045's ~20-25 selection-quality ceiling; adding a 24th flat tool degrades selection for every tool, not just the new one.
+dissent: The flat core is already at 23 tools (31 total), well past dec-045's ~20-25 selection-quality ceiling; adding a 24th flat tool degrades selection for every tool, not just the new one.
 affected_files:
   - src/knotica/mcp_server/server.py
   - src/knotica/mcp_server/tools_notes.py

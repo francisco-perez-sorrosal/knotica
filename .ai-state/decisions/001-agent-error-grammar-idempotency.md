@@ -11,7 +11,7 @@ agent_type: interface-designer
 branch: pipeline-wiki-mvp-core
 pipeline_tier: standard
 affected_files:
-  - src/knotica/mcp/
+  - src/knotica/mcp_server/
   - src/knotica/core/
 dissent: A fixed enum of error codes plus result-state idempotency adds ceremony a small MVP could skip by raising plain exceptions and letting retries re-commit.
 re_affirmed_by:

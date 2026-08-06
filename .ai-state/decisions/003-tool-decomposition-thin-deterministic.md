@@ -4,14 +4,14 @@ title: Tool decomposition — thin deterministic tools with a write_page fat-wri
 status: accepted
 category: architectural
 date: 2026-07-03
-summary: Expose ~10 thin deterministic tools (no progressive disclosure), consolidate list_links/backlinks into one direction-parameterized tool, and make write_page a single transactional fat-write (scrub+write+commit+log+optional root-index upsert); reserved bookkeeping files (index.md/log.md/SCHEMA.md) are never direct write targets.
+summary: Expose thin deterministic tools (no progressive disclosure) — the ~10-tool MVP count was narrowed to the conversational core by dec-041/dec-045, consolidate list_links/backlinks into one direction-parameterized tool, and make write_page a single transactional fat-write (scrub+write+commit+log+optional root-index upsert); reserved bookkeeping files (index.md/log.md/SCHEMA.md) are never direct write targets.
 tags: [mcp, tool-design, agent-interface, decomposition, client-as-brain]
 made_by: agent
 agent_type: interface-designer
 branch: pipeline-wiki-mvp-core
 pipeline_tier: standard
 affected_files:
-  - src/knotica/mcp/
+  - src/knotica/mcp_server/
 dissent: Splitting write_page's side effects into separate tools would be more composable and testable; bundling them trades agent flexibility for atomicity the client rarely needs to control.
 re_affirmed_by:
   - dec-041

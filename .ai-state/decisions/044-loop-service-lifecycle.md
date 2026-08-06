@@ -11,6 +11,7 @@ agent_type: systems-architect
 branch: worktree-loop-consolidation
 pipeline_tier: full
 affected_files:
+  - src/knotica/service/
   - docs/PRE_PLAN.md
   - src/knotica/cli/loop.py
   - src/knotica/core/loop_heartbeat.py

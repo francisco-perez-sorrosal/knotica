@@ -10,7 +10,7 @@ made_by: agent
 agent_type: systems-architect
 branch: pipeline-wiki-mvp-core
 pipeline_tier: standard
-affected_files: [src/knotica/core/config.py, src/knotica/mcp/, src/knotica/cli/]
+affected_files: [src/knotica/core/config.py, src/knotica/mcp_server/, src/knotica/cli/]
 affected_reqs: [REQ-CFG-01, REQ-CFG-02, REQ-CFG-03, REQ-CFG-04]
 dissent: Caching the resolved config with an mtime check (instead of re-reading per call) would cut per-call I/O, at the cost of a subtle staleness window that could break setup-without-restart.
 re_affirmed_by:

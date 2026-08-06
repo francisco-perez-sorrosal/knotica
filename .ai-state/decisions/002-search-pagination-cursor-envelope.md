@@ -11,7 +11,7 @@ agent_type: interface-designer
 branch: pipeline-wiki-mvp-core
 pipeline_tier: standard
 affected_files:
-  - src/knotica/mcp/
+  - src/knotica/mcp_server/
   - src/knotica/search/
 dissent: An opaque cursor is over-engineering for a filesystem search returning a handful of results at MVP scale; plain offset/limit would be simpler and adequate.
 re_affirmed_by:

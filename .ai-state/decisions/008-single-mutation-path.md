@@ -10,7 +10,7 @@ made_by: agent
 agent_type: systems-architect
 branch: pipeline-wiki-mvp-core
 pipeline_tier: standard
-affected_files: [src/knotica/core/, src/knotica/store/, src/knotica/search/, src/knotica/mcp/, src/knotica/cli/]
+affected_files: [src/knotica/core/, src/knotica/store/, src/knotica/search/, src/knotica/mcp_server/, src/knotica/cli/]
 affected_reqs: [REQ-MUT-01, REQ-MUT-02, REQ-MUT-03, REQ-MUT-04, REQ-MUT-05, REQ-TOOL-02]
 dissent: A mutation-service object injected into adapters (rather than a core context manager the adapters call by function) would give richer lifecycle hooks for the Phase-3 loops, at the cost of a wider, more mockable seam.
 re_affirms: dec-007

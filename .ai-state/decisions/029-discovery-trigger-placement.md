@@ -4,7 +4,7 @@ title: Discovery trigger placement — on-demand primary + opt-in loop-side batc
 status: accepted
 category: architectural
 date: 2026-07-19
-summary: Gap-fill discovery is triggered on-demand (knotica gapfill discover CLI / MCP) as the always-available primary path, with a config-gated opt-in loop-side batch trigger (default off) that shares the same drain function; the committed gap queue is the durable buffer, so deferring discovery loses no data, and the offline-deterministic loop watcher is not forced to depend on outbound network, a credential, or a cost budget on its mandatory heal path — the loop-side path, when enabled, is failure-isolated and fixed-budget-capped (one drain per regression event, max_gaps queries, dedup gate).
+summary: Gap-fill discovery is triggered on-demand (knotica gapfill discover CLI / MCP) as the always-available primary path, with a config-gated opt-in loop-side batch trigger (default conditional on a valid discovery key since dec-043 (originally off)) that shares the same drain function; the committed gap queue is the durable buffer, so deferring discovery loses no data, and the offline-deterministic loop watcher is not forced to depend on outbound network, a credential, or a cost budget on its mandatory heal path — the loop-side path, when enabled, is failure-isolated and fixed-budget-capped (one drain per regression event, max_gaps queries, dedup gate).
 tags: [gapfill, phase-p3, discovery-trigger, loop, client-as-brain, fixed-budget, failure-isolation, best-effort, dec-013, dec-014]
 made_by: agent
 agent_type: systems-architect

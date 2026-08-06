@@ -4,7 +4,7 @@ title: Discovery HTTP boundary — direct httpx REST, zero provider SDKs, env-on
 status: accepted
 category: architectural
 date: 2026-07-19
-summary: The discovery layer reaches every provider (Exa, you.com, OpenAlex) via direct httpx REST behind one thin shared client, adopting no provider SDK; exa-py is rejected because it drags openai + python-dotenv. Credentials resolve from the environment only, at use time, failing before the network — mirroring evals/llm.py.
+summary: The discovery layer reaches every provider (you.com search, OpenAlex enrichment) via direct httpx REST behind one thin shared client, adopting no provider SDK; exa-py is rejected because it drags openai + python-dotenv. Credentials resolve from the environment only, at use time, failing before the network — mirroring evals/llm.py.
 tags: [gapfill, discovery, http, dependencies, httpx, sdk, trust-boundary, security, cold-start, env-credentials, phase-p2]
 made_by: agent
 agent_type: systems-architect
@@ -12,7 +12,6 @@ branch: worktree-hackathon-loop-ideas
 pipeline_tier: standard
 affected_files:
   - src/knotica/discovery/http.py
-  - src/knotica/discovery/exa.py
   - src/knotica/discovery/youcom.py
   - src/knotica/discovery/openalex.py
   - src/knotica/discovery/config.py
