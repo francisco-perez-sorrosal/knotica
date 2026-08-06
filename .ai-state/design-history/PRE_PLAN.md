@@ -1,5 +1,22 @@
 # Knotica — LLM-Wiki MVP: Converged Design (v7)
 
+> [!IMPORTANT]
+> **Archived — historical record, not canon.** This is the original pre-plan that seeded the project.
+> It is preserved because roughly twenty finalized ADRs argue against it by name, and those arguments
+> stop making sense without it. It is **not** maintained and parts of it were never built.
+>
+> | For | Read instead |
+> |---|---|
+> | Design canon, invariants, rationale | [`.ai-state/DESIGN.md`](../DESIGN.md) |
+> | What the code actually looks like today | [`docs/architecture.md`](../../docs/architecture.md) |
+> | Decisions and their history | [`.ai-state/decisions/`](../decisions/) |
+> | Installing and using knotica | [`README.md`](../../README.md) |
+>
+> Known-stale sections, kept verbatim rather than corrected: the repo-layout tree names an `mcp/`
+> package (renamed `mcp_server/` by `dec-009`) and an `agent/` package that was never built, and omits
+> `discovery/`, `guillotine/`, `okf/`, `service/` and `dashboard/`; the implementation-status note says
+> the consolidation left "seven action-parameterized dispatchers" — there are now nine.
+
 ## Context
 
 Knotica implements Karpathy's **llm-wiki** pattern — an AI-maintained, compounding markdown knowledge base in an Obsidian vault — with per-topic self-improving agents. Self-improvement follows autoresearch's methodology (immutable harness + editable artifact + objective metric + keep/discard) as **two nested loops**: **DSPy** (inner, metric-driven prompt optimization) and **SIA** (outer, structural/schema evolution). No model weights are modified — the system's "weights" are its schemas and prompts. Python backend (uv); MCP as the sole interface (stdio local, streamable HTTP + OAuth remote); Obsidian as the frontend.
@@ -156,7 +173,7 @@ Each operation prompt carries the full protocol (read schema resource → act �
 - **Phase 2 — Eval harness.** Frozen corpus; per-topic golden QA (seeded from curated examples); evaluator → one scalar per topic (incl. token-cost penalty); `metrics.jsonl`. Baseline Phase-0 schemas.
 - **Phase 3a — DSPy inner loop.** `query` as DSPy program; per-topic compile gated on dataset size (≥ ~30–50 examples); compiled program becomes an internal engine behind the existing MCP tool `query` (never a second public tool name); server gains optional LLM access for that headless path. Runs locally first.
 - **Phase 3b — SIA outer loop.** SIA custom task + evaluator; generations mutate overlays/prompts/structure, optionally invoking DSPy; keep/discard on eval score; winning diffs land as vault-repo PRs.
-- **Phase 4 — Gap-fill source-candidate gate (Built).** Approved suggestions ingest onto server-managed worktree candidate branches; loop gate merges gap-closing sources (auto-mark_ingested + page-subset dataset upgrade) or quarantines dilutive ones (never arena). Source discovery closes the loop end-to-end: P1 fault classifier → P2 ranked sources → P3 human approval → P4 gated ingest. See [`docs/architecture.md`](./architecture.md) § 3a (source-candidate detection/dispatch).
+- **Phase 4 — Gap-fill source-candidate gate (Built).** Approved suggestions ingest onto server-managed worktree candidate branches; loop gate merges gap-closing sources (auto-mark_ingested + page-subset dataset upgrade) or quarantines dilutive ones (never arena). Source discovery closes the loop end-to-end: P1 fault classifier → P2 ranked sources → P3 human approval → P4 gated ingest. See [`docs/architecture.md`](../../docs/architecture.md) § 3a (source-candidate detection/dispatch).
 - **Phase 5 — Remote.** Streamable HTTP + OAuth 2.1; Railway deploy; loops move to remote clone + branch-return, unchanged. **Gated on Phases 0–4 running smoothly locally (MCP servers, evals, loops, source-gate).**
 - **Phase 5+ — Scale.** Hybrid search, typed graph, quality scoring, event-driven wiki automation (rohitg00; distinct from Claude plugin hooks), mesh/multi-writer, Archil-backed vault, content-level page-rewriting loop, transcript distillation.
 
