@@ -6,14 +6,15 @@ allowed-tools:
   - Bash(claude mcp:*)
 ---
 Manage headless mode ($1 = on|off|status; default status). Headless is what powers the MCP
-tool `query`, `compile`, and `loop`/Arena — it needs the `evals` extra (`anthropic`, `dspy`)
-and LLM credentials. The plugin's default `knotica` server is lean (no `evals` extra) and
-stays that way for ingest / client-as-brain use, which needs neither.
+tool `query`, `compile`, and the loop's eval scoring — not Arena's healing race, which is a
+deterministic mutator with a keyword scorer and makes no model call. It needs the `evals`
+extra (`anthropic`, `dspy`) and LLM credentials. The plugin's default `knotica` server is lean
+(no `evals` extra) and stays that way for ingest / client-as-brain use, which needs neither.
 
 - **on**: register a user-scoped `knotica` server that carries the `evals` extra — user scope
   outranks the plugin's server, so it cleanly overrides the lean default (no merge). Run:
   ```
-  claude mcp add --scope user knotica -- uvx --from git+https://github.com/francisco-perez-sorrosal/knotica --with anthropic --with dspy knotica mcp
+  claude mcp add --scope user knotica -- uvx --from 'git+https://github.com/francisco-perez-sorrosal/knotica[evals]' knotica mcp
   ```
   Then explain: credentials come from the shell environment the server inherits
   (`CLAUDE_CODE_OAUTH_TOKEN` preferred, else `ANTHROPIC_API_KEY` as a metered fallback) — no

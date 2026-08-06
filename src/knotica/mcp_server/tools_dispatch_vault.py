@@ -264,8 +264,13 @@ def _collect_misconfig(
             issues.append(f"vault '{entry['name']}' at {where} is not usable: {why}")
     if headless["credential_mode"] != "none" and not headless["deps_installed"]:
         issues.append(
-            "headless credential is set but anthropic/dspy are not installed — enable the "
-            "evals extra (KNOTICA_EXTRAS='[evals]') or reconnect with --with anthropic --with dspy"
+            # Both halves of the previous text were wrong: KNOTICA_EXTRAS is read
+            # nowhere in the tree, and hand-listing the packages drops the
+            # `litellm<1.92` bound that pyproject.toml exists to hold, which is a
+            # macOS build failure. Always name the extra.
+            "headless credential is set but anthropic/dspy are not installed — reinstall "
+            "requesting the evals extra, e.g. uvx --from '<source>[evals]' knotica mcp, "
+            "then reconnect the MCP client"
         )
     return issues
 

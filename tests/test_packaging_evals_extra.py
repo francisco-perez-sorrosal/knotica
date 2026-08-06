@@ -108,3 +108,68 @@ def test_no_instruction_still_tells_anyone_to_use_the_removed_group() -> None:
         f"reader into a dead end; use `--extra evals` (or mark a migration note with "
         f"'{_MIGRATION_NOTE_MARKER}'): {offenders}"
     )
+
+
+_HEADLESS_COMMAND = REPO_ROOT / "commands" / "headless.md"
+
+
+def test_headless_command_requests_the_evals_extra_instead_of_hand_listing_packages() -> None:
+    """``/knotica:headless on`` built its ``claude mcp add`` argv with a hand-listed
+    ``--with anthropic --with dspy`` -- the exact anti-pattern dec-067 deleted everywhere
+    else (the retired Desktop ``_UVX_EVALS_PACKAGES`` tuple). Naming packages instead of the
+    extra drops ``litellm<1.92`` silently, so a macOS ``/knotica:headless on`` resolves a
+    litellm with no wheel and falls back to a Rust sdist build. This command's launch line
+    is prose, not code the packaging fitness tests above already scan for shape, so it needs
+    its own guard.
+    """
+    text = _HEADLESS_COMMAND.read_text(encoding="utf-8")
+    assert f"[{EXTRA_NAME}]" in text, (
+        f"the enable path must request the extra by name (`[{EXTRA_NAME}]`) so its version "
+        "bounds -- notably `litellm<1.92` -- travel with the install"
+    )
+    assert "--with anthropic" not in text and "--with dspy" not in text, (
+        "hand-listing the eval packages via `--with` drops the extra's version bounds and "
+        "reintroduces the macOS sdist/Rust-toolchain build failure dec-067 fixed elsewhere"
+    )
+
+
+# The two tests below police `commands/guillotine.md`, not the evals extra -- they live here
+# rather than in a new file because this module is the `plugin-layer` test-topology group's
+# only file that already parses `commands/**/*.md` prose for shipped-vs-documented drift, and
+# a new test file would need its own `.ai-state/TEST_TOPOLOGY.md` entry.
+_GUILLOTINE_COMMAND = REPO_ROOT / "commands" / "guillotine.md"
+
+
+def test_guillotine_command_takes_topic_as_an_argument_not_a_hardcoded_default() -> None:
+    """The command's shell invocation once baked in ``--topic agentic-systems`` and told the
+    reader to "replace ... if needed" -- a command that only works against one vault's topic
+    name, exactly what ``commands/CLAUDE.md`` forbids. Topic must be a documented argument.
+    """
+    text = _GUILLOTINE_COMMAND.read_text(encoding="utf-8")
+    assert "--topic agentic-systems" not in text, (
+        "the shipped invocation must not hardcode a vault-specific topic default"
+    )
+    argument_hint_line = next(
+        line for line in text.splitlines() if line.startswith("argument-hint:")
+    )
+    assert "topic" in argument_hint_line.lower(), (
+        "argument-hint must document topic as a takeable argument rather than leaving it "
+        "implicit in a hardcoded shell command"
+    )
+
+
+def test_guillotine_command_description_does_not_overpromise_a_rewrite() -> None:
+    """The description once promised "a reversible retraction patch". Per
+    ``guillotine/patch.py``, the guillotine never rewrites wiki-page prose -- it renders a
+    diff that is evidence for human review and is never applied to a page.
+    """
+    text = _GUILLOTINE_COMMAND.read_text(encoding="utf-8")
+    description_line = next(line for line in text.splitlines() if line.startswith("description:"))
+    assert "reversible retraction" not in description_line.lower(), (
+        "the guillotine never edits wiki pages -- calling its diff a 'reversible retraction "
+        "patch' overstates what ships"
+    )
+    assert "review" in description_line.lower(), (
+        "the description should say the diff is for human review, matching the "
+        "never-applied contract in guillotine/patch.py"
+    )
