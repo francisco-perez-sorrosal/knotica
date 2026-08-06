@@ -1,0 +1,30 @@
+direction: down
+
+KnoticaCore: {
+  label: "core/"
+}
+KnoticaEvals: {
+  label: "evals/"
+}
+KnoticaPrograms: {
+  label: "programs/"
+}
+KnoticaAgent: {
+  label: "agent/"
+}
+KnoticaDiscovery: {
+  label: "discovery/"
+}
+Anthropic: {
+  label: "Anthropic Messages API"
+}
+SearchApi: {
+  label: "Source-discovery APIs"
+}
+
+KnoticaCore -> KnoticaEvals: "runs an eval on a clone"
+KnoticaCore -> KnoticaPrograms: "selects the compiled query runner"
+KnoticaCore -> KnoticaDiscovery: "drains gaps into ranked candidates"
+KnoticaEvals -> Anthropic: "baseline runner + LLM-as-judge"
+KnoticaPrograms -> Anthropic: "optimizer proposals"
+KnoticaDiscovery -> SearchApi: "REST search + enrichment"

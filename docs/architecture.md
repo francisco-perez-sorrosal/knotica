@@ -28,9 +28,11 @@ apply, log append, and exactly one git commit.
 
 ## 2. System Context
 
-The LikeC4 model at [`diagrams/architecture/src/architecture.c4`](diagrams/architecture/src/architecture.c4)
-holds the component model and projects four views (`context`, `components`, `adapters`,
-`selfImprovement`). Rendering needs `likec4` + `d2`; the command is in the model's header.
+![System context — the user works the vault through a Claude client and through Obsidian; Knotica reaches the vault git repo, the Anthropic Messages API, and the source-discovery APIs](diagrams/architecture/rendered/context.svg)
+
+*Source: [`diagrams/architecture/src/architecture.c4`](diagrams/architecture/src/architecture.c4). Four
+views are rendered — `context`, `components`, `adapters`, `selfImprovement`. Regenerate with
+`scripts/diagram_regen.sh`, which pre-commit runs on any `.c4` change.*
 
 A user works the wiki through a Claude client (Code or Desktop) and reads or edits it directly in
 Obsidian. The client reaches the knotica MCP server; the user also runs the `knotica` CLI. Both write
@@ -42,6 +44,12 @@ Messages API; gap-fill discovery reaches you.com and OpenAlex. Deployment is out
 <!-- aac:generated source=docs/diagrams/architecture/src/architecture.c4 view=components last-regen=2026-08-05 -->
 
 ### 3a. Structural components
+
+![Components — adapters (mcp_server, cli, dashboard, service, plugin layer) above the core, which dispatches to operations, notes, evals, programs, discovery and search, with store at the innermost layer](diagrams/architecture/rendered/components.svg)
+
+Two scoped views project narrower slices of the same model:
+[adapters and the single mutation path](diagrams/architecture/rendered/adapters.svg), and the
+[self-improvement loop](diagrams/architecture/rendered/selfImprovement.svg).
 
 | Component | Responsibility | Path |
 |---|---|---|

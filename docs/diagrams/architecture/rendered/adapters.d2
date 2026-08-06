@@ -1,0 +1,36 @@
+direction: down
+
+KnoticaMcpServer: {
+  label: "mcp_server/"
+}
+KnoticaCli: {
+  label: "cli/"
+}
+KnoticaDashboard: {
+  label: "dashboard/"
+}
+KnoticaService: {
+  label: "service/"
+}
+KnoticaCore: {
+  label: "core/"
+}
+KnoticaOperations: {
+  label: "core/operations/"
+}
+Vault: {
+  label: "Vault (git repo)"
+}
+KnoticaStore: {
+  label: "store/"
+}
+
+KnoticaMcpServer -> KnoticaDashboard: "serves the packaged artifact"
+KnoticaDashboard -> KnoticaMcpServer: "fetches all dynamic data over MCP"
+KnoticaCli -> KnoticaService: "install / uninstall / status"
+KnoticaMcpServer -> KnoticaCore: "read fns + core.operations"
+KnoticaCli -> KnoticaCore: "read fns + core.operations"
+KnoticaService -> KnoticaCore: "supervises the headless loop"
+KnoticaCore -> KnoticaOperations: "dispatches one mutating op"
+KnoticaOperations -> KnoticaStore: "atomic writes (only writer, via \nVaultTransaction)"
+KnoticaCore -> Vault: "one git commit per mutating op (via \ncore.vcs)"

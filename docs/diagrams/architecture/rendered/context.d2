@@ -1,0 +1,32 @@
+direction: down
+
+User: {
+  label: "User"
+}
+Client: {
+  label: "Claude client (Code / Desktop)"
+}
+Obsidian: {
+  label: "Obsidian"
+}
+Knotica: {
+  label: "Knotica"
+}
+Vault: {
+  label: "Vault (git repo)"
+}
+Anthropic: {
+  label: "Anthropic Messages API"
+}
+SearchApi: {
+  label: "Source-discovery APIs"
+}
+
+User -> Client: "operates"
+User -> Obsidian: "reads/edits vault"
+Obsidian -> Vault: "renders"
+User -> Knotica: "[...]"
+Client -> Knotica: "[...]"
+Knotica -> Vault: "one git commit per mutating op (via \ncore.vcs)"
+Knotica -> Anthropic: "[...]"
+Knotica -> SearchApi: "REST search + enrichment"

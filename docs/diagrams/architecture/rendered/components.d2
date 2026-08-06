@@ -1,0 +1,94 @@
+direction: down
+
+User: {
+  label: "User"
+}
+Client: {
+  label: "Claude client (Code / Desktop)"
+}
+Knotica: {
+  label: "Knotica"
+
+  Cli: {
+    label: "cli/"
+  }
+  PluginLayer: {
+    label: "Plugin layer"
+  }
+  Okf: {
+    label: "okf/"
+  }
+  Guillotine: {
+    label: "guillotine/"
+  }
+  Service: {
+    label: "service/"
+  }
+  McpServer: {
+    label: "mcp_server/"
+  }
+  Dashboard: {
+    label: "dashboard/"
+  }
+  Core: {
+    label: "core/"
+  }
+  Operations: {
+    label: "core/operations/"
+  }
+  CoreNotes: {
+    label: "core/notes/"
+  }
+  Search: {
+    label: "search/"
+  }
+  Evals: {
+    label: "evals/"
+  }
+  Programs: {
+    label: "programs/"
+  }
+  Discovery: {
+    label: "discovery/"
+  }
+  Agent: {
+    label: "agent/"
+  }
+  Store: {
+    label: "store/"
+  }
+}
+Vault: {
+  label: "Vault (git repo)"
+}
+Anthropic: {
+  label: "Anthropic Messages API"
+}
+SearchApi: {
+  label: "Source-discovery APIs"
+}
+
+User -> Knotica.Cli: "runs knotica <cmd>"
+User -> Knotica.PluginLayer: "installs the plugin"
+Client -> Knotica.McpServer: "MCP tools / prompts / resources"
+Client -> Knotica.Dashboard: "opens the dashboard MCP App"
+Knotica.McpServer -> Knotica.Dashboard: "serves the packaged artifact"
+Knotica.McpServer -> Knotica.Core: "read fns + core.operations"
+Knotica.Dashboard -> Knotica.McpServer: "fetches all dynamic data over MCP"
+Knotica.PluginLayer -> Knotica.McpServer: "registers the server and its \nslash-command aliases"
+Knotica.Cli -> Knotica.Service: "install / uninstall / status"
+Knotica.Cli -> Knotica.Core: "read fns + core.operations"
+Knotica.Service -> Knotica.Core: "supervises the headless loop"
+Knotica.Core -> Knotica.Operations: "dispatches one mutating op"
+Knotica.Core -> Knotica.CoreNotes: "resolves note anchors on read"
+Knotica.Core -> Knotica.Search: "full-text and key-term queries"
+Knotica.Core -> Knotica.Evals: "runs an eval on a clone"
+Knotica.Core -> Knotica.Programs: "selects the compiled query runner"
+Knotica.Core -> Knotica.Discovery: "drains gaps into ranked candidates"
+Knotica.Okf -> Knotica.Core: "repairs through VaultTransaction"
+Knotica.Operations -> Knotica.Store: "atomic writes (only writer, via \nVaultTransaction)"
+Knotica.Guillotine -> Knotica.Store: "reads page text; never writes"
+Knotica.Core -> Vault: "one git commit per mutating op (via \ncore.vcs)"
+Knotica.Evals -> Anthropic: "baseline runner + LLM-as-judge"
+Knotica.Programs -> Anthropic: "optimizer proposals"
+Knotica.Discovery -> SearchApi: "REST search + enrichment"

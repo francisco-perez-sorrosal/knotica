@@ -58,3 +58,21 @@ repos:
         language: system
         types: [python]
         pass_filenames: false
+
+  # Diagram regeneration. Fires only when the LikeC4 model is staged, and skips
+  # itself when likec4/d2 are absent so a contributor without the toolchain is
+  # never blocked. `pass_filenames: false` because the script resolves the one
+  # model directory itself. Note that this is a *regeneration* hook, not a drift
+  # check: it rewrites and stages the SVGs, so a model change and its renders
+  # always land in the same commit. What it will not do is render a broken model
+  # -- likec4 exits 0 on unresolved references and emits the views it could
+  # build, so the script scans stderr and refuses rather than committing a
+  # diagram with edges silently missing.
+  - repo: local
+    hooks:
+      - id: diagram-regen
+        name: regenerate architecture diagrams
+        entry: scripts/diagram_regen.sh
+        language: system
+        files: '\.c4$'
+        pass_filenames: false

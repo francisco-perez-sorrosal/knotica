@@ -12,9 +12,14 @@
 // Python package; and `agent/` is Planned, with no code on disk. So the plugin layer,
 // `agent/`, and the repo-root half of the dashboard have no package-inventory row.
 //
-// Render: likec4 gen d2 docs/diagrams/architecture/src/architecture.c4 -o docs/diagrams/architecture/rendered/
-//         d2 docs/diagrams/architecture/rendered/context.d2    docs/diagrams/architecture/rendered/context.svg
-//         d2 docs/diagrams/architecture/rendered/components.d2 docs/diagrams/architecture/rendered/components.svg
+// Render: scripts/diagram_regen.sh  (pre-commit runs it on any .c4 change)
+//
+// Do not hand-run likec4/d2 instead. The script pins two things the raw commands
+// get wrong: `likec4 gen` takes the source *directory*, not this file (passing the
+// file exits with a misleading "no views found"), and d2 needs `--layout=elk` --
+// its default packs the sixteen components into overlapping edge labels. It also
+// fails on a model likec4 would render half of: likec4 exits 0 on an unresolved
+// reference and emits the views it could build.
 specification {
   element person
   element system
@@ -66,7 +71,7 @@ model {
     operations = component "core/operations/" {
       description "The mutating operations; nine open a VaultTransaction, exactly one each"
     }
-    notes = component "core/notes/" {
+    coreNotes = component "core/notes/" {
       description "Personal-notes overlay: anchor model, resolution ladder, supersession, drift reconciliation"
     }
 
@@ -123,7 +128,7 @@ model {
   knotica.service -> knotica.core "supervises the headless loop"
 
   knotica.core -> knotica.operations "dispatches one mutating op"
-  knotica.core -> knotica.notes "resolves note anchors on read"
+  knotica.core -> knotica.coreNotes "resolves note anchors on read"
   knotica.core -> knotica.evals "runs an eval on a clone"
   knotica.core -> knotica.programs "selects the compiled query runner"
   knotica.core -> knotica.discovery "drains gaps into ranked candidates"

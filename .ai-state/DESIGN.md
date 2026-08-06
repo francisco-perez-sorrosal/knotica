@@ -33,10 +33,11 @@ headless loops cannot drift into inconsistent discipline.
 
 <!-- L0: system boundary + external actors. Source: docs/diagrams/architecture/src/architecture.c4 -->
 
-The LikeC4 model at [`docs/diagrams/architecture/src/architecture.c4`](../docs/diagrams/architecture/src/architecture.c4)
-is the source of truth for § 3a: one `component` element there is one § 3a row here. It projects four
-views (`context`, `components`, `adapters`, `selfImprovement`). No SVG is committed yet — rendering
-needs `likec4` + `d2`, and the render command is in the model's own header.
+![System context — the user works the vault through a Claude client and through Obsidian; Knotica reaches the vault git repo, the Anthropic Messages API, and the source-discovery APIs](../docs/diagrams/architecture/rendered/context.svg)
+
+*Source: [`docs/diagrams/architecture/src/architecture.c4`](../docs/diagrams/architecture/src/architecture.c4),
+the source of truth for § 3a — one `component` element there is one § 3a row here. `scripts/diagram_regen.sh`
+re-renders every view from it and is wired into pre-commit on any `.c4` change.*
 
 External actors and dependencies:
 
@@ -57,6 +58,9 @@ Deployment is out of scope (Phases 0–4 are local-only; no `SYSTEM_DEPLOYMENT.m
 <!-- aac:generated source=docs/diagrams/architecture/src/architecture.c4 view=components last-regen=2026-08-05 -->
 
 ### 3a. Structural components
+
+![Components — adapters (mcp_server, cli, dashboard, service, plugin layer) above the core, which dispatches to operations, notes, evals, programs, discovery and search, with store at the innermost layer](../docs/diagrams/architecture/rendered/components.svg)
+
 
 One row per `component` element in the LikeC4 model, sixteen in all. Thirteen are packages under
 `src/knotica/`. The dashboard is one component spanning the repo-root Preact client and the
