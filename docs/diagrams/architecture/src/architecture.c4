@@ -1,4 +1,17 @@
 // Knotica architecture model — L0 (context) + L1 (components)
+//
+// This model is the source of truth for § 3a of both architecture documents:
+// one `component` element here is one § 3a row there, and the count must stay 1:1.
+// A new package under `src/knotica/` means a component here, a § 3a row in
+// `.ai-state/DESIGN.md`, a row in that file's gate-checked package inventory, and a
+// § 3a row in `docs/architecture.md`.
+//
+// Sixteen components: thirteen are packages under `src/knotica/`; the dashboard is
+// one component spanning the repo-root Preact client and the `src/knotica/dashboard/`
+// package that loads it (dec-070); the plugin layer is a repo-root surface with no
+// Python package; and `agent/` is Planned, with no code on disk. So the plugin layer,
+// `agent/`, and the repo-root half of the dashboard have no package-inventory row.
+//
 // Render: likec4 gen d2 docs/diagrams/architecture/src/architecture.c4 -o docs/diagrams/architecture/rendered/
 //         d2 docs/diagrams/architecture/rendered/context.d2    docs/diagrams/architecture/rendered/context.svg
 //         d2 docs/diagrams/architecture/rendered/components.d2 docs/diagrams/architecture/rendered/components.svg
@@ -20,48 +33,129 @@ model {
     description "Frontend over plain markdown + wikilinks + frontmatter"
   }
   vault = externalSystem "Vault (git repo)" {
-    description "The wiki + config = the only state; ~/dev/data/knotica"
+    description "The wiki + config.toml = the only durable state; user-configured path"
+  }
+  anthropic = externalSystem "Anthropic Messages API" {
+    description "Headless-only LLM access (eval, compile, query) — never on the MCP launch path"
+  }
+  searchApi = externalSystem "Source-discovery APIs" {
+    description "you.com search + OpenAlex enrichment, reached only by discovery/"
   }
 
   knotica = system "Knotica" {
     description "Stateless, deterministic MCP server + CLI over a versioned Obsidian vault"
 
-    mcp = component "mcp/ (adapter)" {
-      description "FastMCP server: tools, resources, prompts (static name / lazy body). Thin."
+    // ---- Adapters: translate an outside caller into a core call. Never write the vault. ----
+    mcpServer = component "mcp_server/" {
+      description "FastMCP adapter: conversational tools, operator dispatchers, resources, prompts. Stateless; resolves config per call."
     }
-    cli = component "cli/ (adapter)" {
-      description "knotica entry point: init, mcp, doctor, status, migrate. Thin."
+    cli = component "cli/" {
+      description "knotica console entry point — self-registering subcommand registry"
     }
-    core = component "core/ (vault semantics + single mutation path)" {
-      description "config, schema, page/links, lint, vcs, lock, scrub, records, VaultTransaction, operations"
+    dashboard = component "dashboard/" {
+      description "Preact MCP client (repo-root source) plus the packaged-artifact loader"
     }
-    store = component "store/ (protocol)" {
+    service = component "service/" {
+      description "OS-service lifecycle for the loop watcher (launchd / systemd --user) plus the supervised daemon"
+    }
+
+    // ---- Spine: vault semantics and the single mutation path. ----
+    core = component "core/" {
+      description "Vault semantics + VaultTransaction — the sole writer of the vault"
+    }
+    operations = component "core/operations/" {
+      description "The mutating operations; nine open a VaultTransaction, exactly one each"
+    }
+    notes = component "core/notes/" {
+      description "Personal-notes overlay: anchor model, resolution ladder, supersession, drift reconciliation"
+    }
+
+    // ---- Infrastructure protocols: the innermost layer. ----
+    store = component "store/" {
       description "VaultStore protocol + LocalFSStore (atomic temp+rename). Pure storage."
     }
-    search = component "search/ (protocol)" {
-      description "SearchBackend protocol + RipgrepBackend. Read-only."
+    search = component "search/" {
+      description "SearchBackend protocol + RipgrepBackend + headless key-term retrieval. Read-only."
+    }
+
+    // ---- Self-improvement: measure the wiki, then optimize the prompts. ----
+    evals = component "evals/" {
+      description "Frozen-corpus evaluator — clones at a SHA, scores a held-out golden set, appends metrics on the clone"
+    }
+    programs = component "programs/" {
+      description "DSPy query compile (MIPROv2 with bootstrap fallback) plus CompiledRunner"
+    }
+    agent = component "agent/" {
+      description "SIA outer-loop runners — Phase 3b, Planned; no code on disk"
+    }
+
+    // ---- Domain layers beside the spine. ----
+    discovery = component "discovery/" {
+      description "Outbound source discovery for gap-fill. Pure network boundary: no vault access, no LLM."
+    }
+    okf = component "okf/" {
+      description "Native OKF conformance — check / export / repair over one shared format model"
+    }
+    guillotine = component "guillotine/" {
+      description "Memory Guillotine — read-only claim retraction, demotion, and evidence audit"
+    }
+
+    // ---- Distribution surface: not a Python package, but a shipped component. ----
+    pluginLayer = component "Plugin layer" {
+      description "Claude plugin surface: manifest, .mcp.json, /knotica:* command aliases, hooks, the wiki-maintenance skill"
     }
   }
 
   user -> client "operates"
   user -> obsidian "reads/edits vault"
-  client -> knotica.mcp "MCP tools/prompts/resources"
-  client -> knotica.cli "slash-command aliases invoke CLI"
-  knotica.mcp -> knotica.core "calls operations / read fns"
-  knotica.cli -> knotica.core "calls operations / diagnostics"
-  knotica.core -> knotica.store "reads / atomic writes (only writer)"
-  knotica.core -> knotica.search "full-text queries"
-  knotica.core -> vault "git commit per mutating op (via core.vcs)"
+  user -> knotica.cli "runs knotica <cmd>"
+  user -> knotica.pluginLayer "installs the plugin"
+
+  client -> knotica.mcpServer "MCP tools / prompts / resources"
+  client -> knotica.dashboard "opens the dashboard MCP App"
+  knotica.pluginLayer -> knotica.mcpServer "registers the server and its slash-command aliases"
+
+  knotica.mcpServer -> knotica.core "read fns + core.operations"
+  knotica.mcpServer -> knotica.dashboard "serves the packaged artifact"
+  knotica.cli -> knotica.core "read fns + core.operations"
+  knotica.cli -> knotica.service "install / uninstall / status"
+  knotica.dashboard -> knotica.mcpServer "fetches all dynamic data over MCP"
+  knotica.service -> knotica.core "supervises the headless loop"
+
+  knotica.core -> knotica.operations "dispatches one mutating op"
+  knotica.core -> knotica.notes "resolves note anchors on read"
+  knotica.core -> knotica.evals "runs an eval on a clone"
+  knotica.core -> knotica.programs "selects the compiled query runner"
+  knotica.core -> knotica.discovery "drains gaps into ranked candidates"
+  knotica.core -> knotica.search "full-text and key-term queries"
+  knotica.operations -> knotica.store "atomic writes (only writer, via VaultTransaction)"
+  knotica.core -> vault "one git commit per mutating op (via core.vcs)"
+
+  knotica.okf -> knotica.core "repairs through VaultTransaction"
+  knotica.guillotine -> knotica.store "reads page text; never writes"
+  knotica.evals -> anthropic "baseline runner + LLM-as-judge"
+  knotica.programs -> anthropic "optimizer proposals"
+  knotica.discovery -> searchApi "REST search + enrichment"
   obsidian -> vault "renders"
 }
 
 views {
   view context of knotica {
     title "Knotica — System Context (L0)"
-    include user, client, obsidian, vault, knotica
+    include user, client, obsidian, vault, anthropic, searchApi, knotica
   }
   view components of knotica {
     title "Knotica — Components (L1)"
     include *
+  }
+  view adapters of knotica {
+    title "Knotica — Adapters and the single mutation path"
+    include knotica.mcpServer, knotica.cli, knotica.dashboard, knotica.service,
+            knotica.core, knotica.operations, knotica.store, vault
+  }
+  view selfImprovement of knotica {
+    title "Knotica — Self-improvement loop"
+    include knotica.core, knotica.evals, knotica.programs, knotica.agent,
+            knotica.discovery, anthropic, searchApi
   }
 }

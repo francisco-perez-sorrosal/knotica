@@ -1,91 +1,117 @@
 # Architecture
 
-<!-- Design-target architecture document. Created by systems-architect, updated by implementer,
-     validated by verifier/sentinel. Section ownership per skills/software-planning.
-     Canonical converged design: docs/PRE_PLAN.md (v7). Decisions: .ai-state/decisions/. -->
+<!-- Design-target architecture document. Abstracts above concrete code to define the space of valid
+     implementations; carries rationale, Status markers, and Planned components. The code-verified
+     developer navigation guide is docs/architecture.md. Canonical converged design: docs/PRE_PLAN.md.
+     Created by systems-architect, updated by implementer, validated by verifier/sentinel.
+     Section ownership: skills/software-planning/references/architecture-documentation.md. -->
 
 ## 1. Overview
 
 | Attribute | Value |
 |-----------|-------|
-| **System** | Knotica — LLM-Wiki MVP |
-| **Type** | Stateless MCP server + CLI over a versioned Obsidian vault; Claude plugin marketplace |
+| **System** | Knotica — an AI-maintained, compounding knowledge wiki |
+| **Type** | Stateless MCP server + CLI over a versioned Obsidian vault; Claude plugin |
 | **Language / Framework** | Python 3.12+ (uv) / official `mcp` SDK 1.28.1 (`FastMCP`) |
 | **Architecture pattern** | Hexagonal, single-mutation-core (one writer through a `VaultTransaction`) |
-| **Source stage** | Pipeline `wiki-mvp-core` (Phases 0–1) — systems-architect creation |
-| **Last verified** | 2026-08-04 by systems-architect (§3 component-granularity refinement, td-032 / `dec-070`: four shipped top-level packages that had **no row in either architecture document** — `okf/` (11 modules), `guillotine/` (9), `service/` (3), and the Dashboard's `src/knotica/dashboard/` half — are now modeled, each as one component; the `core/` row's compile chain is split out as its own row and the loop row's Component cell widened to name the siblings its prose already described; the residual `core/` row's enumeration corrected to name the shared read/aggregate substrate it had been silently omitting. Documentation-only pass — no source, test, or packaging file touched). Prior: 2026-07-30 by doc-engineer (notes-overlay Phase 1 complete: `core/notes/{anchor,resolve,store}.py`, `core/operations/capture_note.py`, the flat `note_capture` tool, the `notes` dispatcher (`list`/`read` only), the dashboard NotesPane (Browse view), `wiki_status`'s per-topic note counts, and the `wiki-maintenance` skill's note-routing section all Built — see the new rows/notes below). Prior: 2026-07-29 by implementer (notes-overlay Phase 0: new leaf `core/vault_layout.py` Built — single `RESERVED_TOP_LEVEL_NAMES` incl. `notes`, folder-family constants, `family_of`/`topic_of`; and the `lint`/`vault_scaffold`/`ripgrep` declaration swaps that consumed it have since landed in Steps 3, 4, 6, and 9). Prior: 2026-07-18 by doc-engineer (loop-ideas delta pass: baseline policy `latest`/`best` + `rebaseline`/`mark_observed` + instrument re-freeze + `_observation_hold` debounce + `_prune_result_branches` + `_ensure_union_log_merge` on `core.loop`/`loop_state`; new MCP tools `loop_baseline_policy`/`loop_rebaseline`; new CLI flags `--baseline-policy`/`--rebaseline`/`--mark-observed`/`--observe-quiet`/`--eval-threads`; `evals.config` `NUM_THREADS`/`MAX_NUM_THREADS` parallel eval + `evals.cache`/`evals.harness` thread-safety; scope: docs only, no code change). Prior: 2026-07-18 by doc-engineer (loop-ideas reconciliation: `core.loop`/`loop_state`/`loop_heartbeat`/`loop_progress` + `cli/loop.py` Built (autonomous watch → observe → gate → heal); `evals/train_bootstrap.py` Built (cold-start `qa.jsonl` seeding); `programs/` Built (Phase 3a compile, was Planned); scope: docs only, no code change). 2026-07-16 by implementer (Phase-2 eval-harness checkpoint: `src/knotica/evals/` + `cli/eval.py` Built + green; full suite green; import-purity held). 2026-07-03 by orchestrator (Phase 1e: store/search/core/mcp_server/cli + plugin layer Built + green; 609 passed / 18 skipped) |
+| **Source stage** | Pipeline `arch-doc-cleanup` — full reconciliation against the codebase |
+| **Last verified** | 2026-08-05 by systems-architect |
 
-Knotica implements Karpathy's llm-wiki pattern: an AI-maintained compounding markdown knowledge base in
-an Obsidian vault, with per-topic self-improving loops (DSPy inner, SIA outer) planned for Phases 2–3.
-The **client's LLM is the brain**; the server exposes only deterministic tools and is **stateless** — the
-vault (a git repo) and `config.toml` are the only state, resolved per call (the loop daemon's gitignored
-`.knotica/locks/` runtime markers are neither session nor durable state — scoped once in
-[`docs/PRE_PLAN.md`](../docs/PRE_PLAN.md) § Settled design decisions). The load-bearing structural
-property is that **every vault mutation flows through one code path** — a `VaultTransaction` in `core`
-that flock-guards the op, performs atomic writes, appends the log, secret-scrubs, and makes exactly one
-git commit — so MCP tools, the CLI, and future headless loops cannot drift into inconsistent discipline.
+Knotica implements Karpathy's llm-wiki pattern: an AI-maintained compounding markdown knowledge base
+in an Obsidian vault, with per-topic self-improving loops (DSPy inner, SIA outer). The **client's LLM
+is the brain** for interactive work; the server exposes deterministic tools and is **stateless** — the
+vault (a git repo) and `~/.config/knotica/config.toml` are the only durable state, resolved per call.
+(The loop daemon's gitignored `.knotica/locks/` runtime markers are neither session nor durable state —
+scoped once in [`docs/PRE_PLAN.md`](../docs/PRE_PLAN.md) § Settled design decisions, `dec-074`.)
+
+The load-bearing structural property is that **every vault mutation flows through one code path** — a
+`VaultTransaction` in `core` that flock-guards the operation, buffers and secret-scrubs writes, applies
+them atomically, appends the log, and makes exactly one git commit — so MCP tools, the CLI, and the
+headless loops cannot drift into inconsistent discipline.
 
 ## 2. System Context
 
 <!-- L0: system boundary + external actors. Source: docs/diagrams/architecture/src/architecture.c4 -->
-<!-- TODO(diagram): render context.svg via `likec4 gen d2 … && d2 …` (see .c4 header); not yet rendered. -->
-Rendered diagram pending: `docs/diagrams/architecture/rendered/context.svg` (source authored at
-`docs/diagrams/architecture/src/architecture.c4`).
+
+The LikeC4 model at [`docs/diagrams/architecture/src/architecture.c4`](../docs/diagrams/architecture/src/architecture.c4)
+is the source of truth for § 3a: one `component` element there is one § 3a row here. It projects four
+views (`context`, `components`, `adapters`, `selfImprovement`). No SVG is committed yet — rendering
+needs `likec4` + `d2`, and the render command is in the model's own header.
 
 External actors and dependencies:
+
 - **User** — operates a Claude client and reads/edits the vault directly in Obsidian.
 - **Claude client (Code / Desktop)** — client-as-brain; performs ingest/query/lint guided by vault schemas.
 - **Obsidian** — frontend over plain markdown + wikilinks + frontmatter (no plugin).
-- **Vault (git repo)** at `~/dev/data/knotica` — the wiki itself; a separate private repo; the sync channel
-  for future remote loops.
+- **Vault (git repo)** — the wiki itself, a separate private repo at a user-configured path. Several
+  named vaults may be configured; one is active at a time and switchable at runtime.
+- **Anthropic Messages API** — headless-only LLM access (eval, compile, `query`), never resolved on the
+  lean MCP launch path (`dec-014`).
+- **Source-discovery APIs** — you.com search + OpenAlex enrichment, reached only from `discovery/`.
 - **`uv`/`uvx`** — hard prerequisite; launches the server from the plugin checkout.
 
-Deployment is out of scope (Phases 0–3 are local-only; no `SYSTEM_DEPLOYMENT.md`).
+Deployment is out of scope (Phases 0–4 are local-only; no `SYSTEM_DEPLOYMENT.md`).
 
 ## 3. Components
 
-<!-- L1 skeleton (systems-architect owns skeleton; implementer fills as-built).
-     Source: docs/diagrams/architecture/src/architecture.c4 -->
-<!-- TODO(diagram): render components.svg (see .c4 header); not yet rendered. -->
-Rendered diagram pending: `docs/diagrams/architecture/rendered/components.svg`.
+<!-- aac:generated source=docs/diagrams/architecture/src/architecture.c4 view=components last-regen=2026-08-05 -->
 
-| Component | Responsibility | Depends on | Status |
+### 3a. Structural components
+
+One row per `component` element in the LikeC4 model, sixteen in all. Thirteen are packages under
+`src/knotica/`. The dashboard is one component spanning the repo-root Preact client and the
+`src/knotica/dashboard/` package that loads it (`dec-070`). The plugin layer is a repo-root surface with
+no Python package, and `agent/` is Planned with no code on disk — so those two, and the dashboard's
+repo-root half, have no row in the inventory below. Rows are deliberately terse: the
+cross-cutting behaviour they compose is § 3b, and the invariants they must uphold are § 7. Module counts
+are **not** repeated here — they live once in the inventory table below (`dec-073`). The two-tier split,
+and the `TEST_TOPOLOGY.md` rule change it forced, are `dec-075`.
+
+| Component | Responsibility | Status |
+|---|---|---|
+| `src/knotica/store/` | `VaultStore` protocol + `LocalFSStore`: atomic temp+rename primitives and the path-escape boundary (`PathOutsideVaultError`). No git, log, or schema knowledge | Built |
+| `src/knotica/search/` | `SearchBackend` protocol + `RipgrepBackend` (live Okapi BM25, no index — `dec-052`), `cursor.py` (the opaque pagination token), `retrieval.py` (headless key-term retrieval shared by both answer paths) | Built |
+| `src/knotica/core/` | Vault semantics and the sole mutation path. **Read this row as a subtraction:** `core/operations/` and `core/notes/` carve packages out of it, and four § 3b capabilities — the write path, the loop lifecycle, query compile, and the gap-fill spine — carve clusters out of it; what remains is `transaction`/`lock`/`vcs`/`scrub`, the vault vocabulary (`config`, `config_write`, `schema`, `page`, `links`, `lint`, `records`, `errors`, `template`, `vault_layout`, `topics`, `jsonl`), and the shared read/aggregate substrate every surface renders from (`status`, `doctor`, `metrics`, `prompts`, `datasets_inventory`, `golden_review`, `index_catalog`, `vault_metadata_tree`, `vault_scaffold`, `ingest_activity`, `text_reflow`, `baseline_probe`) | Built |
+| `src/knotica/core/operations/` | Mostly one module per mutating operation, though `guillotine.py` exports two and `reanchor_note.py` three. Nine modules open a `VaultTransaction`, each opening exactly one; `doctor_repair.py` and `promote_note.py` open none — the latter delegates to `curate_example` or `gapfill.report_gap`, which carry their own. `__init__.py` re-exports a subset (`write_page`, `store_source`, `create_topic`, `curate_example`, `migrate`, `doctor_repair`, `apply_guillotine`, `persist_guillotine_artifacts`) while the notes operations and `reflow_sources` are imported by path. `candidate_scope.py` is a routing helper, not an operation | Built |
+| `src/knotica/core/notes/` | Personal-notes overlay model: `anchor` (document + append-only anchor history), `resolve` (the read-time resolution ladder, rungs 0–10), `candidates` + `scoring` (fuzzy candidate generation and the Hypothesis-weighted scorer), `supersession` (page-replaced vs passage-reworded), `reconcile` (post-merge drift-queue notification), `store` (read-only enumeration). `dec-058`, `dec-061` | Built |
+| `src/knotica/mcp_server/` | FastMCP adapter: 23 flat conversational tools, 9 operator dispatchers, `open_dashboard`, 4 resources + 1 UI resource, 4 prompts. `vault_ctx.with_resolved_vault` is the per-call config-resolution and error-mapping seam every tool routes through — the concrete form of the stateless-server invariant. Named `mcp_server` to avoid shadowing the `mcp` SDK (`dec-009`) | Built |
+| `src/knotica/cli/` | `knotica` console entry point. `cli/__init__.py::COMMAND_NAMES` is the single declaration of the subcommand set; one module per command plus `common.py` (Console, exit codes, stdout=data / stderr=messages) | Built |
+| `src/knotica/evals/` | Frozen-corpus evaluator: clones the vault at a pinned SHA, scores a held-out golden set through `dspy.Evaluate` over a baseline runner and a cached LLM-as-judge, composes one stable scalar, and appends a `MetricsRecord` **on the clone**. `anthropic`/`dspy` are isolated in the `evals` extra and imported lazily | Built |
+| `src/knotica/programs/` | The DSPy query program: MIPROv2 with a bootstrap fallback, recording `optimizer`/`fallback_reason` on the artifact, plus `CompiledRunner` | Built |
+| `src/knotica/discovery/` | Outbound source discovery for gap-fill. Pure network boundary: no vault access, no LLM, no state. `normalize.py` is the identity leaf — the single declaration of when two candidates are the same source. `dec-026`, `dec-027` | Built |
+| `src/knotica/okf/` | Native OKF conformance — one shared format model with three verbs over it: `check` (read-only findings), `export` (a bundle written outside the vault), `repair` (the only mutator, through `VaultTransaction`) | Built |
+| `src/knotica/guillotine/` | Memory Guillotine — claim-level retraction, demotion, and evidence audit. A read-only pipeline: find mentions, classify passage roles, score a verdict, localize the contested passage, render a diff. It never rewrites page prose. `dec-033` | Built |
+| `src/knotica/service/` | OS-service lifecycle for the loop watcher (+ 2 unit templates). One interface over launchd (live-verified) and systemd `--user` (code-complete, untested — `status().verified` reports which), plus the supervised daemon that iterates every configured topic in one process. `dec-044` | Built |
+| Dashboard (`dashboard/` + `src/knotica/dashboard/`) | Single-file Preact MCP client: eight tab panes plus per-pane panels, built to one self-contained HTML artifact; all dynamic data arrives over MCP. `src/knotica/dashboard/` is its packaging seam — a small loader resolving the wheel-packaged `app.html`, falling back to `dashboard/dist/index.html` in a checkout, so an installed user needs no Node toolchain. Modelled as one component rather than two: the loader's whole purpose is to serve the client to both mounts (`dec-070`). `dec-020` | Built |
+| Plugin layer (repo root) | `.claude-plugin/plugin.json`, `.mcp.json`, one `/knotica:*` alias per file under `commands/`, `hooks/` (non-blocking SessionStart pre-warm + nudges), `skills/wiki-maintenance/`. Distribution runs through the external `bit-agora` marketplace | Built |
+| `src/knotica/agent/` | SIA outer-loop runners: generations mutate overlays/prompts/structure, keep/discard on eval score, winning diffs land as vault-repo PRs (Phase 3b) | Planned |
+
+### 3b. Capabilities
+
+Cross-cutting features composed from the components above. Each owns no single directory, which is why
+none of them is a § 3a row.
+
+| Capability | Responsibility | Composed from | Status |
 |---|---|---|---|
-| `src/knotica/store/` | `VaultStore` protocol + `LocalFSStore` — atomic (temp+rename) storage primitives; no git/log/schema knowledge | stdlib | Built |
-| `src/knotica/search/` | `SearchBackend` protocol + `RipgrepBackend` — read-only full-text search. A result's `kind` is the path's folder family: `ResultKind` is an alias of `core.vault_layout.Family` (`"page"`/`"source"`/`"note"`) rather than a parallel literal, and `ripgrep._classify` derives `(topic, kind)` by delegating to `family_of`/`topic_of` instead of matching path segments itself — so a search result can never disagree with the rest of the codebase about what a path holds. This is the one place `search/` depends on `core/`: a single import of the `core.vault_layout` leaf (which imports nothing from `knotica`), so the edge is one-directional and acyclic | store paths + core.vault_layout (leaf only) | Built |
-| `src/knotica/core/` | Vault semantics: `config`, `schema` (root+overlay), `page`/`links`, `lint`, `vcs` (subprocess git), `lock` (fcntl.flock), `scrub`, `records`, `errors` (the shared code enum + envelope constructors every surface returns through), `template` (read-only packaged-template locator, shared by `cli.init` + `operations.migrate`), **`transaction.VaultTransaction`**, `operations.*` (four ops config-agnostic: `(store, vault_root, *semantic_args)` — no `core.config` import). **Also the shared deterministic read/aggregate substrate** the enumeration above silently omitted before td-032: `status.py` and `doctor.py` (the one vault-status / health-check aggregation both CLI and MCP render), `metrics.py` (the read path for `<topic>/.knotica/metrics.jsonl`, consumed by MCP, CLI, and the loop alike), `datasets_inventory.py`, `golden_review.py` (the human gate between bootstrap and freeze), `index_catalog.py`, `vault_metadata_tree.py`, `vault_scaffold.py` + `config_write.py` (console-free scaffolding + the additive `config.toml` writer shared by `knotica init` and `vault action=create`), `prompts.py` (the single operation-prompt resolver behind both the MCP-prompt and vault-substrate surfaces), `ingest_activity.py`, `text_reflow.py`, and `baseline_probe.py`. Two leaves the enumeration above gained after the td-032 pass and did not name until td-038: `topics.py` — topic *identity* against the store, the single declaration of `is_topic` (the total enumeration filter), `require_topic` (the boundary assertion on caller-supplied input), and `topic_directories` (the one vault-root walk every "which topics are there?" caller shares). It is the store-reading half of the classification pair whose pure half is `vault_layout` — and it exists because a wrapper around a consolidated predicate is still a copy of the policy, which is how three modules ended up holding their own topic walk and one of them drifted onto an inline re-implementation (td-040). And `jsonl.py` — lenient JSONL reading (`read_jsonl_dicts`) for the two append-only vault logs whose value is the rows that *do* parse (the datasets inventory's dataset files, the ingest activity journal), so a truncated final line from a crashed append cannot take down a whole-file read; callers needing strict parsing raise their own typed error and deliberately do not use it. **This row is explicitly a residual**: `core/` holds the module count published in the package-inventory table below plus two subpackages, and eight other §3 rows carve pieces out of it (`vault_layout`, `notes/`, `notes_config`, `operations/capture_note`, the loop-runtime cluster, the compile chain, and the three gap-fill-spine rows). What is left — and what this row means — is the mutation core, vault semantics, and the shared substrate whose consumers span several of those rows and which therefore belongs to none of them. Read it as a subtraction, never as `core/**` | store, search | Built |
-| `src/knotica/core/vault_layout.py` | **Vault folder families (notes-overlay Phase 0, new leaf):** the single declaration of `RESERVED_TOP_LEVEL_NAMES` (now including `notes`), plus `Family = Literal["page","source","note"]`, `SOURCES_DIR`/`NOTES_DIR`, `TOP_LEVEL_FAMILY_DIRS`, `SCORED_FAMILIES` (`page`+`source` only — `note` is excluded by omission, which is the point) and the pure `family_of(rel_path)`/`topic_of(rel_path)` classifiers. Positional rules are byte-preserved from `search.ripgrep._classify` (a family dir needs a third segment before a topic can be derived; a bare vault-root file has no topic), so downstream call sites become pure declaration swaps. Structurally invalid input (absolute, any `..` segment, empty) raises `ValueError` rather than deriving a garbage topic. **Contract:** `notes ∈ RESERVED_TOP_LEVEL_NAMES` is what keeps `notes/` out of topic enumeration — documented in the module docstring so it cannot be "simplified" away silently. That exclusion used to be re-derived at four call sites (`vault_metadata_tree`, `status`, `tools_read`, `service.manager`), each carrying its own `if name in RESERVED_TOP_LEVEL_NAMES: continue`; every one of them now reads the constant through `core.topics` instead, so this module has exactly one consumer for it and the contract holds at one place rather than four. Zero `knotica` imports (leaf, no cycle possible; consumable from `core`, `search`, `cli`, `service` alike). ADR `dec-060` | stdlib | Built |
-| `src/knotica/cli/` | `knotica` entry point: `init`, `mcp`, `doctor`, `status`, `migrate`, `prompt`, `guillotine`, `okf`, `eval`, `compile`, `datasets`, `loop` — thin, self-registering registry; mutations delegate to `core.operations`; never writes the vault directly. `eval` (Phase 2) resolves config and delegates to `evals.harness.run_eval` / `evals.golden.bootstrap`. `datasets` wraps `bootstrap-train` (→ `evals.train_bootstrap.bootstrap_trainset`) and `freeze`. `loop` (Phase 3a) wraps `core.loop.LoopRunner` for `--watch`/`--once`/`--set-baseline`, plus the heartbeat thread — none of these mutate the vault itself | core | Built |
-| `src/knotica/core/notes/` | **Notes overlay, Phase 1 (Built, new subpackage):** `anchor.py` — the note document model (frontmatter + the `## Anchors` bullet grammar), pure string functions, no store/git/lock; a malformed anchor bullet degrades to `skipped_anchor_count`, never an exception. **Phase 2 adds the append-only anchor history**: `AnchorRecord.kind` (`pinned`/`reanchored`/`kept`/`detached`) as an optional *trailing* bullet token where absence means `pinned` — so every Phase 1 note on disk parses unmigrated — and `effective_anchor(document)`, the newest anchor or `None` when the history is empty or its newest entry is terminal `detached`. `kind` is an opaque `str` like `fidelity`, so a later-generation value round-trips through an older reader. `pinned@<sha>` remains the signature token for **every** kind: backticked fidelity plus `pinned@` is what makes a bullet an anchor at all, and varying it per kind would make newer bullets invisible to older readers. **Supersession is derived from document order, never stored** — a `superseded_by` field would require rewriting an earlier bullet's bytes when a later anchor arrives, which AC-09 forbids and which would break capture's idempotency fingerprint (it reads index 0 via `anchor_of_record`). `INTERFACE_DESIGN.md` § 7's strikethrough/`superseded`-token sketch is superseded and carries a correction note. **Liveness is per-page, not per-note**: `live_anchors(document)` returns the newest record for each distinct page, excluding pages whose newest record is `detached` — a detach terminates *that page's* chain only, and a later re-anchor to the same page makes it live again. `effective_anchor` answers the narrower "newest pin regardless of page" and is **not** a liveness primitive; conflating them reported a note with a live second-page anchor as having none, which is the multi-anchor independence REQ-12 exists for. `resolve.py` — the read-time resolution ladder, steps 0–3 only (Phase 1's ceiling): `unanchored` (no page ever claimed) → `anchor-invalid` (quote never valid historically) → `orphaned` (page gone or quote gone) → `exact`/`shifted` (span found at the historical or a different offset). A pure function of two text blobs and an `AnchorRecord`, so a resolver change applies retroactively to every note without touching a file. `store.py` — the read side: `list_notes`/`read_note` enumerate `notes/<topic>/`, parse, and resolve every anchor against the vault's git history; fully read-only (no `VaultTransaction`, no lock). **Phase 2 runs the full ladder, rungs 0–9.** Fidelities are `span`/`section`/`page`/`topic` (no `block` — no producer yet); statuses are `exact`/`shifted`/`fuzzy`/`orphaned`/`unanchored`/`anchor-invalid`. Past the verbatim rungs the ladder generates keyword candidates, scores them, and grades the outcome: `score >= guess_threshold` ⇒ `fuzzy@span`; otherwise a surviving enclosing heading ⇒ `orphaned@section` carrying the *section* span as `best_guess` (structural evidence beats a similarity number) with the score clamped to `max(0.0, min(raw, guess_threshold - CLAMP_EPSILON))` so it is always reviewed and never silently placed; else `score >= complete_orphan_threshold` ⇒ `orphaned@page` with the *argmax* span; else `orphaned@page` with no guess. `Projection` carries `score`/`best_guess` under two `__post_init__` invariants that make a mis-implemented rung fail loudly rather than return a plausible projection: `score is None` **iff** `fidelity is None or fidelity == "topic"` (total across every rung — the honest axis is "did candidate scoring run", not a status list), and `best_guess is not None` ⟹ `score is not None`. A sub-threshold score is **retained**, not nulled: rungs 8 and 9 differ in whether a guess is *shown*, not whether one was *computed*, and that distribution is the evidence feeding the Phase 3 block-ID question. `resolve.py` imports nothing config-, IO-, or LLM-shaped — thresholds arrive as required parameters, which is what makes offline parity structural. **Phase 2 foundations (Built):** `candidates.py` — MSR keyword candidate generation (ladder rung 4): seeds on the page-rarest words of the quote with cumulative frequency relaxation, windows every occurrence, extends to sentence bounds, caps at 2× the quote length in characters; returns `()` rather than raising when the quote shares no words with the page. `scoring.py` — the Hypothesis-weighted scorer (ladder rung 5): quote 50 / prefix 20 / suffix 20 / position 2 over normaliser 92, `difflib.SequenceMatcher` for the similarity terms, position normalised by page length and clamped at 0. Both are pure and stdlib-only (`re` and `difflib` respectively — no store, vcs, or config import), so the ladder stays offline-safe by construction. `scoring.CONTEXT_WINDOW` (32) is the single declaration of the prefix/suffix width and is normalised on **both** sides inside `score_candidate`, so a caller passing untruncated context cannot silently depress every fuzzy score — the like-for-like comparison is structural, not a caller convention. The weights are published (Hypothesis) but **not yet validated against this corpus**; the fuzzy/orphan rate they produce is itself a Phase 2 measurement. ADR `dec-058` | `core.page`, `core.links`, `core.vcs` | Built |
-| `src/knotica/core/notes_config.py` | **`[notes]` threshold config (notes-overlay Phase 2, Built):** `guess_threshold` (default `0.75`) and `complete_orphan_threshold` (default `0.35`), read side-effect-free per call from `config.toml` and mirroring `core/gapfill_config.py` verbatim — a missing file or missing table is not an error, while a present-but-malformed or out-of-range value raises the typed `NOT_CONFIGURED` error naming its fix. Both thresholds share one validation helper rather than duplicating the type/range check per key. `DEFAULT_GUESS_THRESHOLD`/`DEFAULT_COMPLETE_ORPHAN_THRESHOLD` are exported so downstream defaults reference the declaration instead of restating the literals. Deliberately carries **no `adjudicate` key**: LLM adjudication ships in Phase 3 alongside its consumer, and a config key with no reader is dead weight. Validation is per-key (type, `[0.0, 1.0]` range) **and cross-key**: `complete_orphan_threshold < guess_threshold` is required, strictly. An inverted or equal pair is not merely odd — it makes rung 8's guard stricter than rung 6's, so anything reaching rung 8 has already fired rung 6 and `orphaned@page`-with-a-guess becomes unreachable dead code, silently and with entirely plausible output. Rejecting the pair at the boundary is the only place that failure is visible. ADR `dec-058` | stdlib, `core.config`, `core.errors` | Built |
-| `src/knotica/core/operations/capture_note.py` | **`capture_note` — the one-shot note write (Built):** writes one note file under `notes/<topic>/` inside a single `VaultTransaction`. Anchoring never fails the call — it walks a fidelity ladder instead: no page claimed, or none of the claimed pages could be read, degrades to `topic`; a readable page with no quote to pin holds at `page` (a true statement, not a degradation — no warning); a quote found on exactly one readable page reaches `span`; a quote found on several readable pages degrades to `topic` (pinning one would be a guess); a quote found on none of the readable pages degrades to `page` (anchored to the first readable page, without a span). Each of the three degraded cases rides back as an `ANCHOR_DEGRADED` warning on a *success* envelope; only an unknown topic, empty note text, or an unrecognized `intent` are hard failures. Idempotent by content fingerprint (`topic`+body+page+quote, `pinned_at` excluded so an immediate re-capture still matches itself) | `core.notes.anchor`, `core.transaction`, `core.schema` | Built |
-| `src/knotica/mcp_server/` | `FastMCP` server: tools (18 core conversational + 7 operator dispatchers + 4 stragglers + `open_dashboard` during P-B migration), resources (schemas + index), prompts (static name / lazy body) — thin; stateless. *Named `mcp_server` (not `mcp`) to avoid shadowing the `mcp` SDK; per-concern modules `server`/`envelope`/`tools_read`/`tools_write`/`resources`/`prompts`/`tools_datasets`/`tools_golden`/`app_ui` (dec-009)* **P-B tool-surface (Built):** 7 operator dispatchers (`tools_dispatch_*.py` modules) collapse 26 thin tools into a two-tier architecture (action-routing per domain); `INVALID_ARGUMENT` error code for argument validation; `wiki_status` new `view="scope"` parameter for cheap routing checks; `dispatch_telemetry` logs per invocation for post-migration ambiguity measurement; 26 deprecated aliases in original modules with one-release-cycle migration window. **Notes overlay, Phase 1 (Built):** flat tool `tools_notes.py::note_capture` (conversational core — one new tool, not a dispatcher action, because the capture act cannot afford the extra selection hop) composes a pre-built `placement` sentence from the resolved anchor so the model never re-derives one; dispatcher `notes` registers **exactly** `action=list` and `action=read` — the other five actions the full design names (`drift`/`reanchor`/`detach`/`promote`/`archive`) are Phase 2+ and rejected with `INVALID_ARGUMENT` rather than silently accepted. **Router/actions split (ahead of those five actions landing):** `tools_dispatch_notes.py` is now a thin router (MCP tool registration + dispatch only) and `tools_dispatch_notes_actions.py` holds per-action payload construction, argument validation, and the resolved-anchor status vocabulary (`_ANCHOR_STATUSES` and its severity-ladder ordering) that `list`/`read` depend on — full rewrite of this row deferred until the mutating actions land. `wiki_status` gained a per-topic `notes: {total, drifted}` count (drifted = any anchor `orphaned`) | core | Built |
-| `src/knotica/programs/` | Phase 3a DSPy query compile: MIPROv2 with a bootstrap fallback (records `optimizer`/`fallback_reason` on the artifact when it falls back; offline compile refuses to fabricate a score without LLM credentials) → JSON compiled artifact + `CompiledRunner`, selected by `query_engine` behind the single MCP `query` tool | core | Built |
-| `src/knotica/core/compile_run.py` + `compile_state.py` + `compile_promote.py` + `compiled.py` + `query_engine.py` + `trainset.py` + `models_config.py` + `prompt_diff.py` | **The `core/` half of the Phase-3a compile chain (Built) — previously described only through its `programs/` counterpart, which is why nothing in §3 named these eight modules.** `compile_run.py` is the pipeline (doctor → gate → clone → MIPRO → branch → post-eval); `compile_state.py` persists progress to `compile-state.json` so the dashboard can poll a run it did not start; `compile_promote.py` merges a reviewed `compile/*` branch onto the vault's default branch; `compiled.py` reads/writes the compiled query artifact (JSON instructions + demos under `.knotica/compiled/`) and answers `is_compiled_healthy`; `query_engine.py` is the unified facade that selects between the compiled runner and the baseline so the MCP `query` tool, the dashboard Ask pane, and the arena all take **one** answer path rather than three drifting ones; `trainset.py` holds the query-style curated counts the compile gate reads; `models_config.py` resolves the `[models]` worker/judge/query snapshot overrides (`dec-049`); `prompt_diff.py` renders the deterministic `query.md` diff (topic override vs root default) that the arena and compile review surfaces display. **Split out of the `src/knotica/core/` row because optimization is a different concern from vault semantics and from the loop that consumes it** — a compile-artifact change should force neither a mutation-core review nor an LLM-judge re-run, and the two clusters have no shared state beyond `VaultTransaction`. `programs/` owns the DSPy program; this row owns the lifecycle around it. | core (`transaction`, `vcs`, `lock`, `config`, `records`, `schema`, `doctor`, `metrics`, `prompts`, `status`, `branch_namespaces`), `programs.query`, `evals` (`compiled_runner`, `runner`, `llm`, `golden` — the compile/post-eval path only, so the `evals` extra stays off the MCP launch path) | Built |
-| `src/knotica/agent/` | Headless outer-loop runners (SIA schema/structure evolution) — Phase 3b | core | Planned |
-| `src/knotica/evals/` | **Frozen-corpus evaluator (Phase 2):** hand-rolled `score(gold, pred, trace=None)` metric seam **run by `dspy.Evaluate`** over the golden devset (user override 2026-07-15; runner only — no optimizers/`dspy.LM`), via a `BaselineProgram(dspy.Module)` wrapping `BaselineRunner` (direct Messages API driving the clone's `query.md`). LLM-as-judge (pinned Opus, N-median, cached), deterministic citation integrity, hinged budget-relative cost-penalty scalar, golden-set bootstrap/freeze. Writes `metrics.jsonl` via `core.transaction` **on a clone** (never the live vault). `anthropic` + `dspy` isolated in the `evals` dep group (off the MCP launch path); LLM auth via env-only `ANTHROPIC_API_KEY`. *As-built modules: `llm` (LLMClient DI seam), `runner` (baseline query runner), `citations`+`scalar` (deterministic scoring), `cache`+`judge` (cached N-median LLM-as-judge; `ResponseCache` holds one compute lock per cache key so concurrent workers racing the same judge call block rather than double-compute), `scorer` (the `score` seam), `program` (BaselineProgram), `golden` (devset load/verify + bootstrap/freeze; public `entity_pages` seam), `config` (packaged defaults + `harness_version` fingerprint; `NUM_THREADS=4` default / `MAX_NUM_THREADS=8` cap for `dspy.Evaluate`'s per-question parallelism — `num_threads` deliberately excluded from the fingerprint, parallelism changes wall-time not the measurement), `harness` (`run_eval`, with `on_example`/`on_substage` progress callbacks feeding `core.loop_progress`; lock-guarded usage accounting under concurrent workers), `train_bootstrap` (Phase 3a: `bootstrap_trainset` — LLM-synthesized cold-start `qa.jsonl` records grounded in a topic's own entity pages, `source: seed_train`, one `VaultTransaction` commit, refuses golden collisions); `cli/eval.py` is the `knotica eval` entry, `cli/datasets.py` the `bootstrap-train`/`freeze` entry.* | core, `core.vcs.clone_to`, `evals` dep group (`anthropic`, `dspy`) | Built |
-| `src/knotica/evals/error_capture.py` | **Per-example eval error classification (new leaf, eval-error-visibility feature):** `classify_error(exc) -> (error_class, detail)` — `"rate_limit_429"` / `"parse_error"` / `"other"`, `detail` truncated to 200 chars (mirrors `loop_progress`'s existing `detail[:200]` convention). Also holds the `OnOutcome = Callable[[str, str, str, str], None]` callback type alias and the `ExampleOutcome` `TypedDict` shape (`{id, status, error_class, detail}`) both `harness.py` and `scorer.py` import. Pure, dependency-light, zero I/O; does not import `harness`/`scorer` (it is the shared leaf *they* import, so importing back would cycle) | `evals.judge.JudgeParseError` | Built |
-| `src/knotica/core/loop.py` + `loop_state.py` + `loop_heartbeat.py` + `loop_progress.py` + `loop_factory.py` + `loop_promote.py` + `loop_retry_backoff.py` + `loop_attempt.py` + `loop_cadence_config.py` + `arena.py` + `arena_resolve.py` + `candidate_gate.py` + `branch_namespaces.py` + `branch_scoreboard.py` + `branch_delete.py` + `best_effort.py` | **Autonomous self-improvement watcher (Phase 3a):** `LoopRunner.observe_default` evals new default-branch content on a clone (content-aware trigger — `.knotica/` state + `log.md` never re-trigger, `.knotica/prompts/` edits do; gated by `_observation_hold` — an active-ingest hold, staleness-bounded 600s, and an `observe_quiet_seconds` HEAD-stability debounce, watch mode only), merges the metrics commit home, and auto-freezes the first observation as the gate baseline; on a harness-version change (instrument rotation) the baseline unconditionally re-freezes rather than comparing across instruments. `LoopState.baseline_policy` (`"latest"` default / `"best"`) governs whether a winning observation also ratchets the baseline up; `set_baseline_policy`/`rebaseline(mode)` change/reset it without an eval; `mark_observed()` is the manual-reconciliation recovery escape hatch. `poll_once`/`_process_candidate` gates at most one pending `loop/c/*` candidate per tick; a regression triggers `_heal_prompts_after_regression` (arena prompt race; default-branch content is never reverted). `_ensure_union_log_merge` self-heals `log.md merge=union` into the vault's `.gitattributes` before every merge; `_prune_result_branches` deletes merged `loop/r/*` audit pointers beyond the newest 5 (unmerged ones kept). `loop_state.LoopState`/`LoopStage`/`LoopDecision` persist runner state via `VaultTransaction`; `loop_heartbeat` writes/reads runner liveness and `loop_progress` writes/reads in-flight eval progress, both as gitignored files under `.knotica/locks/` (not `VaultStore`, no git, no commits). `cli/loop.py` is the `knotica loop` entry (`--watch`/`--once`/`--set-baseline`/`--baseline-policy`/`--rebaseline`/`--mark-observed`/`--observe-quiet`/`--eval-threads`). **P-A consolidation (Built):** extracted `core/branch_namespaces.py` owns all five branch-prefix constants and classify/parse helpers (formerly scattered across `loop.py`, `source_ingest.py`, `source_gate.py`, `compile_promote.py`); extracted `core/best_effort.py` owns the shared failure-isolation context manager used by six previously-hand-written `try/except` sites across `loop.py` and `source_gate.py` for deterministic fallback behavior; **loop-py-extraction cohesion split (Built, partial td-008, dec-051):** three concern-named sibling modules extracted from `loop.py` — `core/arena_resolve.py` holds `run_arena_and_resolve(...)` (the shared arena race-and-resolve choreography, now a free function taking explicit params; `_heal_prompts_after_regression`/`_race_then_resolve` stay on `LoopRunner` and call it); `core/loop_factory.py` holds `build_loop_runner(...)` (the single construction factory, moved verbatim, re-exported from `loop.py` for all existing call sites); `core/candidate_gate.py` holds `poll_once`/`next_candidate`/`process_candidate`/`keep`/`discard` as free functions taking the `LoopRunner` as first param (the `source_gate.py` sibling pattern), with `LoopRunner.poll_once`/`_keep` kept as thin delegators. Extraction is behavior-preserving (characterization-tests-first). `loop.py` lands ~1087 lines — **still over the 800 ceiling; td-008 stays in-flight**; the deferred `observe_default` (397) + gap-classification (147) extraction is the named higher-risk follow-up (dec-048 reviewed code). **Component cell widened (td-032) to name the siblings this row already described in prose but did not claim by name**, plus the branch and pacing family that belongs to the same runtime and was named nowhere in §3: `arena.py` (the prompt-evolution arena — race `query.md` variants, promote the winner or revert) and `arena_resolve.py`; `branch_scoreboard.py` (the deterministic branch/variant scoreboard behind the dashboard compare + promote UX) and `branch_delete.py` (delete local compile result branches without wiping compile-state history); `loop_promote.py` (promote a loop eval result branch onto the default branch); `loop_retry_backoff.py` (how long a *failed* observation eval waits before re-attempt — reads the error's own `retryable` contract, `dec-068`); `loop_attempt.py` (**observation-attempt identity** — whether an attempt records anything *new*, so a failing eval stops charging the vault a pair of commits per re-attempt. Two attempts are materially identical when they evaluated the same content, compared by content equality rather than sha equality because the loop's own bookkeeping commits move HEAD between attempts, *and* every `LoopState` field outside an explicit volatile-timestamp set is equal. That second rule is a **deny-list, not an allow-list**: a field added to `LoopState` later participates automatically, because an identity that is too narrow costs a redundant commit while one that is too broad silently swallows a *new* failure. Pacing — `loop_retry_backoff.py` above — bounds how *often* a no-information write happens; only identity stops it happening at all, and the two now depend on each other); and `loop_cadence_config.py` (the `[loop]` min-interval / quiet-window / thread-count table, `dec-048`). `baseline_probe.py` is deliberately **not** claimed here: it persists a fixed `0.0` cold-start scalar so the dashboard chart has a floor, takes no part in the gate decision, and its surface consumer is MCP — "baseline" names the value it writes, not the loop concern it serves. | core (`vcs`, `transaction`, `ingest_activity`, `config`, `prompts`, `metrics`), `evals.harness.run_eval` (lazy) | Built |
-| `src/knotica/discovery/` | **Gap-fill source discovery (Phase P2, built):** pure outbound-network boundary — reads/writes no vault, holds no state; inward edges are `core.errors` and, in `config.py` alone, `core.config`. `SearchProvider` protocol + `httpx`-REST adapter (`YouComProvider` bearer auth, sole MVP adapter; Exa cut by user directive) originates frozen `SourceCandidate` records; a separate provider-agnostic `OpenAlexEnricher` (keyless polite-pool REST, batched `filter=doi:…` ≤50/call) stamps `citation_count`/`venue`/`is_open_access`/`fwci`; a deterministic metadata-only `ReputabilityScorer` (packaged `DEFAULT_TIER_TABLE` + vault-override seam) assigns a `ReputabilityTier` + `[0,1]` score; `DiscoveryService` composes search→dedup→enrich→score→rank into a total order `(tier,-score,url)`. `normalize.py` is the package's identity leaf (`normalize_doi`/`normalize_url`/`source_key`): the single declaration of *when two candidates are the same source* — DOI when present, URL otherwise. It exists because that one rule answers three questions in three places (the service's dedup key, the enricher's join key, and the P3 suggestion queue's dedup) and those three previously agreed by hand: `_normalize_doi` was implemented twice byte-identically, and `core/gapfill.py` imported the two private normalizers across the package boundary to keep its dedup from drifting (td-040 follow-on). Zero `knotica` imports, so it adds no inward edge of its own, and `core.gapfill` reaches it under the same lazy-import rule as the rest of `discovery`. Protocol remains pluggable for future adapters. No LLM anywhere. Off the MCP cold-start path (import-boundary fitness test extended: `mcp_server ⊬ discovery`; `httpx` lazy-imported — no new dependency, httpx already transitive via `mcp`). Env-only key `KNOTICA_YOUCOM_API_KEY` (you.com wire shape NOT live-verified — Step 31 deferred; config accepts both `youcom` and `exa` for future pluggability), fail-before-network, never logged (mirrors `evals/llm.py`). Consumed by the P3 suggestion queue via `SourceCandidate.to_record()`/`from_record()` (dec-027, dec-026) | `core.errors`, `httpx` (transitive) | Built |
-| `src/knotica/core/gap_classifier.py` + `records.GapRecord` | **P1 four-way fault classifier (Phase 3a, gap-fill spine):** at the `observe_default` regression hook (wired between the `regressed` decision and `_heal_prompts_after_regression`, via the lazily-imported `LoopRunner._maybe_redirect_to_gaps`), reads the dec-023 v2 manifest on `outcome.clone_root` (`held_out_delta` per-id score/trace diffs) + the golden set (`QARecord.pages_used`) + a live clone page-existence check, and classifies each regressed golden id via an ordered first-match cascade into `genuine_gap` / `dilution` (knowledge-cause) / `generation_fault` / `retrieval_fault` (prompt/neutral). Knowledge-cause verdicts persist as `GapRecord`s (`schema_version 1`) to `<topic>/.knotica/gaps/gaps.jsonl` on every route (own `VaultTransaction`, `open`-dedup on `(qa_id, fault_class)`, observe-safe `.knotica/` path); the route only decides the heal: prompt/neutral/ambiguous/exception/mixed → existing arena heal (unchanged), all-knowledge-cause → skip the futile heal. Gap records have three origins: `measured` (loop regression classifier), `reported` (client-as-brain via `gap_report` MCP tool), and `retracted` (guillotine verdicts). Deterministic classifier, no LLM, fingerprint-neutral (not part of the harness); core-only top-level imports, imported **lazily** by the loop (mirrors the `run_eval` lazy import). Gap queue is the committed P1→P3 hand-forward contract. | core (`records`, `page`, `transaction`), `evals.golden.load` (lazy, `QARecord`-only — no `dspy`) | Built |
-| `src/knotica/core/gapfill.py` + `records.SuggestionRecord` + `mcp_server/tools_suggestions.py` + `cli/gapfill.py` | **P3 suggestion queue + approval surface (gap-fill spine, built):** joins open `genuine_gap` `GapRecord`s (P1) to ranked `SourceCandidate`s (P2) as `schema_version 1` `SuggestionRecord`s (candidate embedded as an **opaque dict** so `core/records.py` keeps no edge into `discovery/`) persisted to a **committed** `<topic>/.knotica/suggestions/suggestions.jsonl` (own `VaultTransaction`, observe-safe, `(gap_id, source_key)`-dedup). `core/gapfill.py` is the sole `discovery`-touching module (all `discovery` imports lazy) — holds `formulate_query` (deterministic, `text=gap.question`, no LLM), `build_default_discovery_service` (the config→service factory P2 left unbuilt; `None` on missing key), `refresh_suggestions_for_gaps` (the drain), `apply_decision` (approve/reject/defer/mark_ingested, discovery-free). Triggers: **on-demand** `knotica gapfill discover` (primary) + **opt-in** loop-side batch (`[gapfill] discover_on_regression`, default off, failure-isolated, `max_gaps`-capped). MCP surfaces (`suggestions_read`, `suggestions_review` dry-run|apply) + a `wiki_status.suggestions` per-topic count block (incl. `approved_awaiting_ingest`) are **discovery-free** (safe on cold-start path). Lifecycle `pending → approved|rejected|deferred` (P3) → `ingested` via `mark_ingested` (P4). No LLM anywhere; no ingest-protocol change (dec-014 untouched). | core (`records`, `transaction`, `page`), `discovery.DiscoveryService` (lazy), `evals`/loop for the demo path | Built |
-| `src/knotica/core/source_gate.py` + `source_ingest.py` + `records.SuggestionRecord.gate_outcome` + `mcp_server/tools_source_ingest.py` + `core/operations/candidate_scope.py` + page-subset filter on `evals/train_bootstrap.py`+`evals/golden.py` | **P4 source-candidate gate (gap-fill spine, Built):** the interactive client ingests an approved source onto a `loop/c/<topic>/source-<id8>` branch through a server-managed **git worktree keyed by suggestion_id** (default working tree untouched; per-call flock; one commit per write); the loop's existing clone→eval→gate merges a gap-closing source (auto `mark_ingested` + page-subset trainset upgrade over git-derived merged pages) or **quarantines** a dilutive one (`loop/x/*`, bounded per-question diff, additive `gate_outcome`, never arena). `candidate_kind` is a branch-name convention (no persisted field). Contamination guard: held-out golden candidates client-synthesized from the source **before** ingest, disjoint from `qa.jsonl`, human-gated freeze. Ingest path LLM-free (dec-014); post-merge grower uses the headless-loop LLM. New modules `source_ingest.py`, `source_gate.py`, `tools_source_ingest.py` isolate new logic to avoid worsening `loop.py`/`records.py` ceilings (td-008/009, user-deferred). ADRs `dec-037`/`3b1145b5`/`97c5122a` | core (`vcs` worktree seam, `transaction`, `loop`, `records`, `gapfill`), `evals` (headless grower), interface `dec-034`/`64b4196f` | Built |
-| `src/knotica/okf/` | **Native OKF conformance — Knotica as an OKF-compatible superset (Built; first modeled in §3 by td-032).** One shared format model plus three verbs over it. The model: `constants.py` (reserved filenames, the OKF-recommended field set, the Knotica extension fields a native vault preserves, path→type hints), `slug.py` (GitHub-like heading slugs — the wikilink→Markdown-anchor bridge), `datetime_fmt.py` (RFC 3339 normalization, the transportability rule), `frontmatter.py` (concept-file detection, field inference, normalization, `render_concept_document`), `links.py` (one `InternalLink` representation spanning wikilinks *and* Markdown links, plus export-time rewriting), `index.py` (the vault index resolution and export walk), `log_fmt.py` (the native date-grouped `log.md` shape `SCHEMA.md` §3 freezes, parsing both it and the legacy Knotica entry form). The verbs: `check.py` — read-only conformance findings; `export.py` — a self-contained bundle written **outside** the vault; `repair.py` — the only module here that mutates the live vault, and it does so through `core.transaction.VaultTransaction`, never `store.write_*` and never a `git add`/`git commit` of its own. **That last point is regression history, not theory.** `repair.py` once wrote pages and its own report raw and shelled out to git outside the transaction (td-020); it now routes both through the transaction, and `okf/` is consequently the one **non-adapter** package inside `RAW_WRITE_PACKAGES` in `tests/test_architecture_boundaries.py` — the scan is what keeps it there. `okf/export.py` is module-allowlisted in that same scan because its target is a bundle directory outside the vault, not vault content. **Modeled as one component, not several:** the three verbs are three entry points over one format vocabulary and change together (an OKF field-set change touches `check`, `export`, and `repair` in the same edit), and both `export` and `repair` import `check`. Surfaces: `cli/okf.py` (`knotica okf check\|export\|repair`) and the `vault_health` dispatcher's `okf_check`/`okf_repair` actions. | store, core (`page`, `links`, `records`, `errors`, `transaction`, `vcs`) | Built |
-| `src/knotica/guillotine/` | **Memory Guillotine — claim-level retraction, demotion, and evidence audit (Built; first modeled in §3 by td-032).** A **read-only** pipeline that tries one claim against the vault's own text and returns a verdict plus the evidence for it. `search.py` finds candidate mentions lexically and extracts context windows, excluding dot-folders and — via `paths.is_guillotine_report_path` — its own `<topic>/reports/guillotine/` output, so a prior trial's report can never become evidence for the next; `classify.py` deterministically assigns each passage a `PassageRole` (`ASSERTS`/`QUALIFIES`/`CONTRADICTS`/`REFUTES`/`QUOTES`/`MENTIONS`) with modality and strength; `score.py` builds the evidence graph and recommends a `Verdict` against published thresholds; `patch.py` localizes the contested passage and renders a unified diff; `report.py` renders the Markdown/JSON artifacts and the CLI summary; `runner.run_guillotine` composes the first four into the analysis result; `report.py` is called by the adapters (`cli/guillotine.py` for the CLI summary, `core/operations/guillotine.py` for the committed artifacts), not by the runner — rendering is a presentation concern, and keeping it out of the runner is what lets the same result be shown, serialized, or committed without re-analysis. `models.py`/`paths.py` are the leaves. **It never rewrites page prose** — a weakening verdict localizes the contested synthesized passage and marks it for mechanical removal, rendered as strikethrough evidence in the report and a deletion in the `.diff`; the diff is evidence display for human review and is never applied. Re-grounding of a weakened claim flows through the retracted-gap → discovery → approved-ingest path, where the client-as-brain authors grounded prose. **Persistence lives outside this package, which is what keeps it inward-arrow-clean:** `core/operations/guillotine.py` owns the `VaultTransaction` (report + diff + JSON + the root catalog bullet in one commit) and the separate retracted-gap filing transaction, so `guillotine/` stays a pure analysis layer. **The one exception this row used to record is gone, and how it went is the point:** `report.py::write_artifacts` called `store.write_text_atomic` three times outside any transaction — a pre-transaction path the `core.operations` route had replaced — and it sat outside every fitness scan, because the mutating-store-method check was scoped to a package name-list (`cli`/`mcp_server`/`evals`) and the raw-write check reasons about `Path.write_text`, not store methods. It had **zero callers**, so td-036 deleted it rather than routing it, and widened the scan from that name-list to the literal rule this section states: `write_text_atomic`/`delete` are callable only from `core/transaction.py`, checked codebase-wide, with `store/` excluded because it *implements* the primitive. The unguarded counter-example and the blind spot that hid it were closed in the same commit. | store, `core.page`, `okf.frontmatter` (the single `guillotine → okf` edge, in `report.py`) | Built |
-| `src/knotica/service/` | **Loop-watcher OS-service lifecycle (Built, plus 2 unit templates; first modeled in §3 by td-032).** Install / uninstall / status / supervise for the headless loop, so the user starts no auxiliary process by hand. `manager.py` puts two platform generators behind one interface — **launchd** (a LaunchAgent under `~/Library/LaunchAgents` with `RunAtLoad`+`KeepAlive`; the live-verified target) and **systemd `--user`** (a unit under `~/.config/systemd/user`; code-complete but **untested**, and it says so through `status().verified` so surfaces can warn rather than imply parity) — with an injectable `Runner` seam over the `launchctl`/`systemctl` calls so the OS interaction is testable without touching the machine. `__main__.py` is the daemon the installed unit runs (`python -m knotica.service`): it loads every `KEY=VALUE` in `~/.config/knotica/.env` into the process environment **for keys not already set** (launchd/systemd start a near-empty environment and the eval credential is env-only by contract, so a real exported variable always wins, the secret never lands in a world-readable unit file, and values are never logged), then hands to `supervise`. **Design contract — one supervised process iterating all configured topics:** `resolve_watched_topics` re-reads `config.toml` on *every* supervision cycle rather than baking a topic set into the unit file at install time, so a topic added after install is picked up on the next cycle with no reinstall. Loop semantics are unchanged — the daemon is the same headless watcher, on a clone, flock-guarded, one commit per mutating op — and liveness reuses the existing heartbeat convention rather than inventing a second one. **Relative to the inward-arrow rule:** this is the only package that writes to OS-owned locations outside the vault (unit files, `~/.config/knotica/`) and the only one that shells out to a non-git external system; its adapter `cli/service.py` carries a named `SHELL_OUT_EXEMPT` entry for importing `subprocess` solely to type-check the `CalledProcessError` those calls can raise. Neither reaches `core.lock`, `store.write_*`, or the mutating `VaultVcs` surface. | store, core (`config`, `errors`, `lint`, `loop_heartbeat`); `core.loop`/`loop_state`/`gapfill_config` imported **lazily** inside the supervision cycle, so installing or querying the service never drags the loop runtime | Built |
-| Dashboard: `dashboard/` (repo root) + `src/knotica/dashboard/` | **Single-file Preact MCP client plus its packaging seam (Built; the `src/` half first modeled in §3 by td-032).** The client is the repo-root TypeScript/Preact tree (`dashboard/src/` — `AskPane`, `DatasetsPane`, `LoopPane`, `ArenaPane`, `SourcesPane`, `NotesPane`, `IngestPane`, `VaultPane`, plus the compile/scoreboard/promote/delete panels and `PromptDiff`), built to one self-contained `index.html`. `src/knotica/dashboard/__init__.py` is the 24-line loader that resolves that artifact: wheel-packaged `knotica/dashboard/app.html` first, repo-root `dashboard/dist/index.html` as an author-time fallback, and a `FileNotFoundError` naming the build command when neither exists. **That loader is a packaging seam, not a component of its own** — the reason it is modeled here as part of the Dashboard rather than as a row for `src/knotica/dashboard/` alone is that its whole purpose is to let one built artifact serve both mounts and to spare an installed user a Node toolchain. **The two mounts stay with `mcp_server/` and are deliberately not claimed by this row:** `app_ui.py` (the `ui://knotica/dashboard` MCP-App resource behind `open_dashboard`) and `http_app.py` (the CORS-enabled browser mount behind `knotica mcp --http`) are MCP adapters, and both import `dashboard_html` — the dependency runs that way and never the reverse. Dynamic data is fetched over MCP only; the HTTP mount serves the document, never the data. The TypeScript tree is invisible to `tests/test_file_size_ratchet.py`, which scans `src/knotica` and `tests/` only (td-026). | stdlib (`importlib.resources`) for the loader; the client depends on the MCP tool surface at runtime, not at import time | Built |
-| Plugin layer (repo root) | `.claude-plugin/plugin.json`+`marketplace.json`, `.mcp.json` (`uvx --from ${CLAUDE_PLUGIN_ROOT} knotica mcp`), `commands/*.md` (11 `/knotica:*` aliases incl. `/knotica:loop` and, new for notes-overlay Phase 1, `/knotica:note` — agent-guided, infers topic/quote/pages from the conversation, never protocol-delegating since the capture's most valuable inputs exist only in-conversation), `hooks/` (non-blocking SessionStart pre-warm + nudges), `skills/wiki-maintenance/` (Phase 1 addition: a "Notes: the user's own layer" section teaching the note-vs-gap-vs-source routing axis, restricted to the `list`/`read` actions this phase ships) | `knotica mcp` entry | Built |
+| **Single-mutation vault write path** | flock → buffer + secret-scrub at declaration → atomic per-path write → append `log.md` → one path-scoped git commit. A no-op transaction makes **zero** commits. `work_dir=` redirects commit/rollback to a git worktree while still taking the flock against the canonical root — the mechanism behind source-ingest candidates. `dec-008`, `dec-046` | `store/`, `core/`, `core/operations/` | Built |
+| **Autonomous loop lifecycle** | observe → gate → heal, per topic, on a clone. Baseline policy, instrument re-freeze, four observation guards, candidate gating, arena prompt-healing. `dec-043`, `dec-048`, `dec-068`, `dec-072` | `core/`, `evals/`, `cli/`, `service/` | Built |
+| **MCP tool surface** | Two-tier topology: 23 flat conversational tools carry the high-density verbs; 9 action-parameterized dispatchers route the operator long tail. `dec-041`, `dec-045`, `dec-050` | `mcp_server/` | Built |
+| **Query compile & promote** | Curated trainset → MIPROv2 compile on a clone → `compile/*` branch → human review → promote. `query_engine` is the one answer path shared by the MCP `query` tool, the dashboard Ask pane, and the arena. `dec-021`, `dec-022`, `dec-049` | `programs/`, `core/`, `mcp_server/`, Dashboard | Built |
+| **Gap-fill spine** | P1 diagnose (fault classifier) → P2 discover (ranked candidates) → P3 approve (suggestion queue) → P4 gated ingest (candidate branch, merge or quarantine). `dec-024`, `dec-025`, `dec-029`, `dec-030`, `dec-036`, `dec-037`, `dec-038` | `core/`, `discovery/`, `mcp_server/`, `cli/`, `evals/` | Built |
+| **Notes overlay** | capture → resolve → recall → correct → promote. Personal marginalia outside the scored corpus, anchored to KB prose by quote + commit, re-resolved on every read. `dec-056`, `dec-057`, `dec-058`, `dec-060`, `dec-061`, `dec-066` | `core/notes/`, `core/operations/`, `mcp_server/`, Dashboard, Plugin layer | Built |
 
-**Package inventory (gate-checked).** Every package under `src/knotica/`, with the number of modules
-it holds — `__init__.py` counted, which is the convention the `okf/`, `guillotine/`, and `service/`
-rows above already used. This table is the **single site** for those counts: no row above restates a
-number, because a count published twice is a count that drifts once.
+### Package inventory (gate-checked)
 
-`scripts/check_architecture_coverage.py` compares every row against the tree on each `make verify`,
-and fails when a package is missing, unknown, or miscounted. That is what makes the rows above safe to
-read as a *residual* rather than an enumeration — a module arriving inside one is not described here,
-but it can no longer arrive **unnoticed**, which is the failure that produced td-038. What the gate
-does not prove is that a counted module is *described*; that remains a matter for review.
+Every package under `src/knotica/` with its module count, `__init__.py` included. This is the **single
+site** for those counts — a count published twice is a count that drifts once, so no row above restates
+one (`dec-073`). `scripts/check_architecture_coverage.py` runs on every `make verify` and fails when a
+package's count drifts from the tree, when a package has no row here, when a row names a package that
+does not exist, or when any `src/knotica/...` path cited in either architecture document stops
+resolving on disk.
+
+The table is a superset of § 3a: `src/knotica/` itself is a package (one `__init__.py`) and needs a row
+for the gate, but it is not a component and owns no responsibility. The gate proves every module is
+*accounted for*, never that it is *described* — that remains a matter for review.
 
 | Package | Modules |
 |---|---|
@@ -105,466 +131,268 @@ does not prove is that a counted module is *described*; that remains a matter fo
 | `src/knotica/service/` | 3 |
 | `src/knotica/store/` | 2 |
 
-**Dependency rule (fitness-checkable):** arrows point inward toward `store/`. `mcp_server/` and `cli/` may import
-`core/` but must **not** import git bindings/subprocess-git or call `store.write_*` directly — the *only*
-writer of the vault is `core.transaction`. An import-boundary test enforces this.
+<!-- aac:end -->
 
-**Where the non-`core` domain layers sit relative to that rule** (`okf/`, `guillotine/`, `service/`, `discovery/`,
-`dashboard/` — none of them adapters, so none of them bound by the adapter clauses):
+### 3c. Two `core/` leaves worth the words
+
+Kept outside the generated fence above deliberately: this is authored narrative, and a `likec4 gen` over
+that region would erase it. Both leaves exist because a consolidated declaration beats a correct copy,
+and both have already been re-derived by hand once:
+
+- **`topics.py`** — topic *identity* against the store: `is_topic`, `require_topic`, and the one vault-root
+  walk every "which topics are there?" caller shares. A wrapper around a consolidated predicate is still a
+  copy of the policy, which is how three modules ended up holding their own topic walk and one of them
+  drifted onto an inline re-implementation (td-040). Its pure, store-free counterpart for *path*
+  classification is `vault_layout.py`.
+- **`jsonl.py`** — lenient JSONL reading for the append-only logs whose value is the rows that *do* parse,
+  so a truncated final line from a crashed append cannot take down a whole-file read. Callers needing
+  strict parsing raise their own typed error and deliberately abstain.
+
+### 3d. Layer positions and the dependency rule
+
+**Dependency rule (fitness-checked):** arrows point inward toward `store/`. The *only* writer of the
+vault is `core.transaction`. `tests/test_architecture_boundaries.py` enforces this across three distinct
+scopes — see § 7, which states each invariant next to the check that holds it.
 
 | Layer | Position | Vault mutation |
 |---|---|---|
-| `okf/` | Domain layer over `core`; its own adapters are `cli/okf.py` + the `vault_health` dispatcher | **Yes**, and only through `core.transaction` (`repair.py`). Enforced by membership in `RAW_WRITE_PACKAGES` — the one non-adapter package in that scan, added after td-020 |
-| `guillotine/` | Pure read-only analysis layer; its transaction-bearing adapter is `core/operations/guillotine.py` | **No** by design, and now enforced rather than asserted: the sole-writer scan runs codebase-wide since td-036, so this layer has no unguarded counter-example left |
-| `service/` | OS-lifecycle layer *beside* the spine, not above it; imports the loop lazily | **No** vault writes at all. Writes unit files and `~/.config/knotica/` — OS-owned locations outside the vault — and shells out to `launchctl`/`systemctl`, never git |
-| `discovery/` | Pure outbound-network boundary; single inward edge to `core.errors` | **No**. Enforced by the `mcp_server ⊬ discovery` import-boundary test |
-| `dashboard/` | Leaf artifact + loader; the `mcp_server` mounts depend on it, never the reverse | **No**. Reads a packaged file; all dynamic data arrives over MCP |
+| `okf/` | Domain layer over `core`; adapters are `cli/okf.py` + the `vault_health` dispatcher | **Yes**, only through `core.transaction` (`repair.py`). The one non-adapter member of `RAW_WRITE_PACKAGES` |
+| `guillotine/` | Pure read-only analysis; its transaction-bearing adapter is `core/operations/guillotine.py` | **No** |
+| `service/` | OS-lifecycle layer *beside* the spine; imports the loop lazily | **No**. Writes an OS unit file and a log directory; shells out to `launchctl`/`systemctl`, never git |
+| `discovery/` | Pure outbound-network boundary; inward edges are `core.errors` and, in `config.py` alone, `core.config` | **No** |
+| `dashboard/` | Leaf artifact + loader; the `mcp_server` mounts depend on it, never the reverse | **No** |
 
-The one cross-domain edge among them is `guillotine.report → okf.frontmatter` (`normalize_concept_frontmatter`),
-which is one-directional and acyclic: `okf/` does not import `guillotine/`.
-
-<!-- aac:authored owner=doc-engineer -->
-
-## 3c. P-B Tool-Surface Dispatcher Architecture (Built)
-
-**P-B consolidates the 49-tool flat MCP surface into a two-tier dispatcher-based architecture without changing operational semantics.** All 26 replaced tools remain callable via additive aliases for one release cycle; the dispatcher modules are import-cycle-free and tied to `dispatch_telemetry` for observability.
-
-**Dispatcher Modules (7 new):**
-
-1. `tools_dispatch_loop.py` — routes `action ∈ {run_once, set_baseline, baseline_policy, rebaseline}` to `tools_vault.py` loop-payload helpers
-2. `tools_dispatch_branches.py` — routes `action ∈ {scoreboard, promote_loop, promote, delete}` to `tools_scoreboard.py`
-3. `tools_dispatch_compile.py` — routes `action ∈ {run, status, promote}` to `tools_compile.py`
-4. `tools_dispatch_datasets.py` — routes `action ∈ {inventory, records, bootstrap, bootstrap_train, freeze}` to `tools_datasets.py`
-5. `tools_dispatch_arena.py` — routes `action ∈ {status, history}` to `tools_arena.py`
-6. `tools_dispatch_golden.py` — routes `action ∈ {load, save}` to `tools_golden.py`
-7. `tools_dispatch_vault_health.py` — routes `action ∈ {doctor, repair, okf_check, okf_repair, lint, metadata_tree}` to `tools_vault.py` health-payload helpers
-
-Each dispatcher validates its `action` enum and returns `INVALID_ARGUMENT` for unrecognized values. Mutating actions accept optional `mode=dry-run|apply`. Every dispatcher is registered into `build_server()` alongside (not instead of) the thin tools, enabling the one-release-cycle alias migration.
-
-**Migration Telemetry:**
-
-`dispatch_telemetry.DEPRECATED_ALIASES` is the single source of truth for the 26 alias mappings. Each dispatcher invocation logs `{tool, action, topic}` to `dispatch_telemetry` for post-migration measurement of per-domain selection ambiguity (enabling a future decision to revert one dispatcher back to flat tools without touching the others).
-
-**New Error Code — `INVALID_ARGUMENT`:**
-
-Distinct from `INVALID_CURSOR` (cursor format errors), `INVALID_ARGUMENT` signals argument-validation failures: unrecognized `action` enum values, missing required arguments, out-of-range scalars, etc. All dispatchers and mutating tools validate inputs before execution and return this envelope (not a raw exception) on failure.
-
-**New `wiki_status(view="scope")`:**
-
-A new parameter-value pair enables cheap routing-scope checks without eval or compile snapshots. Returns `{schema_version, vault_name, topics[], totals}` — deterministic, vault-path-read only. Used by P-C client-side routing to decide whether a detected wiki-relevant conversation should route to a dispatcher or stay in natural chat.
-
-**Migration Window:**
-
-For one release cycle, 26 deprecated tools remain registered with a deprecation note in their `description` field. The original thin-tool modules (`tools_scoreboard.py`, `tools_compile.py`, etc.) continue to export their tools; the dispatchers are additive. Clients calling via the old tool names are logged and work unchanged; new code should call via dispatchers.
-
-**P-B Rationale & Decisions (dec-040, dec-041):**
-
-- **Action routing:** consolidates domain-related actions into a single entry point per domain, reducing surface cognitive load and enabling structured input validation at the action enum level
-- **Additive aliases:** one-release-cycle migration window preserves backward compatibility; no forced client update
-- **Telemetry:** logs enable measurement of whether the consolidation succeeded (low mis-selection rate) or whether one domain should revert to flat tools
-- **Immutable semantics:** no operation behavior changes; every dispatcher action is 1:1 with a replaced tool
-
-<!-- aac:end -->
+The one cross-domain edge among them is `guillotine.report → okf.frontmatter`, one-directional and
+acyclic. Two `mcp_server` modules carry an `mcp_server → evals` edge at import time: `tools_dispatch_vault.py`
+(`evals.llm` credential-name constants) and `tools_datasets.py` (`evals.config.WORKER_SNAPSHOT` and two
+`evals.golden` error types). Both stay off the heavy tree: importing the server loads most of `evals/`, but no `anthropic`, `dspy`,
+or `litellm` — every one of those is behind a lazy import, which is what keeps the extra off the launch
+path.
 
 ## 4. Interfaces
 
-<!-- Implementer-owned: concrete signatures fill in during Phase 1. Behavioral contracts below. -->
-Tool/prompt contracts are specified at the behavioral level in `.ai-work/wiki-mvp-core/SYSTEMS_PLAN.md`
-§ Interfaces; JSON-schemas + wording are owned by the interface-designer (`INTERFACE_DESIGN.md`).
-Mutating tools (`write_page`, `store_source`, `create_topic`, `curate_example`) → one commit each via
-`core.operations`; read tools (`read_page`, `search`, `list_links`/`backlinks`, `lint_check`) → no commit.
-Every tool/prompt honors the `unconfigured` contract (structured result, not an exception).
+### MCP tool surface
 
-**Eval harness (Phase 2, as-built `src/knotica/evals/`):**
+**33 tools**: 23 flat conversational tools, 9 operator dispatchers, and `open_dashboard`. Every tool
+resolves config per call through `mcp_server/vault_ctx.py` and returns a structured envelope, never a
+transport exception (`dec-001`). Mutating dispatcher actions accept `mode=dry-run|apply`.
 
-- `VaultVcs.clone_to(dest_root: str | PurePath, ref: str | None = None) -> VaultVcs` — clone the source
-  vault (optionally at `ref`) into a throwaway tree; the frozen-corpus mechanism (a read/checkout method,
-  never a mutation, so `evals/` may call it directly).
-- `LLMClient.complete(*, snapshot, system, messages, temperature=0.0, max_tokens) -> Completion` — the one
-  network seam (a Protocol); `AnthropicClient` (real; env-only credential, OAuth-first: `CLAUDE_CODE_OAUTH_TOKEN`
-  preferred, noisy fallback to the metered `ANTHROPIC_API_KEY` — user override 2026-07-16) and `FakeLLMClient`
-  (zero-network) implement it.
-- `BaselineProgram(store, topic, runner)` with `forward(question: str) -> dspy.Prediction` — the
-  `dspy.Module` the metric runs over; calls `runner.run` only (no `dspy.LM`, so `dspy.settings.lm` stays unset).
-- `build_metric(...)` → the closed-over `score(gold, prediction, trace=None) -> float | bool` — the
-  triple-consumer seam: the bounded per-example quality float when `trace is None`, the bool
-  `quality >= threshold` when `trace` is set (`dspy.Evaluate`'s 2-arg metric convention).
-- `run_eval(topic, *, source_root=None, ref=None, llm_client=None, config=DEFAULT_CONFIG, ...) -> EvalRunResult`
-  — the orchestrator: clone → `golden.load` → `dspy.Evaluate` → compose scalar → one `VaultTransaction` on
-  the clone (source vault byte-identical). Returns the appended `MetricsRecord` plus the `clone_root` it
-  committed to, so the clone-relative `artifact_ref` resolves and the eval commit is reviewable.
-- `golden.load(store, topic) -> list[QARecord]` (read + `MANIFEST.json` verify) /
-  `bootstrap(store, topic, llm_client, snapshot) -> list[dict]` (stage candidates, no commit) /
-  `freeze(store, vault_root, topic, accepted) -> FreezeResult` (one commit) — the golden-set read + write sides.
-- `harness_version(judge_prompt_hash, config=DEFAULT_CONFIG) -> str` — the instrument fingerprint recorded
-  per run so two scalars from different instruments are never silently compared.
+| Dispatcher | Actions |
+|---|---|
+| `loop` | `run_once` \| `run_eval` \| `set_baseline` \| `baseline_policy` \| `rebaseline` \| `cadence` |
+| `branches` | `scoreboard` \| `promote_loop` \| `promote` \| `delete` |
+| `compile` | `run` \| `status` \| `promote` |
+| `datasets` | `inventory` \| `records` \| `bootstrap` \| `bootstrap_train` \| `freeze` |
+| `arena` | `status` \| `history` |
+| `golden` | `load` \| `save` |
+| `notes` | `list` \| `read` \| `drift` \| `reanchor` \| `detach` \| `promote` \| `archive` |
+| `vault` | `list` \| `status` \| `use` \| `add` \| `create` |
+| `vault_health` | `doctor` \| `repair` \| `okf_check` \| `okf_repair` \| `lint` \| `metadata_tree` |
 
-**Diagnostic manifest schema v2 (Phase 3a gap-fill P0 — built, dec-023):**
-The per-run manifest (`<topic>/.knotica/eval-runs/gen-<N>/manifest.json`, the `artifact_ref` target) is
-the diagnostic substrate the P1 four-way fault classifier reads. Additive over the current shape, it
-self-versions via `manifest_schema_version` (the read-time capability probe; today's unversioned shape
-is implicit v1) and adds: `per_example[].id` (the stable `QARecord.id`, an edit-stable join key mapped
-onto the `dspy.Example` in `golden.to_example`); `per_example[].pages` (the ordered top-K retrieval
-trace as `pages_used`-form page names, carried through a new `Prediction.pages` field, forwarded in
-`BaselineProgram.forward`); and a populated `held_out_delta` object (scalar delta + per-id score/trace
-deltas + `ids_added`/`ids_removed`, keyed on stable id, prior generation discovered via the prior
-`MetricsRecord.artifact_ref`; `null`-never-`0` when no comparable prior exists). Retrieval *scores* are
-excluded (rank-order only) to stay stable across the Phase-5 vector-backend swap. The change touches no
-scalar, no `harness_version` fingerprint input, and no dec-006-frozen record — so it triggers no
-baseline re-freeze. Re-affirms dec-006 (version machine-readable records) by extending that discipline
-to the previously-unversioned manifest rather than modifying a frozen record.
+The 23 flat tools, by module: `tools_read.py` — `list_topics`, `read_page`, `search`, `list_links`,
+`lint_check`; `tools_write.py` — `write_page`, `store_source`, `create_topic`, `curate_example`;
+`tools_status.py` — `wiki_status`, `metrics_read`, `baseline_probe`; `tools_suggestions.py` —
+`suggestions_read`, `suggestions_review`, `gap_report`; `tools_source_ingest.py` —
+`source_ingest_open`, `source_ingest_submit`; `tools_ingest.py` — `ingest_progress`,
+`ingest_activity_read`; `tools_query.py` — `query`; `tools_notes.py` — `note_capture`;
+`tools_prompt_diff.py` — `prompt_diff`; `tools_guide.py` — `read_protocol`.
 
-`knotica eval --topic <t>` (metrics) / `--bootstrap` (stage candidates for review) is the CLI entry
-(`cli/eval.py`); it resolves config and delegates, renders the `MetricsRecord` or the staging handoff
-(table or `--json`), and never mutates the vault itself.
+Also registered: 4 resources (`knotica://schema/root`, `knotica://schema/topic/{topic}`,
+`knotica://schema/resolved/{topic}`, `knotica://index`) plus the `ui://knotica/dashboard` MCP-App
+resource, and 4 prompts (`ingest`, `query`, `lint`, `curate`) with static names and lazily-resolved
+bodies (`dec-010`).
 
-**Loop + cold-start (Phase 3a, as-built `src/knotica/core/loop*.py` + `evals/train_bootstrap.py`):**
+**Error grammar.** `core/errors.py` holds the shared `ErrorCode` enum, `RETRYABLE_CODES`, and the
+envelope constructors every surface returns through. `INVALID_ARGUMENT` signals argument-validation
+failure (bad `action`, `mode`, enum, or range) and is distinct from `INVALID_CURSOR` (`dec-040`).
+Every dispatcher validates its action against its own `_ACTIONS` tuple before doing any work.
 
-- `run_eval(..., on_example: Callable[[int, int, str], None] | None, on_substage: Callable[[str, int, int], None] | None) -> EvalRunResult`
-  — the progress seams the watcher wires to `core.loop_progress.write_progress` so an in-flight
-  observation reports per-question ("7/25") and per-substage ("judging") progress.
-- `evals.error_capture.OnOutcome = Callable[[id: str, status: str, error_class: str, detail: str], None]`
-  (eval-error-visibility feature) — a third progress-seam callback, threaded through `run_eval` /
-  `build_metric` alongside `on_example`/`on_substage`. Fired once per golden example: the runner on a
-  caught exception (`"error"`, classified via `error_capture.classify_error`), the scorer on success
-  (`"ok"`) or a judge parse failure (`"error"`, `"parse_error"`). Feeds the accumulating `examples` list
-  on `core.loop_progress.write_progress`/`read_progress` and, from there, `wiki_status`'s
-  `loop.progress.examples`.
-- `core.loop.harness_evaluate`'s aggregation closure — the single writer for the `examples` list:
-  one `threading.Lock` guards an in-memory `outcomes: list[dict]` plus every progress write
-  (`_on_example`, `_on_substage`, `_on_outcome`), so the read-append-write triple is one atomic unit
-  across dspy's concurrent scoring threads. Every write composes the full snapshot (phase/current/
-  total/detail/substage + a `list(outcomes)` copy taken under the same lock) — a heartbeat fired after
-  outcomes are already recorded still carries them, not just its own triggering event's data.
-- `LoopRunner.observe_default(*, auto_baseline: bool = True) -> LoopCycleResult` — the watch tick's
-  observe leg (see § 5); `LoopRunner.poll_once() -> LoopCycleResult` — the gate leg (one pending
-  `loop/c/*` candidate per call).
-- `LoopRunner.set_baseline_policy(policy: "latest" | "best") -> LoopState` — persist the gate policy
-  (`ValueError` on an unrecognized value); `LoopRunner.rebaseline(mode: "best" | "latest" = "best") -> LoopState`
-  — freeze a new baseline straight from `metrics.jsonl` (no eval), restricted to the current-instrument
-  records; `LoopRunner.mark_observed() -> LoopState` — adopt HEAD as observed after manual reconciliation
-  (no eval). MCP: `loop_baseline_policy(topic, policy, vault="")`, `loop_rebaseline(topic, mode="best", vault="")`.
-- `write_heartbeat(vault_root, topic, *, interval_seconds) -> None` / `read_runner_liveness(vault_root, topic) -> dict`
-  — the runner-liveness pair `wiki_status`/the dashboard poll; `write_progress`/`read_progress` — the
-  matching in-flight-eval-progress pair. Both are plain filesystem writes under `.knotica/locks/`, no
-  `VaultStore`, no commit.
-- `bootstrap_trainset(store, vault_root, topic, llm_client, snapshot, *, target_n=30, per_page=5) -> dict`
-  — cold-start: for each of the topic's entity pages (`evals.golden.entity_pages`), the LLM synthesizes
-  query-style QA pairs grounded in that page, deduped against the existing trainset, refusing any that
-  collide with the held-out golden set; appends to `qa.jsonl` with `source: seed_train` in one
-  `VaultTransaction`. CLI: `knotica datasets bootstrap-train --topic <t> [--target N]`; MCP tool
-  `datasets_bootstrap_train(topic, target=30, vault="")`.
+**Dispatch telemetry.** `mcp_server/dispatch_telemetry.py` exports `record_dispatch` and
+`record_rejected_action` — one structured line per invocation and one per rejected action. Their
+per-domain counts are the evidence `dec-045`'s falsifier depends on: if the model mis-selects within a
+domain, the consolidation hurt and that dispatcher should revert to flat tools.
+
+**Billing gate.** `loop action=run_eval` and `loop action=run_once` are both two-phase: a bare call
+returns a preview and a nonce; only a confirmed second call bills. `run_eval` additionally passes
+`force=True`, bypassing the cadence hold; `run_once` does not (`dec-048`).
+
+### Python seams
+
+- `VaultVcs.clone_to(dest_root, ref=None) -> VaultVcs` — the frozen-corpus mechanism. A read/checkout
+  method, never a mutation, so `evals/` may call it directly (`dec-017`).
+- `LLMClient.complete(*, snapshot, system, messages, temperature=0.0, max_tokens, json_schema=None) -> Completion`
+  — the one network seam (a Protocol). `AnthropicClient` resolves credentials OAuth-first
+  (`CLAUDE_CODE_OAUTH_TOKEN` preferred; the metered `ANTHROPIC_API_KEY` is a noisy fallback) and records
+  `auth_mode`; `FakeLLMClient` is the zero-network double (`dec-014`).
+- `build_metric(...)` → `score(gold, prediction, trace=None) -> float | bool` — the triple-consumer
+  seam: a bounded per-example quality float when `trace is None`, the bool `quality >= threshold` when
+  set (`dspy.Evaluate`'s convention) (`dec-012`).
+- `run_eval(topic, *, source_root=None, ref=None, llm_client=None, config=DEFAULT_CONFIG, cache=None, work_root=None, on_example=None, on_substage=None, on_outcome=None, **overrides) -> EvalRunResult`
+  — clone → load golden → `dspy.Evaluate` → compose scalar → one `VaultTransaction` on the clone. The
+  three callbacks are the progress seams the watcher wires to `core.loop_progress`; `on_outcome` fires
+  once per example with `(id, status, error_class, detail)` (`dec-053`).
+- `harness_version(judge_prompt_hash, config=DEFAULT_CONFIG) -> str` — the instrument fingerprint, so
+  two scalars from different instruments are never silently compared. Folds the judge prompt hash, judge
+  and worker snapshots, runner config hash, and scalar formula version. `num_threads` is deliberately
+  **excluded**: parallelism changes wall-time, not the measurement.
+- `LoopRunner.observe_default(*, auto_baseline=True, force=False) -> LoopCycleResult` — the observe leg;
+  `poll_once() -> LoopCycleResult` — the gate leg, at most one pending candidate per call.
+  `set_baseline_policy`, `rebaseline(mode)`, and `mark_observed()` change gate state without an eval.
+- `write_heartbeat` / `read_runner_liveness` and `write_progress` / `read_progress` — plain filesystem
+  pairs under `.knotica/locks/`. No `VaultStore`, no git, no commit.
+
+### Diagnostic manifest (schema v2)
+
+The per-run manifest at `<topic>/.knotica/eval-runs/gen-<N>/manifest.json` is the diagnostic substrate
+the fault classifier reads. It self-versions via `manifest_schema_version` (today's value is 2; an
+unversioned manifest is implicit v1, which the classifier refuses). Per golden example it carries a
+stable `id` (the edit-stable `QARecord.id` join key) and `pages` (the ordered top-K retrieval trace),
+and it populates `held_out_delta` with a scalar delta plus per-`id` score and trace diffs against the
+prior generation, `null`-never-`0` when no comparable prior exists. Retrieval *scores* are excluded —
+rank order only, so the contract survives a future vector-backend swap. The change touches no eval
+scalar and no `harness_version` input, so it triggers no baseline re-freeze (`dec-023`).
 
 ## 5. Data Flow
 
-**Mutating op:** `client → mcp/ tool → core.operations.<op> → resolve config (per call) →
-VaultTransaction: flock → store.write_text_atomic → append log.md → scrub → vcs.commit (one commit,
-msg `knotica(<op>): <topic> — <title>`) → release flock → Result`.
+**Mutating op.** `client → MCP tool / CLI → core.operations.<op> → resolve config (per call) →
+VaultTransaction: flock → write() buffers and secret-scrubs at declaration → (block exit) diff against
+disk, dropping unchanged writes → store.write_text_atomic per path → append log.md → vcs.commit_paths
+(one path-scoped commit, subject `knotica(<op>): <topic> — <title>`) → release flock → Result`. A
+transaction whose writes all match disk short-circuits: `changed=False`, **zero commits**. On any
+exception the rollback restores exactly the touched paths. `core.transaction.vault_mutation_span` holds
+the flock across a *sequence* of transactions when a caller needs several commits to be atomic against
+other writers.
 
-**Read op:** `client → mcp/ tool → core read fn / search backend → Result` (no lock, no commit).
+**Read op.** `client → tool → core read fn / search backend → Result`. No lock, no commit.
 
-**Prompt:** `client slash-command → prompts/get → lazy body: resolve config → unconfigured?
-setup-guidance : read .knotica/prompts/<op>.md (topic override else root default) → body with full protocol`.
+**Prompt.** `client slash-command → prompts/get → lazy body: resolve config → unconfigured?
+setup-guidance : read `.knotica/prompts/<op>.md` (topic override else root default) → body`.
 
-**Note capture (Phase 1, `note_capture`):** `client → note_capture tool → capture_note → validate
-(topic exists, note non-blank, intent recognized) → plan the anchor (substring-match `quote`
-against the claimed `pages`' working-tree text; ambiguous/absent/unreadable degrades to page or
-topic fidelity, never a failure) → VaultTransaction: flock → write one note file under
-`notes/<topic>/` → append log.md → scrub → one git commit → release flock → read the note back
-(resolved anchors) → Result (`placement` sentence + `warnings` incl. `ANCHOR_DEGRADED`)`. One
-commit, requires the lock; idempotent by content fingerprint.
+**Note capture.** `note_capture → capture_note → validate → plan the anchor (substring-match the quote
+against the claimed pages, degrading to page or topic fidelity rather than guessing) → one
+VaultTransaction → read the note back with anchors resolved → Result (a pre-composed `placement`
+sentence + any `ANCHOR_DEGRADED` warning)`. Anchoring never fails the call.
 
-**Note resolution (read-only, every `notes action=list|read` call and every capture readback):**
-`client → notes dispatcher / note_capture readback → list_notes/read_note → for each anchor:
-vcs.read_file_at(pinned_at, page) (historical blob) + store.read_text(page) (HEAD blob) →
-resolve_anchor (pure function, ladder steps 0–3) → Projection {status, fidelity, span}`. No write,
-no lock; recomputed on every call so a resolver improvement applies retroactively to every existing
-note without touching a file.
+**Note resolution** (every `notes` read and every capture readback). `for each anchor:
+vcs.read_file_at(pinned_at, page) + store.read_text(page) → resolve_anchor → Projection {status,
+fidelity, span, score}`. A pure function of two text blobs, recomputed on every read rather than
+cached, so a resolver improvement applies retroactively to every existing note without touching a file.
 
-**Eval op (Phase 2, headless — `knotica eval`, no MCP/no client-brain):** `config-resolve SOURCE vault →
-VaultVcs.clone_to(tmp) at HEAD (corpus_ref = git:<sha>) → load golden.jsonl → per example: BaselineRunner
-drives the clone's query.md + in-process search/read_page → judge (Opus, N-median, cached) + deterministic
-citation integrity → hinged budget-relative scalar → MetricsRecord → VaultTransaction(clone, "eval") one
-commit + log.md → source vault untouched, eval branch returned`. Runs on a knotica-owned
-`ANTHROPIC_API_KEY` (env-only; never on the server launch path) — a new trust boundary distinct from
-client-as-brain (`dec-014`).
+**Eval op** (headless, no client-brain). `resolve config → VaultVcs.clone_to(tmp) at HEAD
+(corpus_ref = git:<sha>) → load golden.jsonl → per example: baseline runner drives the clone's query.md
+with in-process retrieval → cached N-median LLM-as-judge + deterministic citation integrity → hinged
+budget-relative scalar → MetricsRecord → VaultTransaction(clone, "eval") → source vault untouched`.
+Runs on a knotica-owned credential, env-only, never on the server launch path (`dec-014`).
 
-**Unconfigured boot:** server registers tools/prompts/resources with zero vault access; first call resolves
-config and returns `unconfigured` until `init`/`setup` writes `config.toml` (picked up per call, no restart).
+**Unconfigured boot.** The server registers every tool, prompt, and resource with zero vault access;
+the first call resolves config and returns `unconfigured` until `knotica init`, `knotica desktop`, or
+`vault action=add|create` writes `config.toml`. Picked up per call — no restart (`dec-004`).
 
-**Watch tick (Phase 3a, headless — `knotica loop --topic <t>`, no MCP/no client-brain):** `poll tick →
-observe_default: default-branch HEAD moved + content changed? → _observation_hold (active-ingest hold /
-observe_quiet_seconds debounce) clear? → _ensure_union_log_merge → VaultVcs.clone_to(tmp) at HEAD →
-run_eval(on_example, on_substage → core.loop_progress; num_threads=config.num_threads) → fetch metrics
-commit into loop/r/<sha> → checkout default → merge (non-ff) → _prune_result_branches → baseline unset?
-auto-freeze : instrument (harness_version) changed? re-freeze : policy=best and scalar>baseline? ratchet
-up : compare → write_loop_state (VaultTransaction) → regressed? _heal_prompts_after_regression:
-arena.race_variants over prompt variants, promote winner (content unchanged) : gate: poll_once → next
-pending loop/c/* tip → evaluate on a clone → keep (fast-forward merge) or discard → write_loop_state`.
-Runtime files (`.knotica/locks/loop-runner-<topic>.json` heartbeat, `.knotica/locks/loop-progress-<topic>.json`)
-are machine-local gitignored state — plain filesystem writes, never `VaultStore`, never committed, never
-read by anything but `wiki_status`/the dashboard on the same machine.
+**Watch tick** (headless). `poll → observe_default: cursor moved? → content changed (ignores log.md,
+non-prompts .knotica/ paths, and every family outside SCORED_FAMILIES)? → _observation_hold (active
+ingest, quiet window) → retry_hold (attempt identity + failure backoff) → _cadence_hold (skipped when
+force=True) → _ensure_union_log_merge → note_attempt → write LoopState (suppressed when the attempt
+records nothing new) → pin eval_ref → clone → run_eval → fetch the metrics commit into loop/r/<sha> →
+merge → prune merged result branches → baseline unset? auto-freeze : instrument changed? re-freeze :
+policy=best and scalar>baseline? ratchet : compare → regressed? classify faults, then heal prompts via
+the arena unless every regressed question is knowledge-cause → gate: poll_once → one pending loop/c/*
+tip → evaluate on a clone → keep or discard`.
+
+### Baseline transitions
+
+`LoopState.baseline_policy` (`"latest"` default, or `"best"`) governs what an observation does to the
+frozen baseline. Evaluated in `observe_default`:
+
+| Condition | Action |
+|---|---|
+| No baseline yet, `auto_baseline=True` | Freeze the observed scalar (a fresh topic self-gates with zero setup) |
+| Observation's `harness_version` differs from the baseline's | **Instrument re-freeze** — never a regression |
+| `scalar > baseline`, policy `best` | Ratchet the baseline up (high-water mark) |
+| `scalar >= baseline`, either policy | Hold; the decision passes |
+| `scalar < baseline` | Regression — classify, then heal |
+
+`latest` never ratchets on a win: only auto-freeze and instrument re-freeze move the baseline. A
+baseline is only meaningful under the harness fingerprint that produced it, which is why a judge-prompt
+edit, model rotation, or dspy upgrade re-freezes rather than comparing across instruments; the
+loop-state commit message records both scalars for audit. `rebaseline(mode)` freezes from
+`metrics.jsonl` with no eval, restricted to records matching the newest `harness_version`;
+`mark_observed()` adopts HEAD as observed after a human reconciles an interrupted run.
+
+### Branch topology
+
+| Prefix | Meaning | Lifetime |
+|---|---|---|
+| `loop/c/*` | Pending candidates awaiting the gate — prompt candidates `loop/c/<sha>`, source candidates `loop/c/<topic>/source-<id8>` | Deleted on keep (fast-forward) or discard; a refused source is renamed to `loop/x/*` |
+| `loop/wip/*` | In-flight source ingest on a server-managed worktree, invisible to the gate until published | Published to `loop/c/*` or abandoned |
+| `loop/x/*` | Quarantined refused source candidates carrying a bounded per-question dilution diff | Kept, pruned to newest 5 per topic |
+| `loop/r/*` | Merged observation-eval audit pointers | Already ancestors of the default branch; pruned beyond the newest 5 |
+| `compile/*` | Pending compile proposals awaiting promotion | Deleted on promote or discard |
+
+`core/branch_namespaces.py` is the single declaration of all five prefixes and the classify/parse
+helpers. A source candidate is distinguished from a prompt candidate by branch name alone — no
+persisted `candidate_kind` (`dec-036`). A source candidate that regresses is **quarantined, never raced
+through the arena**: the arena heals prompt regressions, and racing a prompt against content dilution
+risks a prompt that masks it (`dec-038`). Pruning is best-effort and never fails the operation that
+triggered it; unmerged pointers are left as evidence of an interrupted run.
+
+`log.md` is append-only, so concurrent branches legitimately append at the same location.
+`_ensure_union_log_merge` self-heals a `log.md merge=union` rule into the vault's `.gitattributes`
+before every merge; the eval clone is pinned *after* the loop's own state commit, so the live side only
+reconciles concurrent human activity, which the union attribute absorbs.
 
 ## 6. Dependencies
 
-<!-- Implementer-owned: pin exact versions in pyproject.toml. -->
-Floors, not pins: `mcp>=1.28` (resolves to 1.28.1 in `uv.lock`) — the sole runtime dependency.
-Dev group: `pytest`, `ruff`. **Eval extra** (Phase 2, PEP 621 `[project.optional-dependencies] evals`, `uv sync --extra evals`):
-`anthropic>=0.116` (Messages API for the headless eval runner + judge; 0.116.0 verified PyPI 2026-07-15) **and
-`dspy>=3.2`** (`dspy.Evaluate` as the per-example runner — user override 2026-07-15; 3.2.1 verified PyPI, requires-python
-`<3.15`) — both declared **only** in the dependency-group so the built wheel never ships them and
-`uvx --from … knotica mcp` never resolves them (so even dspy's heavy tree, incl. litellm, never touches the launch
-path), protecting the 24.4 s cold start (`dec-013`). Phase-3a adds DSPy optimizers to the same group.
-Build backend: `hatchling` (src layout; repo-root `vault-template/`
-force-included into the wheel as `knotica/vault-template` for `knotica init`; editable/dev installs
-fall back to the repo-root copy). `git` and `uv`/`uvx` are user-machine prerequisites, not project
-deps. `ripgrep` used via subprocess.
+| Slot | Declaration | Contents |
+|---|---|---|
+| Runtime | `[project] dependencies` | `mcp>=1.28` (resolves 1.28.1), `pydantic>=2.13.4` |
+| Headless extra | `[project.optional-dependencies] evals` | `anthropic>=0.116`, `dspy>=3.2`, `litellm<1.92` |
+| Dev | `[dependency-groups] dev` | `pytest`, `ruff`, `mypy`, `pyyaml` |
+
+The eval dependencies are declared **only** in the extra, so the wheel `uvx --from … knotica mcp`
+resolves never pulls dspy's heavy tree onto the launch path. The extra is the single declaration —
+`[dependency-groups]` deliberately carries no `evals` entry, and `tests/test_packaging_evals_extra.py`
+holds that shape (`dec-013` → `dec-055` → `dec-067`). The `litellm<1.92` bound is load-bearing on
+macOS: litellm ships no macOS wheel from 1.92.0 and the sdist needs a Rust toolchain.
+
+Build backend `hatchling` (src layout; repo-root `vault-template/` force-included into the wheel, with
+an editable-install fallback to the repo copy). `git` and `uv`/`uvx` are user-machine prerequisites.
+`ripgrep` is a **performance** dependency, not a prerequisite: `RipgrepBackend` falls back to a pure-Python
+markdown walk when `rg` is absent, and both engines only choose which files might match — counting,
+snippet extraction, and BM25 scoring run in one shared Python pass, so results are identical either way.
 
 ## 7. Constraints
 
-Locked invariants (from `CLAUDE.md` / `docs/PRE_PLAN.md` — do not violate without updating the pre-plan):
+Locked invariants. Each is stated with the mechanism that holds it — an invariant with no enforcement
+is a wish. Do not violate without updating [`docs/PRE_PLAN.md`](../docs/PRE_PLAN.md) first.
 
-- **Client-as-brain**: server exposes deterministic tools only; no server-side LLM until Phase 3a.
-- **Stateless server**: no session state; vault + config are the only state, resolved per call; topic is
-  always an explicit tool argument. The loop daemon's gitignored `.knotica/locks/` runtime markers are
-  outside this scope, not an exception to it — spelled out once in `docs/PRE_PLAN.md`.
-- **Vault/code separation**: wiki at `~/dev/data/knotica`; all vault access via `VaultStore`; never
-  hardcode vault paths.
-- **One git commit per mutating op**, flock-guarded (load-bearing — stdio servers may be long-lived and
-  shared across sessions).
-- **Loops always work on a git clone**, never the live vault; results return as branches.
-- **Single source of truth for prompts**: operation prompts live in the vault (`.knotica/prompts/`, root
-  defaults + earned topic overrides) — simultaneously the MCP-prompt UX surface and the DSPy/SIA substrate.
-- **Graceful unconfigured boot**; **never `alwaysLoad`** on the knotica MCP server.
-- **Obsidian hard-ignores dot-paths** — no user-facing content in or linking into `.knotica/`.
-- **The `notes` family is excluded from every scoring surface by omission, not by filter** — it is
-  absent from `SCORED_FAMILIES` and never walked by `iter_page_paths`/search/lint's link graph;
-  inclusion into any future scoring surface must be opt-in and explicit, never incidental.
-- **Note anchors are append-only** — `reanchor`/`detach` (Phase 2) add a record; nothing already
-  written is ever edited or removed. The loop never writes into `notes/`.
+| Invariant | Enforcement |
+|---|---|
+| **Client-as-brain for interactive work.** The MCP surface is deterministic tools; the client's LLM does the cognitive work. The one server-side-LLM tool on the surface is `query`, which runs under the `dec-014` trust boundary — a knotica-owned, env-only credential, resolved lazily so it never touches the lean launch path | `dec-014`; `evals/llm.py` credential resolution |
+| **Stateless server.** No session state. Vault + `config.toml` are the only durable state, resolved per call; topic and vault are always explicit arguments. Gitignored `.knotica/locks/` runtime markers are outside this scope, not an exception to it | `mcp_server/vault_ctx.py`; `dec-004`, `dec-074` |
+| **Vault/code separation.** The wiki is a separate git repo at a user-configured path; several named vaults may be configured and the active one is switchable at runtime. All vault access goes through `VaultStore` — never hardcode a vault path | `core/config.py`; `PathOutsideVaultError` |
+| **One git commit per mutating op, flock-guarded.** Load-bearing: stdio servers may be long-lived and shared across sessions. A no-op transaction is the one sanctioned exception — it makes zero commits rather than an empty one | `core/lock.py`; `dec-008`, `dec-046` |
+| **`core.transaction` is the only writer.** `write_text_atomic` and `delete` are callable from nowhere else — checked **codebase-wide**, with `store/` excluded because it implements the primitive, and a structural carve-out for receivers bound by `with VaultTransaction(...) as name`. `commit_paths`/`rollback_paths` are likewise sole-caller checked codebase-wide | `tests/test_architecture_boundaries.py` |
+| **Adapters never mutate the vault directly.** `cli/`, `mcp_server/`, and `evals/` may not import `core.lock`, may not shell out to git, and may not raw-write. `okf/` joins them in the raw-write scan as its one non-adapter member — because `okf/repair.py` once wrote pages and its own report raw and shelled out to git outside the transaction (td-020). Named exemptions exist for `cli/init.py` and `cli/service.py` (subprocess) and `cli/init.py::patch_desktop` (the Claude Desktop config) | `tests/test_architecture_boundaries.py`; five of its twelve tests are explicit non-vacuity guards |
+| **`search/` depends on exactly one `core` module** — the zero-dependency `core.vault_layout` leaf — so a search result can never disagree with the rest of the codebase about what a path holds, and the edge stays acyclic | `tests/test_architecture_boundaries.py` |
+| **Loops always work on a git clone**, never the live vault; results return as branches for human review | `LoopRunner.observe_default`; `dec-017` |
+| **Single source of truth for prompts.** Operation prompts live in the vault (`.knotica/prompts/`, root defaults + earned topic overrides) and are simultaneously the MCP-prompt UX surface and the DSPy/SIA-evolvable substrate | `core/prompts.py`, one resolver behind both surfaces |
+| **Graceful unconfigured boot; never `alwaysLoad`** on the knotica MCP server | `.mcp.json`; `dec-005` |
+| **Obsidian hard-ignores dot-paths** — no user-facing content in or linking into `.knotica/` | `search/ripgrep.py` skips dot-folders in both engines |
+| **The `notes` family never reaches a scored surface.** Two distinct mechanisms, and conflating them has caused defects: *by omission*, `note ∉ SCORED_FAMILIES` and `notes ∈ RESERVED_TOP_LEVEL_NAMES`, so topic enumeration never sees it and the loop never wakes on a note edit. *By filter at the point of use*, the whole-vault page walk and the lint link map deliberately span every family — a whole-vault lint reports violations inside a note too — and the scored view is taken through `links.iter_scored_page_paths`, lint's `_is_scored_*` predicates, and search's `families` allowlist (bound into the pagination cursor so a walk cannot change its family selection mid-page) | `core/vault_layout.py`, `core/links.py`, `core/lint.py`, `search/cursor.py` |
+| **The eval bridge is the one sanctioned crossing.** `core/operations/promote_note.py` is human-invoked, derives `pages_used` from live anchors' KB pages so a note path can never enter `qa.jsonl`, and **always refuses** `target="golden"` — a one-way door belongs behind human review | `dec-059`, `dec-066` |
+| **Note anchors are append-only.** `reanchor` appends a `reanchored` record, `detach` appends a terminal one; nothing already written is edited or removed, and index 0 stays byte-stable so capture's idempotency fingerprint holds. Transaction titles derive from the note id alone, never the quote — an anchor's quote is verbatim KB prose and `log.md` is a scored family. The loop never writes into `notes/` | `core/operations/reanchor_note.py`; `dec-061` |
+| **Machine-record schemas are frozen** with a per-record `schema_version`; new fields are additive | `dec-006`, documented in the vault's root `SCHEMA.md` |
 
 ## 8. Decisions
 
-Draft ADRs (`.ai-state/decisions/drafts/`, finalized to `dec-NNN` at merge):
+<!-- aac:authored owner=systems-architect last-reviewed=2026-08-05 -->
 
-- **dec-007** — MCP SDK: official `mcp` 1.28.1 over jlowin `fastmcp` v3 (cold-start dep-weight;
-  canonicity; swap confined to `mcp/`).
-- **dec-008** — Module boundaries + single vault-mutation path (`VaultTransaction`; one writer;
-  import-boundary fitness test).
-- **dec-004** — Config schema + unconfigured contract (per-call resolution; three-state machine).
-- **dec-006** — Freeze record schemas at Phase 0 (qa/metrics/log/commit/provenance; per-record
-  `schema_version`; documented in root `SCHEMA.md`).
-- **dec-005** — uvx cold-start pre-warm (setup foreground + background-idempotent SessionStart
-  hook; never `alwaysLoad`).
+Architectural decisions are recorded as ADRs in [`.ai-state/decisions/`](decisions/). The canonical,
+auto-generated cross-reference is [`DECISIONS_INDEX.md`](decisions/DECISIONS_INDEX.md) — regenerate it
+with `python scripts/regenerate_adr_index.py`, never by hand.
 
-Phase 2 — eval harness (this pipeline, `eval-harness`):
+Decisions are cited inline as `dec-NNN` on the § 3, § 4, and § 7 rows they materially shaped. This
+section is a pointer by design: a summary table drifts against the records it summarizes, and an
+auto-generated index does not.
 
-- **dec-012** — Hand-rolled `score()` metric core, **run by `dspy.Evaluate` as the per-example
-  runner now** (user override 2026-07-15; runner only — no optimizers/`dspy.LM`); trace-branch float/bool.
-- **dec-014** — Eval LLM access: direct Messages API behind `BaselineRunner` + pinned Opus judge;
-  knotica-owned `ANTHROPIC_API_KEY` (env-only) = a new trust boundary distinct from client-as-brain.
-- **dec-016** — Scalar = hinged, budget-relative, multiplicative `Q·(1−λ·hinge)`; citation
-  validity deterministic-only (faithfulness deferred). Re-affirms record shape, revises additive formula clause.
-- **dec-018** — Golden set: synthetic-from-pages + human review-freeze; held-out split from day
-  one (`golden.jsonl` disjoint from `qa.jsonl`); `source: curate_example` (no enum change).
-- **dec-015** — `metrics.jsonl` via `VaultTransaction` on the clone (`eval` op + log);
-  reproducibility via `artifact_ref`→per-run manifest + `harness_version` fingerprint (no schema bump);
-  fitness test extended to `evals/`.
-- **dec-013** — Eval deps in a PEP 735 `[dependency-groups] evals` (not an optional-extra) to
-  guard the uvx cold start.
-- **dec-017** — Frozen-corpus mechanism: `VaultVcs.clone_to` + SHA-pin + MANIFEST + determinism kit.
-- **dec-019** — Eval-harness module landing order: corrects the plan's Group B/C/D hints to the
-  import-dependency graph (`cache` before `judge`, `scorer` after `judge`, `golden` split into read-side
-  then bootstrap/freeze) so every module imports only already-landed siblings (no interface change).
-
-Phase 3a — gap-fill diagnostic substrate (this pipeline, `gapfill-substrate`):
-
-- **dec-023** — Eval-manifest diagnostic substrate: manifest schema v2 self-versions and adds
-  `per_example[].id` (stable join key), `per_example[].pages` (ordered retrieval trace), and a wired
-  `held_out_delta` object — the substrate the P1 four-way fault classifier consumes. Additive over
-  dec-006-frozen records (re-affirms dec-006); no scalar / fingerprint / `metrics.jsonl` change, hence
-  no baseline re-freeze. Rank-order only (scores deferred to a possible v3).
-
-Phase P1 — gap-fill fault classifier (this pipeline, `gapfill-classifier`; draft ids finalize at merge):
-
-- **dec-024** — Four-way fault classifier + heal-redirect: an ordered first-match cascade over
-  the dec-023 v2 manifest classifies each regressed golden id into `genuine_gap` / `dilution` /
-  `generation_fault` / `retrieval_fault` (co-occurrence resolved by precedence: generation-fault before
-  dilution; dilution needs displacement AND a new competitor). Routes prompt/neutral → existing arena heal
-  (unchanged); skips the arena **only** when every regressed id is knowledge-cause; null delta / empty set /
-  any classifier exception → heal (conservative, self-healing never lost). Deterministic, no LLM, in
-  `core/gap_classifier.py` (core-only deps, lazily imported by the loop), fingerprint-neutral. Re-affirms
-  dec-023 (confirms its necessary-and-sufficient claim; no fourth substrate item needed).
-- **dec-025** — Gap-record schema v1: knowledge-cause verdicts persist as a new
-  `schema_version`ed `GapRecord` (in `core/records.py`) to a committed append-only
-  `<topic>/.knotica/gaps/gaps.jsonl`, written in its **own** `VaultTransaction` under an observe-safe
-  `.knotica/` path (`open`-dedup on `(qa_id, fault_class)`). Stable `gap_id`/`qa_id` join key + status
-  lifecycle + self-contained evidence snapshot = the committed P1→P3 contract (P3 filters `genuine_gap` for
-  discovery; `dilution` is P4/quarantine input). Committed-not-staged because the stateless MCP server reads
-  it in a separate process. Re-affirms dec-006.
-
-Phase P2 — gap-fill discovery layer (this pipeline, `gapfill-discovery`; draft ids finalize at merge):
-
-- **dec-027** — Discovery contract: a `runtime_checkable` `SearchProvider` protocol produces a
-  frozen, `schema_version`ed `SourceCandidate` (dec-006 precedent); reputability metadata is stamped by a
-  **separate provider-agnostic** `OpenAlexEnricher` (batched by DOI, ≤50/call) rather than fused per-adapter;
-  reputability is a deterministic **metadata-only** tier + `[0,1]` score (never textual — ungameable). Candidate
-  is self-contained (no gap/question linkage — that join is P3's). Total deterministic rank `(tier,-score,url)`.
-- **dec-026** — Discovery HTTP boundary: **direct `httpx` REST** behind one thin shared client for all
-  three providers; **no provider SDK** (`exa-py` rejected — it drags `openai>=1.48`+`python-dotenv`; verified PyPI
-  2026-07-19). No new dependency (`httpx` already transitive via `mcp`). Env-only keys, fail-before-network,
-  never-log — the `evals/llm.py` (dec-014) trust-boundary discipline applied to search APIs. One additive
-  `SEARCH_API_ERROR` code in `core.errors`.
-
-Phase P3 — gap-fill suggestion queue + approval surface (this pipeline, `gapfill-queue`; **Built**, draft ids finalize at merge):
-
-- **dec-030** — Suggestion record schema v1: the P1-gap × P2-candidate join persists as a new
-  `schema_version`ed `SuggestionRecord` (in `core/records.py`) to a **committed** append-only
-  `<topic>/.knotica/suggestions/suggestions.jsonl`, own `VaultTransaction`, observe-safe `.knotica/` path,
-  `(gap_id, source_key)`-dedup. Lifecycle `pending → approved|rejected` (P3) → `ingested` (P4), mutated in
-  place one-commit-per-transition. Candidate embedded as an **opaque JSON dict** (verbatim
-  `SourceCandidate.to_record()`), **not** a typed `SourceCandidate`, so `core/records.py` keeps zero edges into
-  `discovery/` (MCP cold-start boundary, dec-013). Committed-not-staged (dashboard MCP server reads it in a
-  separate process — re-affirms dec-025 Option B; the golden.py staging precedent does not transfer). Re-affirms
-  dec-025 + dec-006.
-- **dec-029** — Discovery trigger placement: **on-demand primary** (`knotica gapfill discover` CLI)
-  keeps outbound network off the loop's mandatory offline-deterministic heal path; a **config-gated opt-in
-  loop-side batch** (`[gapfill] discover_on_regression`, default off) shares the same drain, failure-isolated
-  (classifier try/except) + separate transaction. Fixed-budget defense: one drain per regression *event*
-  (never per-question), `max_gaps` call cap (default 5, top-|quality_delta|), `(gap_id, source_key)`-dedup.
-  `dilution` gaps never drained (P1 contract #3). The committed gap queue is the durable buffer, so deferral
-  loses no data. DI-close call vs loop-side-automatic-default-on (reversal: flip default once a key is reliably
-  provisioned).
-
-Phase P4 — gap-fill source-candidate gate (this pipeline, `gapfill-source-gate`; **Planned**, draft ids finalize at merge):
-
-- **dec-037** — Source ingest lands on `loop/c/*` via a **server-managed git worktree keyed by
-  `suggestion_id`**, resolved per call from an explicit id / opaque `candidate` handle (no server session
-  state — dec-004). The interactive client builds on a private `loop/wip/<topic>/source-<id8>` branch (per-call
-  flock at the canonical root, one commit per write — dec-008); `source_ingest_submit` publishes it atomically to
-  `loop/c/<topic>/source-<id8>` (the readiness boundary; the gate never sees a partial branch). Default working
-  tree + default ref untouched throughout; the ingest path stays LLM-free (dec-014). Re-affirms dec-004.
-- **dec-036** — `candidate_kind` is a **branch-name convention** (`/source-` infix), not a persisted
-  field — git-derived, recovers `suggestion_id` for free (dec-004). `_process_candidate` gains a thin kind-branch
-  (source logic in a new `core/source_gate.py`, keeping `loop.py` off the deferred td-008 ceiling); a source
-  candidate that regresses the scalar is **quarantined, never raced through the arena** (the arena heals prompt
-  regressions; content dilution is not prompt-fixable — racing risks a prompt that masks it, a reward-hacking
-  hazard).
-- **dec-038** — Refuse = **quarantine** (`loop/x/<topic>/source-<id8>`, kept not deleted) with a
-  bounded top-N per-question dilution diff; the suggestion records one **additive nullable `gate_outcome`**
-  (merge → `status=ingested` via auto `mark_ingested` + `{merged, loop/r ptr}`; refuse → `status=approved` +
-  `{refused, loop/x ptr, reason}`, gate-terminal — consumers filter `approved AND gate_outcome is null`). On
-  merge the **trainset** grows for the **git-derived** newly-merged pages (additive `pages` filter on
-  `bootstrap_trainset`/`golden.bootstrap`, `None`=today). **Contamination guard**: held-out golden candidates are
-  client-synthesized from the source **before** ingest, disjoint from `qa.jsonl`, frozen only through the
-  human-gated read-merge-freeze (dec-018) — the automated path grows the trainset, not the frozen gate. Additive
-  over dec-030 (re-affirms it; the Addendum pre-sanctioned an additive branch-ref field). Reconciled with the
-  interface-designer's `dec-035` (adopts its `gate_outcome` shape + `loop/x/*` namespace) and
-  `dec-034` (the `candidate` handle + `source_ingest_open`/`submit` surface).
-
-Feature — eval cadence + per-task models (this pipeline, `eval-cadence-model-config`; **Planned**, draft ids finalize at merge):
-
-- **dec-048** — Configurable eval cadence + td-011 re-arm + spend-gated dashboard eval
-  trigger. Global `[loop]` table (`eval_min_interval_hours` default 0 = byte-identical,
-  `eval_window` quiet-hours, `eval_num_threads` default 4), resolved by a new
-  `loop_cadence_config.py` (mirrors `gapfill_config.py`). Cadence hooks a single `_cadence_hold`
-  guard into `observe_default()` only — candidate-gate path (`poll_once`) stays eager by
-  construction. A wall-clock `now_fn` injectable backs interval + window (monotonic clock can't
-  express time-of-day). **td-011 fixed**: the failure handler stops consuming the cursor (drops
-  `mark_processed`), sets additive `pending_retry` + `last_eval_started_at` LoopState fields
-  (`schema_version=1`, additive-safe), so a failed eval re-arms. Cadence is Desktop-controllable
-  via `loop action=cadence` (deterministic config write); the billed `loop action=run_eval`
-  trigger is gated by a two-phase decision-envelope nonce (no single-call billing) + `billed`
-  annotation + detection→`wiki_status` steering. Global-not-per-topic (no per-topic precedent).
-  DI-close vs CLI/HTTP-only trigger (reversal: move off shared MCP surface if telemetry shows
-  unbidden agent billing).
-- **dec-049** — Per-task `[models]` config. Keys `worker`=Haiku 4.5
-  `claude-haiku-4-5-20251001` (high-volume grounded QA), `judge`=Sonnet 5 `claude-sonnet-5`
-  (load-bearing judgment), `query`=Sonnet 5 (user-facing). worker/judge fold into
-  `harness_version` (config value populates `HarnessConfig` before CLI override via
-  `config_from_toml.with_overrides(**cli)`, so a model swap refreezes the baseline); `query` is
-  excluded (never writes the frozen instrument). MIPRO proposal LM is inert → no key (tech debt).
-  Per-snapshot `temperature` conditionalization in `evals/llm.py` (Sonnet 5 rejects the arg;
-  Haiku 4.5 / 4.6-gen keep sending `temperature=0`); Sonnet 5 judge loses temperature-0
-  determinism (absorbed by the 3-sample median; snapshot change refreezes). Re-affirms dec-015 /
-  dec-014.
-
-Notes overlay Phase 1 (this pipeline, `notes-overlay`; draft ids finalize at merge):
-
-- **`dec-058`** — Bi-partite anchor model: an anchor of record is the historical
-  quote + the commit it was pinned at, resolved against HEAD on every read via a pure,
-  re-runnable ladder (steps 0–3 in Phase 1: `unanchored`/`anchor-invalid`/`orphaned`/`exact`/
-  `shifted`; fuzzy matching and `block`/`section` fidelity are Phase 2). No block-ID injection
-  into scored pages (rejected alternative R1) — durability comes from git retaining every
-  historical blob forever, not from corpus-visible markers.
-- **`dec-060`** — `notes/<topic>/` storage: a new reserved top-level folder family
-  (`core/vault_layout.py`), excluded from every scoring surface by omission (not filter) and
-  from the link graph the orphan-detector walks, so a note can never de-orphan or contaminate a
-  KB page's score. Frontmatter stays inside the vault's strict YAML subset; anchors are ordinary
-  `[[wikilinks]]` in the body so Obsidian's own backlinks/graph render them for free.
-- **`dec-059`** — Eval bridge (`curate_example`, not `SuggestionRecord` reuse or
-  `bootstrap(pages=[note_path])`, both verified not to work): deferred past Phase 1 — notes never
-  feed an eval or the trainset until `notes action=promote` lands.
-
-§3 component granularity (`sentinel-remediation` pipeline, td-032; draft id finalizes at merge):
-
-- **`dec-070`** — Package-level granularity for the four un-modeled trees, plus a
-  concern-level split of `core/`. `okf/`, `guillotine/`, and `service/` each get **one** row (their
-  internal modules are one vocabulary with several entry points, and they change together);
-  `src/knotica/dashboard/` gets **no row of its own** — a 24-line resource loader is a packaging
-  seam, so it is modeled as part of a Dashboard row spanning the Preact client and the loader, with
-  the two mounts left to `mcp_server/`. Under `core/`, the compile chain becomes its own row and the
-  loop row's Component cell is widened to what its prose already claimed; the remainder is
-  re-labelled an explicit residual. Realizes reversal trigger (a) of `dec-069`
-  (topology-group granularity is bound to §3 granularity) — that decision is re-affirmed, not
-  superseded: the binding rule was right and this is the §3 pass it named as the unblock.
-
-<!-- aac:authored owner=systems-architect last-reviewed=2026-07-21 -->
-### Consolidation realized — loop-consolidation pipeline (2026-07-21)
-
-**Status: BUILT (P-A/P-B/P-C complete; P-D remaining planned).** The rows in §3 above describe the codebase as
-Built on `main` (dec-001..038). The consolidation pass (`loop-consolidation` pipeline) reshaped surfaces and internals
-**without changing any dec-001..038 semantics**. **Deliberately deferred by the consolidation's
-scope boundary** (future work, not regressions): leveling plain ingest up to the source-ingest
-gate handshake (idempotent resume + mechanical completion backstop — a semantic change to the
-ingest trust model, needs its own design pass); removal of the 26 deprecated operator-tool
-aliases (separately gated after one release cycle, informed by dispatch telemetry); systemd
-service-manager live verification (code-complete, launchd is the verified platform);
-`loop.py` cohesion split (td-008 — the consolidation grew it to 1221 lines; extract the
-arena-race core + runner factory next). Finalized ADRs (dec-NNN ids assigned at merge):
-
-- **dec-045** — Tiered MCP tool-surface topology: thin conversational core
-  (~18 tools, dec-003 principle re-affirmed) + operator long-tail collapsed into 7
-  action-parameterized dispatchers (`loop`/`branches`/`compile`/`datasets`/`arena`/`golden`/
-  `vault_health`); one server (Option A) now, lazy catalog meta-tool (B) deferred as the
-  future-preferred evolution gated on client capability, second server (C) rejected;
-  additive-alias non-breaking migration (49 → ~29 model-facing tools). Companion:
-  interface-designer `dec-041` (dispatcher shapes) + `dec-040`
-  (`INVALID_ARGUMENT` error code, adopted).
-- **dec-042** — **[Built, 2026-07-21]** Conversational routing & transparency: four-layer architecture
-  (skill symptom-detection + `_INSTRUCTIONS` stable-invariants-only + tool-description guards on mutating tools + vault prompts as sole evolvable substrate);
-  per-client routing-reliability tiers (Tier-1 Claude Code skill+hooks / Tier-2 Desktop instructions-only);
-  `server.py` `_INSTRUCTIONS` slimmed to detection heuristics + stable invariant guards + a
-  `read_protocol` pointer (no enumerated evolvable steps — kills the drifted duplicate at
-  the root, no boot-time vault read); new cheapest `wiki_status(view=scope)`; SessionStart
-  topic-awareness seed + attention-nudge (`knotica status --nudge`, Tier-1 proactive detection);
-  read/offer over-routing guard on every mutating tool. Companion: interface-designer
-  `dec-039` (routing-artifact separation).
-- **dec-043** — Loop-internals consolidation (behavior-preserving,
-  characterization-tests-first): `core/branch_namespaces.py` single-source-of-truth for the
-  five branch prefixes; one shared best-effort primitive; one `_run_arena_and_resolve`
-  helper; one `build_loop_runner` factory (preserves current per-site config values); and a
-  credential-conditional `discover_on_regression` default (realizes dec-029's named
-  reversal). `loop.py` returns under ceiling incidentally (td-008). Deferred: candidate-gate
-  Protocol, records-schema base (td-009), `harness`/`golden` splits (td-002).
-- **dec-044** — Loop becomes a **lifecycle-managed service** (supersedes the
-  PRE_PLAN "No periodic daemon in MVP" stance per user guidance): the `knotica loop --watch`
-  watcher is automatically installed/spawned/supervised (leading candidate: an OS service
-  manager registered by the install flow) under a one-click-install / zero-user-burden bar.
-  **Lifecycle only** — loop semantics, client-as-brain (the loop is a headless loop), and the
-  stateless MCP server (a *separate* process) are all unchanged. PRE_PLAN's Safety-net clause
-  is updated at implementation.
-
-Dashboard stays a **full dual-mode independent peer** (MCP App + standalone HTTP, dec-020);
-conversation is added as a co-equal first-class decision surface, not a replacement.
 <!-- aac:end -->
