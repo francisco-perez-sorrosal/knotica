@@ -26,8 +26,12 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+import yaml
+
 REPO_ROOT = Path(__file__).resolve().parents[1]
 MCP_MANIFEST = REPO_ROOT / ".mcp.json"
+WORKFLOWS_DIR = REPO_ROOT / ".github" / "workflows"
+AUTOFIX_WORKFLOW = WORKFLOWS_DIR / "ci-autofix.yml"
 
 #: The launch line the plugin loader must find, argument for argument.
 EXPECTED_COMMAND = "uvx"
@@ -73,4 +77,61 @@ def test_the_manifest_never_sets_always_load() -> None:
     assert "alwaysLoad" not in raw, (
         "alwaysLoad would start the server for every session regardless of "
         "whether the user is doing wiki work; its absence is deliberate"
+    )
+
+
+# --- the autofix hub's workflow_run coupling -------------------------------
+#
+# `ci-autofix.yml` triggers on `workflow_run` with a hardcoded array of
+# workflow *names*. GitHub Actions requires that literal -- the trigger cannot
+# reference a workflow file -- so the coupling is by string, and a string
+# coupling that nothing checks is a string coupling that rots. It already did:
+# the array named "CI" for months while no workflow declared that name, so half
+# the trigger silently never fired and no signal said so. Renaming a `name:`
+# field is the obvious way to reintroduce it, and renaming is exactly the kind
+# of edit that looks harmless.
+
+
+def _declared_workflow_names() -> set[str]:
+    """Every `name:` declared by a workflow file, as GitHub resolves them."""
+    names = set()
+    for path in sorted(WORKFLOWS_DIR.glob("*.y*ml")):
+        document = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
+        declared = document.get("name")
+        if isinstance(declared, str):
+            names.add(declared)
+    return names
+
+
+def _autofix_watched_names() -> list[str]:
+    """The workflow names `ci-autofix.yml` waits on."""
+    document = yaml.safe_load(AUTOFIX_WORKFLOW.read_text(encoding="utf-8")) or {}
+    # PyYAML's safe loader is YAML 1.1, where a bare `on` key parses as the
+    # boolean True rather than the string "on". GitHub Actions spells the
+    # trigger block `on:`, so both spellings have to be tried -- reading only
+    # "on" yields an empty trigger and every assertion below passes vacuously.
+    triggers = document.get("on") or document.get(True) or {}
+    watched = (triggers.get("workflow_run") or {}).get("workflows") or []
+    return [name for name in watched if isinstance(name, str)]
+
+
+def test_the_autofix_hub_still_parses_as_watching_something() -> None:
+    # Guards the guard. Every assertion about the watched set is vacuous if the
+    # parse silently yields nothing -- which is precisely what the YAML 1.1 `on`
+    # gotcha above does when someone "simplifies" the fallback away.
+    assert _autofix_watched_names(), (
+        "parsed no watched workflows out of ci-autofix.yml; the trigger block "
+        "did not parse, so the coupling test below proves nothing"
+    )
+
+
+def test_every_workflow_the_autofix_hub_watches_actually_exists() -> None:
+    dangling = sorted(set(_autofix_watched_names()) - _declared_workflow_names())
+
+    assert not dangling, (
+        f"ci-autofix.yml waits on {dangling}, and no workflow in "
+        f".github/workflows/ declares that name. The hub will never fire for "
+        f"those runs, silently. Either restore the workflow's `name:` field or "
+        f"drop the entry from its `workflow_run.workflows` array -- the two "
+        f"are coupled by string literal and nothing else keeps them in step."
     )
