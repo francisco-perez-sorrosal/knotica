@@ -27,6 +27,7 @@ from knotica.core.loop_state import (
     read_loop_state,
     write_loop_state,
 )
+from knotica.core.vcs import discarded_clone
 
 if TYPE_CHECKING:
     from knotica.core.loop import EvalOutcome, LoopRunner
@@ -123,22 +124,23 @@ def process_candidate(
             message=f"eval failed: {exc}",
         )
 
-    # A source candidate (an ingested gap-fill source, named
-    # ``loop/c/<topic>/source-<id8>``) is gated separately and is NEVER raced
-    # through the arena: content dilution is not prompt-fixable, and racing
-    # could surface a prompt that masks it. The orchestration lives in
-    # ``source_gate`` to keep it out of this file.
-    from knotica.core import source_gate
+    with discarded_clone(outcome.clone_root):
+        # A source candidate (an ingested gap-fill source, named
+        # ``loop/c/<topic>/source-<id8>``) is gated separately and is NEVER raced
+        # through the arena: content dilution is not prompt-fixable, and racing
+        # could surface a prompt that masks it. The orchestration lives in
+        # ``source_gate`` to keep it out of this file.
+        from knotica.core import source_gate
 
-    if source_gate.classify_candidate(branch) == "source":
-        return source_gate.gate_source_candidate(runner, state, branch, sha, outcome)
+        if source_gate.classify_candidate(branch) == "source":
+            return source_gate.gate_source_candidate(runner, state, branch, sha, outcome)
 
-    passed = float(outcome.scalar) >= float(state.baseline_scalar or 0.0)
-    if passed:
-        return runner._keep(state, branch, sha, outcome)
-    if runner._arena_enabled and runner._arena_score is not None:
-        return runner._race_then_resolve(state, branch, sha, outcome)
-    return discard(runner, state, branch, sha, outcome)
+        passed = float(outcome.scalar) >= float(state.baseline_scalar or 0.0)
+        if passed:
+            return runner._keep(state, branch, sha, outcome)
+        if runner._arena_enabled and runner._arena_score is not None:
+            return runner._race_then_resolve(state, branch, sha, outcome)
+        return discard(runner, state, branch, sha, outcome)
 
 
 def keep(

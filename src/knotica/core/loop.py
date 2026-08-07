@@ -42,7 +42,7 @@ from knotica.core.loop_state import (
 )
 from knotica.core.transaction import VaultTransaction, vault_mutation_span
 from knotica.core.vault_layout import SCORED_FAMILIES, family_of
-from knotica.core.vcs import VaultVcs
+from knotica.core.vcs import VaultVcs, discarded_clone
 from knotica.store import LocalFSStore, VaultStore
 
 if TYPE_CHECKING:
@@ -327,133 +327,136 @@ class LoopRunner:
                 message=f"observation eval failed: {exc}",
             )
 
-        # Bring the metrics commit home so the chart reflects the observation.
-        # The merge, the post-merge head read, and the cursor-advancing state
-        # write are ONE atomic span: a concurrent pass must not move the default
-        # branch's HEAD between the merge and ``mark_processed`` (that would mark
-        # someone else's commit observed and silently skip a real content change).
-        with self._mutation_span():
-            result_branch = f"{RESULT_BRANCH_PREFIX}{eval_ref[:12]}"
-            self._vcs.fetch_ref_from(outcome.clone_root, "HEAD", result_branch)
-            self._vcs.checkout_branch(default)
-            self._vcs.merge_branch(result_branch, ff_only=False)
-            if self._push_remote:
-                self._vcs.push(self._push_remote, default)
-            self._prune_result_branches()
+        with discarded_clone(outcome.clone_root):
+            # Bring the metrics commit home so the chart reflects the observation.
+            # The merge, the post-merge head read, and the cursor-advancing state
+            # write are ONE atomic span: a concurrent pass must not move the default
+            # branch's HEAD between the merge and ``mark_processed`` (that would mark
+            # someone else's commit observed and silently skip a real content change).
+            with self._mutation_span():
+                result_branch = f"{RESULT_BRANCH_PREFIX}{eval_ref[:12]}"
+                self._vcs.fetch_ref_from(outcome.clone_root, "HEAD", result_branch)
+                self._vcs.checkout_branch(default)
+                self._vcs.merge_branch(result_branch, ff_only=False)
+                if self._push_remote:
+                    self._vcs.push(self._push_remote, default)
+                self._prune_result_branches()
 
-            scalar = float(outcome.scalar)
-            baseline = state.baseline_scalar
-            updates: dict[str, object] = {
-                "last_scalar": scalar,
-                "last_generation": int(outcome.generation),
-                "last_harness_version": outcome.harness_version,
-                "candidate_branch": None,
-                "candidate_sha": None,
-                "last_error": None,
-                "pending_retry": False,
-            }
-            # A baseline is only comparable under the instrument that produced it.
-            # When the harness fingerprint rotates (judge prompt edit, model
-            # rotation, dspy upgrade), the first observation on the new instrument
-            # re-freezes the reference — the old scalar is not a valid bar anymore.
-            instrument_changed = (
-                baseline is not None
-                and state.baseline_harness_version is not None
-                and state.baseline_harness_version != outcome.harness_version
-            )
-            if baseline is None and auto_baseline:
-                updates |= {
-                    "baseline_scalar": scalar,
-                    "baseline_harness_version": outcome.harness_version,
-                    "baseline_corpus_ref": outcome.corpus_ref,
-                    "stage": LoopStage.passed,
-                    "last_decision": LoopDecision.pass_,
+                scalar = float(outcome.scalar)
+                baseline = state.baseline_scalar
+                updates: dict[str, object] = {
+                    "last_scalar": scalar,
+                    "last_generation": int(outcome.generation),
+                    "last_harness_version": outcome.harness_version,
+                    "candidate_branch": None,
+                    "candidate_sha": None,
+                    "last_error": None,
+                    "pending_retry": False,
                 }
-                message = f"first observation auto-froze baseline at {scalar:.4f}"
-            elif instrument_changed and auto_baseline:
-                assert baseline is not None  # implied by ``instrument_changed``
-                updates |= {
-                    "baseline_scalar": scalar,
-                    "baseline_harness_version": outcome.harness_version,
-                    "baseline_corpus_ref": outcome.corpus_ref,
-                    "stage": LoopStage.passed,
-                    "last_decision": LoopDecision.pass_,
-                }
-                message = (
-                    f"instrument changed; baseline re-frozen at {scalar:.4f} "
-                    f"(was {float(baseline):.4f} under a previous harness)"
+                # A baseline is only comparable under the instrument that produced it.
+                # When the harness fingerprint rotates (judge prompt edit, model
+                # rotation, dspy upgrade), the first observation on the new instrument
+                # re-freezes the reference — the old scalar is not a valid bar anymore.
+                instrument_changed = (
+                    baseline is not None
+                    and state.baseline_harness_version is not None
+                    and state.baseline_harness_version != outcome.harness_version
                 )
-            elif (
+                if baseline is None and auto_baseline:
+                    updates |= {
+                        "baseline_scalar": scalar,
+                        "baseline_harness_version": outcome.harness_version,
+                        "baseline_corpus_ref": outcome.corpus_ref,
+                        "stage": LoopStage.passed,
+                        "last_decision": LoopDecision.pass_,
+                    }
+                    message = f"first observation auto-froze baseline at {scalar:.4f}"
+                elif instrument_changed and auto_baseline:
+                    assert baseline is not None  # implied by ``instrument_changed``
+                    updates |= {
+                        "baseline_scalar": scalar,
+                        "baseline_harness_version": outcome.harness_version,
+                        "baseline_corpus_ref": outcome.corpus_ref,
+                        "stage": LoopStage.passed,
+                        "last_decision": LoopDecision.pass_,
+                    }
+                    message = (
+                        f"instrument changed; baseline re-frozen at {scalar:.4f} "
+                        f"(was {float(baseline):.4f} under a previous harness)"
+                    )
+                elif (
+                    baseline is not None
+                    and scalar > float(baseline)
+                    and state.baseline_policy == "best"
+                ):
+                    # High-water-mark policy: a better reading raises the bar itself.
+                    updates |= {
+                        "baseline_scalar": scalar,
+                        "baseline_harness_version": outcome.harness_version,
+                        "baseline_corpus_ref": outcome.corpus_ref,
+                        "stage": LoopStage.passed,
+                        "last_decision": LoopDecision.pass_,
+                    }
+                    message = f"new high-water baseline {scalar:.4f} (was {float(baseline):.4f})"
+                elif baseline is None or scalar >= float(baseline):
+                    updates |= {"stage": LoopStage.passed, "last_decision": LoopDecision.pass_}
+                    message = f"observation {scalar:.4f} holds baseline"
+                else:
+                    message = (
+                        f"observation {scalar:.4f} regressed below baseline {float(baseline):.4f}"
+                    )
+
+                # Mark the POST-merge head processed so the metrics commit itself never
+                # re-triggers an observation (the merge moved HEAD past ``head``).
+                merged_head = self._vcs.head_sha()
+                state = write_loop_state(
+                    self._store,
+                    self._root,
+                    state.model_copy(update=updates).mark_processed(default, merged_head),
+                    title=message,
+                )
+
+            # A re-frozen (instrument-changed) baseline is by definition not a
+            # regression: cross-instrument scalars are incomparable.
+            regressed = (
                 baseline is not None
-                and scalar > float(baseline)
-                and state.baseline_policy == "best"
-            ):
-                # High-water-mark policy: a better reading raises the bar itself.
-                updates |= {
-                    "baseline_scalar": scalar,
-                    "baseline_harness_version": outcome.harness_version,
-                    "baseline_corpus_ref": outcome.corpus_ref,
-                    "stage": LoopStage.passed,
-                    "last_decision": LoopDecision.pass_,
-                }
-                message = f"new high-water baseline {scalar:.4f} (was {float(baseline):.4f})"
-            elif baseline is None or scalar >= float(baseline):
-                updates |= {"stage": LoopStage.passed, "last_decision": LoopDecision.pass_}
-                message = f"observation {scalar:.4f} holds baseline"
-            else:
-                message = f"observation {scalar:.4f} regressed below baseline {float(baseline):.4f}"
-
-            # Mark the POST-merge head processed so the metrics commit itself never
-            # re-triggers an observation (the merge moved HEAD past ``head``).
-            merged_head = self._vcs.head_sha()
-            state = write_loop_state(
-                self._store,
-                self._root,
-                state.model_copy(update=updates).mark_processed(default, merged_head),
-                title=message,
+                and scalar < float(baseline)
+                and not (instrument_changed and auto_baseline)
             )
-
-        # A re-frozen (instrument-changed) baseline is by definition not a
-        # regression: cross-instrument scalars are incomparable.
-        regressed = (
-            baseline is not None
-            and scalar < float(baseline)
-            and not (instrument_changed and auto_baseline)
-        )
-        if regressed:
-            assert baseline is not None  # implied by ``regressed``
-            redirect = self._maybe_redirect_to_gaps(
-                state, default, merged_head, scalar, float(baseline), outcome
-            )
-            if redirect is not None:
-                return redirect
-        if regressed and self._arena_enabled and self._arena_score is not None:
-            return self._heal_prompts_after_regression(state, default, merged_head, scalar)
-        if regressed:
-            write_loop_state(
-                self._store,
-                self._root,
-                state.model_copy(
-                    update={"stage": LoopStage.failed, "last_decision": LoopDecision.fail}
-                ),
-                title="observation regression (arena disabled)",
-            )
+            if regressed:
+                assert baseline is not None  # implied by ``regressed``
+                redirect = self._maybe_redirect_to_gaps(
+                    state, default, merged_head, scalar, float(baseline), outcome
+                )
+                if redirect is not None:
+                    return redirect
+            if regressed and self._arena_enabled and self._arena_score is not None:
+                return self._heal_prompts_after_regression(state, default, merged_head, scalar)
+            if regressed:
+                write_loop_state(
+                    self._store,
+                    self._root,
+                    state.model_copy(
+                        update={"stage": LoopStage.failed, "last_decision": LoopDecision.fail}
+                    ),
+                    title="observation regression (arena disabled)",
+                )
+                return LoopCycleResult(
+                    acted=True,
+                    branch=default,
+                    sha=head,
+                    decision=LoopDecision.fail,
+                    scalar=scalar,
+                    message=message,
+                )
             return LoopCycleResult(
                 acted=True,
                 branch=default,
                 sha=head,
-                decision=LoopDecision.fail,
+                decision=LoopDecision.pass_,
                 scalar=scalar,
                 message=message,
             )
-        return LoopCycleResult(
-            acted=True,
-            branch=default,
-            sha=head,
-            decision=LoopDecision.pass_,
-            scalar=scalar,
-            message=message,
-        )
 
     def _observation_hold(self, head: str) -> str | None:
         """Reason to defer this observation, or ``None`` to proceed.

@@ -24,9 +24,11 @@ is retried a few times before giving up.
 """
 
 import os
+import shutil
 import subprocess
 import time
-from collections.abc import Sequence
+from collections.abc import Iterator, Sequence
+from contextlib import contextmanager
 from pathlib import Path, PurePath
 
 #: Seconds to wait before retrying a git command that lost a transient race
@@ -725,6 +727,31 @@ class VaultVcs:
                 output=result.stderr + result.stdout,
             )
         raise AssertionError("unreachable: retry loop always returns or raises")
+
+
+@contextmanager
+def discarded_clone(clone_root: Path) -> Iterator[None]:
+    """Run a block against a throwaway clone, then delete the clone directory.
+
+    The disposal counterpart to :meth:`VaultVcs.clone_to`. A consumer that reads
+    a clone well past the operation that made it -- the loop fetches the eval
+    commit home as a result branch, then reads the regression manifest out of
+    the clone -- cannot release the directory at its last read, and a cycle with
+    several exits must release on every one of them. Hence a context manager.
+
+    Takes the path, not the eval outcome that carries it: disposal needs only
+    the directory, and the narrower parameter keeps this module free of any
+    dependency on the loop's ``EvalOutcome``.
+
+    Not every clone consumer wants this. ``evals.harness.run_eval`` deliberately
+    leaves its clone behind, because ``EvalRunResult.clone_root`` is documented
+    as letting a caller point a human at the clone to review the eval commit --
+    a contract that holds only while the directory survives the call.
+    """
+    try:
+        yield
+    finally:
+        shutil.rmtree(clone_root, ignore_errors=True)
 
 
 def _normalize_paths(paths: Sequence[str | PurePath]) -> list[str]:
