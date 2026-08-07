@@ -51,6 +51,13 @@ COMPILE_METRICS_HARNESS_VERSION = "compile-post-eval"
 #: Fixed scalar 0.0 — no golden, no train Q&A, no LLM, no retrieval scoring.
 BASELINE_PROBE_HARNESS_VERSION = "naive-cold-start"
 
+#: Prefix of a probe record's ``artifact_ref``. It is a **sentinel, not a path**:
+#: a probe writes no manifest, so there is no file to point at. Named here rather
+#: than spelled inline because a reader must recognize it — resolving it against a
+#: clone root yields a path that cannot exist, which is how it once failed an
+#: entire eval with a bare ENOENT.
+BASELINE_PROBE_ARTIFACT_PREFIX = "baseline-probe:"
+
 #: Legacy harness tags (measured probes); display-only, not gate quality.
 LEGACY_BASELINE_PROBE_HARNESS_VERSION = "lexical-cold-start"
 LEGACY_BASELINE_PROBE_HARNESS_VERSIONS = frozenset(
@@ -125,7 +132,7 @@ def build_baseline_probe_record(
         ),
         n_examples=n_examples,
         corpus_ref=corpus_ref,
-        artifact_ref=f"baseline-probe:{runner_mode}",
+        artifact_ref=f"{BASELINE_PROBE_ARTIFACT_PREFIX}{runner_mode}",
     )
 
 

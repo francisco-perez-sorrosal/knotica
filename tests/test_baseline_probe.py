@@ -180,3 +180,26 @@ def test_maybe_auto_baseline_probe_runs_after_freeze(template_vault: Path) -> No
     assert last is not None
     assert last.harness_version == BASELINE_PROBE_HARNESS_VERSION
     assert last.scalar == pytest.approx(0.0)
+
+
+def test_a_probe_baseline_leaves_the_next_generation_without_a_delta(
+    template_vault: Path,
+) -> None:
+    # The probe's ``artifact_ref`` is a sentinel ("baseline-probe:<mode>"), not a
+    # path. The held-out delta guarded only ``is None``, so it resolved the
+    # sentinel against the eval clone and raised a bare ENOENT that failed the
+    # whole run -- meaning every topic baselined by the automatic probe died on
+    # its very next eval. Absent is the correct answer here: a probe writes no
+    # manifest, and it is not the same instrument to diff against anyway.
+    from knotica.evals.harness import _compute_held_out_delta
+
+    store = LocalFSStore(template_vault)
+    run_baseline_probe(store, template_vault, TOPIC)
+    prior = read_last_metrics(store, TOPIC)
+    assert prior is not None
+    assert prior.artifact_ref is not None
+    assert prior.artifact_ref.startswith("baseline-probe:"), "the probe records a sentinel ref"
+
+    assert _compute_held_out_delta(store, TOPIC, 2, 0.5, []) is None, (
+        "a prior record carrying no manifest yields no delta rather than failing the eval"
+    )

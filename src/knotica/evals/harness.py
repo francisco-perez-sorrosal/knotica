@@ -72,6 +72,7 @@ from knotica.core.config import resolve
 from knotica.core.errors import ErrorCode, KnoticaError
 from knotica.core.lint import lint_vault
 from knotica.core.links import iter_page_paths
+from knotica.core.metrics import BASELINE_PROBE_ARTIFACT_PREFIX
 from knotica.core.records import (
     MetricsComponents,
     MetricsRecord,
@@ -1082,12 +1083,12 @@ def _compute_held_out_delta(
     """Diff this generation against the prior one, keyed on the stable golden id.
 
     Returns ``None`` -- never a fabricated ``0`` -- at cold start
-    (``generation == 1``: no prior generation exists). This is the *only* null
-    branch: at any later generation the prior manifest is one this harness itself
-    wrote (or reconciled to the same v2 shape), so an unreadable or malformed prior
-    manifest is a genuine corruption and is allowed to raise a typed error rather
-    than be masked as "no baseline" -- consistent with the codebase's
-    typed-errors-over-silent-fallback convention.
+    (``generation == 1``), and whenever the prior record carries no manifest to
+    diff against: a zero-anchor probe records a ``baseline-probe:<mode>`` sentinel
+    and a promoted compile records no ref at all. Neither is corruption and
+    neither is the same instrument, so the delta is genuinely absent, not broken.
+    A prior record that *does* name a manifest is one this harness wrote, so an
+    unreadable or malformed one still raises rather than being masked.
 
     Otherwise it follows the prior generation's
     :attr:`~knotica.core.records.MetricsRecord.artifact_ref` to read the prior
@@ -1101,12 +1102,12 @@ def _compute_held_out_delta(
         return None
     prior_record = _prior_metrics_record(store, topic, generation)
     prior_ref = prior_record.artifact_ref
-    if prior_ref is None:
-        raise EvalRunError(
-            topic,
-            f"the prior generation ({prior_record.generation}) recorded no manifest "
-            "artifact_ref to diff the held-out delta against",
-        )
+    # Both non-harness writers land here. The probe's ref is a sentinel, not a
+    # path, so resolving it raised a bare ENOENT that failed the whole eval; a
+    # promoted compile records none at all. Guarding only ``is None`` meant any
+    # topic baselined by the probe -- the automatic path -- failed its next eval.
+    if prior_ref is None or prior_ref.startswith(BASELINE_PROBE_ARTIFACT_PREFIX):
+        return None
     prior_manifest = json.loads(store.read_text(prior_ref))
     prior_by_id = {entry["id"]: entry for entry in prior_manifest["per_example"]}
     current_by_id = {item.id: item for item in breakdown}
