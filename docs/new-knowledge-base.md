@@ -53,7 +53,8 @@ Both surfaces drive the same MCP tools, so the choice is ergonomics — with one
 | Bootstrap / review / freeze golden | `datasets` | Datasets pane |
 | Compile and promote | `compile` | Compile panel |
 | Baseline, eval, loop | `loop` | Loop pane |
-| Close a knowledge gap | `gapfill_discover`, `gaps_read` | Sources pane |
+| Diagnose, discover, approve a gap | `gaps_read`, `gapfill_discover`, `suggestions_review` | Sources pane |
+| **Ingest an approved source** | **yes — the handshake needs a model** | no |
 
 > [!IMPORTANT]
 > **Ingest is the one step the dashboard cannot do for you**, and that is by design rather than an
@@ -221,9 +222,16 @@ When a regression traces to *missing knowledge* rather than a bad prompt, healin
 help. The gap-fill pipeline diagnoses that case, writes the gap to a queue, and — only when you ask
 — searches for candidate sources and shows them to you before anything is ingested.
 
-Read the queue with `gaps_read` or the dashboard's **Sources** pane; drain it with `gapfill_discover`, which
-is billed and two-phase. Discovery needs a search-provider key rather than a model token; see
-[gap-fill](gap-fill.md).
+Read the queue with `gaps_read` or the dashboard's **Sources** pane; drain it with `gapfill_discover`,
+which is billed and two-phase. Discovery needs a search-provider key rather than a model token. You
+approve or reject each suggestion from either surface.
+
+Ingesting an approved source is the same Desktop-only story as [Step 3](#step-3-ingest-sources-into-each-topic),
+for the same reason. It is a four-step handshake — `source_ingest_open`, then `store_source` and
+`write_page` against the returned candidate handle, then `source_ingest_submit` dry-run and apply —
+and the middle step is your Claude reading the source. Approval and ingest are MCP-only by design.
+Note that apply runs the gate synchronously and bills, and returns `blocked` without publishing if the
+topic has no frozen baseline. Full pipeline: [gap-fill](gap-fill.md).
 
 This is the step that makes a KB compounding rather than static: the wiki tells you what it does not
 know, in the vocabulary of questions it failed to answer.
