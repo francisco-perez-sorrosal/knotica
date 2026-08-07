@@ -241,12 +241,39 @@ export interface ToolClient {
     topic?: string,
     makeDefault?: boolean,
   ): Promise<Record<string, unknown>>;
+  createTopic(
+    topic: string,
+    description?: string,
+    vault?: string,
+  ): Promise<Record<string, unknown>>;
   close(): Promise<void>;
 }
 
+/**
+ * Deadline for the calls that drive a server-side LLM: the billed dispatchers
+ * (`compile action=run`, `datasets action=bootstrap|bootstrap_train`,
+ * `loop action=run_eval|run_once`, `gapfill_discover`) and `query`.
+ *
+ * The MCP SDK defaults every request to 60 s, which no real eval finishes inside
+ * — a golden set is many answer-plus-judge round trips, and a throttled one adds
+ * retry backoff on top. Past the deadline the client aborts, the browser drops
+ * the connection, and the server logs a bare `ClientDisconnect` while the run it
+ * already billed for keeps going, invisibly. Bounded rather than infinite, so a
+ * genuinely wedged call still fails instead of hanging the pane forever.
+ *
+ * `resetTimeoutOnProgress` is deliberately not used instead: the server sends no
+ * MCP progress notifications (it writes progress to disk for the UI to poll), so
+ * there is nothing on this channel for it to reset against.
+ */
+const LLM_CALL_TIMEOUT_MS = 15 * 60 * 1000;
+
 /** Shared tool wrappers — subclasses only implement transport ``call``. */
 abstract class BaseToolClient implements ToolClient {
-  protected abstract call<T>(name: string, args: Record<string, unknown>): Promise<T>;
+  protected abstract call<T>(
+    name: string,
+    args: Record<string, unknown>,
+    timeoutMs?: number,
+  ): Promise<T>;
 
   wikiStatus(topic: string, vault = ""): Promise<WikiStatus> {
     return this.call("wiki_status", { topic, vault });
@@ -257,7 +284,7 @@ abstract class BaseToolClient implements ToolClient {
   }
 
   query(topic: string, question: string, vault = ""): Promise<QueryAnswer> {
-    return this.call("query", { topic, question, vault });
+    return this.call("query", { topic, question, vault }, LLM_CALL_TIMEOUT_MS);
   }
 
   curateExample(
@@ -291,7 +318,11 @@ abstract class BaseToolClient implements ToolClient {
   }
 
   compileRun(topic: string, vault = "", useMipro = true): Promise<CompileRunResult> {
-    return this.call("compile", { action: "run", topic, vault, use_mipro: useMipro });
+    return this.call(
+      "compile",
+      { action: "run", topic, vault, use_mipro: useMipro },
+      LLM_CALL_TIMEOUT_MS,
+    );
   }
 
   compilePromote(
@@ -334,7 +365,7 @@ abstract class BaseToolClient implements ToolClient {
   }
 
   datasetsBootstrap(topic: string, vault = ""): Promise<DatasetsBootstrapResult> {
-    return this.call("datasets", { action: "bootstrap", topic, vault });
+    return this.call("datasets", { action: "bootstrap", topic, vault }, LLM_CALL_TIMEOUT_MS);
   }
 
   datasetsBootstrapTrain(
@@ -342,7 +373,11 @@ abstract class BaseToolClient implements ToolClient {
     target = 30,
     vault = "",
   ): Promise<DatasetsBootstrapTrainResult> {
-    return this.call("datasets", { action: "bootstrap_train", topic, target, vault });
+    return this.call(
+      "datasets",
+      { action: "bootstrap_train", topic, target, vault },
+      LLM_CALL_TIMEOUT_MS,
+    );
   }
 
   datasetsFreeze(topic: string, vault = ""): Promise<DatasetsFreezeResult> {
@@ -396,7 +431,7 @@ abstract class BaseToolClient implements ToolClient {
   }
 
   loopRunOnce(topic: string, vault = ""): Promise<LoopOnceResult> {
-    return this.call("loop", { action: "run_once", topic, vault });
+    return this.call("loop", { action: "run_once", topic, vault }, LLM_CALL_TIMEOUT_MS);
   }
 
   loopSetBaseline(topic: string, scalar: number, vault = ""): Promise<LoopSetBaselineResult> {
@@ -448,13 +483,11 @@ abstract class BaseToolClient implements ToolClient {
     numThreads?: number,
     vault = "",
   ): Promise<LoopRunEvalResult> {
-    return this.call("loop", {
-      action: "run_eval",
-      topic,
-      confirm,
-      num_threads: numThreads,
-      vault,
-    });
+    return this.call(
+      "loop",
+      { action: "run_eval", topic, confirm, num_threads: numThreads, vault },
+      LLM_CALL_TIMEOUT_MS,
+    );
   }
 
   branchScoreboard(topic: string, vault = ""): Promise<BranchScoreboard> {
@@ -527,7 +560,11 @@ abstract class BaseToolClient implements ToolClient {
     confirm = "",
     vault = "",
   ): Promise<GapfillDiscoverResult> {
-    return this.call("gapfill_discover", { topic, max_gaps: maxGaps, confirm, vault });
+    return this.call(
+      "gapfill_discover",
+      { topic, max_gaps: maxGaps, confirm, vault },
+      LLM_CALL_TIMEOUT_MS,
+    );
   }
 
   suggestionsReview(
@@ -648,6 +685,22 @@ abstract class BaseToolClient implements ToolClient {
     return this.call("vault", { action: "create", name, path, topic, make_default: makeDefault });
   }
 
+  /**
+   * `vault action=create` seeds at most one topic, so every topic after the
+   * first needed chat or the CLI. A knowledge base is normally several topics,
+   * which made "build a KB from the dashboard" false at the second topic.
+   *
+   * Deterministic and unbilled — no server-side model — so it keeps the default
+   * request timeout rather than the LLM deadline.
+   */
+  createTopic(
+    topic: string,
+    description = "",
+    vault = "",
+  ): Promise<Record<string, unknown>> {
+    return this.call("create_topic", { topic, description, vault });
+  }
+
   abstract close(): Promise<void>;
 }
 
@@ -664,9 +717,17 @@ export class HttpToolClient extends BaseToolClient {
     await this.client.close();
   }
 
-  protected async call<T>(name: string, args: Record<string, unknown>): Promise<T> {
+  protected async call<T>(
+    name: string,
+    args: Record<string, unknown>,
+    timeoutMs?: number,
+  ): Promise<T> {
     await this.connect();
-    const result = await this.client.callTool({ name, arguments: args });
+    const result = await this.client.callTool(
+      { name, arguments: args },
+      undefined,
+      timeoutMs === undefined ? undefined : { timeout: timeoutMs },
+    );
     return extractToolPayload<T>(result, name);
   }
 
@@ -701,9 +762,16 @@ export class BridgeToolClient extends BaseToolClient {
     // Host owns the postMessage transport lifetime.
   }
 
-  protected async call<T>(name: string, args: Record<string, unknown>): Promise<T> {
+  protected async call<T>(
+    name: string,
+    args: Record<string, unknown>,
+    timeoutMs?: number,
+  ): Promise<T> {
     await this.ready;
-    const result = await this.app.callServerTool({ name, arguments: args });
+    const result = await this.app.callServerTool(
+      { name, arguments: args },
+      timeoutMs === undefined ? undefined : { timeout: timeoutMs },
+    );
     return extractToolPayload<T>(result, name);
   }
 }

@@ -89,6 +89,10 @@ export function App() {
   const [newKbPath, setNewKbPath] = useState("");
   const [newKbName, setNewKbName] = useState("");
   const [newKbTopic, setNewKbTopic] = useState("");
+  const [showNewTopic, setShowNewTopic] = useState(false);
+  const [newTopicName, setNewTopicName] = useState("");
+  const [newTopicBusy, setNewTopicBusy] = useState(false);
+  const [newTopicError, setNewTopicError] = useState<string | null>(null);
   const [newKbBusy, setNewKbBusy] = useState(false);
   const [newKbError, setNewKbError] = useState<string | null>(null);
   const [mount, setMount] = useState<"http" | "bridge" | "connecting">(
@@ -373,6 +377,30 @@ export function App() {
     window.history.replaceState({}, "", url);
   }
 
+  // A knowledge base is normally several topics, but `vault action=create`
+  // seeds only the first — so without this the dashboard could start a KB and
+  // then not grow it. Refresh before selecting: the picker renders from the
+  // status payload, and selecting a topic it has not yet seen shows an entry
+  // that vanishes on the next poll.
+  async function submitNewTopic(event: Event) {
+    event.preventDefault();
+    const name = newTopicName.trim();
+    if (!clientRef.current || !name) return;
+    setNewTopicBusy(true);
+    setNewTopicError(null);
+    try {
+      await clientRef.current.createTopic(name);
+      setShowNewTopic(false);
+      setNewTopicName("");
+      await refreshStatus(true);
+      selectTopic(name);
+    } catch (cause) {
+      setNewTopicError(cause instanceof Error ? cause.message : String(cause));
+    } finally {
+      setNewTopicBusy(false);
+    }
+  }
+
   function selectPane(next: PaneId) {
     setPane(next);
     const url = new URL(window.location.href);
@@ -494,6 +522,50 @@ export function App() {
                 ))}
               </select>
             </label>
+
+            <button
+              type="button"
+              class="toggle"
+              onClick={() => {
+                setShowNewTopic((prev) => !prev);
+                setNewTopicError(null);
+              }}
+            >
+              ＋ New topic
+            </button>
+
+            {showNewTopic ? (
+              <form class="doctor-repair-toolbar" onSubmit={(event) => void submitNewTopic(event)}>
+                <label class="heal-inline-field">
+                  <span>topic</span>
+                  <input
+                    type="text"
+                    required
+                    value={newTopicName}
+                    placeholder="pretraining"
+                    onInput={(event) => setNewTopicName((event.target as HTMLInputElement).value)}
+                  />
+                </label>
+                <button
+                  type="submit"
+                  class="primary"
+                  disabled={newTopicBusy || !newTopicName.trim()}
+                >
+                  {newTopicBusy ? "Creating…" : "Create"}
+                </button>
+                <button
+                  type="button"
+                  class="toggle"
+                  onClick={() => {
+                    setShowNewTopic(false);
+                    setNewTopicError(null);
+                  }}
+                >
+                  Cancel
+                </button>
+                {newTopicError ? <p class="tone-bad">{newTopicError}</p> : null}
+              </form>
+            ) : null}
 
             <nav class="pane-tabs" aria-label="Dashboard panes">
               <button
