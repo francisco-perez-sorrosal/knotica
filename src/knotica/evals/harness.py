@@ -20,7 +20,7 @@ The data flow, in one pass:
    exit code) and a set that overlaps the flywheel trainset raises
    :class:`~knotica.evals.golden.GoldenSetContaminationError` -- a contaminated
    held-out set is never scored silently.
-3. **Score the devset** with ``dspy.Evaluate(devset, metric, num_threads=1)``
+3. **Score the devset** with ``dspy.Evaluate(devset, metric, num_threads=N)`` (default 4)
    over a :func:`~knotica.evals.program.BaselineProgram` wrapping
    :class:`~knotica.evals.runner.MessagesApiRunner`. Every per-example
    ``(gold, prediction, quality)`` is read back from ``EvaluationResult.results``
@@ -619,10 +619,10 @@ def _with_example_progress(
 ) -> object:
     """Wrap ``program`` so each forward reports ``(i, total, question)`` first.
 
-    Counting is safe because the harness pins ``num_threads=1`` (determinism);
-    the callbacks fire *before* the example runs so a watcher shows the
-    question currently in flight, not the one just finished. ``on_substage``
-    additionally marks the "answering" leg (the metric marks "judging").
+    Counting is safe because it is lock-guarded, not because the harness is
+    single-threaded (``num_threads`` defaults to 4); callbacks fire *before* the
+    example runs so a watcher shows a question in flight, not one just finished.
+    ``on_substage`` additionally marks the "answering" leg (metric marks "judging").
 
     A ``program(question=question)`` exception is the runner-error capture seam:
     ``dspy.Evaluate`` (3.2) skips the metric entirely for an example whose

@@ -446,7 +446,16 @@ class AnthropicClient:
         try:
             response = self._client.messages.create(**create_kwargs)
         except anthropic.APIStatusError as exc:  # type: ignore[attr-defined]
-            raise _llm_api_error(exc, self.auth_mode) from exc
+            error = _llm_api_error(exc, self.auth_mode)
+            # Log the ``fix`` before raising: under ``dspy.Evaluate`` this exception
+            # is caught per example by dspy's parallelizer, which logs ``str(exc)``
+            # -- the message alone. The actionable half would otherwise never reach
+            # the operator, which is exactly the half that names the way out (an
+            # OAuth token the Messages API refuses reads as an opaque 429, and the
+            # remedy -- unset the token, fall back to the metered key -- is not
+            # guessable from the status).
+            _LOGGER.error("eval LLM call failed — fix: %s", error.fix)
+            raise error from exc
         except anthropic.APIConnectionError as exc:  # type: ignore[attr-defined]
             raise KnoticaError(
                 ErrorCode.LLM_API_ERROR,

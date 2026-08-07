@@ -351,12 +351,15 @@ def test_metered_rate_limit_surfaces_as_retryable_typed_error_naming_the_mode(
     )
 
 
-def test_oauth_throttle_fix_text_names_the_token_fallback_path(
-    monkeypatch: pytest.MonkeyPatch,
+def test_oauth_throttle_fix_text_names_the_fallback_and_reaches_the_log(
+    monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
 ) -> None:
     # An opaque 429/401 in OAuth mode is the token-not-accepted signature: the
     # fix must point at unsetting CLAUDE_CODE_OAUTH_TOKEN to fall back, so the
     # operator is never left guessing which credential produced the failure.
+    # It must also be *logged*, not merely carried: under dspy.Evaluate the
+    # parallelizer catches this per example and logs ``str(exc)`` -- the message
+    # alone -- so an unlogged fix never reaches the operator who needs it.
     monkeypatch.setenv(OAUTH_TOKEN_ENV, "oat-dummy-value-not-real")
     monkeypatch.setenv(ANTHROPIC_KEY_ENV, "sk-ant-dummy-value-not-real")
     client = _client_with_sdk_raising(monkeypatch, 429)
@@ -373,6 +376,10 @@ def test_oauth_throttle_fix_text_names_the_token_fallback_path(
     assert "oat-dummy-value-not-real" not in error.message + error.fix, (
         "token material must never appear in the envelope"
     )
+    assert "CLAUDE_CODE_OAUTH_TOKEN" in caplog.text, (
+        "the fix must reach the log too -- dspy surfaces only the message"
+    )
+    assert "oat-dummy-value-not-real" not in caplog.text, "the token must never be logged"
 
 
 # ---------------------------------------------------------------------------
