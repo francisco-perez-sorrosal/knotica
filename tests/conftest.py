@@ -3,6 +3,9 @@
 The spine that every mutation test builds on (helpers live in
 ``tests/support/vault.py``):
 
+- ``managed_tempdir`` (session, autouse) — pins ``tempfile``'s default parent
+  under pytest's own reaped base temp dir, so a bare ``mkdtemp()`` anywhere in
+  the suite is garbage-collected instead of leaking into the real ``TMPDIR``.
 - ``vault_seed`` (session) — the repo's ``vault-template/`` instantiated once
   per session into a temp dir with ``git init`` + identity + initial commit.
   Never handed to tests directly: it is the copy-source cache that makes
@@ -25,6 +28,8 @@ Zero network; a fixture instantiation is a local copytree (well under 1 s).
 
 import shutil
 import stat
+import tempfile
+from collections.abc import Iterator
 from pathlib import Path
 
 import pytest
@@ -42,6 +47,34 @@ def pytest_configure(config: pytest.Config) -> None:
         "slow: heavier integration test (real clones, threads, barrier-synced "
         "contention) — deterministic but multi-second; safe to deselect for a fast loop.",
     )
+
+
+@pytest.fixture(scope="session", autouse=True)
+def managed_tempdir(tmp_path_factory: pytest.TempPathFactory) -> Iterator[None]:
+    """Reparent every bare ``tempfile`` allocation under pytest's reaped basetemp.
+
+    ``tempfile.mkdtemp()`` carries no cleanup contract: the directory outlives
+    the process unless the caller removes it. The loop tests cannot use
+    ``tmp_path`` for their clone destinations -- those allocations happen inside
+    the injected ``_evaluate`` closure, whose signature is fixed by
+    ``EvaluateFn``, so no fixture is in scope there. Left alone, each such call
+    leaks one directory into the real ``TMPDIR`` on every run, forever.
+
+    Pointing ``tempfile.tempdir`` at ``tmp_path_factory.getbasetemp()`` moves
+    those allocations inside the tree pytest already garbage-collects (it keeps
+    the last three sessions), which bounds the growth without touching a single
+    call site -- and makes the guarantee hold for tests not yet written. This is
+    the same redirect-the-global tactic ``isolated_home`` uses for ``HOME``.
+
+    It also stops the suite writing the developer's real judge cache, which
+    ``evals.harness`` roots at ``tempfile.gettempdir()``.
+    """
+    previous = tempfile.tempdir
+    tempfile.tempdir = str(tmp_path_factory.getbasetemp())
+    try:
+        yield
+    finally:
+        tempfile.tempdir = previous
 
 
 @pytest.fixture(scope="session")
