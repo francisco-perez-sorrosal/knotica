@@ -505,6 +505,10 @@ def run_eval(
         run_config,
     )
     _persist(clone_store, clone_vcs.root, topic, generation, record, manifest, budget, run_config)
+    # The verdict, on the operator's channel. The clone line above announced the
+    # run; without this its *result* reached only the vault and the UI, so a
+    # terminal watching a minutes-long eval never learned what it scored.
+    _LOGGER.info("eval done topic=%r gen=%d scalar=%.4f", topic, generation, record.scalar)
     return EvalRunResult(record=record, clone_root=clone_vcs.root)
 
 

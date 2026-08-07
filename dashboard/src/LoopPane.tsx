@@ -1251,16 +1251,38 @@ function evalSubstageLabel(progress: LoopProgress): string | null {
   return null;
 }
 
+/**
+ * "updated 4s ago" — the difference between a run that is working and one that
+ * is wedged. Every other field here can sit unchanged for minutes during a slow
+ * question, so without an age a stalled eval looks exactly like a busy one.
+ * Recomputed per status poll, which is what keeps it moving.
+ */
+function progressAgeLabel(updatedAt: string): string {
+  const elapsedMs = Date.now() - new Date(updatedAt).getTime();
+  if (!Number.isFinite(elapsedMs) || elapsedMs < 0) return "updated just now";
+  const seconds = Math.round(elapsedMs / 1000);
+  if (seconds < 60) return `updated ${seconds}s ago`;
+  return `updated ${Math.floor(seconds / 60)}m ${seconds % 60}s ago`;
+}
+
 function evalProgressBody(progress: LoopProgress) {
+  const age = <small class="muted stage-progress-age">{progressAgeLabel(progress.updated_at)}</small>;
   if (progress.phase === "preparing" || progress.total <= 0) {
-    return <small class="stage-progress-hint">preparing clone + golden set…</small>;
+    return (
+      <div class="stage-progress">
+        <small class="stage-progress-hint">preparing clone + golden set…</small>
+        {age}
+      </div>
+    );
   }
   const pct = Math.min(100, Math.round((progress.current / progress.total) * 100));
   const substageLabel = evalSubstageLabel(progress);
+  const failed = (progress.examples ?? []).filter((example) => example.status === "error").length;
   return (
     <div class="stage-progress">
       <small class="stage-progress-count">
         question {progress.current}/{progress.total}
+        {failed ? ` · ${failed} failed` : ""}
       </small>
       <div class="stage-progress-track" aria-hidden="true">
         <div class="stage-progress-fill" style={{ width: `${pct}%` }} />
@@ -1272,6 +1294,7 @@ function evalProgressBody(progress: LoopProgress) {
         <small class="muted stage-progress-detail">{truncateDetail(progress.detail)}</small>
       ) : null}
       {progress.examples?.length ? evalExamplesList(progress.examples) : null}
+      {age}
     </div>
   );
 }

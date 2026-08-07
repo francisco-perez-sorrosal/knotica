@@ -21,6 +21,7 @@ No live evals, no model calls -- ``tmp_path`` stands in for the vault root
 from __future__ import annotations
 
 import json
+import logging
 import threading
 from concurrent.futures import ThreadPoolExecutor
 from datetime import UTC, datetime, timedelta
@@ -236,3 +237,44 @@ def test_stale_multi_entry_payload_returns_none_regardless_of_examples(tmp_path:
     path.write_text(json.dumps(payload), encoding="utf-8")
 
     assert read_progress(tmp_path, TOPIC) is None
+
+
+def test_each_write_narrates_one_line_to_the_operator_log(
+    tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    # A minutes-long eval was silent in the server log between its clone line and
+    # its verdict, so a stalled run and a working one looked identical. Each write
+    # now emits one line. Consecutive lines must carry new information: the
+    # recorded/failed counts are what separate an outcome write from the substage
+    # write immediately before it, which is otherwise identical.
+    with caplog.at_level(logging.INFO, logger="knotica.core.loop_progress"):
+        write_progress(
+            tmp_path,
+            TOPIC,
+            phase="evaluating",
+            current=2,
+            total=10,
+            substage="judging",
+            sub_current=1,
+            sub_total=3,
+            examples=[{"id": "g1", "status": "ok"}, {"id": "g2", "status": "error"}],
+        )
+
+    assert f"progress {TOPIC} evaluating 2/10 judging 1/3 (2 recorded, 1 failed)" in caplog.text, (
+        "the log line must carry phase, position, substage and outcome counts"
+    )
+
+
+def test_a_long_question_is_truncated_in_the_log_but_not_in_the_file(
+    tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    # The file feeds a UI that can wrap; the log feeds a terminal that cannot.
+    question = "q" * 150
+    with caplog.at_level(logging.INFO, logger="knotica.core.loop_progress"):
+        write_progress(tmp_path, TOPIC, phase="evaluating", current=1, total=2, detail=question)
+
+    entry = read_progress(tmp_path, TOPIC)
+    assert entry is not None
+    assert len(entry["detail"]) == 150, "the file keeps the detail up to DETAIL_CAP"
+    assert "q" * 150 not in caplog.text, "the log must not carry the untruncated question"
+    assert "q" * 70 in caplog.text, "the log carries the truncated head of it"

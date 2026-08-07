@@ -32,6 +32,41 @@ _STALE_AFTER_SECONDS = 15 * 60.0
 EXAMPLES_CAP = 200
 DETAIL_CAP = 200
 
+#: Detail budget for the *log* line. Far tighter than ``DETAIL_CAP``: the file
+#: feeds a UI that can wrap, whereas a 200-character question turns a terminal
+#: log into something nobody scans.
+_LOG_DETAIL_CAP = 70
+
+
+def _progress_log_line(topic: str, payload: dict[str, Any]) -> str:
+    """One compact operator-facing line describing a progress event.
+
+    The progress *file* answers "what is it doing" for the dashboard; this
+    answers it for whoever is watching the server process, where a minutes-long
+    run was otherwise silent between its clone line and its verdict.
+
+    Every field that moves between writes appears, so consecutive lines carry new
+    information rather than repeating: the recorded/failed counts are what
+    distinguish an outcome write from the substage write just before it.
+    """
+    parts = [f"progress {topic} {payload['phase']}"]
+    if int(payload["total"]) > 0:
+        parts.append(f"{payload['current']}/{payload['total']}")
+    substage = str(payload["substage"])
+    if substage:
+        sub_total = int(payload["sub_total"])
+        parts.append(
+            f"{substage} {payload['sub_current']}/{sub_total}" if sub_total > 0 else substage
+        )
+    examples = payload["examples"]
+    if examples:
+        failed = sum(1 for entry in examples if entry.get("status") == "error")
+        parts.append(f"({len(examples)} recorded{f', {failed} failed' if failed else ''})")
+    detail = str(payload["detail"])[:_LOG_DETAIL_CAP]
+    if detail:
+        parts.append(f"-- {detail}")
+    return " ".join(parts)
+
 
 def _progress_path(vault_root: Path, topic: str) -> Path:
     safe_topic = topic.strip().strip("/").replace("/", "-") or "vault"
@@ -95,6 +130,11 @@ def write_progress(
             "examples": _capped_examples(examples),
             "updated_at": datetime.now(UTC).isoformat(),
         }
+        # Inside the try, and before the write: the operator's channel is
+        # independent of the UI's, so an event is still reported when the file
+        # write fails -- and a logging failure is swallowed by the same
+        # never-raise contract that guards the write (td-013).
+        _logger.info("%s", _progress_log_line(topic, payload))
         path.parent.mkdir(parents=True, exist_ok=True)
         fd, tmp_path = tempfile.mkstemp(dir=path.parent, prefix=f"{path.name}.")
         with os.fdopen(fd, "w", encoding="utf-8") as tmp_file:
