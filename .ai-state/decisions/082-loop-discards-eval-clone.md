@@ -1,7 +1,7 @@
 ---
-id: dec-draft-fcae60b7
+id: dec-082
 title: The loop discards its eval clone; standalone eval keeps it
-status: proposed
+status: accepted
 category: behavioral
 date: 2026-08-06
 summary: Loop cycles delete the throwaway eval clone when the cycle exits, while standalone run_eval callers retain it, because clone_root is a documented human-review contract only on that path.
