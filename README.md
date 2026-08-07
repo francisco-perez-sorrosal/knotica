@@ -32,32 +32,39 @@ Two channels, one MCP server behind both. Full walkthrough: **[`docs/install.md`
 
 Then `/knotica:setup` to scaffold a vault and wire the server.
 
-**Claude Desktop / CLI channel**, from a checkout of this repo:
+**Claude Desktop / CLI channel**, from a checkout of this repo — three targets, in this order:
 
 ```bash
-make start                     # sync deps, install the CLI with the evals extra, restart the loop service
-knotica init --desktop --yes   # scaffold a vault, write config, register the Desktop MCP entry
+make start       # code: sync deps, install the CLI with the evals extra, restart the loop service
+make init        # data: scaffold a knowledge base and register it with Claude Desktop
+make dashboard   # UI:   serve the dashboard at http://127.0.0.1:8765 (Ctrl-C to stop)
 ```
 
-Then **fully quit and reopen Claude Desktop** (⌘Q — config is read at launch). Desktop specifics: [`docs/CLAUDE_DESKTOP.md`](docs/CLAUDE_DESKTOP.md).
+They are separate because they do different kinds of thing: `start` touches only this repo, while `init` writes a vault outside it and edits your Desktop config. Between them, **fully quit and reopen Claude Desktop** (⌘Q — config is read at launch). Desktop specifics: [`docs/CLAUDE_DESKTOP.md`](docs/CLAUDE_DESKTOP.md).
+
+`make ps` shows which components are running, and `make creds` reports which credential headless work would use without printing it. A running process keeps the code it started with, so after a pull use `make dashboard-restart` and `make daemon-restart`.
 
 **Prerequisites:** [uv](https://docs.astral.sh/uv/) (required — launches the server and powers the CLI), git (the vault is a git repo), Python 3.12+ (uv manages the interpreter), and a Claude client. [ripgrep](https://github.com/BurntSushi/ripgrep) is a *performance* dependency, not a requirement — search falls back to a pure-Python walk and returns identical results either way.
 
 ## First run
 
-1. Finish setup (`/knotica:setup`, or `knotica init`).
+1. Finish setup (`/knotica:setup`, or `make init`).
 2. Open the scaffolded folder as a vault in Obsidian. A fresh vault is scaffolded **bare** — no demo content.
 3. Ingest something. In your client: *"Ingest `<url>` into a topic called `<name>`."*
 4. Ask a grounded question, then curate the good answers to fuel the flywheel.
-5. Optional: open the dashboard — ask your client to call `open_dashboard`, or run `knotica mcp --http` and browse `http://127.0.0.1:8765/`.
+5. Open the dashboard — `make dashboard`, or ask your client to call `open_dashboard` to render it inline.
 
-Want a worked example first? [`docs/tutorial.md`](docs/tutorial.md) walks a real paper end to end — ingest, ask, curate, compile, prove the improvement.
+Two walkthroughs, depending on what you want to build:
+
+- [`docs/new-knowledge-base.md`](docs/new-knowledge-base.md) — build a **multi-topic knowledge base** from nothing, entirely through Claude Desktop and the dashboard. No CLI.
+- [`docs/tutorial.md`](docs/tutorial.md) — take **one topic** all the way around the flywheel: ingest a real paper, ask, curate, compile, prove the improvement.
 
 ## Documentation
 
 | I want to… | Read |
 |---|---|
 | Install, wire up a client, enable headless, run the daemon | [`docs/install.md`](docs/install.md) |
+| Build a multi-topic knowledge base from scratch, Desktop + dashboard only | [`docs/new-knowledge-base.md`](docs/new-knowledge-base.md) |
 | Follow a worked example end to end | [`docs/tutorial.md`](docs/tutorial.md) |
 | Understand how the wiki improves itself | [`docs/self-improvement.md`](docs/self-improvement.md) |
 | Close knowledge gaps from diagnosis to gated ingest | [`docs/gap-fill.md`](docs/gap-fill.md) |

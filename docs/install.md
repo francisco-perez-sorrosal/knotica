@@ -210,10 +210,18 @@ Every configuration key, with its type and default: [configuration](configuratio
 
 ## Makefile targets
 
+Three targets cover a first run — `make start` (code), `make init` (a knowledge base), `make dashboard` (the UI). The rest are for when something is already running.
+
 | Target | What it does |
 |---|---|
 | `make help` | List the targets (the default goal) |
 | `make start` | `install` + `daemon-restart` — the one command after a clone or a pull |
+| `make init` | `knotica init --desktop --yes` — scaffold your first knowledge base and register it with Claude Desktop |
+| `make dashboard` | Serve the dashboard and the HTTP MCP transport in the foreground; `PORT=8765` by default, Ctrl-C to stop |
+| `make dashboard-stop` | Kill whatever holds the dashboard port |
+| `make dashboard-restart` | `dashboard-stop` + `dashboard` — how a code change reaches a running dashboard |
+| `make ps` | Which components are running, and the reminder that a running process keeps the code it started with |
+| `make creds` | Which credential headless work would select, printing no secret |
 | `make install` | `uv sync --extra evals`, then `uv tool install --from '.[evals]' knotica --force` |
 | `make verify` | The canonical gate, in order: topology check, ADR health, architecture coverage, mypy, pytest, `ruff check`, `ruff format --check` |
 | `make test-groups` | List the test groups |

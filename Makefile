@@ -10,16 +10,18 @@ SHELL := /bin/bash
 .DEFAULT_GOAL := help
 
 UV ?= uv
+PORT ?= 8765
 LAUNCHD_LABEL := com.knotica.loop
 LOG_DIR := $(HOME)/Library/Logs/knotica
 
 .PHONY: help start install verify doctor desktop clean-tool \
+        init dashboard dashboard-stop dashboard-restart ps creds \
         test-group test-groups \
         daemon-install daemon-restart daemon-status daemon-uninstall daemon-logs
 
 help:  ## Show available targets
 	@grep -E '^[a-zA-Z_-]+:.*?## ' $(MAKEFILE_LIST) \
-	  | awk 'BEGIN {FS = ":.*?## "}; {printf "  \033[36m%-17s\033[0m %s\n", $$1, $$2}'
+	  | awk 'BEGIN {FS = ":.*?## "}; {printf "  \033[36m%-19s\033[0m %s\n", $$1, $$2}'
 
 # `start` restarts the daemon but never *registers* it. Registration writes an
 # OS unit that auto-starts at login and runs billed evals, so it stays a
@@ -32,6 +34,9 @@ start: install daemon-restart  ## Install everything, then pick up the new build
 	@echo "Repo + CLI are on the current build."
 	@echo "Claude Desktop launches its server from this repo, so finish with:"
 	@echo "  fully quit Claude Desktop (Cmd-Q) and reopen it."
+	@echo
+	@echo "No knowledge base yet?  make init      Then:  make dashboard"
+	@echo "Check what is running:  make ps        Credentials:  make creds"
 	@echo
 	@echo "The autonomous loop daemon is opt-in (it runs billed evals):"
 	@echo "  make daemon-install   register it   ·   make daemon-status   check it"
@@ -79,6 +84,61 @@ test-group:  ## Run one group: make test-group GROUP=<id> [ARGS="-x -q"]
 
 doctor:  ## Report vault/config health for the active knowledge base
 	$(UV) run --extra evals knotica doctor --quick
+
+# --- knowledge base + dashboard ---------------------------------------------
+#
+# `start` puts the *code* in place; these put the *system* in place. They are
+# separate because scaffolding a KB writes to disk outside this repo and
+# registers a Desktop entry -- deliberate acts, not something a build step does
+# on your behalf.
+
+init:  ## Scaffold your first knowledge base and register it with Claude Desktop
+	$(UV) run --extra evals knotica init --desktop --yes
+	@echo
+	@echo "Now fully quit Claude Desktop (Cmd-Q) and reopen it, then: make dashboard"
+
+# Foreground on purpose: this is the process serving your dashboard, and seeing
+# its log is how you diagnose a stalled run. Ctrl-C stops it.
+dashboard:  ## Serve the dashboard + HTTP MCP transport (Ctrl-C to stop; PORT=8765)
+	@echo "dashboard -> http://127.0.0.1:$(PORT)/"
+	$(UV) run --extra evals knotica mcp --http --port $(PORT)
+
+dashboard-stop:  ## Stop whatever is serving the dashboard port
+	@pid=$$(lsof -ti tcp:$(PORT) 2>/dev/null); \
+	if [ -n "$$pid" ]; then \
+	  kill $$pid && echo "stopped pid $$pid on port $(PORT)"; \
+	else \
+	  echo "nothing listening on port $(PORT)"; \
+	fi
+
+dashboard-restart: dashboard-stop dashboard  ## Restart the dashboard on the freshly built code
+
+# A stale component is the failure this answers: the dashboard and the daemon
+# both hold code in memory, so an edit reaches neither until its process is
+# replaced. Reports rather than acts -- restarting is yours to trigger.
+ps:  ## Show which knotica components are running
+	@printf '  %-16s %s\n' "dashboard" "$$(lsof -ti tcp:$(PORT) 2>/dev/null | tr '\n' ' ' | grep . || echo 'not running')"
+	@printf '  %-16s %s\n' "loop daemon" "$$(pgrep -f 'knotica.service' 2>/dev/null | tr '\n' ' ' | grep . || echo 'not running')"
+	@printf '  %-16s %s\n' "installed CLI" "$$(knotica --version 2>/dev/null || echo 'not installed -- run make install')"
+	@echo
+	@echo "  A running process keeps the code it started with: after an edit,"
+	@echo "  make dashboard-restart / make daemon-restart put the new build in front of it."
+
+# Never prints a credential -- only which one would be selected. Resolution is
+# absence-based and OAuth-first, so an exported OAuth token wins even when you
+# intended to use the metered key.
+creds:  ## Report which credential headless work would use (prints no secrets)
+	@if [ -n "$$CLAUDE_CODE_OAUTH_TOKEN" ]; then \
+	  echo "OAuth subscription mode  (CLAUDE_CODE_OAUTH_TOKEN is set) -- no metered spend"; \
+	  echo "  If evals fail with repeated HTTP 429, the Messages API is refusing this token."; \
+	  echo "  Fall back for one run:  env -u CLAUDE_CODE_OAUTH_TOKEN .venv/bin/knotica eval --topic <t>"; \
+	elif [ -n "$$ANTHROPIC_API_KEY" ]; then \
+	  echo "metered API mode  (ANTHROPIC_API_KEY is set) -- this spends API credits"; \
+	else \
+	  echo "headless NOT configured -- ingest and curation still work, but query,"; \
+	  echo "compile, dataset bootstrap and eval need a credential."; \
+	  echo "  Set CLAUDE_CODE_OAUTH_TOKEN (subscription, preferred) or ANTHROPIC_API_KEY (metered)."; \
+	fi
 
 # --- loop daemon lifecycle --------------------------------------------------
 #
