@@ -235,6 +235,10 @@ export interface WikiStatus {
     last_decision?: string | null;
     arena_race_id?: string | null;
     arena_stage?: ArenaStage | null;
+    /** Why the arena reached that stage — "reverted" is a normal terminal
+     * state, so the stage word alone cannot tell a healthy race from one the
+     * baseline made unwinnable. */
+    arena_message?: string | null;
     baseline_frozen?: boolean;
     baseline_scalar?: number | null;
     /** Gate policy: "latest" tracks reality; "best" is a high-water mark. */
@@ -613,6 +617,11 @@ export interface LoopBaselinePolicyResult {
 export interface LoopRebaselineResult {
   topic: string;
   baseline_scalar: number;
+  /** The bar before this call; null when the topic had no baseline yet. */
+  previous_scalar: number | null;
+  /** False when the selected record was already the baseline — a real outcome,
+   * not a failure, and indistinguishable from one without this flag. */
+  changed: boolean;
   harness_version: string | null;
   baseline_policy: "latest" | "best";
   message: string;

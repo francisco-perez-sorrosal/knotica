@@ -453,6 +453,11 @@ def _gate_and_loop(
         "last_decision": state.last_decision.value if state is not None else None,
         "arena_race_id": arena.race_id if arena is not None else None,
         "arena_stage": arena.stage.value if arena is not None else None,
+        # The stage word alone is not diagnosable: "reverted" is the normal
+        # terminal state when no variant cleared the baseline, and the reason --
+        # which scalar lost to which bar -- lives only in this message. Without
+        # it a revert forced by an unreachable baseline looks like a malfunction.
+        "arena_message": arena.message if arena is not None else None,
         "baseline_frozen": state is not None and state.baseline_scalar is not None,
         "baseline_scalar": (
             float(state.baseline_scalar)

@@ -60,6 +60,10 @@ LOOP_SUBOBJECT_KEYS = frozenset(
         "last_decision",
         "arena_race_id",
         "arena_stage",
+        # Additive: the stage word alone cannot distinguish a healthy revert
+        # from one an unreachable baseline forced, and the reason was reachable
+        # only through the arena dispatcher.
+        "arena_message",
         "baseline_frozen",
         "baseline_scalar",
         "pending_candidates",

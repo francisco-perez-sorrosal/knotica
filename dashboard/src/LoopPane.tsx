@@ -88,10 +88,16 @@ export function LoopPane({
   const baselineFrozen = status?.loop.baseline_frozen ?? baseline !== null;
   const baselinePolicy = status?.loop.baseline_policy ?? "latest";
   const metricsHighWater = useMemo(() => metricsHighWaterMark(records), [records]);
+  const metricsLatest = useMemo(() => metricsLatestScalar(records), [records]);
   const canRebaselineToBest =
     metricsHighWater != null &&
     baseline != null &&
     metricsHighWater > baseline + BASELINE_EPS;
+  // The mirror case, and the one that strands a topic: the newest observation
+  // sits *below* the baseline, so the bar now outranks the branch's own score
+  // and no candidate — however good — can clear it.
+  const canRebaselineToLatest =
+    metricsLatest != null && baseline != null && metricsLatest < baseline - BASELINE_EPS;
   const arenaStage = status?.loop.arena_stage ?? "idle";
   const runner = status?.loop.runner ?? null;
   const runnerAlive = Boolean(runner?.alive);
@@ -293,6 +299,13 @@ export function LoopPane({
     await runHealAction("rebaseline", () => client.loopRebaseline(topicName, "best", vault));
   }
 
+  async function rebaselineToLatest() {
+    if (!client || busy) return;
+    await runHealAction("rebaseline-latest", () =>
+      client.loopRebaseline(topicName, "latest", vault),
+    );
+  }
+
   async function writeCadenceField(
     field: "intervalHours" | "window" | "numThreads",
     raw: string,
@@ -420,6 +433,24 @@ export function LoopPane({
             {busy === "rebaseline"
               ? "Re-freezing…"
               : `Re-freeze at best${metricsHighWater != null ? ` (${metricsHighWater.toFixed(4)})` : ""}`}
+          </button>
+        ) : null}
+        {canRebaselineToLatest ? (
+          <button
+            type="button"
+            class="heal-freeze-secondary"
+            disabled={!client || busy !== null}
+            title={
+              metricsLatest != null
+                ? `The newest observation is ${metricsLatest.toFixed(4)}, below the current baseline — ` +
+                  "until the bar comes down to it, nothing can pass the gate"
+                : undefined
+            }
+            onClick={() => void rebaselineToLatest()}
+          >
+            {busy === "rebaseline-latest"
+              ? "Re-freezing…"
+              : `Re-freeze at latest${metricsLatest != null ? ` (${metricsLatest.toFixed(4)})` : ""}`}
           </button>
         ) : null}
       </div>
@@ -881,6 +912,12 @@ export function LoopPane({
                 Stage <strong>{arenaStage ?? stage}</strong>
                 {status?.loop.arena_race_id ? ` · race ${status.loop.arena_race_id}` : ""}
                 {status?.loop.last_decision ? ` · last ${status.loop.last_decision}` : ""}
+                {status?.loop.arena_message ? (
+                  <>
+                    <br />
+                    <span class="muted">{status.loop.arena_message}</span>
+                  </>
+                ) : null}
               </>
             ) : (
               <span class="muted">
@@ -1332,6 +1369,23 @@ function metricsHighWaterMark(records: MetricsRecord[]): number | null {
   const sameInstrument = records.filter((row) => row.harness_version === newestVersion);
   if (sameInstrument.length === 0) return null;
   return Math.max(...sameInstrument.map((row) => row.scalar));
+}
+
+/**
+ * What `rebaseline("latest")` would select — the newest record on the current
+ * instrument, filtered exactly as `metricsHighWaterMark` filters, because
+ * cross-instrument scalars are not comparable.
+ *
+ * Needed because the pane could only ever *raise* the bar. When the newest
+ * observation is a regression, the baseline outranks the default branch's own
+ * score and nothing can pass the gate again — a state reachable through normal
+ * use with no affordance to leave it.
+ */
+function metricsLatestScalar(records: MetricsRecord[]): number | null {
+  if (records.length === 0) return null;
+  const newestVersion = records[records.length - 1].harness_version;
+  const sameInstrument = records.filter((row) => row.harness_version === newestVersion);
+  return sameInstrument.length === 0 ? null : sameInstrument[sameInstrument.length - 1].scalar;
 }
 
 type CustomBaselineIntent = "raise" | "lower" | "match" | "invalid" | "unknown";

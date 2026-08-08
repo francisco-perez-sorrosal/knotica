@@ -25,6 +25,7 @@ from knotica.core.doctor import build_doctor_payload, run_doctor_checks
 from knotica.core.errors import ErrorCode, KnoticaError
 from knotica.core.loop import LoopRunner, build_loop_runner, harness_evaluate
 from knotica.core.loop_cadence_config import LOOP_CONFIG_SECTION, resolve_loop_cadence_config
+from knotica.core.loop_state import read_loop_state
 from knotica.core.models_config import resolve_models_config
 from knotica.core.operations.doctor_repair import doctor_repair
 from knotica.core.page import TopicNotFoundError
@@ -308,6 +309,15 @@ def _loop_rebaseline_payload(
     runner = build_loop_runner(
         vault_path, cleaned, evaluate=harness_evaluate, store=store, runner_cls=LoopRunner
     )
+    # Captured before the write so the caller can see whether the bar actually
+    # moved. ``mode="best"`` re-picks the high-water mark, so on a topic whose
+    # newest score is a regression it re-freezes the value already in place --
+    # a legitimate outcome that is indistinguishable from a failed call unless
+    # the response says so. Note that ``mode`` is this operation's own argument,
+    # NOT the topic's ongoing ``baseline_policy``; they are named alike and mean
+    # different things, which is the misreading this field exists to prevent.
+    previous = read_loop_state(store, cleaned)
+    previous_scalar = previous.baseline_scalar if previous is not None else None
     try:
         state = runner.rebaseline(mode)
     except ValueError as error:
@@ -318,13 +328,21 @@ def _loop_rebaseline_payload(
         ) from error
     baseline = state.baseline_scalar
     assert baseline is not None
+    changed = previous_scalar is None or abs(float(previous_scalar) - float(baseline)) > 1e-12
+    message = (
+        f"baseline re-frozen ({mode}) at {baseline:.4f}"
+        if changed
+        else f"baseline unchanged at {baseline:.4f}: {mode!r} already selects this record"
+    )
     return envelope.read_ok(
         {
             "topic": cleaned,
             "baseline_scalar": baseline,
+            "previous_scalar": previous_scalar,
+            "changed": changed,
             "harness_version": state.baseline_harness_version,
             "baseline_policy": state.baseline_policy,
-            "message": f"baseline re-frozen ({mode}) at {baseline:.4f}",
+            "message": message,
         }
     )
 

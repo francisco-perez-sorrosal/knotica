@@ -759,3 +759,26 @@ def test_gap_record_commit_does_not_retrigger_a_fresh_observation(
     assert second.acted is False, (
         "a gap-record commit is bookkeeping and must not trigger a fresh eval cycle"
     )
+
+
+def test_the_rebaseline_payload_reports_when_the_bar_did_not_move(template_vault: Path) -> None:
+    # `best` re-picks the high-water mark, so on a topic whose newest score is a
+    # regression it re-freezes the value already in place. A legitimate outcome
+    # that, without `changed`, is indistinguishable from a call that failed --
+    # which is exactly how it got read in the field.
+    from knotica.mcp_server.tools_vault import _loop_rebaseline_payload
+
+    _seed_metrics_history(template_vault, [0.95, 0.65])
+    store = LocalFSStore(template_vault)
+
+    first = _loop_rebaseline_payload(store, template_vault, TOPIC, "best")
+    assert first["baseline_scalar"] == 0.95
+    assert first["changed"] is True
+
+    again = _loop_rebaseline_payload(store, template_vault, TOPIC, "best")
+    assert again["changed"] is False, "re-selecting the same record is not a change"
+    assert "unchanged" in again["message"]
+
+    lowered = _loop_rebaseline_payload(store, template_vault, TOPIC, "latest")
+    assert lowered["previous_scalar"] == 0.95
+    assert lowered["baseline_scalar"] == 0.65, "latest lowers the bar to the newest record"
