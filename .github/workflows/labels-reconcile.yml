@@ -13,6 +13,6 @@ jobs:
     permissions:
       issues: write
       contents: read
-    uses: francisco-perez-sorrosal/praxion/.github/workflows/reusable-labels-reconcile.yml@bec2259f583d86a69c95c051bdf038d9c1d2ee6f
+    uses: francisco-perez-sorrosal/praxion/.github/workflows/reusable-labels-reconcile.yml@79f9f6b1831dfeb3a58fb045d856d000886a11f9
     with:
       manifest_path: .github/labels.yml
