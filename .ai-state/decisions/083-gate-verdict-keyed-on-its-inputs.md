@@ -1,7 +1,7 @@
 ---
-id: dec-draft-f29d146f
+id: dec-083
 title: A gate verdict is keyed on its inputs, and a refusal resumes from quarantine
-status: proposed
+status: accepted
 category: architectural
 date: 2026-08-08
 summary: A stamped gate_outcome is replayed only while the candidate tree, golden manifest, baseline and harness it was computed from are unchanged; a refused ingest re-opens from its quarantine ref instead of starting empty.

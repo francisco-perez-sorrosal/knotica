@@ -1,7 +1,7 @@
 ---
-id: dec-draft-06dd7710
+id: dec-086
 title: A conflicted gate merge aborts and fails clean instead of stranding the vault
-status: proposed
+status: accepted
 category: behavioral
 date: 2026-08-09
 summary: The loop's keep-path merge now catches a conflict, aborts it, records the failed cycle, and raises a typed error naming the colliding paths — rather than unwinding and leaving the live vault mid-merge with conflict markers in tracked files.

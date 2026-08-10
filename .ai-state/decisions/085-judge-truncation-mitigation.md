@@ -1,7 +1,7 @@
 ---
-id: dec-draft-fc4cf526
+id: dec-085
 title: A truncated judge sample is mitigated three ways rather than diagnosed
-status: proposed
+status: accepted
 category: behavioral
 date: 2026-08-09
 summary: The judge's budget rises 512 to 2048 with a 4x retry, an unusable sample is dropped instead of failing the run, and max_tokens truncation is retryable when the snapshot cannot pin its sampling — the cause of the overrun itself is measured but unexplained.

@@ -1,7 +1,7 @@
 ---
-id: dec-draft-fbb07cef
+id: dec-084
 title: The arena refuses a comparison it cannot make, and can now race on the real instrument
-status: proposed
+status: accepted
 category: architectural
 date: 2026-08-08
 summary: A race carries its scorer's provenance and aborts rather than reverts when that scorer's scalars cannot be ranked against the gate baseline; `[loop] arena_scorer = "eval"` swaps the keyword heuristic for a real golden-set scorer.
