@@ -645,6 +645,7 @@ selectors:
       - tests/test_loop_cadence_characterization.py
       - tests/test_loop_cadence_config.py
       - tests/test_loop_content_classification.py
+      - tests/test_loop_merge_conflict_recovery.py
       - tests/test_loop_eval_error_visibility.py
       - tests/test_loop_factory_cadence_wiring.py
       - tests/test_loop_flock_contention.py
