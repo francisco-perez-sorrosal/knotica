@@ -19,7 +19,16 @@ Lifecycle:
 
 * :func:`open_ingest` -- create (or idempotently resume) the session. Never
   restarts a partial ingest; a resumed session's ``resume`` block tells the
-  client what is already committed so it writes only what is missing.
+  client what is already committed so it writes only what is missing. That
+  guarantee covers a **refused** ingest as well as an interrupted one: a
+  refusal renames the branch out of ``loop/wip/`` into ``loop/x/``, so the WIP
+  name is absent while the work is not, and re-opening branches from the
+  quarantine tip rather than from ``HEAD``. Reading only branch existence made
+  the two cases indistinguishable and silently restarted the refused one --
+  costing a re-ingest of the entire source, which is exactly the outcome the
+  never-restart rule exists to prevent. The quarantine ref is a start point,
+  never a target: it is branched from, never moved or consumed, so it survives
+  as the audit trail and a second rework starts from the same place.
 * :func:`publish_ingest` -- the readiness boundary. Atomically renames the
   private WIP branch to its public ``loop/c/<topic>/source-<id8>`` name (via
   :meth:`~knotica.core.vcs.VaultVcs.publish_branch`) and removes the
@@ -60,6 +69,7 @@ from knotica.core.branch_namespaces import (
     _parse_wip_branch,
     _SOURCE_INFIX,
     candidate_branch_name,
+    quarantine_branch_name,
     wip_branch_name,
 )
 from knotica.core.errors import ErrorCode, KnoticaError
@@ -78,6 +88,7 @@ __all__ = [
     "abandon_ingest",
     "candidate_branch_name",
     "open_ingest",
+    "preview_resume",
     "prune_stale_worktrees",
     "publish_ingest",
     "wip_branch_name",
@@ -125,6 +136,11 @@ class ResumeState:
     source_present: bool
     pages_present: tuple[str, ...]
     index_synced: bool
+    #: The quarantine ref a refused candidate's work was recovered from, when
+    #: this session was rebuilt rather than found in place. ``None`` for both an
+    #: ordinary first open and an ordinary resume, so a client can tell a
+    #: rework-resume from either -- the three are otherwise indistinguishable.
+    restored_from: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -207,13 +223,26 @@ def open_ingest(
         state: Literal["created", "resumed"] = "resumed"
         resume = _resume_state(vcs, topic, branch)
     else:
+        # A refusal renamed this session's branch into ``loop/x/``, so the WIP
+        # name is absent even though the work is not gone. Start from the
+        # quarantine tip when one exists -- otherwise this is a genuine first
+        # open and ``HEAD`` is right.
+        quarantine = quarantine_branch_name(topic, suggestion_id)
+        restored = quarantine if vcs.branch_exists(quarantine) else None
         vcs.add_worktree(
             worktree_path_for(vault_root, topic, suggestion_id),
             branch=branch,
-            start_ref="HEAD",
+            start_ref=restored or "HEAD",
         )
-        state = "created"
-        resume = ResumeState(source_present=False, pages_present=(), index_synced=False)
+        if restored is None:
+            state = "created"
+            resume = ResumeState(source_present=False, pages_present=(), index_synced=False)
+        else:
+            # ``git worktree add -b`` branches *from* the quarantine ref; it does
+            # not move or consume it, so the audit trail stays intact and a second
+            # rework can start from the same place.
+            state = "resumed"
+            resume = _resume_state(vcs, topic, branch, restored_from=restored)
 
     return IngestHandle(
         candidate=branch,
@@ -222,6 +251,29 @@ def open_ingest(
         provenance=_provenance(record),
         vault_root=vault_root,
     )
+
+
+def preview_resume(root: str | Path, topic: str, suggestion_id: str) -> ResumeState | None:
+    """What :func:`open_ingest` would restore, computed without creating anything.
+
+    ``open_ingest`` creates a worktree on its first call, so a genuinely
+    side-effect-free caller -- ``source_ingest_submit(mode="dry-run")`` -- cannot
+    use it to answer "what does this session already hold?". This reads the same
+    two refs read-only and returns ``None`` when there is nothing to resume.
+
+    Without it a dry-run on a refused candidate reports ``source_present:
+    false`` and no pages, because the WIP branch is gone; the work is intact on
+    the quarantine ref, and saying otherwise invites re-ingesting a source that
+    is already stored.
+    """
+    vcs = VaultVcs(Path(root))
+    wip = wip_branch_name(topic, suggestion_id)
+    if vcs.branch_exists(wip):
+        return _resume_state(vcs, topic, wip)
+    quarantine = quarantine_branch_name(topic, suggestion_id)
+    if vcs.branch_exists(quarantine):
+        return _resume_state(vcs, topic, quarantine, restored_from=quarantine)
+    return None
 
 
 def publish_ingest(handle: IngestHandle) -> str:
@@ -347,7 +399,9 @@ def _provenance(record: SuggestionRecord) -> dict[str, object]:
     }
 
 
-def _resume_state(vcs: VaultVcs, topic: str, branch: str) -> ResumeState:
+def _resume_state(
+    vcs: VaultVcs, topic: str, branch: str, *, restored_from: str | None = None
+) -> ResumeState:
     """Compute what a re-opened session already committed (see :class:`ResumeState`)."""
     changed = vcs.changed_paths("HEAD", branch)
     source_prefix = f"{_SOURCES_DIR}/{topic}/"
@@ -361,6 +415,7 @@ def _resume_state(vcs: VaultVcs, topic: str, branch: str) -> ResumeState:
         source_present=any(path.startswith(source_prefix) for path in changed),
         pages_present=tuple(pages),
         index_synced=INDEX_PATH in changed,
+        restored_from=restored_from,
     )
 
 

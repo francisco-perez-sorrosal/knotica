@@ -10,9 +10,17 @@ effects; ``mode="apply"`` publishes the candidate and synchronously drives the
 loop's gate for it (rather than waiting on the async watcher), returning the
 verdict -- merged, refused, or blocked on a missing gate baseline.
 
-Idempotent by construction: once a suggestion's ``gate_outcome`` is stamped,
-every subsequent ``source_ingest_submit`` call (either mode) returns that same
-recorded verdict rather than re-running anything.
+Idempotent, but only over the question it actually answered. A stamped
+``gate_outcome`` is replayed when the inputs it was computed from -- candidate
+tree, golden manifest, baseline, harness (see
+:mod:`knotica.core.gate_inputs`) -- are all unchanged, and it says so with
+``cached: true``. Move any one of them and the next submit evaluates afresh.
+Keying the replay on the suggestion id alone, as this once did, meant a rebuilt
+candidate measured against a replaced golden set and a corrected baseline still
+returned the original verdict quoting the original bar.
+
+``mode=dry-run`` runs its preflight either way: the checks are free, and they
+are the caller's only readout of candidate health.
 """
 
 from __future__ import annotations
@@ -23,17 +31,19 @@ from typing import Any
 from mcp.server.fastmcp import FastMCP
 from mcp.types import CallToolResult
 
-from knotica.core import source_ingest
+from knotica.core import gate_inputs, source_ingest
 from knotica.core.arena import heuristic_arena_score
+from knotica.core.best_effort import best_effort
+from knotica.core.branch_namespaces import quarantine_branch_name
 from knotica.core.errors import ErrorCode, KnoticaError
 from knotica.core.gapfill import GATE_VERDICT_MERGED, GATE_VERDICT_REFUSED, suggestions_path
+from knotica.core.lint import lint_vault
 from knotica.core.loop import LoopRunner, build_loop_runner, harness_evaluate
 from knotica.core.loop_state import read_loop_state
 from knotica.core.page import TopicNotFoundError
 from knotica.core.records import SuggestionRecord, parse_suggestions_jsonl
 from knotica.core.vcs import VaultVcs
 from knotica.mcp_server.vault_ctx import with_resolved_vault
-from knotica.okf.check import check_vault
 from knotica.store import LocalFSStore, VaultStore
 
 __all__ = ["register_source_ingest_tools"]
@@ -74,8 +84,10 @@ _SUBMIT_DESCRIPTION = (
     "checks the candidate is lint-clean, has the source and ≥1 page, and reports "
     "whether the topic has a gate baseline. mode=apply seals the ingest, runs the "
     "gate, and returns the verdict (merged, or refused with the top regressed "
-    "questions). Idempotent: re-submitting an already-gated candidate returns the "
-    "prior verdict. Requires the vault lock. mode=apply never fires from "
+    "questions). Idempotent: re-submitting an UNCHANGED gated candidate replays "
+    "the prior verdict, flagged `cached: true`; if the candidate, the golden set, "
+    "the baseline or the harness moved since, it evaluates afresh. "
+    "Requires the vault lock. mode=apply never fires from "
     "detection alone -- only after the user has explicitly confirmed the "
     "ingest; an unconfirmed detection routes to a dry-run preview or an offer "
     "instead."
@@ -127,6 +139,10 @@ def _open_payload(
             "source_present": handle.resume.source_present,
             "pages_present": list(handle.resume.pages_present),
             "index_synced": handle.resume.index_synced,
+            # Non-null only when this open rebuilt the session from a refused
+            # candidate's quarantine ref -- the one case where `state:
+            # "resumed"` does not mean the branch was simply still there.
+            "restored_from": handle.resume.restored_from,
         },
         "provenance": dict(handle.provenance),
         # Visible so a client re-opening a REFUSED (still-approved, re-workable)
@@ -153,11 +169,90 @@ def _submit_payload(
     cleaned_topic = _validate_topic(topic)
     cleaned_mode = _validate_mode(mode)
     record = _require_suggestion(store, cleaned_topic, suggestion_id)
-    if record.gate_outcome is not None:
-        return _verdict_envelope(cleaned_mode, cleaned_topic, suggestion_id, record)
+    replay = _replayable_verdict(store, vault_path, cleaned_topic, suggestion_id, record)
+    if replay is not None and cleaned_mode == "apply":
+        return replay
     if cleaned_mode == "dry-run":
-        return _dry_run_payload(store, vault_path, cleaned_topic, suggestion_id, record)
+        # The preflight runs even when a verdict is replayable. It is free, it is
+        # the caller's only readout of candidate health, and short-circuiting it
+        # made a stale replay indistinguishable from a fresh dry-run -- the
+        # missing `lint_clean`/`source_present`/`would_evaluate` block was the
+        # only visible symptom of the cache bug at the time it was reported.
+        preflight = _dry_run_payload(store, vault_path, cleaned_topic, suggestion_id, record)
+        return preflight if replay is None else {**replay, **preflight, "cached": True}
     return _apply_payload(store, vault_path, cleaned_topic, suggestion_id)
+
+
+def _replayable_verdict(
+    store: VaultStore,
+    vault_path: Path,
+    topic: str,
+    suggestion_id: str,
+    record: SuggestionRecord,
+) -> dict[str, Any] | None:
+    """The stamped verdict, but only while it still answers the same question.
+
+    A ``gate_outcome`` used to be replayed on the strength of the suggestion id
+    alone, which is not one of the things a verdict depends on. This compares
+    the fingerprint the gate stamped (:mod:`knotica.core.gate_inputs`) against
+    the inputs as they stand now, and returns ``None`` -- meaning *evaluate* --
+    the moment any of them moved, or whenever the record predates the
+    fingerprint and so cannot be shown to still apply.
+
+    **Only a refusal is re-openable.** A ``merged`` verdict is terminal: the
+    work is already on the default branch, the suggestion has advanced to
+    ``ingested``, and no candidate ref survives to compare against or to
+    re-gate. Expiring one would not produce a fresh measurement -- it would
+    reach ``open_ingest`` and fail ``SUGGESTION_NOT_APPROVED`` on a suggestion
+    whose ingest genuinely finished. A refusal is the opposite in every
+    respect: it deliberately leaves the suggestion ``approved``, keeps the work
+    on a quarantine ref, and exists precisely to be reworked.
+    """
+    if record.gate_outcome is None:
+        return None
+    verdict = record.gate_outcome.get("verdict")
+    current = _current_gate_inputs(store, vault_path, topic, suggestion_id)
+    if verdict == GATE_VERDICT_REFUSED:
+        recorded = gate_inputs.from_record(record.gate_outcome)
+        if recorded is None or recorded.diff(current):
+            return None
+    payload = _verdict_envelope("apply", topic, suggestion_id, record)
+    # Named, not merely implied by identical numbers: a replay and a fresh
+    # evaluation were previously the same bytes on the wire.
+    payload["cached"] = True
+    payload["cache_key"] = current.to_dict()
+    return payload
+
+
+def _current_gate_inputs(
+    store: VaultStore, vault_path: Path, topic: str, suggestion_id: str
+) -> gate_inputs.GateInputs:
+    """Fingerprint the gate inputs as a submit right now would find them.
+
+    The candidate is whichever ref currently holds this suggestion's work: the
+    private WIP branch while an ingest is open, else the quarantine ref a
+    refusal left behind. Resolving the quarantine ref is what lets an untouched
+    refused candidate compare equal and replay, while the first rework of it
+    does not.
+    """
+    vcs = VaultVcs(vault_path)
+    tree: str | None = None
+    for ref in (
+        source_ingest.wip_branch_name(topic, suggestion_id),
+        quarantine_branch_name(topic, suggestion_id),
+    ):
+        if not vcs.branch_exists(ref):
+            continue
+        with best_effort():
+            tree = vcs.ref_sha(f"{ref}^{{tree}}")
+        break
+    state = read_loop_state(store, topic)
+    return gate_inputs.capture(
+        store,
+        topic,
+        candidate_tree_sha=tree,
+        baseline_scalar=state.baseline_scalar if state is not None else None,
+    )
 
 
 def _dry_run_payload(
@@ -177,22 +272,31 @@ def _dry_run_payload(
         # contract.
         handle = source_ingest.open_ingest(store, vault_path, topic, suggestion_id)
         worktree = source_ingest.worktree_path_for(vault_path, topic, suggestion_id)
-        lint_result = check_vault(LocalFSStore(worktree))
+        lint_store: VaultStore = LocalFSStore(worktree)
         candidate = handle.candidate
         source_present = handle.resume.source_present
         pages_present = list(handle.resume.pages_present)
     else:
-        lint_result = check_vault(store)
+        lint_store = store
         candidate = wip_branch
-        source_present = False
-        pages_present = []
+        # A refused candidate has no WIP branch but is not empty -- its work sits
+        # on the quarantine ref that a re-open would resume from. Read it without
+        # creating the worktree, so this stays genuinely side-effect-free.
+        preview = source_ingest.preview_resume(vault_path, topic, suggestion_id)
+        source_present = preview.source_present if preview is not None else False
+        pages_present = list(preview.pages_present) if preview is not None else []
     gate_eligible, gate_eligible_reason = _gate_eligibility(store, topic)
     return {
         "mode": "dry-run",
         "topic": topic,
         "suggestion_id": suggestion_id,
         "candidate": candidate,
-        "lint_clean": not lint_result.failed,
+        # `lint_vault` -- the same checker `lint_check` and `vault_health
+        # action=lint` run. This used to call `okf.check.check_vault`, an
+        # entirely different rule set (OKF export compatibility), so a candidate
+        # could report `lint_clean: true` while carrying violations the vault's
+        # own linter would flag, and the two surfaces disagreed by construction.
+        "lint_clean": not lint_vault(lint_store, topic),
         "source_present": source_present,
         "pages_present": pages_present,
         "gate_eligible": gate_eligible,

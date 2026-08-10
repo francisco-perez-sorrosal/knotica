@@ -27,7 +27,7 @@ from dataclasses import dataclass
 from enum import StrEnum
 from typing import Literal
 
-from knotica.core.links import Link, iter_page_paths, outbound_links
+from knotica.core.links import Link, iter_page_paths, mask_wikilinks, outbound_links
 from knotica.core.page import TopicNotFoundError, parse_page, validate_frontmatter
 from knotica.core.schema import (
     ROOT_SCHEMA_PATH,
@@ -410,12 +410,28 @@ def _check_source_citations(store: VaultStore, content_pages: Iterable[str]) -> 
 
 
 def _cited_source_keys(frontmatter: Mapping[str, object], body: str) -> set[str]:
-    """Citation keys a page references: declared ``sources`` plus inline tokens."""
+    """Citation keys a page references: declared ``sources`` plus inline tokens.
+
+    Wikilinks are masked out before the inline scan. Page slugs and citation
+    keys share a shape -- ``simon1955-behavioral-model-of-rational-choice`` is a
+    perfectly ordinary page name and also matches :data:`_CITATION_KEY_RE`
+    exactly -- so scanning the raw body read every author-year *page link* as a
+    citation and demanded a stored source under the linked page's own name.
+
+    Two Simon paper-pages citing each other produced two permanent violations
+    that could not be cleared without deleting legitimate cross-references, and
+    the remediation text compounded it by advising a source keyed to a page
+    name. Concept pages were never affected only because their slugs carry no
+    four-digit year -- a coincidence of naming, not a rule.
+
+    A wikilink's resolution is :func:`_check_page_links`' concern; an unresolved
+    one is already reported there, as a broken *link*, with a fix that matches.
+    """
     keys: set[str] = set()
     declared = frontmatter.get("sources")
     if isinstance(declared, list):
         keys.update(str(item).strip() for item in declared if str(item).strip())
-    keys.update(_CITATION_KEY_RE.findall(body or ""))
+    keys.update(_CITATION_KEY_RE.findall(mask_wikilinks(body)))
     return keys
 
 

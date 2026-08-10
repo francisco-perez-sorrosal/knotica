@@ -13,8 +13,8 @@ pre-set. This file drives BOTH entry points with an equivalent runner
 configuration (same ``arena_n``, same deterministic score function, same
 baseline) and asserts they reach the identical winner selection, the same
 ``ArenaStage`` transition, and the same promoted ``query.md`` body -- so the
-coming ``_run_arena_and_resolve`` extraction (P-A Step 7) can be verified by
-re-running this file unmodified and seeing it stay GREEN.
+``_run_arena_and_resolve`` extraction could be verified by re-running this
+file unmodified and seeing it stay GREEN.
 
 Derived from a direct read of ``core/loop.py`` and ``core/arena.py`` (the
 shared ``race_variants`` outcome/promotion logic), not from any planned
@@ -29,7 +29,7 @@ import tempfile
 from collections.abc import Callable
 from pathlib import Path
 
-from knotica.core.arena import ArenaStage
+from knotica.core.arena import ArenaStage, ScorerInfo
 from knotica.core.loop import LoopDecision, LoopRunner, wrap_harness_result
 from knotica.core.prompts import PROMPTS_DIR
 from knotica.core.records import MetricsComponents, MetricsRecord
@@ -51,6 +51,14 @@ _REGRESSED_SCALAR = 0.50
 _WIN_SCORES = {1: 0.50, 2: 0.95, 3: 0.60, 4: 0.40}
 #: No index clears the baseline -- best is index 2, but it still reverts.
 _NO_WIN_SCORES = {1: 0.10, 2: 0.20, 3: 0.15, 4: 0.05}
+
+
+#: These scenarios characterize what a race *does* once it runs, so they must
+#: declare a scorer the arena is willing to rank against the gate baseline.
+#: Without it the race aborts before scoring -- correctly, since the default
+#: heuristic's scalars are not on the baseline's scale -- and none of the
+#: pass/revert behavior below would be reachable.
+_COMPARABLE_SCORER = ScorerInfo(id="fake-arena-char", comparable_to_eval=True)
 
 
 def _scored_by_variant_tweak_index(scores: dict[int, float]) -> Callable[..., float]:
@@ -141,6 +149,7 @@ def test_heal_after_regression_wins_promotes_the_clearing_variant_and_completes(
         evaluate=_fake_evaluate(_REGRESSED_SCALAR),
         arena_enabled=True,
         arena_score=_scored_by_variant_tweak_index(_WIN_SCORES),
+        arena_scorer_info=_COMPARABLE_SCORER,
     )
     runner.set_baseline(_BASELINE, harness_version="fake-arena-char")
     _commit_content_change(template_vault, "the regressing ingest")
@@ -171,6 +180,7 @@ def test_heal_after_regression_no_winner_reverts_and_leaves_the_gate_failed(
         evaluate=_fake_evaluate(_REGRESSED_SCALAR),
         arena_enabled=True,
         arena_score=_scored_by_variant_tweak_index(_NO_WIN_SCORES),
+        arena_scorer_info=_COMPARABLE_SCORER,
     )
     runner.set_baseline(_BASELINE, harness_version="fake-arena-char")
     _commit_content_change(template_vault, "the regressing ingest")
@@ -206,6 +216,7 @@ def test_race_then_resolve_wins_promotes_the_identical_variant_and_completes(
         branch_prefix="loop/c/",
         arena_enabled=True,
         arena_score=_scored_by_variant_tweak_index(_WIN_SCORES),
+        arena_scorer_info=_COMPARABLE_SCORER,
     )
     runner.set_baseline(_BASELINE, harness_version="fake-arena-char")
     _open_prompt_candidate(template_vault, "# wounded query\n")
@@ -243,6 +254,7 @@ def test_race_then_resolve_no_winner_reverts_and_discards_the_candidate(
         branch_prefix="loop/c/",
         arena_enabled=True,
         arena_score=_scored_by_variant_tweak_index(_NO_WIN_SCORES),
+        arena_scorer_info=_COMPARABLE_SCORER,
     )
     runner.set_baseline(_BASELINE, harness_version="fake-arena-char")
     _open_prompt_candidate(template_vault, "# wounded query\n")

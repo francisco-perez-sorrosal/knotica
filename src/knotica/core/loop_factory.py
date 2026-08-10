@@ -6,18 +6,27 @@ Split out of ``loop.py`` (td-008 cohesion pass) as a verbatim move — see
 
 from __future__ import annotations
 
+import logging
 import time
 from collections.abc import Callable
 from datetime import datetime
 from datetime import time as _time_of_day
 from pathlib import Path
 
-from knotica.core.arena import ScoreFn, VariantSpec, heuristic_arena_score
+from knotica.core.arena import (
+    HEURISTIC_SCORER,
+    ScoreFn,
+    ScorerInfo,
+    VariantSpec,
+    heuristic_arena_score,
+)
 from knotica.core.gapfill_config import GapfillHookConfig
 from knotica.core.loop import EvaluateFn, LoopRunner, _local_now, harness_evaluate
 from knotica.core.loop import DEFAULT_BRANCH_PREFIX
 from knotica.core.loop_cadence_config import resolve_loop_cadence_config
-from knotica.store import VaultStore
+from knotica.store import LocalFSStore, VaultStore
+
+_LOGGER = logging.getLogger(__name__)
 
 
 def build_loop_runner(
@@ -36,6 +45,7 @@ def build_loop_runner(
     observe_quiet_seconds: float = 0.0,
     ingest_hold_stale_seconds: float = 600.0,
     clock: Callable[[], float] = time.monotonic,
+    arena_num_threads: int | None = None,
     eval_min_interval_hours: float | None = None,
     eval_window: tuple[_time_of_day, _time_of_day] | None = None,
     now_fn: Callable[[], datetime] = _local_now,
@@ -51,9 +61,10 @@ def build_loop_runner(
     quiet window and the gate's immediate-observe default remain divergent by design
     (value convergence is a separate, deferred decision). Three knobs are deliberate
     exceptions, resolved *here* when omitted rather than passed through:
-    ``eval_min_interval_hours``, ``eval_window`` and ``arena_score``. Each is inert
-    at its raw default and each was in fact forgotten by real call sites -- see the
-    comments in the body for what that silently cost.
+    ``eval_min_interval_hours``, ``eval_window`` and ``arena_score`` (together with
+    the ``ScorerInfo`` describing it). Each is inert at its raw default and each was
+    in fact forgotten by real call sites -- see the comments in the body for what
+    that silently cost.
 
     ``gapfill_config`` folds the two loop-side gap-fill knobs
     (``discover_on_regression`` / ``max_gaps``) into one object: pass a resolved
@@ -92,8 +103,17 @@ def build_loop_runner(
     # disabled)" instead of healing. Defaulting the scorer here makes that
     # omission unexpressible; `--no-arena` still wins because it flips
     # `arena_enabled`, and an explicit scorer still wins.
+    #
+    # Defaulting the *callable* turned out not to be enough, though: the
+    # heuristic's scalars are not on the gate baseline's scale, so a race against
+    # it reverted every variant and reported a fair loss. The scorer therefore
+    # arrives with a descriptor saying what it is, and `[loop] arena_scorer =
+    # "eval"` swaps in the real, billed, gate-comparable one.
+    arena_scorer_info: ScorerInfo | None = None
     if arena_enabled and arena_score is None:
-        arena_score = heuristic_arena_score
+        arena_score, arena_scorer_info = _resolve_arena_scorer(
+            vault, topic, store=store, num_threads=arena_num_threads
+        )
     return runner_cls(
         vault,
         topic,
@@ -103,6 +123,7 @@ def build_loop_runner(
         push_remote=push_remote,
         arena_enabled=arena_enabled,
         arena_score=arena_score,
+        arena_scorer_info=arena_scorer_info,
         arena_variants=arena_variants,
         arena_n=arena_n,
         discover_on_regression=gapfill.discover_on_regression,
@@ -114,3 +135,44 @@ def build_loop_runner(
         eval_window=eval_window,
         now_fn=now_fn,
     )
+
+
+def _resolve_arena_scorer(
+    vault: str | Path,
+    topic: str,
+    *,
+    store: VaultStore | None,
+    num_threads: int | None,
+) -> tuple[ScoreFn, ScorerInfo]:
+    """The configured arena scorer and the descriptor that says what it is.
+
+    ``[loop] arena_scorer`` picks between them. ``heuristic`` (the default) is
+    free and network-free but not gate-comparable, so the arena will decline to
+    rank it against the baseline rather than pretend. ``eval`` runs the real
+    golden-set harness per variant -- comparable, and billed per variant.
+
+    Falls back to the heuristic when the eval scorer cannot be built (no frozen
+    golden set, no ``evals`` extra). The fallback is not a downgrade in
+    disguise: the descriptor still says ``heuristic``, so the race aborts with
+    that reason instead of quietly scoring on the wrong instrument.
+    """
+    from knotica.core.loop_cadence_config import resolve_loop_cadence_config
+
+    cadence = resolve_loop_cadence_config()
+    if cadence.arena_scorer != "eval":
+        return heuristic_arena_score, HEURISTIC_SCORER
+    resolved_store = store if store is not None else LocalFSStore(Path(vault).resolve())
+    threads = num_threads if num_threads is not None else cadence.eval_num_threads
+    try:
+        from knotica.core.arena_eval import build_eval_scorer
+
+        return build_eval_scorer(resolved_store, topic, num_threads=threads)
+    except Exception:  # noqa: BLE001 -- an unavailable scorer must not break construction
+        _LOGGER.warning(
+            "arena_scorer='eval' requested for topic %r but the eval scorer could not be "
+            "built; falling back to the heuristic, which the arena will refuse to rank "
+            "against the gate baseline",
+            topic,
+            exc_info=True,
+        )
+        return heuristic_arena_score, HEURISTIC_SCORER

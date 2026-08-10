@@ -66,6 +66,10 @@ LOOP_SUBOBJECT_KEYS = frozenset(
         "arena_message",
         "baseline_frozen",
         "baseline_scalar",
+        # Additive: a baseline above the default branch's own scalar refuses
+        # every candidate forever, and was previously only inferable by
+        # comparing two numbers reported on different surfaces.
+        "baseline_unreachable",
         "pending_candidates",
         "metrics_hint",
     }

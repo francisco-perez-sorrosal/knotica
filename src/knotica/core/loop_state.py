@@ -78,6 +78,12 @@ class LoopState(BaseModel):
     baseline_scalar: float | None = None
     baseline_harness_version: str | None = None
     baseline_corpus_ref: str | None = None
+    #: Content digest of the golden set the baseline was measured on. A scalar is
+    #: only rankable against another measured on the *same* questions, so this is
+    #: the corpus-side counterpart of ``baseline_harness_version``: together they
+    #: identify the measurement, not just its value. ``None`` on a state written
+    #: before this field existed, which reads as "unknown" -- never as "matching".
+    baseline_golden_manifest_sha: str | None = None
     candidate_branch: str | None = None
     candidate_sha: str | None = None
     last_scalar: float | None = None

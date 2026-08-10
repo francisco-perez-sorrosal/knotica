@@ -56,7 +56,7 @@ _ALL_VISIBLE: frozenset[str] = frozenset({"pending", "approved", "deferred"})
 _STATUS_FILTERS: frozenset[str] = frozenset(_STATUS_VALUES) | {_ALL_FILTER}
 
 #: The four decisions a review may apply, listed for the bad-action error text.
-_ACTIONS: tuple[str, ...] = ("approve", "reject", "defer", "mark_ingested")
+_ACTIONS: tuple[str, ...] = ("approve", "reject", "defer", "mark_ingested", "withdraw")
 _MODES: frozenset[str] = frozenset({"dry-run", "apply"})
 
 _DEFAULT_LIMIT = 20
@@ -82,10 +82,13 @@ _REVIEW_DESCRIPTION = (
     "the source for the next interactive ingest; action=reject discards it (a "
     "non-empty reason is required); action=defer hides it as 'not now' "
     "(reversible); action=mark_ingested closes an approved suggestion after "
-    "ingest. mode=dry-run previews the transition without writing; mode=apply "
-    "performs exactly one commit. Only pending or deferred suggestions can be "
-    "approved/rejected; only pending can be deferred; only approved can be "
-    "marked ingested. mode=apply never fires from detection alone -- only after "
+    "ingest; action=withdraw returns an approved suggestion to pending WITHOUT "
+    "claiming it was ingested (use this to release one you decided against, or "
+    "one whose candidate the gate refused). mode=dry-run previews the "
+    "transition without writing; mode=apply performs exactly one commit. Only "
+    "pending or deferred suggestions can be approved/rejected; only pending can "
+    "be deferred; only approved can be marked ingested or withdrawn. "
+    "mode=apply never fires from detection alone -- only after "
     "the user has explicitly confirmed the decision; an unconfirmed detection "
     "routes to suggestions_read or an offer instead."
 )
@@ -314,6 +317,7 @@ def _preview_text(action: str) -> str:
         "reject": "Reject -> discards this source from the queue (reason recorded).",
         "defer": "Defer -> hides this suggestion as 'not now' (reversible).",
         "mark_ingested": "Mark ingested -> closes this approved suggestion after ingest.",
+        "withdraw": "Withdraw -> returns this approved suggestion to pending, asserting no ingest.",
     }
     return previews[action]
 

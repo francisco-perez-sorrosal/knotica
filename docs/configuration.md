@@ -47,6 +47,7 @@ path = "~/dev/data/knotica"
 eval_min_interval_hours = 24.0
 eval_window = "22:00-02:00"
 eval_num_threads = 4
+arena_scorer = "heuristic"
 
 [models]
 worker = "claude-haiku-4-5-20251001"
@@ -74,6 +75,7 @@ mailto = "you@example.com"
 | `[loop].eval_min_interval_hours` | float | `0.0` | non-numeric or negative → rejected, names the fix |
 | `[loop].eval_window` | string `"HH:MM-HH:MM"` | none | wrong type or unparseable range → rejected |
 | `[loop].eval_num_threads` | int | `4` | non-int, or outside `1`–`8` → rejected |
+| `[loop].arena_scorer` | `"heuristic"` \| `"eval"` | `"heuristic"` | any other value → rejected, names both |
 | `[models].worker` | string | `claude-haiku-4-5-20251001` | non-string silently falls back to default |
 | `[models].judge` | string | `claude-sonnet-5` | same |
 | `[models].query` | string | `claude-sonnet-5` | same |
@@ -148,23 +150,49 @@ CLI override precedence for `knotica eval`: `--worker-snapshot` / `--judge-snaps
 `[models]` > packaged default. `query` has no CLI surface at all; it is config-only and reachable
 only through the MCP `query` tool.
 
-## `[loop]`: eval cadence
+## `[loop]`: eval cadence and the arena scorer
 
-Governs how often the watcher (`knotica loop`, and the OS-managed daemon) is willing to spend on
-a fresh eval. None of these three keys apply to the candidate gate (`loop/c/*` branches) — that
-path is always eager, cadence never holds it.
+The first three keys govern how often the watcher (`knotica loop`, and the OS-managed daemon) is
+willing to spend on a fresh eval. None of those three apply to the candidate gate (`loop/c/*`
+branches) — that path is always eager, cadence never holds it. The fourth, `arena_scorer`, is a
+separate concern: what the prompt arena races with.
 
 | Key | Default | What it actually does |
 |---|---|---|
 | `eval_min_interval_hours` | `0.0` | Minimum hours since the last eval **started** before the watcher will start another. `0` means no throttle — every eligible tick evaluates. Reaches the watcher, the daemon, and the MCP `run_once` observe leg (`run_eval` bypasses it by forcing the observation). |
 | `eval_window` | none | The local-clock window an observation eval is permitted to **start** in, as `"HH:MM-HH:MM"` (midnight wrap supported, e.g. `"22:00-02:00"`). Unset means no window restriction. Reaches the watcher, the daemon, and the MCP `run_once` observe leg (`run_eval` bypasses it by forcing the observation). |
 | `eval_num_threads` | `4` | Default `num_threads` for the MCP `loop action=run_eval` billed call only — `run_once` does not read it. Bounded `1`–`8`. |
+| `arena_scorer` | `"heuristic"` | Which scorer the prompt arena races with. See below — the default is free and deliberately **not** comparable to the gate baseline. |
 
 > [!NOTE]
 > `eval_num_threads` does not reach the foreground watcher or the daemon. `knotica loop` uses its
 > own `--eval-threads` flag (unset → the harness default of `4`); the daemon has no thread flag at
 > all and is pinned to the harness default of `4`. This key only sets the default thread count for
 > the MCP `loop action=run_eval` billed action.
+
+### `arena_scorer`: what a prompt race actually measures
+
+The default, `"heuristic"`, is a keyword scorer: no model, no network, deterministic. Its scalars
+are on their own scale and cannot be ranked against the gate baseline, which is eval-derived. The
+arena knows this and **aborts** a race rather than ranking anyway — the stage reads `aborted`, not
+`reverted`, and the message says why. So on a default install the arena is honest and inert.
+
+Setting `arena_scorer = "eval"` swaps in a scorer that runs the real golden-set harness for each
+variant, with only the `query.md` body substituted. Those scalars *are* comparable to the baseline,
+so races decide something.
+
+> [!WARNING]
+> The eval scorer bills **one full eval per variant**. A four-variant race over a twenty-one-question
+> golden set is eighty-four worker+judge call pairs, and the loop can start a race unattended
+> whenever an observation regresses. Enable it only on a topic whose spend you are watching.
+
+```toml
+[loop]
+arena_scorer = "eval"
+```
+
+It needs a frozen golden set. Without one the scorer cannot be built, and the loop falls back to the
+heuristic — which means races abort rather than silently scoring on the wrong instrument.
 
 **Worked example** — cap the watcher to at most one eval per day:
 
@@ -179,9 +207,10 @@ runs. The next tick after 24 hours have elapsed evaluates normally. Adding `eval
 with it — both constraints must pass, so an observation eval starts only once the interval has
 elapsed **and** the clock sits inside the window.
 
-Read or write this table without hand-editing the file via MCP `loop action=cadence` — called
-with no parameters it reads the resolved table; called with any of the three keys it additively
-merges them in, leaving every other section of `config.toml` untouched.
+Read or write the three **cadence** keys without hand-editing the file via MCP `loop
+action=cadence` — called with no parameters it reads the resolved table; called with any of them it
+additively merges them in, leaving every other section of `config.toml` untouched. `arena_scorer`
+is deliberately not on that surface: turning on a billed scorer is an edit worth making by hand.
 
 ## `[notes]`: resolution-ladder thresholds
 

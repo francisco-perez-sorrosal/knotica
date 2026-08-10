@@ -106,6 +106,12 @@ _ALLOWED_FROM: Mapping[str, frozenset[str]] = {
     "reject": frozenset({"pending", "deferred"}),
     "defer": frozenset({"pending"}),
     "mark_ingested": frozenset({"approved"}),
+    # ``approved`` had exactly one exit, and it asserted an ingest had happened.
+    # An operator who approved a suggestion and then decided against ingesting
+    # it -- or who is releasing a refused one -- had to claim ``mark_ingested``
+    # to move it at all, writing a false record of an ingest that never
+    # occurred. ``withdraw`` returns it to the queue instead, asserting nothing.
+    "withdraw": frozenset({"approved"}),
 }
 #: The terminal status each decision moves a record to.
 _TARGET_STATUS: Mapping[str, str] = {
@@ -113,9 +119,12 @@ _TARGET_STATUS: Mapping[str, str] = {
     "reject": "rejected",
     "defer": "deferred",
     "mark_ingested": "ingested",
+    "withdraw": "pending",
 }
-#: Decisions that carry a decided_reason (required for reject, optional for defer).
-_REASON_STATUSES: frozenset[str] = frozenset({"reject", "defer"})
+#: Decisions that carry a decided_reason (required for reject, optional for defer,
+#: optional for withdraw -- "why did this leave the approved queue" is worth
+#: recording, but an operator changing their mind owes no justification).
+_REASON_STATUSES: frozenset[str] = frozenset({"reject", "defer", "withdraw"})
 
 #: Gate verdicts the machine gate-path stamps -- distinct from the human
 #: approve/reject/defer/mark_ingested decisions above. A ``merged`` verdict

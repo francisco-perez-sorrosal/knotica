@@ -166,15 +166,37 @@ topic's `query.md` and promotes a winner.
 |---|---|
 | What races | Four bodies by default, derived from the topic's resolved `query.md`; override with `--arena-variants <JSON file>` (`[{id,label,body},…]`) |
 | How variants are made | The shipped mutator appends a fixed text tweak, deterministically, with no model call |
-| How a winner is picked | The shipped scorer is a deterministic keyword heuristic over the prompt text; highest score wins, and it "clears" only if it meets or beats the topic's eval baseline |
+| How a winner is picked | Highest score wins, and "clears" means meeting or beating the topic's eval baseline — but only if the scorer's scalars can be ranked against that baseline at all. See **Which scorer, and whether it can be compared** below |
 | What lands | The winning body, written to `<topic>/.knotica/prompts/query.md` in its own commit — the only thing the arena mutates. It never touches page content |
-| Where to look | `<topic>/.knotica/arena-state.json` (stages `idle`, `racing`, `promoting`, `completed`, `reverted`; variant statuses `pending`, `scored`, `winner`, `lost`) and the append-only `arena-history.jsonl`, via `arena action=status\|history` (`limit` defaults to 20) |
+| Where to look | `<topic>/.knotica/arena-state.json` (stages `idle`, `racing`, `promoting`, `completed`, `reverted`, `aborted`; variant statuses `pending`, `scored`, `winner`, `lost`) and the append-only `arena-history.jsonl`, via `arena action=status\|history` (`limit` defaults to 20). Each race and each variant also records `scorer_id`, `n_examples` and `golden_manifest_sha` |
 
 After healing a failed gate candidate the wound `loop/c/*` branch is deleted, win or lose. After
-healing an observation regression nothing is reverted — default-branch content is human-owned. The
-arena makes **no model call on either leg**, so it does not bill; its scorer also sits on a different
-scale from the composed eval scalar it is compared against, so treat an arena win as a nudge rather
-than a measurement.
+healing an observation regression nothing is reverted — default-branch content is human-owned.
+
+### Which scorer, and whether it can be compared
+
+`[loop] arena_scorer` picks between two, and the difference is not a matter of accuracy — it is
+whether the comparison the arena makes is meaningful at all.
+
+| | `heuristic` (default) | `eval` |
+|---|---|---|
+| What it measures | Keyword matches in the prompt text. No model call, so it does not bill | The real golden-set harness, with only the `query.md` body swapped |
+| Comparable to the gate baseline? | **No.** Different scale entirely | **Yes.** Same golden set, same judge, same scalar formula |
+| What a race does | **Aborts** before scoring, stage `aborted`, with the reason on the record | Races normally |
+| Cost | Free | One full eval **per variant** |
+
+The default is deliberately inert. Ranking a keyword count against an eval-derived bar is not a
+close contest, it is a category error — and it produced a real one: a race in which four variants
+scored 0.79/0.80/0.81/0.82 was reverted for failing to clear a 0.9548 baseline, on a topic whose own
+corpus scored 0.6562 on the same golden set. Every variant had beaten the live corpus. Nothing on
+the record said which scorer ran, and `reverted` is also what a fair race nobody won looks like.
+
+So the arena now refuses that comparison rather than losing it, and `aborted` is a distinct stage
+from `reverted` for exactly that reason. Races recorded before this carry no `scorer_id` and are
+reported `unverified: true` — they cannot be re-interpreted after the fact.
+
+Switching to `eval` makes a win mean something and makes a race cost money; see
+[configuration](configuration.md#arena_scorer-what-a-prompt-race-actually-measures).
 
 ## The compile flywheel
 
@@ -292,7 +314,8 @@ no `[models]` table — the default — the packaged snapshots apply and nothing
   `false` always wins; an explicit `true` is honored only when a key resolves, and otherwise fails
   closed to off.
 
-**Does not bill:** the arena; `set_baseline`, `baseline_policy`, `rebaseline`, `mark_observed`, and
+**Does not bill:** the arena at its default `heuristic` scorer (under `arena_scorer = "eval"` it
+bills one full eval per variant); `set_baseline`, `baseline_policy`, `rebaseline`, `mark_observed`, and
 cadence reads/writes; `branches action=scoreboard`, `arena action=status|history`,
 `compile action=status`, `wiki_status`, `metrics_read`; `compile action=promote` and branch deletes
 (git only); a warm-cache re-run on a frozen corpus; and any tick that returns "did nothing".

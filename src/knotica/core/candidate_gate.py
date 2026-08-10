@@ -17,7 +17,12 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from knotica.core.branch_namespaces import RESULT_BRANCH_PREFIX
+from knotica.core.branch_namespaces import (
+    QUARANTINE_BRANCH_PREFIX,
+    RESULT_BRANCH_PREFIX,
+    WIP_BRANCH_PREFIX,
+)
+from knotica.core.best_effort import best_effort
 from knotica.core.loop import LoopCycleResult
 from knotica.core.loop_state import (
     LoopDecision,
@@ -62,11 +67,46 @@ def poll_once(runner: "LoopRunner") -> LoopCycleResult:
             sha=None,
             decision=LoopDecision.none,
             scalar=None,
-            message="no pending loop branches",
+            message=_idle_reason(runner, state),
         )
 
     branch, sha = pending
     return process_candidate(runner, state, branch, sha)
+
+
+def _idle_reason(runner: "LoopRunner", state: LoopState) -> str:
+    """Say *why* there is nothing to gate, not merely that there is nothing.
+
+    "no pending loop branches" covered four different situations, and the
+    operator-facing ones are the situations where work exists and the loop
+    cannot see it. An unsubmitted ingest and a refused candidate awaiting
+    rework both read, to that message, exactly like an idle topic -- so the
+    reported session showed ``refused_awaiting_rework: 1`` beside a loop
+    reporting nothing pending, with no surface explaining the difference.
+
+    The invisibility itself is correct and is not changed here: ``loop/wip/`` is
+    private until :func:`~knotica.core.source_ingest.publish_ingest` renames it,
+    which is what guarantees the gate never evaluates a half-written candidate.
+    Only the silence about it was wrong.
+    """
+    with best_effort():
+        if any(True for _ in runner._vcs.list_branch_tips(WIP_BRANCH_PREFIX)):
+            return (
+                "no pending loop branches; an ingest session is open but not submitted "
+                "(finish it with source_ingest_submit mode=apply -- a WIP candidate is "
+                "deliberately invisible to the gate until then)"
+            )
+        if any(True for _ in runner._vcs.list_branch_tips(QUARANTINE_BRANCH_PREFIX)):
+            return (
+                "no pending loop branches; a refused candidate is quarantined and awaiting "
+                "rework (re-open it with source_ingest_open to resume, then resubmit)"
+            )
+        if any(
+            branch != runner._vcs.default_branch()
+            for branch, _sha in runner._vcs.list_branch_tips(runner._prefix)
+        ):
+            return "no pending loop branches; every candidate has already been gated"
+    return "no pending loop branches"
 
 
 def next_candidate(runner: "LoopRunner", state: LoopState) -> tuple[str, str] | None:
