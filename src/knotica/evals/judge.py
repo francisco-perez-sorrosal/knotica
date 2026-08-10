@@ -41,18 +41,20 @@ here. The pinned default lives in ``evals.config``.
 
 import hashlib
 import json
+import logging
 import re
 import statistics
 from collections.abc import Callable
 from typing import cast
 
 from knotica.evals.cache import ResponseCache
-from knotica.evals.llm import LLMClient, Message
+from knotica.evals.llm import LLMClient, LLMIncompleteResponseError, Message
 
 __all__ = [
     "DEFAULT_N_JUDGE_SAMPLES",
     "JUDGE_CACHE_NAMESPACE",
     "JUDGE_MAX_TOKENS",
+    "JUDGE_RETRY_MAX_TOKENS",
     "JUDGE_PROMPT",
     "JUDGE_PROMPT_HASH",
     "JUDGE_SYSTEM_PROMPT",
@@ -60,6 +62,8 @@ __all__ = [
     "JudgeParseError",
     "grade",
 ]
+
+_LOGGER = logging.getLogger(__name__)
 
 #: The response-cache namespace the judge tags its lookups with, so a shared cache
 #: reports the judge's hit-rate separately from the runner's (see
@@ -71,9 +75,25 @@ JUDGE_CACHE_NAMESPACE = "judge"
 #: unique input tuple across a whole run.
 DEFAULT_N_JUDGE_SAMPLES = 3
 
-#: Upper bound on judge-response length. The judge returns a brief reasoning plus
-#: a single bounded score, so a small ceiling both suffices and caps per-call cost.
-JUDGE_MAX_TOKENS = 512
+#: Upper bound on judge-response length. Raised from 512, at which real eval runs
+#: intermittently aborted: a truncated judge response carries no parseable score,
+#: an unscored example fails the run, and it landed on a different example each
+#: time.
+#:
+#: 2048 is headroom, not a measured requirement. Measured spend on this judge is
+#: ~100 output tokens (an exact-match grade costs ~45, a partial match against a
+#: 500-character reference ~100, sampled eight times across two examples), so the
+#: 512 ceiling was already 5x typical usage and the overruns remain unexplained.
+#: Sizing generously is the honest response to that: the tokens are nearly free
+#: next to the failure they prevent, and :data:`JUDGE_RETRY_MAX_TOKENS` plus the
+#: drop-a-sample fallback in :func:`_draw_sample_or_none` cover the case where
+#: even this is not enough.
+JUDGE_MAX_TOKENS = 2048
+
+#: Budget for the one retry a truncated sample gets (see :func:`_draw_sample`).
+#: Four times the ceiling above: if the first call somehow exhausted a budget
+#: this generous, a marginal increase would not save the retry either.
+JUDGE_RETRY_MAX_TOKENS = JUDGE_MAX_TOKENS * 4
 
 #: Longest offending snippet echoed in a :class:`JudgeParseError` message -- enough
 #: to debug the malformed response without an unbounded error payload.
@@ -113,6 +133,10 @@ JUDGE_USER_TEMPLATE = (
 #: input framing. This is exactly what :data:`JUDGE_PROMPT_HASH` digests, so any
 #: edit to either part rotates the hash (and thus the cache keyspace and the
 #: harness fingerprint). Splicing per-example content does not touch this constant.
+#:
+#: ``JUDGE_MAX_TOKENS`` is deliberately **not** folded in: a budget ceiling bounds
+#: how long a response may be, it does not change what the judge writes within
+#: that bound, so raising it leaves every score it produced still comparable.
 JUDGE_PROMPT = f"{JUDGE_SYSTEM_PROMPT}\n\n---\n\n{JUDGE_USER_TEMPLATE}"
 
 #: ``sha256`` of :data:`JUDGE_PROMPT`, computed once at import. The reward-hacking
@@ -221,10 +245,65 @@ def _median_of_samples(
         for index in range(n):
             if on_sample is not None:
                 on_sample(index + 1, n)
-            samples.append(_draw_sample(llm_client, judge_snapshot, question, candidate, reference))
+            sample = _draw_sample_or_none(
+                llm_client, judge_snapshot, question, candidate, reference
+            )
+            if sample is not None:
+                samples.append(sample)
+        if not samples:
+            raise JudgeParseError(
+                f"all {n} judge samples failed to produce a parseable score; the judge "
+                "instrument is not usable for this example."
+            )
         return statistics.median(samples)
 
     return compute
+
+
+def _draw_sample_or_none(
+    llm_client: LLMClient,
+    judge_snapshot: str,
+    question: str,
+    candidate: str,
+    reference: str,
+) -> float | None:
+    """One sample, retried once with headroom; ``None`` when it cannot be scored.
+
+    Two ways a single sample is unusable: the response was cut off before the
+    score (:class:`LLMIncompleteResponseError`), or it arrived whole and carried
+    no parseable number (:class:`JudgeParseError`). Both are retried once at
+    :data:`JUDGE_RETRY_MAX_TOKENS`, because both can be a length problem and
+    neither is reliably reproducible on a judge snapshot that cannot pin its own
+    sampling.
+
+    A sample that fails twice is **dropped, not fatal**. One truncated judge call
+    used to abort the entire eval run -- 21 questions discarded because one of 63
+    judge calls overran its budget, on a different question each time. Dropping
+    it degrades this example's median instead: with the default three samples,
+    two survivors still bracket the score. The odd-`n` guarantee that the median
+    is a real drawn sample is what degrades (an even count averages the two
+    middles); that is a strictly smaller loss than losing the run, and it is
+    rare because it takes two failures on one sample to reach it.
+
+    Only *these* two failures are absorbed. Auth rejections, rate limits, and
+    transport errors propagate -- they are not per-sample noise, and silently
+    dropping them would compute a median from whatever happened to get through.
+    """
+    for max_tokens in (JUDGE_MAX_TOKENS, JUDGE_RETRY_MAX_TOKENS):
+        try:
+            return _draw_sample(
+                llm_client, judge_snapshot, question, candidate, reference, max_tokens=max_tokens
+            )
+        except (LLMIncompleteResponseError, JudgeParseError) as exc:
+            _LOGGER.warning(
+                "judge sample unusable at max_tokens=%d (%s); %s",
+                max_tokens,
+                exc,
+                "retrying with headroom"
+                if max_tokens == JUDGE_MAX_TOKENS
+                else "dropping this sample from the median",
+            )
+    return None
 
 
 def _draw_sample(
@@ -233,8 +312,15 @@ def _draw_sample(
     question: str,
     candidate: str,
     reference: str,
+    *,
+    max_tokens: int = JUDGE_MAX_TOKENS,
 ) -> float:
-    """Make one ``temperature=0`` judge call and parse its bounded score."""
+    """Make one judge call and parse its bounded score.
+
+    ``temperature=0`` is requested but silently dropped by the client on
+    snapshots that reject it (Sonnet 5 among them), which is why an identical
+    call is not guaranteed to produce an identical length.
+    """
     completion = llm_client.complete(
         snapshot=judge_snapshot,
         system=JUDGE_SYSTEM_PROMPT,
@@ -242,7 +328,7 @@ def _draw_sample(
             Message(role="user", content=_build_user_message(question, reference, candidate))
         ],
         temperature=0.0,
-        max_tokens=JUDGE_MAX_TOKENS,
+        max_tokens=max_tokens,
     )
     return _parse_score(completion.text)
 

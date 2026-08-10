@@ -47,9 +47,21 @@ here so a future rotation does not silently break them:
   the judge (Sonnet 5) loses ``temperature=0`` determinism, absorbed by
   ``N_JUDGE_SAMPLES=3`` median -- rotating either snapshot to a
   temperature-incompatible generation bumps :func:`harness_version` here.
-* A request that OMITS the ``thinking`` parameter runs WITHOUT thinking on all
-  currently pinned generations -- the deterministic default the runner and judge
-  want, and which they already produce by never sending ``thinking``.
+* A request that OMITS the ``thinking`` parameter does **not** reliably run
+  without thinking. That was true of the 4.6 generation and is still true of
+  Haiku 4.5 (:data:`WORKER_SNAPSHOT`), but Sonnet 5 -- the current
+  :data:`JUDGE_SNAPSHOT` -- runs *adaptive* thinking when the field is absent,
+  and ``max_tokens`` caps thinking and answer together. Neither caller sends the
+  field, so neither pins this.
+
+  Measured, not assumed: judge calls on this workload spend ~100 output tokens
+  whether the field is omitted or explicitly disabled (95/98/97 vs 112/98/105 on
+  one example), so whatever the default does here, it is not spending the
+  budget -- grading against a fixed rubric is a shallow enough task that
+  adaptive thinking barely engages. Do not carry that finding to a harder
+  prompt: on one that does engage it, an omitted field means thinking shares
+  the ceiling, and :data:`knotica.evals.judge.JUDGE_MAX_TOKENS` is sized with
+  that in mind rather than to a measured requirement.
 
 **The fingerprint.** :func:`harness_version` hashes ``{scalar_formula_version,
 judge_snapshot, worker_snapshot, judge_prompt_hash, runner_config_hash}``, where

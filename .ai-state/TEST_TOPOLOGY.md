@@ -556,6 +556,7 @@ selectors:
       - tests/test_evals_golden.py
       - tests/test_evals_harness.py
       - tests/test_evals_judge.py
+      - tests/test_judge_truncation_resilience.py
       - tests/test_evals_llm.py
       - tests/test_evals_llm_completeness.py
       - tests/test_evals_program.py

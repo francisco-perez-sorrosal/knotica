@@ -75,6 +75,7 @@ __all__ = [
     "Completion",
     "FakeLLMClient",
     "LLMClient",
+    "LLMIncompleteResponseError",
     "Message",
     "MeteredApiKeyFallbackWarning",
     "TokenUsage",
@@ -157,6 +158,12 @@ _INCOMPLETE_STOP_REASONS: frozenset[str] = frozenset(
 #: non-answer, but with a different remedy than a budget bump -- so it earns its
 #: own message rather than being folded into :data:`_INCOMPLETE_STOP_REASONS`.
 _REFUSAL_STOP_REASON = "refusal"
+
+#: The one incomplete stop reason a sampling change can actually resolve. A
+#: ``model_context_window_exceeded`` is an *input* that does not fit, so no
+#: amount of output-length pinning or retrying changes the outcome; only
+#: ``max_tokens`` truncation is a length race the request can win.
+_BUDGET_STOP_REASON = "max_tokens"
 
 
 @dataclass(frozen=True, slots=True)
@@ -242,6 +249,7 @@ class LLMClient(Protocol):
         response is schema-valid JSON at the source (see :data:`_OUTPUT_CONFIG_KWARG`).
         Omitting it leaves the call unconstrained -- the additive default keeps every
         existing caller unchanged.
+
         """
         ...
 
@@ -467,7 +475,15 @@ class AnthropicClient:
         stop_reason: str | None = getattr(response, "stop_reason", None)
         if stop_reason in _INCOMPLETE_STOP_REASONS or stop_reason == _REFUSAL_STOP_REASON:
             raise _incomplete_response_error(
-                stop_reason, auth_mode=self.auth_mode, snapshot=snapshot, max_tokens=max_tokens
+                stop_reason,
+                auth_mode=self.auth_mode,
+                snapshot=snapshot,
+                max_tokens=max_tokens,
+                # Reproducible only when this request pinned its sampling.
+                # A snapshot that rejects `temperature` (Sonnet 5 and the rest
+                # of the current judge tier) cannot, so its output length is a
+                # draw rather than a constant.
+                reproducible="temperature" in create_kwargs,
             )
         return Completion(
             text=_extract_text(response.content),
@@ -569,37 +585,78 @@ def _llm_api_error(exc: Exception, auth_mode: str) -> KnoticaError:
     return KnoticaError(ErrorCode.LLM_API_ERROR, message, retryable=True)
 
 
-def _incomplete_response_error(
-    stop_reason: str | None, *, auth_mode: str, snapshot: str, max_tokens: int
-) -> KnoticaError:
-    """Map an unfinished response's ``stop_reason`` to the typed, non-retryable error.
+class LLMIncompleteResponseError(KnoticaError):
+    """A response that arrived but did not finish -- truncated or refused.
 
-    ``retryable=False`` in every branch, and that is the substantive half of this
-    function: the calls are ``temperature=0``, so re-issuing the identical request
-    under the identical budget reproduces the identical truncation or refusal. A
-    ``retryable=True`` here would invite a client to burn the same spend on the
-    same failure. Each branch's ``fix`` therefore names a *change* -- a bigger
-    budget, a narrower question, a different phrasing -- not a retry.
+    A :class:`KnoticaError` in every respect (same code, message, fix, envelope);
+    the distinct type exists so a caller that can *recover* from an unfinished
+    response -- the judge, which can retry a sample with more headroom and fall
+    back to its surviving samples -- catches exactly that case. Catching plain
+    ``KnoticaError`` there would also swallow auth rejections and rate limits,
+    which must fail the run rather than be quietly dropped from a median.
+    """
+
+
+def _incomplete_response_error(
+    stop_reason: str | None,
+    *,
+    auth_mode: str,
+    snapshot: str,
+    max_tokens: int,
+    reproducible: bool = True,
+) -> LLMIncompleteResponseError:
+    """Map an unfinished response's ``stop_reason`` to its typed error.
+
+    A **refusal** is never retryable: the model made a policy decision, and the
+    identical request is declined identically. Its ``fix`` names a change.
+
+    A **truncation** used to be non-retryable for a stated reason -- "the calls
+    are ``temperature=0``, so re-issuing the identical request under the
+    identical budget reproduces the identical truncation". That premise assumes
+    the request pinned its sampling, and on a current judge snapshot it cannot:
+    Sonnet 5 rejects ``temperature`` outright (see
+    :func:`_snapshot_accepts_temperature`), so identical requests draw different
+    lengths. Measured directly on one example: 95/98/97 output tokens across
+    three identical calls -- small variance, but not the constant the old
+    premise assumed, and four of seven identical-corpus eval runs aborted on a
+    truncated judge call while three did not.
+
+    ``reproducible`` is therefore the caller's answer to "could this request pin
+    its own sampling?". When it cannot, the truncation is genuinely transient
+    and is marked retryable -- which also stops the loop's failure
+    backoff (:mod:`knotica.core.loop_retry_backoff`) from parking a flaky
+    truncation behind the hour-long non-retryable floor.
+
+    This applies to ``max_tokens`` only. A ``model_context_window_exceeded`` is
+    an input that does not fit; sampling variance cannot make it fit, so it
+    stays non-retryable however the request was configured.
     """
     if stop_reason == _REFUSAL_STOP_REASON:
-        return KnoticaError(
+        return LLMIncompleteResponseError(
             ErrorCode.LLM_API_ERROR,
             f"the {snapshot} call in {auth_mode} mode returned no answer because the"
             " model declined the request (stop_reason: refusal).",
             fix="Rephrase the question; the identical request will be declined again.",
             retryable=False,
         )
-    return KnoticaError(
+    return LLMIncompleteResponseError(
         ErrorCode.LLM_API_ERROR,
         f"the {snapshot} call in {auth_mode} mode was cut off mid-answer"
         f" (stop_reason: {stop_reason}) after its {max_tokens}-token output budget ran"
         " out, so the partial response is unusable.",
         fix=(
             "Ask a narrower question, or raise the caller's output budget"
-            " (query synthesis: `SYNTHESIS_MAX_TOKENS` in `knotica.evals.runner`)."
-            " Retrying the same question unchanged truncates identically."
+            " (query synthesis: `SYNTHESIS_MAX_TOKENS` in `knotica.evals.runner`;"
+            " judge: `JUDGE_MAX_TOKENS` in `knotica.evals.judge`)."
+            + (
+                " Retrying the same question unchanged truncates identically."
+                if reproducible or stop_reason != _BUDGET_STOP_REASON
+                else " This request could not pin its own output length, so an"
+                " identical retry may well succeed -- but raising the budget is"
+                " the fix that stops it recurring."
+            )
         ),
-        retryable=False,
+        retryable=(stop_reason == _BUDGET_STOP_REASON and not reproducible),
     )
 
 

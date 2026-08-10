@@ -137,6 +137,12 @@ folding the installed `dspy` version and the failure score — so a judge-prompt
 rotation, a formula bump, a `dspy` upgrade, or a `failure_score` change all rotate it. Thread count
 is deliberately excluded; changing `--eval-threads` never invalidates a baseline.
 
+The judge's **output budget** is deliberately outside that hash. A ceiling bounds how long a
+response may be; it does not change what the judge writes within the bound, so raising it leaves
+every score it ever produced still comparable. That matters because the budget was raised (512 →
+2048) after real runs aborted on truncated judge responses — folding it in would have retired every
+baseline in every topic for a change that alters no score.
+
 On the first observation under a new instrument the old baseline is discarded and the new scalar
 becomes the baseline. That auto-refreeze is **by definition not a regression**, so no arena race
 fires: cross-instrument scalars are incomparable, and pretending otherwise would manufacture a false
