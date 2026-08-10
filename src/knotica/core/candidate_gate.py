@@ -17,7 +17,13 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from knotica.core.branch_namespaces import RESULT_BRANCH_PREFIX
+from knotica.core.branch_namespaces import (
+    QUARANTINE_BRANCH_PREFIX,
+    RESULT_BRANCH_PREFIX,
+    WIP_BRANCH_PREFIX,
+)
+from knotica.core.best_effort import best_effort
+from knotica.core.errors import ErrorCode, KnoticaError
 from knotica.core.loop import LoopCycleResult
 from knotica.core.loop_state import (
     LoopDecision,
@@ -62,11 +68,117 @@ def poll_once(runner: "LoopRunner") -> LoopCycleResult:
             sha=None,
             decision=LoopDecision.none,
             scalar=None,
-            message="no pending loop branches",
+            message=_idle_reason(runner, state),
         )
 
     branch, sha = pending
     return process_candidate(runner, state, branch, sha)
+
+
+def _merge_or_leave_clean(
+    runner: "LoopRunner", state: LoopState, branch: str, result_branch: str
+) -> None:
+    """Merge the eval tip onto the default branch, or leave no wreckage behind.
+
+    ``git merge`` on a conflict exits non-zero **and leaves the working tree
+    mid-merge** -- ``MERGE_HEAD`` set, conflict markers written into tracked
+    files. Before this, that state simply propagated: the exception unwound out
+    of the cycle and the live vault sat conflicted until some later span called
+    :meth:`~knotica.core.vcs.VaultVcs.heal_git_mutation_state`. For an
+    unattended watcher that is the wrong shape of failure -- the next thing to
+    touch the vault (Obsidian, an MCP tool, a human) sees a broken tree, and
+    nothing says why.
+
+    Observed on a real ingest: a candidate branched before the default branch
+    gained a metrics generation evaluates to a **colliding** generation number,
+    so ``metrics.jsonl`` and ``eval-runs/gen-N/manifest.json`` both conflict on
+    merge. The candidate's *content* merged cleanly; only the loop's own
+    bookkeeping collided.
+
+    So the merge failure is caught, the merge aborted, the cycle recorded as
+    failed, and a typed error raised naming the cause and the way out. The
+    candidate branch is left intact and unhandled, so nothing is lost -- a
+    refreshed candidate can be re-submitted.
+    """
+    try:
+        runner._vcs.merge_branch(result_branch, ff_only=False)
+        return
+    except Exception as exc:
+        conflicted = _abort_and_report(runner)
+        write_loop_state(
+            runner._store,
+            runner._root,
+            state.model_copy(
+                update={
+                    "stage": LoopStage.failed,
+                    "last_decision": LoopDecision.fail,
+                    "last_error": f"merge of {result_branch} conflicted: {conflicted}",
+                }
+            ),
+            title=f"merge conflict on {branch}",
+        )
+        raise KnoticaError(
+            ErrorCode.GIT_ERROR,
+            f"merging {result_branch!r} onto the default branch conflicted on "
+            f"{conflicted or 'unknown paths'}; the merge was aborted and the vault "
+            "left clean. The candidate branch is untouched and still pending.",
+            fix=(
+                "This happens when the candidate was branched before the default "
+                "branch gained a metrics generation, so the candidate's eval writes "
+                "a colliding generation number. Refresh the candidate against the "
+                "default branch and re-submit."
+            ),
+        ) from exc
+
+
+def _abort_and_report(runner: "LoopRunner") -> str:
+    """Abort the in-flight merge; return the conflicted paths for the message.
+
+    Best-effort by necessity: this runs on the failure path, and an abort that
+    itself fails must not replace the merge error with its own.
+    """
+    conflicted: list[str] = []
+    with best_effort():
+        conflicted = runner._vcs.unmerged_paths()
+    with best_effort():
+        if runner._vcs.is_merge_in_progress():
+            runner._vcs.abort_merge()
+    return ", ".join(conflicted)
+
+
+def _idle_reason(runner: "LoopRunner", state: LoopState) -> str:
+    """Say *why* there is nothing to gate, not merely that there is nothing.
+
+    "no pending loop branches" covered four different situations, and the
+    operator-facing ones are the situations where work exists and the loop
+    cannot see it. An unsubmitted ingest and a refused candidate awaiting
+    rework both read, to that message, exactly like an idle topic -- so the
+    reported session showed ``refused_awaiting_rework: 1`` beside a loop
+    reporting nothing pending, with no surface explaining the difference.
+
+    The invisibility itself is correct and is not changed here: ``loop/wip/`` is
+    private until :func:`~knotica.core.source_ingest.publish_ingest` renames it,
+    which is what guarantees the gate never evaluates a half-written candidate.
+    Only the silence about it was wrong.
+    """
+    with best_effort():
+        if any(True for _ in runner._vcs.list_branch_tips(WIP_BRANCH_PREFIX)):
+            return (
+                "no pending loop branches; an ingest session is open but not submitted "
+                "(finish it with source_ingest_submit mode=apply -- a WIP candidate is "
+                "deliberately invisible to the gate until then)"
+            )
+        if any(True for _ in runner._vcs.list_branch_tips(QUARANTINE_BRANCH_PREFIX)):
+            return (
+                "no pending loop branches; a refused candidate is quarantined and awaiting "
+                "rework (re-open it with source_ingest_open to resume, then resubmit)"
+            )
+        if any(
+            branch != runner._vcs.default_branch()
+            for branch, _sha in runner._vcs.list_branch_tips(runner._prefix)
+        ):
+            return "no pending loop branches; every candidate has already been gated"
+    return "no pending loop branches"
 
 
 def next_candidate(runner: "LoopRunner", state: LoopState) -> tuple[str, str] | None:
@@ -163,7 +275,7 @@ def keep(
         # Pull the clone tip (includes the eval metrics commit) onto the source.
         runner._vcs.fetch_ref_from(outcome.clone_root, "HEAD", result_branch)
         runner._vcs.checkout_branch(default)
-        runner._vcs.merge_branch(result_branch, ff_only=False)
+        _merge_or_leave_clean(runner, state, branch, result_branch)
         # Candidate is consumed; drop it so the watch does not re-fire.
         runner._safe_delete_branch(branch)
         if runner._push_remote:

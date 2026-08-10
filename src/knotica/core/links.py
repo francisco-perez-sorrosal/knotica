@@ -34,6 +34,7 @@ __all__ = [
     "WikiLink",
     "extract_wikilinks",
     "inbound_links",
+    "mask_wikilinks",
     "iter_page_paths",
     "iter_scored_page_paths",
     "outbound_links",
@@ -101,6 +102,21 @@ def extract_wikilinks(text: str) -> list[WikiLink]:
             if link is not None:
                 links.append(link)
     return links
+
+
+def mask_wikilinks(text: str) -> str:
+    """``text`` with every ``[[...]]`` reference blanked to spaces.
+
+    For scanners that want the page's *prose* and must not read the inside of a
+    wikilink as content. A wikilink target is a page reference by construction;
+    whether it resolves is :func:`outbound_links`' question, and a scanner that
+    reads the target string as prose will answer a different question about it
+    -- wrongly, and with a remediation aimed at the wrong object.
+
+    Blanks to equal-length runs of spaces rather than deleting, so byte offsets
+    and line numbers computed against the result still line up with the source.
+    """
+    return _WIKILINK_RE.sub(lambda match: " " * len(match.group(0)), text or "")
 
 
 def resolve_target(target: str, source_dir: str) -> str:

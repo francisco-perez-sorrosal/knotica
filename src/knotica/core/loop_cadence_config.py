@@ -26,6 +26,7 @@ from knotica.core.errors import ErrorCode, KnoticaError
 from knotica.evals.config import MAX_NUM_THREADS
 
 __all__ = [
+    "ARENA_SCORERS",
     "LOOP_CONFIG_SECTION",
     "LoopCadenceConfig",
     "resolve_loop_cadence_config",
@@ -36,6 +37,13 @@ LOOP_CONFIG_SECTION = "loop"
 
 #: The packaged default eval thread count.
 _DEFAULT_NUM_THREADS = 4
+
+#: Accepted ``arena_scorer`` values. ``heuristic`` is the default because the
+#: eval-backed scorer bills a full golden-set eval **per variant** -- a 4-variant
+#: race over a 21-question set is 84 worker+judge pairs. Opting in is a spending
+#: decision, so it is a config choice rather than a silent upgrade.
+ARENA_SCORERS: frozenset[str] = frozenset({"heuristic", "eval"})
+_DEFAULT_ARENA_SCORER = "heuristic"
 
 _WINDOW_SEPARATOR = "-"
 _TIME_SEPARATOR = ":"
@@ -54,6 +62,12 @@ class LoopCadenceConfig:
     eval_min_interval_hours: float = 0.0
     eval_window: str | None = None
     eval_num_threads: int = _DEFAULT_NUM_THREADS
+    #: Which scorer the prompt arena races with. ``heuristic`` (default) is
+    #: free, deterministic, and **not** comparable to the gate baseline, so the
+    #: arena refuses to rank against it rather than reverting every variant.
+    #: ``eval`` runs the real golden-set harness per variant -- comparable, and
+    #: billed accordingly.
+    arena_scorer: str = _DEFAULT_ARENA_SCORER
 
     def parsed_window(self) -> tuple[time, time] | None:
         """Parse ``eval_window`` into ``(start, end)`` bounds, or ``None`` if unset.
@@ -88,11 +102,26 @@ def resolve_loop_cadence_config(
     raw_threads = section.get("eval_num_threads", _DEFAULT_NUM_THREADS)
     threads = _resolve_num_threads(raw_threads)
 
+    raw_scorer = section.get("arena_scorer", _DEFAULT_ARENA_SCORER)
+    scorer = _resolve_arena_scorer(raw_scorer)
+
     return LoopCadenceConfig(
         eval_min_interval_hours=interval,
         eval_window=window,
         eval_num_threads=threads,
+        arena_scorer=scorer,
     )
+
+
+def _resolve_arena_scorer(raw_scorer: object) -> str:
+    if not isinstance(raw_scorer, str) or raw_scorer.strip().lower() not in ARENA_SCORERS:
+        raise _config_error(
+            f"[{LOOP_CONFIG_SECTION}] arena_scorer must be one of"
+            f" {'|'.join(sorted(ARENA_SCORERS))}, got {raw_scorer!r}.",
+            f'Set arena_scorer = "heuristic" (free, not gate-comparable) or "eval"'
+            f" (real golden-set eval per variant, billed) under [{LOOP_CONFIG_SECTION}].",
+        )
+    return raw_scorer.strip().lower()
 
 
 def _resolve_interval(raw_interval: object) -> float:

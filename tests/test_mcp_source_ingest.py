@@ -582,6 +582,111 @@ def test_submit_apply_on_a_candidate_that_regresses_returns_a_refused_verdict_wi
     assert calls == [0.40], "the eval seam must fire exactly once for this apply"
 
 
+def _refuse_once(
+    template_vault: Path, monkeypatch: pytest.MonkeyPatch, *, qa_id: str, gap_id: str
+) -> tuple[str, dict]:
+    """Drive one candidate to a real gate refusal; return its id and the verdict."""
+    suggestion_id = _approved_suggestion(template_vault, qa_id=qa_id, gap_id=gap_id)
+    call_tool("source_ingest_open", {"topic": TOPIC, "suggestion_id": suggestion_id})
+    _commit_source_and_page(template_vault, suggestion_id)
+    call_tool("loop", {"action": "set_baseline", "topic": TOPIC, "scalar": 0.80})
+    evaluate, _calls = _fake_evaluate_with_manifest(0.40, generation=1, n_regressed=2)
+    _patch_harness_evaluate(monkeypatch, evaluate)
+    verdict = assert_success(
+        call_tool(
+            "source_ingest_submit",
+            {"topic": TOPIC, "suggestion_id": suggestion_id, "mode": "apply"},
+        )
+    )
+    assert verdict["verdict"] == "refused", "the fixture must produce a real refusal"
+    return suggestion_id, verdict
+
+
+def test_a_dry_run_on_an_untouched_refused_candidate_replays_and_says_so(
+    vault_config: Path, template_vault: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The idempotency guard survives: nothing moved, so nothing is re-measured.
+
+    But the replay must announce itself, and must still carry the preflight --
+    the missing `lint_clean`/`source_present`/`would_evaluate` block was the
+    only visible symptom when a stale verdict was being served.
+    """
+    del vault_config
+    suggestion_id, _ = _refuse_once(
+        template_vault, monkeypatch, qa_id="golden-replay", gap_id="gap-replay"
+    )
+
+    body = assert_success(
+        call_tool(
+            "source_ingest_submit",
+            {"topic": TOPIC, "suggestion_id": suggestion_id, "mode": "dry-run"},
+        )
+    )
+
+    assert body["cached"] is True
+    assert set(body) >= {
+        "lint_clean",
+        "source_present",
+        "pages_present",
+        "gate_eligible",
+        "would_evaluate",
+    }, "a dry-run must always run its preflight, replay or not"
+
+
+def test_a_lowered_baseline_expires_a_refused_verdict(
+    vault_config: Path, template_vault: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The reported case: the bar was corrected and the old verdict kept winning."""
+    del vault_config
+    suggestion_id, refusal = _refuse_once(
+        template_vault, monkeypatch, qa_id="golden-bar", gap_id="gap-bar"
+    )
+    assert refusal["baseline_scalar"] == pytest.approx(0.80)
+
+    call_tool("loop", {"action": "set_baseline", "topic": TOPIC, "scalar": 0.30})
+    body = assert_success(
+        call_tool(
+            "source_ingest_submit",
+            {"topic": TOPIC, "suggestion_id": suggestion_id, "mode": "dry-run"},
+        )
+    )
+
+    assert body.get("cached") is not True, (
+        "a verdict measured against a bar that has since moved must not be replayed"
+    )
+    assert "verdict" not in body, "an expired verdict must yield a fresh preflight, not a replay"
+
+
+def test_reworking_a_refused_candidate_expires_its_verdict(
+    vault_config: Path, template_vault: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Excising the dilutive section is a different candidate, not the same one."""
+    del vault_config
+    suggestion_id, _ = _refuse_once(
+        template_vault, monkeypatch, qa_id="golden-rework", gap_id="gap-rework"
+    )
+    # Re-open resumes from the quarantine ref, then the operator reworks a page.
+    call_tool("source_ingest_open", {"topic": TOPIC, "suggestion_id": suggestion_id})
+    worktree = _worktree_path_for_suggestion(template_vault, suggestion_id)
+    (worktree / TOPIC / "ingested-page.md").write_text(
+        "# Ingested Page\n\nreworked body, dilutive section excised\n", encoding="utf-8"
+    )
+    VaultVcs(worktree).commit_paths(
+        [f"{TOPIC}/ingested-page.md"], f"knotica(write_page): {TOPIC} — rework"
+    )
+
+    body = assert_success(
+        call_tool(
+            "source_ingest_submit",
+            {"topic": TOPIC, "suggestion_id": suggestion_id, "mode": "dry-run"},
+        )
+    )
+
+    assert body.get("cached") is not True, "a rewritten candidate is a new question"
+    assert body["source_present"] is True, "the resume must have restored the stored source"
+    assert body["pages_present"], "and the pages written before the refusal"
+
+
 def test_resubmitting_an_already_gated_candidate_returns_the_prior_verdict_without_reevaluating(
     vault_config: Path, template_vault: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -606,7 +711,15 @@ def test_resubmitting_an_already_gated_candidate_returns_the_prior_verdict_witho
         )
     )
 
-    assert second == first, (
-        "re-submitting an already-gated candidate must return the exact prior verdict"
-    )
     assert calls == [0.95], "a re-submit must never invoke the eval seam a second time"
+    # A merged verdict is terminal -- the work is on the default branch and the
+    # suggestion has advanced to `ingested`, so there is no candidate left to
+    # re-gate and the replay is unconditional.
+    assert second["verdict"] == first["verdict"] == "merged"
+    assert {k: v for k, v in second.items() if k in first} == first, (
+        "re-submitting an already-gated candidate must return the prior verdict verbatim"
+    )
+    # Additive, and the point of the change: a replay must announce itself
+    # rather than be byte-identical to a fresh evaluation.
+    assert second["cached"] is True
+    assert "cached" not in first, "the evaluating call is not a replay"

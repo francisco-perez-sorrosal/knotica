@@ -19,6 +19,7 @@ from typing import Any
 from mcp.types import CallToolResult
 
 from knotica.core.arena import heuristic_arena_score
+from knotica.core.best_effort import best_effort
 from knotica.core.config import ResolvedVault, config_file_path, diagnose
 from knotica.core.config_write import atomic_write, dump_config_toml, read_config
 from knotica.core.doctor import build_doctor_payload, run_doctor_checks
@@ -205,10 +206,31 @@ def _loop_once_payload(
                 "1 default-branch observation eval (if new content exists) plus "
                 "at most one pending candidate-gate eval"
             ),
+            # What would decline this tick if confirmed now. `run_once` does not
+            # force, so both pacing holds apply to it.
+            "holds": _hold_preview(store, vault_path, cleaned, force=False),
             "confirm_nonce": nonce,
             "ttl": confirm_nonce.NONCE_TTL_SECONDS,
         }
     )
+
+
+def _hold_preview(
+    store: VaultStore, vault_path: Path, topic: str, *, force: bool
+) -> dict[str, Any]:
+    """Read-only: what would decline this billed action if it were confirmed now.
+
+    Best-effort -- a preview that cannot compute the holds must still quote the
+    cost and mint its nonce, so a probe failure degrades to "unknown", never to
+    a failed preview.
+    """
+    preview: dict[str, Any] = {"held": False, "reasons": [], "cadence_remaining_seconds": None}
+    with best_effort():
+        runner = build_loop_runner(
+            vault_path, topic, evaluate=harness_evaluate, store=store, runner_cls=LoopRunner
+        )
+        preview = runner.hold_preview(force=force)
+    return preview
 
 
 def _execute_run_once(store: VaultStore, vault_path: Path, topic: str) -> dict[str, Any]:
@@ -235,7 +257,11 @@ def _execute_run_once(store: VaultStore, vault_path: Path, topic: str) -> dict[s
         {
             "action": "run_once",
             "topic": topic,
-            "billed": True,
+            # Derived, not asserted. Both legs decline without reaching an eval
+            # when a hold or an unchanged HEAD applies, and a tick that made no
+            # model call did not bill -- reporting otherwise taught operators to
+            # read a free no-op as money spent.
+            "billed": observed.acted or candidate.acted,
             "acted": result.acted,
             "branch": result.branch,
             "sha": result.sha,
@@ -471,6 +497,8 @@ def _loop_run_eval_payload(
                 f"num_threads={requested_threads} (total calls scale with the "
                 f"topic's golden-set size)"
             ),
+            # `run_eval` forces, so only the non-pacing ingest hold can bite.
+            "holds": _hold_preview(store, vault_path, cleaned, force=True),
             "confirm_nonce": nonce,
             "ttl": confirm_nonce.NONCE_TTL_SECONDS,
         }
@@ -500,7 +528,9 @@ def _execute_run_eval(
         {
             "action": "run_eval",
             "topic": topic,
-            "billed": True,
+            # See ``_execute_run_once``: an observation that declined reached no
+            # model, so it billed nothing.
+            "billed": result.acted,
             "acted": result.acted,
             "decision": result.decision.value if result.decision else "none",
             "scalar": result.scalar,

@@ -20,10 +20,10 @@ from dataclasses import dataclass
 from datetime import datetime
 from datetime import time as _time_of_day
 from pathlib import Path
-from typing import TYPE_CHECKING, Protocol
+from typing import TYPE_CHECKING, Any, Protocol
 
 from knotica.core import branch_namespaces
-from knotica.core.arena import ArenaState, ScoreFn, VariantSpec
+from knotica.core.arena import ArenaState, ScoreFn, ScorerInfo, VariantSpec
 from knotica.core.arena_resolve import run_arena_and_resolve
 from knotica.core.best_effort import best_effort
 from knotica.core.loop_attempt import (
@@ -140,6 +140,7 @@ class LoopRunner:
         store: VaultStore | None = None,
         arena_enabled: bool = True,
         arena_score: ScoreFn | None = None,
+        arena_scorer_info: ScorerInfo | None = None,
         arena_variants: list[VariantSpec] | None = None,
         arena_n: int = 4,
         discover_on_regression: bool = False,
@@ -160,6 +161,10 @@ class LoopRunner:
         self._vcs = VaultVcs(self._root)
         self._arena_enabled = arena_enabled
         self._arena_score = arena_score
+        # Travels with the callable, never separately: a race that recorded one
+        # scorer's provenance beside another's scalars would be worse than
+        # recording none. ``None`` means the heuristic default.
+        self._arena_scorer_info = arena_scorer_info
         self._arena_variants = arena_variants
         self._arena_n = arena_n
         # Opt-in P3 gap-fill batch (default off = byte-identical to pre-P3): when
@@ -197,6 +202,7 @@ class LoopRunner:
                 "baseline_scalar": float(scalar),
                 "baseline_harness_version": harness_version,
                 "baseline_corpus_ref": corpus_ref,
+                "baseline_golden_manifest_sha": self._golden_manifest_sha(),
                 "stage": LoopStage.idle,
             }
         )
@@ -367,6 +373,7 @@ class LoopRunner:
                         "baseline_scalar": scalar,
                         "baseline_harness_version": outcome.harness_version,
                         "baseline_corpus_ref": outcome.corpus_ref,
+                        "baseline_golden_manifest_sha": self._golden_manifest_sha(),
                         "stage": LoopStage.passed,
                         "last_decision": LoopDecision.pass_,
                     }
@@ -377,6 +384,7 @@ class LoopRunner:
                         "baseline_scalar": scalar,
                         "baseline_harness_version": outcome.harness_version,
                         "baseline_corpus_ref": outcome.corpus_ref,
+                        "baseline_golden_manifest_sha": self._golden_manifest_sha(),
                         "stage": LoopStage.passed,
                         "last_decision": LoopDecision.pass_,
                     }
@@ -394,6 +402,7 @@ class LoopRunner:
                         "baseline_scalar": scalar,
                         "baseline_harness_version": outcome.harness_version,
                         "baseline_corpus_ref": outcome.corpus_ref,
+                        "baseline_golden_manifest_sha": self._golden_manifest_sha(),
                         "stage": LoopStage.passed,
                         "last_decision": LoopDecision.pass_,
                     }
@@ -482,6 +491,26 @@ class LoopRunner:
             return f"observation settling ({self._observe_quiet_seconds:g}s quiet window)"
         self._pending_head = None
         return None
+
+    def _golden_manifest_sha(self) -> str | None:
+        """Digest of the golden set a baseline frozen right now was measured on.
+
+        Recorded beside ``baseline_harness_version`` so a later comparison can
+        ask "same questions?" as well as "same instrument?". ``None`` when no
+        frozen set exists, which downstream reads as unknown, never as matching.
+        """
+        from knotica.core.gate_inputs import read_golden_manifest_sha
+
+        return read_golden_manifest_sha(self._store, self._topic)
+
+    def hold_preview(self, *, force: bool = False) -> dict[str, Any]:
+        """Why a run right now would decline -- read-only, for a two-phase preview.
+
+        Thin delegator; the procedure lives in :mod:`knotica.core.loop_holds`.
+        """
+        from knotica.core import loop_holds
+
+        return loop_holds.hold_preview(self, force=force)
 
     def _cadence_hold(self, state: LoopState, now: datetime) -> str | None:
         """Reason to defer this observation eval on cadence grounds, or ``None``.
@@ -794,6 +823,7 @@ class LoopRunner:
             root=self._root,
             topic=self._topic,
             arena_score=self._arena_score,
+            arena_scorer_info=self._arena_scorer_info,
             arena_variants=self._arena_variants,
             arena_n=self._arena_n,
             candidate_branch=None,
@@ -846,6 +876,7 @@ class LoopRunner:
                     "baseline_scalar": float(chosen.scalar),
                     "baseline_harness_version": chosen.harness_version,
                     "baseline_corpus_ref": chosen.corpus_ref,
+                    "baseline_golden_manifest_sha": self._golden_manifest_sha(),
                     "stage": LoopStage.idle,
                 }
             ),
@@ -958,6 +989,7 @@ class LoopRunner:
             root=self._root,
             topic=self._topic,
             arena_score=self._arena_score,
+            arena_scorer_info=self._arena_scorer_info,
             arena_variants=self._arena_variants,
             arena_n=self._arena_n,
             candidate_branch=branch,

@@ -563,6 +563,10 @@ def _arena_spy(monkeypatch: pytest.MonkeyPatch) -> list[tuple[str, float]]:
         score,
         candidate_branch,
         promote_on_win,
+        # Additive kwargs the race grew (scorer provenance + the baseline's
+        # golden set) -- swallowed here so this spy keeps pinning what it is
+        # about, which is whether the arena fired and against which baseline.
+        **_provenance,
     ):
         calls.append((topic, baseline_scalar))
         return ArenaState(topic=topic, stage=ArenaStage.reverted, winner_id=None, message="spy")

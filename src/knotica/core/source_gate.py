@@ -48,15 +48,18 @@ from knotica.core.branch_namespaces import (
     _parse_candidate_branch,
     _SOURCE_INFIX,
     classify_candidate,
+    quarantine_branch_name,
     suggestion_id_from_branch,
 )
 from knotica.core.best_effort import best_effort
 from knotica.core.errors import ErrorCode, KnoticaError
+from knotica.core.gate_inputs import INPUTS_KEY, capture as capture_gate_inputs
 from knotica.core.loop import LoopCycleResult
 from knotica.core.loop_state import LoopDecision, LoopStage, write_loop_state
 from knotica.core.transaction import VaultTransaction
 
 if TYPE_CHECKING:
+    from knotica.core.gate_inputs import GateInputs
     from knotica.core.loop import EvalOutcome, LoopRunner
     from knotica.core.loop_state import LoopState
 
@@ -152,6 +155,7 @@ def handle_source_pass(
             "scalar": float(outcome.scalar),
             "baseline_scalar": float(state.baseline_scalar or 0.0),
             "ref": f"{RESULT_BRANCH_PREFIX}{sha[:12]}",
+            INPUTS_KEY: _gate_inputs(runner, topic, sha, state).to_dict(),
         }
         apply_gate_outcome(
             runner._store,
@@ -185,7 +189,7 @@ def handle_source_refuse(
 
     topic, id8 = _parse_candidate_branch(branch)
     suggestion_id = _resolve_suggestion_id(runner, topic, id8)
-    quarantine = f"{QUARANTINE_BRANCH_PREFIX}{topic}/{_SOURCE_INFIX}{id8}"
+    quarantine = quarantine_branch_name(topic, id8)
     regressed = _regressed_questions(outcome, topic)
 
     # One atomic span brackets the whole refusal git sequence (rename ->
@@ -212,6 +216,9 @@ def handle_source_refuse(
                 "ref": quarantine,
                 "reason": _refusal_reason(outcome, state, regressed),
                 "regressed_questions": list(regressed),
+                # The quarantine ref, not ``sha``: the diff commit above already
+                # landed there, and that ref is what a rework resumes from.
+                INPUTS_KEY: _gate_inputs(runner, topic, quarantine, state).to_dict(),
             },
         )
         _prune_quarantine_branches(runner, topic)
@@ -307,6 +314,39 @@ def _is_entity_page_path(topic: str, path: str) -> bool:
 # ---------------------------------------------------------------------------
 # Suggestion resolution (branch-name parsing lives in ``branch_namespaces``)
 # ---------------------------------------------------------------------------
+
+
+def _gate_inputs(
+    runner: "LoopRunner", topic: str, tree_ref: str, state: "LoopState"
+) -> "GateInputs":
+    """Fingerprint what this verdict was computed from, for the replay check.
+
+    Stamped into the ``gate_outcome`` alongside the verdict so a later submit
+    can tell "the same question, already answered" from "a different question
+    wearing the same suggestion id" -- see :mod:`knotica.core.gate_inputs`.
+
+    ``tree_ref`` is **the ref where this candidate's work comes to rest**, not
+    necessarily the tip that was evaluated, because the comparison it has to
+    survive is against whatever a later submit will find. On a refusal those
+    two differ: :func:`_commit_quarantine_diff` adds the dilution artifact to
+    the quarantine branch after the rename, so stamping the evaluated tip would
+    guarantee a mismatch against the very ref a resume branches from -- an
+    untouched candidate would re-evaluate on every submit and the idempotency
+    guard would be gone. Resolved to a git *tree* so a rewrite landing identical
+    bytes still compares equal.
+
+    Best-effort: a component that cannot be read becomes ``None``, which
+    :meth:`GateInputs.diff` treats as grounds to re-evaluate, never as sameness.
+    """
+    tree: str | None = None
+    with best_effort():
+        tree = runner._vcs.ref_sha(f"{tree_ref}^{{tree}}")
+    return capture_gate_inputs(
+        runner._store,
+        topic,
+        candidate_tree_sha=tree,
+        baseline_scalar=state.baseline_scalar,
+    )
 
 
 def _resolve_suggestion_id(runner: "LoopRunner", topic: str, id8: str) -> str:

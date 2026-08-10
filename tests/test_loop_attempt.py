@@ -55,6 +55,9 @@ _PERTURBATIONS: dict[str, Any] = {
     "baseline_scalar": 0.9,
     "baseline_harness_version": "h2",
     "baseline_corpus_ref": "git:deadbeef",
+    # Information, not timing: it identifies which questions the baseline was
+    # measured on, so a change to it changes what the recorded state means.
+    "baseline_golden_manifest_sha": "222e2eb707b9da30",
     "candidate_branch": "loop/c/other",
     "last_scalar": 0.42,
     "last_generation": 7,

@@ -364,6 +364,7 @@ def run_eval(
     on_example: Callable[[int, int, str], None] | None = None,
     on_substage: Callable[[str, int, int], None] | None = None,
     on_outcome: OnOutcome | None = None,
+    instructions_override: str | None = None,
     **overrides: Unpack[HarnessOverrides],
 ) -> EvalRunResult:
     """Evaluate ``topic`` against its frozen golden set and append one metrics record.
@@ -405,6 +406,13 @@ def run_eval(
             leg (threaded to :func:`~knotica.evals.scorer.build_metric`) fires it
             on success or a judge parse failure, keyed by the golden record's
             stable id. ``None`` disables capture; no extra model call either way.
+        instructions_override: Replaces the clone's ``query.md`` body for this
+            run only, leaving retrieval, judge, golden set and scalar formula
+            untouched -- so the resulting scalar is directly comparable to one
+            produced without it. This is what lets the prompt arena score a
+            candidate prompt on the same instrument as the gate baseline
+            (:mod:`knotica.core.arena_eval`); ``None`` evaluates the vault's own
+            prompt, which is every other caller.
         **overrides: CLI-flag-style config overrides (e.g. ``max_total_tokens=1``)
             re-validated onto ``config``.
 
@@ -444,7 +452,14 @@ def run_eval(
     run_cache = cache if cache is not None else _default_cache(corpus_sha)
     client = _UsageAccountingClient(llm_client if llm_client is not None else AnthropicClient())
     program = BaselineProgram(
-        clone_store, topic, MessagesApiRunner(client, run_config.worker_snapshot, cache=run_cache)
+        clone_store,
+        topic,
+        MessagesApiRunner(
+            client,
+            run_config.worker_snapshot,
+            cache=run_cache,
+            instructions_override=instructions_override,
+        ),
     )
     question_id_map = _question_id_map(records)
     metric = build_metric(

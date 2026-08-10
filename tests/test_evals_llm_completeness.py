@@ -12,9 +12,15 @@ What these tests pin:
   pushed the diagnosis downstream to a JSON parser, which reported "invalid JSON"
   -- a true statement naming the wrong cause and hiding the fixable one (the
   budget). The guard raises here instead, while the evidence is still in hand.
-- **Non-retryable, with a fix that names a change.** The calls are
-  ``temperature=0``: an identical request under an identical budget truncates
-  identically, so a retry is guaranteed re-spend on a guaranteed repeat failure.
+- **A fix that names a change, and retryability that tracks reproducibility.**
+  The original rule was blanket non-retryable, justified by "the calls are
+  ``temperature=0``". That premise only holds when the request can pin its own
+  output length. A judge snapshot that rejects ``temperature`` and thinks
+  adaptively by default pins neither lever, so an identical request genuinely
+  can succeed on retry — and calling it non-retryable parked a transient
+  failure behind the loop's hour-long floor. ``max_tokens`` truncation is now
+  retryable exactly when the request could not pin its length; a context-window
+  overflow never is, because a too-large input cannot be resampled smaller.
 - **Truncation and refusal are distinct.** Both are non-answers, but a bigger
   budget resolves only the first, so they carry different remedies.
 - **The guard is narrow.** A finished response passes through untouched and
@@ -112,9 +118,14 @@ def _client_with_stop_reason(
     return client
 
 
-def _complete(client: AnthropicClient, *, max_tokens: int) -> Completion:
+def _complete(
+    client: AnthropicClient,
+    *,
+    max_tokens: int,
+    snapshot: str = "snapshot-under-test",
+) -> Completion:
     return client.complete(
-        snapshot="snapshot-under-test",
+        snapshot=snapshot,
         system="system",
         messages=[Message(role="user", content="question")],
         max_tokens=max_tokens,
@@ -140,7 +151,7 @@ def test_a_response_truncated_at_max_tokens_raises_instead_of_returning_the_pref
     assert "max_tokens" in error.message, "the response's own stop reason must be reported"
 
 
-def test_a_truncated_response_is_not_retryable_and_its_fix_names_a_change(
+def test_a_truncated_response_always_offers_the_changes_that_resolve_it(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     client = _client_with_stop_reason(monkeypatch, "max_tokens")
@@ -148,10 +159,33 @@ def test_a_truncated_response_is_not_retryable_and_its_fix_names_a_change(
     with pytest.raises(KnoticaError) as caught:
         _complete(client, max_tokens=1024)
 
-    error = caught.value
-    assert error.retryable is False, "an identical retry reproduces the identical truncation"
-    assert "narrower" in error.fix and "budget" in error.fix, (
+    assert "narrower" in caught.value.fix and "budget" in caught.value.fix, (
         "the fix must offer the two changes that actually resolve a truncation"
+    )
+
+
+def test_truncation_is_retryable_only_when_the_request_could_not_pin_its_length(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The old rule assumed every call was reproducible; some cannot be.
+
+    A request pins its own output length only if it can pin its sampling.
+    ``claude-sonnet-5`` rejects ``temperature`` outright, so the client omits it
+    and identical calls draw different lengths (measured: 95/98/97 output tokens
+    across three identical judge calls). Calling that non-retryable parked a
+    transient failure behind the loop's hour-long non-retryable floor. A
+    snapshot that accepts ``temperature`` keeps the original guarantee.
+    """
+    client = _client_with_stop_reason(monkeypatch, "max_tokens")
+
+    with pytest.raises(KnoticaError) as unpinned:
+        _complete(client, max_tokens=1024, snapshot="claude-sonnet-5")
+    assert unpinned.value.retryable is True, "a snapshot that rejects temperature cannot pin length"
+
+    with pytest.raises(KnoticaError) as pinned:
+        _complete(client, max_tokens=1024, snapshot="claude-haiku-4-5")
+    assert pinned.value.retryable is False, (
+        "with temperature pinned, an identical retry truncates identically"
     )
 
 
@@ -165,6 +199,9 @@ def test_a_response_cut_off_by_the_context_window_is_treated_as_truncation(
     with pytest.raises(KnoticaError) as caught:
         _complete(client, max_tokens=4096)
 
+    # Non-retryable *regardless* of whether the request pinned its output length
+    # (this one did not). An input that does not fit cannot be made to fit by
+    # sampling differently — unlike a max_tokens race, which can.
     assert caught.value.retryable is False
 
 

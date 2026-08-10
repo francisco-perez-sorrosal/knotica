@@ -42,6 +42,7 @@ __all__ = [
     "candidate_branch_name",
     "classify_candidate",
     "compile_branch_prefix",
+    "quarantine_branch_name",
     "suggestion_id_from_branch",
     "wip_branch_name",
 ]
@@ -91,6 +92,17 @@ def wip_branch_name(topic: str, suggestion_id: str) -> str:
 def candidate_branch_name(topic: str, suggestion_id: str) -> str:
     """The public candidate branch name a submitted ingest publishes to."""
     return f"{CANDIDATE_BRANCH_PREFIX}{_branch_leaf(topic, suggestion_id)}"
+
+
+def quarantine_branch_name(topic: str, suggestion_id: str) -> str:
+    """Where a refused source candidate is kept as its audit trail.
+
+    Same ``<topic>/source-<id8>`` leaf as the WIP and candidate names, so one
+    suggestion's three lifecycle refs differ only by prefix -- which is what
+    lets a submit locate the quarantined tree of a candidate whose WIP branch is
+    gone, and a resume branch a fresh session from it.
+    """
+    return f"{QUARANTINE_BRANCH_PREFIX}{_branch_leaf(topic, suggestion_id)}"
 
 
 def classify_candidate(branch: str) -> Literal["source", "prompt"] | None:

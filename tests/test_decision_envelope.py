@@ -21,6 +21,7 @@ from typing import Any
 
 import anyio
 
+from knotica.core import gate_inputs
 from knotica.core.gapfill import apply_gate_outcome, suggestions_path
 from knotica.core.transaction import VaultTransaction
 from knotica.store import LocalFSStore
@@ -244,6 +245,14 @@ def test_source_ingest_submit_refused_verdict_nests_the_diff_shape(
         "ref": "loop/x/agentic-systems/source-deadbeef",
         "reason": "regressed 2 previously-passing golden questions",
         "regressed_questions": ["q-0001", "q-0002"],
+        # This test is about the envelope's *shape*, which is only rendered on
+        # the replay path -- and a refused verdict is replayed only while the
+        # inputs it was computed from still match the live ones. Derived from
+        # the same helper the gate stamps with, rather than hand-written, so the
+        # fixture cannot drift from what the check actually compares against.
+        "inputs": gate_inputs.capture(
+            LocalFSStore(template_vault), TOPIC, candidate_tree_sha=None, baseline_scalar=None
+        ).to_dict(),
     }
     apply_gate_outcome(
         LocalFSStore(template_vault),

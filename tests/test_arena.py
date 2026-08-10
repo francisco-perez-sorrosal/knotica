@@ -5,6 +5,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from knotica.core.arena import (
+    ScorerInfo,
     ArenaStage,
     VariantSpec,
     load_base_query_body,
@@ -14,6 +15,13 @@ from knotica.core.arena import (
     read_arena_state,
 )
 from knotica.store import LocalFSStore
+
+
+#: These exercise what a race *does* -- promote, revert, write history. The
+#: default heuristic is not rankable against a gate baseline, so a race with it
+#: aborts before scoring and none of that behavior is reachable; declaring a
+#: comparable scorer is these tests stating their own premise.
+_COMPARABLE_SCORER = ScorerInfo(id="fake-arena", comparable_to_eval=True)
 
 
 def test_race_promotes_winner_and_writes_override(template_vault: Path) -> None:
@@ -35,6 +43,7 @@ def test_race_promotes_winner_and_writes_override(template_vault: Path) -> None:
         variants,
         baseline_scalar=0.5,
         score=score,
+        scorer=_COMPARABLE_SCORER,
     )
     assert state.stage == ArenaStage.completed
     assert state.winner_id == "v2"
@@ -66,6 +75,7 @@ def test_race_reverts_when_no_variant_clears_baseline(template_vault: Path) -> N
         variants,
         baseline_scalar=0.99,
         score=lambda *_a: 0.2,
+        scorer=_COMPARABLE_SCORER,
     )
     assert state.stage == ArenaStage.reverted
     assert state.winner_id is None

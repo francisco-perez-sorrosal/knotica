@@ -425,6 +425,7 @@ def _gate_and_loop(
                 "stage": None,
                 "baseline_frozen": False,
                 "baseline_scalar": None,
+                "baseline_unreachable": None,
                 "pending_candidates": [],
                 "metrics_hint": None,
             },
@@ -464,10 +465,65 @@ def _gate_and_loop(
             if state is not None and state.baseline_scalar is not None
             else None
         ),
+        # Null in the healthy case; an object naming both scalars when the bar
+        # outranks the corpus. A condition that refuses every future candidate
+        # must not have to be inferred by comparing `baseline_scalar` against a
+        # metrics record on another surface.
+        "baseline_unreachable": _baseline_unreachable(row, state),
         "pending_candidates": pending,
         "metrics_hint": metrics_hint,
     }
     return gate, loop
+
+
+def _baseline_unreachable(row: TopicStatus, state: LoopState | None) -> dict[str, Any] | None:
+    """A bar the default branch's own corpus cannot clear -- always a misconfiguration.
+
+    When the baseline sits above the default branch's *measured* scalar, nothing
+    can pass the gate: not a candidate under test, not a perfect source, not an
+    arena variant. Every refusal's diff then blames the content being evaluated
+    for a shortfall the bar created, and ``gate.state: "fail"`` describes the
+    topic rather than anything submitted to it -- which is exactly why this has
+    to be said out loud rather than left to be inferred from two numbers.
+
+    Read from the newest metrics record only, never from ``state.last_scalar``:
+    a refusal writes the *candidate's* scalar there (see
+    ``source_gate._record_refusal_state``), so the fallback chain
+    :func:`_last_known_scalar` walks would report a perfectly healthy topic as
+    unreachable for as long as its last candidate happened to score low.
+
+    Two conditions withhold the finding rather than assert it:
+
+    * **Cross-instrument.** Mirrors :func:`~knotica.core.loop_state.compute_gate`
+      -- scalars from different harness versions are not orderable, so a
+      mismatch is unknown, not unreachable.
+    * **Probe anchors.** A ``baseline-probe`` record carries ``n_examples: 0``
+      and measures nothing; ranking a real baseline against it is meaningless.
+    """
+    if state is None or state.baseline_scalar is None or row.last_eval is None:
+        return None
+    if not int(row.last_eval.get("n_examples") or 0):
+        return None
+    harness = row.last_eval.get("harness_version")
+    if state.baseline_harness_version and harness and harness != state.baseline_harness_version:
+        return None
+    baseline = float(state.baseline_scalar)
+    measured = float(row.last_eval["scalar"])
+    if baseline <= measured:
+        return None
+    return {
+        "baseline": baseline,
+        "last_scalar": measured,
+        "generation": row.last_eval.get("generation"),
+        "message": (
+            f"gate baseline {baseline:.4f} exceeds the default branch's own scalar "
+            f"{measured:.4f}, so no candidate and no arena variant can pass the gate"
+        ),
+        "fix": (
+            f"Lower the bar to what the corpus actually measures: "
+            f"`loop action=rebaseline mode=latest topic={row.topic}`."
+        ),
+    }
 
 
 def _last_known_scalar(

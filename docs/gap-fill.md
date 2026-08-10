@@ -180,21 +180,35 @@ alone.
 1. **Open.** `source_ingest_open(topic, suggestion_id)` requires the suggestion to be `approved`,
    checked before any worktree is touched. It creates a git worktree under
    `<vault>/.knotica/worktrees/<topic>/source-<id8>/` on a fresh `loop/wip/` branch and returns a
-   candidate handle plus provenance. Re-opening an in-progress session **resumes** it: the response
-   says whether source and pages are already present, and surfaces any prior gate outcome so a client
-   does not blindly re-ingest a source already proven dilutive.
+   candidate handle plus provenance. Re-opening **resumes**, never restarts: the response says
+   whether source and pages are already present, and surfaces any prior gate outcome so a client
+   does not blindly re-ingest a source already proven dilutive. That holds for a *refused* session
+   as much as an interrupted one — a refusal renamed the branch into `loop/x/`, so re-opening
+   branches from the quarantine ref and reports `resume.restored_from` naming it. The quarantine ref
+   is branched from, never moved, so the audit trail survives and a second rework starts from the
+   same place.
 2. **Write.** Drive `store_source` and `write_page` with `candidate=<handle>`. Each call is its own
    commit on the WIP branch.
-3. **Dry run.** `source_ingest_submit(..., mode="dry-run")` reports lint cleanliness, whether source
-   and pages exist, and whether the topic has a frozen baseline, then returns `would_evaluate`. Zero
-   side effects.
+3. **Dry run.** `source_ingest_submit(..., mode="dry-run")` reports lint cleanliness (the same
+   `lint_check` rules the vault is held to), whether source and pages exist, and whether the topic
+   has a frozen baseline, then returns `would_evaluate`. Zero side effects, and it always runs —
+   even when a prior verdict is replayable.
 4. **Apply.** `mode="apply"` refuses to run without source *and* pages, and returns
    `verdict: "blocked"` without publishing if no baseline is frozen. Otherwise it renames the WIP
    branch into `loop/c/` — **that rename is the readiness boundary**, the first moment the loop can
    see the work — then drives the gate synchronously, polling up to 20 cycles before failing loud
    rather than hanging.
 
-Submit is idempotent: once a gate outcome exists, both modes short-circuit to the recorded verdict.
+Submit is idempotent **over the question it actually answered**. A stamped verdict is replayed —
+flagged `cached: true`, with the key on the response — only while the four things it was computed
+from are unchanged: the candidate tree, the golden manifest, the baseline scalar, and the harness
+version. Move any one of them and the next submit evaluates afresh. Keying the replay on the
+suggestion id alone, as this once did, meant a rebuilt candidate measured against a replaced golden
+set and a corrected baseline still returned the original verdict quoting the original bar.
+
+A `merged` verdict is the exception: it is terminal, so it always replays. The work is on the
+default branch and the suggestion has advanced to `ingested` — there is no candidate left to re-gate.
+
 An unpublished session is abandoned outright — worktree removed, WIP branch force-deleted; nothing
 that was never submitted is ever quarantined, and orphaned WIP worktrees older than 24 hours are
 swept best-effort.
@@ -219,6 +233,18 @@ intact — and a bounded per-question dilution diff, the 10 worst `quality_delta
 committed as JSON to `<topic>/.knotica/quarantine/source-<id8>.json` on the quarantine branch itself.
 The suggestion stays `approved` with a `refused` gate outcome, so you can read why it lost and rework
 it. Quarantine branches are pruned beyond the newest 5 per topic.
+
+**Reworking a refusal**: re-open the ingest (it resumes from the quarantine ref with the source and
+pages intact), fix what the diff blamed, and resubmit — the rewritten tree expires the stored verdict,
+so the gate evaluates rather than replaying. If instead you decide against the source altogether,
+`suggestions_review(action="withdraw")` returns it to `pending` without asserting an ingest that
+never happened; `mark_ingested` was previously the only exit from `approved`, which meant releasing
+a suggestion required writing a false record.
+
+Note that `pending_candidates` stays empty while a rework is in flight, beside
+`refused_awaiting_rework: 1`. That is correct: `loop/wip/` is private until submit publishes it,
+which is the guarantee that the gate never evaluates a half-written candidate. `loop action=run_once`
+says so explicitly rather than reporting a bare "no pending loop branches".
 
 ## Entry points
 

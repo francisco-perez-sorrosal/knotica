@@ -8,7 +8,7 @@ from typing import Any
 
 import anyio
 
-from knotica.core.arena import VariantSpec, race_variants
+from knotica.core.arena import ScorerInfo, VariantSpec, race_variants
 from knotica.store import LocalFSStore
 
 
@@ -84,6 +84,10 @@ def test_arena_status_idle_then_after_race(vault_config: Path, template_vault: P
         ],
         baseline_scalar=0.5,
         score=lambda _t, _r, body: 0.9 if "# b" in body else 0.1,
+        # The arena refuses to rank the default heuristic against a gate
+        # baseline, so a race that must reach "completed" declares a
+        # comparable scorer.
+        scorer=ScorerInfo(id="fake-arena", comparable_to_eval=True),
     )
     status = payload_of(call_tool("arena_status", {"topic": "agentic-systems"}))
     assert status["stage"] == "completed"

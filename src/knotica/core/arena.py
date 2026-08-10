@@ -1,8 +1,25 @@
 """Prompt Evolution Arena — race ``query.md`` variants, promote winner or revert.
 
-Phase-3a-lite without DSPy: N prompt bodies are scored (injectable evaluator),
-leaderboard state is persisted for the dashboard, and a winner that clears the
-baseline is committed as the topic (or root) ``query.md`` override.
+N prompt bodies are scored (injectable evaluator), leaderboard state is
+persisted for the dashboard, and a winner that clears the baseline is committed
+as the topic (or root) ``query.md`` override.
+
+**A race is only meaningful when its scorer and its baseline are the same
+instrument.** The default :func:`heuristic_arena_score` is a keyword heuristic
+with no model behind it; its scalars live on their own scale and mean nothing
+next to an eval-derived baseline. Racing one against the other is not a close
+contest, it is a category error -- and it produced a real one: four variants
+scoring 0.79/0.80/0.81/0.82 were all reverted for failing to clear a 0.9548
+baseline, on a topic whose own corpus scored 0.6562 on the same golden set two
+seconds earlier. Every variant in fact beat the live corpus by 0.13-0.16, and
+all four were discarded.
+
+So each race now carries the provenance needed to interpret it --
+:class:`ScorerInfo` (which scorer, how many examples, which golden set) -- and
+:func:`race_variants` **aborts** rather than scores when that provenance cannot
+be ranked against the baseline. Aborting is the point: ``reverted`` is the
+normal terminal state for a race no variant won, so an unwinnable race
+disguised itself as a fair one that everybody lost.
 """
 
 from __future__ import annotations
@@ -10,6 +27,7 @@ from __future__ import annotations
 import json
 import uuid
 from collections.abc import Callable, Sequence
+from dataclasses import dataclass
 from datetime import UTC, datetime
 from enum import StrEnum
 from pathlib import Path
@@ -24,16 +42,21 @@ from knotica.store import VaultStore
 __all__ = [
     "ARENA_HISTORY_FILENAME",
     "ARENA_STATE_FILENAME",
+    "EVAL_SCORER_ID",
+    "HEURISTIC_SCORER",
+    "HEURISTIC_SCORER_ID",
     "ArenaStage",
     "ArenaState",
     "ArenaVariant",
     "ScoreFn",
+    "ScorerInfo",
     "VariantSpec",
     "append_arena_history",
     "arena_history_path",
     "arena_state_path",
     "generate_variant_bodies",
     "heuristic_arena_score",
+    "incomparable_reason",
     "load_base_query_body",
     "query_prompt_path",
     "race_variants",
@@ -50,6 +73,34 @@ ARENA_STATE_SCHEMA_VERSION: Literal[1] = 1
 #: Score a (topic, vault_root, prompt_body) → scalar. Tests inject fakes.
 ScoreFn = Callable[[str, Path, str], float]
 
+#: ``scorer_id`` of the default keyword heuristic -- deterministic, network-free,
+#: and **not** on the same scale as anything an eval produces.
+HEURISTIC_SCORER_ID = "heuristic-keyword"
+
+#: ``scorer_id`` of the golden-set eval scorer (:mod:`knotica.core.arena_eval`).
+EVAL_SCORER_ID = "golden-eval"
+
+
+@dataclass(frozen=True, slots=True)
+class ScorerInfo:
+    """What produced a race's scalars, and whether they can be ranked at all.
+
+    ``comparable_to_eval`` is the load-bearing field: it says whether this
+    scorer's output shares a scale with the eval-derived gate baseline. Only an
+    eval-backed scorer may claim it. The heuristic must not, however plausible
+    its numbers look -- looking plausible is exactly how it went unnoticed.
+    """
+
+    id: str = HEURISTIC_SCORER_ID
+    comparable_to_eval: bool = False
+    n_examples: int | None = None
+    golden_manifest_sha: str | None = None
+    harness_version: str | None = None
+
+
+#: Descriptor for the default scorer, used when a caller supplies none.
+HEURISTIC_SCORER = ScorerInfo()
+
 
 class ArenaStage(StrEnum):
     """Coarse arena stage for dashboard / wiki_status."""
@@ -59,6 +110,10 @@ class ArenaStage(StrEnum):
     promoting = "promoting"
     completed = "completed"
     reverted = "reverted"
+    #: Refused before scoring: the scorer and the baseline are not the same
+    #: instrument, so no ranking between them would mean anything. Distinct from
+    #: ``reverted`` on purpose -- that word already means "raced and nobody won".
+    aborted = "aborted"
 
 
 class ArenaVariant(BaseModel):
@@ -68,6 +123,12 @@ class ArenaVariant(BaseModel):
     label: str
     scalar: float | None = None
     status: Literal["pending", "scored", "winner", "lost"] = "pending"
+    #: Provenance of this variant's scalar. Carried per-variant, not only on the
+    #: race, so a history row stays interpretable on its own -- a bare number
+    #: cannot be re-read later to find out what measured it, or against how many
+    #: questions.
+    scorer_id: str | None = None
+    n_examples: int | None = None
 
 
 class ArenaState(BaseModel):
@@ -83,6 +144,16 @@ class ArenaState(BaseModel):
     winner_scalar: float | None = None
     candidate_branch: str | None = None
     message: str | None = None
+    #: What scored this race, and against what. ``None`` on a race recorded
+    #: before this existed -- which is why :func:`read_arena_history` marks such
+    #: rows ``unverified`` rather than assuming they were eval-backed.
+    scorer_id: str | None = None
+    n_examples: int | None = None
+    golden_manifest_sha: str | None = None
+    #: True when the race ran but its golden set could not be shown to match the
+    #: baseline's -- an eval-backed scorer with provenance missing on one side.
+    #: The result is usable but not proven comparable, which is worth saying.
+    provenance_unverified: bool = False
     updated_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
 
     def touch(self) -> ArenaState:
@@ -152,9 +223,17 @@ def read_arena_history(store: VaultStore, topic: str, *, limit: int = 20) -> lis
     rows: list[dict[str, Any]] = []
     for line in lines[-max(1, limit) :]:
         try:
-            rows.append(json.loads(line))
+            row = json.loads(line)
         except json.JSONDecodeError:
             continue
+        # A row with no ``scorer_id`` predates scorer provenance. It cannot be
+        # shown to have been eval-backed, and the races that existed when it was
+        # written were not -- so it is reported as unverified rather than left
+        # to be read as a measurement.
+        if isinstance(row, dict):
+            row.setdefault("scorer_id", None)
+            row["unverified"] = row.get("scorer_id") is None
+        rows.append(row)
     return rows
 
 
@@ -182,15 +261,22 @@ def race_variants(
     score: ScoreFn,
     candidate_branch: str | None = None,
     promote_on_win: bool = True,
+    scorer: ScorerInfo | None = None,
+    baseline_golden_manifest_sha: str | None = None,
 ) -> ArenaState:
     """Score variants, persist leaderboard, promote winner or mark reverted.
 
     Promotion writes the winning body to the topic ``query.md`` override when
     ``promote_on_win`` and the best scalar clears ``baseline_scalar``.
+
+    Refuses to score at all -- :attr:`ArenaStage.aborted`, no promotion and no
+    revert -- when ``scorer`` cannot be ranked against the baseline. See
+    :func:`incomparable_reason` for the two ways that happens.
     """
     cleaned = _clean_topic(topic)
     root = Path(vault_root)
     race_id = uuid.uuid4().hex[:12]
+    info = scorer or HEURISTIC_SCORER
     board = [ArenaVariant(id=spec.id, label=spec.label, status="pending") for spec in variants]
     state = ArenaState(
         topic=cleaned,
@@ -200,14 +286,36 @@ def race_variants(
         variants=board,
         candidate_branch=candidate_branch,
         message="racing variants",
+        scorer_id=info.id,
+        n_examples=info.n_examples,
+        golden_manifest_sha=info.golden_manifest_sha,
+        provenance_unverified=not (info.golden_manifest_sha and baseline_golden_manifest_sha),
     )
+
+    blocked = incomparable_reason(info, baseline_golden_manifest_sha)
+    if blocked is not None:
+        # Before the first score, so an unwinnable race costs nothing and
+        # discards nothing. The variants stay ``pending``: they were never
+        # measured, and marking them ``lost`` would assert a contest happened.
+        state = state.model_copy(update={"stage": ArenaStage.aborted, "message": blocked})
+        return write_arena_state(store, root, state, title=f"arena race {race_id} aborted")
+
     state = write_arena_state(store, root, state, title=f"arena race {race_id} start")
 
     bodies = {spec.id: spec.body for spec in variants}
     scored: list[ArenaVariant] = []
     for spec in variants:
         scalar = float(score(cleaned, root, spec.body))
-        scored.append(ArenaVariant(id=spec.id, label=spec.label, scalar=scalar, status="scored"))
+        scored.append(
+            ArenaVariant(
+                id=spec.id,
+                label=spec.label,
+                scalar=scalar,
+                status="scored",
+                scorer_id=info.id,
+                n_examples=info.n_examples,
+            )
+        )
         state = state.model_copy(update={"variants": list(scored) + board[len(scored) :]})
         state = write_arena_state(
             store, root, state, title=f"arena race {race_id} scored {spec.id}"
@@ -277,10 +385,54 @@ def race_variants(
             "winner_scalar": state.winner_scalar,
             "variants": [row.model_dump(mode="json") for row in state.variants],
             "candidate_branch": candidate_branch,
+            "scorer_id": info.id,
+            "n_examples": info.n_examples,
+            "golden_manifest_sha": info.golden_manifest_sha,
+            "provenance_unverified": state.provenance_unverified,
             "finished_at": datetime.now(UTC).isoformat(),
         },
     )
     return state
+
+
+def incomparable_reason(scorer: ScorerInfo, baseline_golden_manifest_sha: str | None) -> str | None:
+    """Why this scorer's scalars cannot be ranked against the gate baseline.
+
+    ``None`` means the race is meaningful. Two ways it is not:
+
+    1. **The scorer is not eval-backed.** A heuristic emits numbers on its own
+       scale. Comparing them to an eval-derived baseline is a category error
+       that reads as a legitimate loss.
+    2. **The golden sets differ.** Two eval scalars are only rankable when they
+       answer the same questions, so a baseline measured on a different frozen
+       set -- or on an unrecorded one -- cannot bound this race. Unknown counts
+       as different, for the same reason it does everywhere else here: absence
+       of evidence is not evidence of sameness.
+    """
+    if not scorer.comparable_to_eval:
+        return (
+            f"arena aborted: scorer {scorer.id!r} does not produce eval-comparable scalars, "
+            "so no ranking against the gate baseline would be meaningful. Enable the "
+            "eval-backed scorer to race against the gate."
+        )
+    if not scorer.golden_manifest_sha or not baseline_golden_manifest_sha:
+        # Unknown, not mismatched -- and here that resolves toward racing, which
+        # is the opposite of how :mod:`knotica.core.gate_inputs` treats an
+        # unknown component. The costs are not symmetric. There, proceeding
+        # replays a verdict that reports a measurement nobody took; the fallback
+        # is one extra eval. Here, refusing disables the topic's self-healing
+        # outright -- and would do so for every baseline frozen before this
+        # provenance was recorded at all. So the race runs and says its
+        # provenance is unverified, rather than silently not running.
+        return None
+    if scorer.golden_manifest_sha != baseline_golden_manifest_sha:
+        return (
+            f"arena aborted: the baseline was measured on golden set "
+            f"{baseline_golden_manifest_sha[:12]} but this race scores against "
+            f"{scorer.golden_manifest_sha[:12]}; the two are not comparable. Re-freeze "
+            "the baseline against the current golden set, then race again."
+        )
+    return None
 
 
 def generate_variant_bodies(

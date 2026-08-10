@@ -332,6 +332,7 @@ selectors:
       - tests/test_ingest_activity.py
       - tests/test_links.py
       - tests/test_lint.py
+      - tests/test_lint_citation_wikilinks.py
       - tests/test_lock.py
       - tests/test_op_create_topic.py
       - tests/test_op_curate_example.py
@@ -555,6 +556,7 @@ selectors:
       - tests/test_evals_golden.py
       - tests/test_evals_harness.py
       - tests/test_evals_judge.py
+      - tests/test_judge_truncation_resilience.py
       - tests/test_evals_llm.py
       - tests/test_evals_llm_completeness.py
       - tests/test_evals_program.py
@@ -628,18 +630,22 @@ selectors:
   - strategy: pytest-globs
     arg:
       - tests/test_arena.py
+      - tests/test_arena_eval_scorer.py
       - tests/test_arena_race_characterization.py
+      - tests/test_arena_scorer_provenance.py
       - tests/test_best_effort_characterization.py
       - tests/test_branch_namespaces_characterization.py
       - tests/test_branch_scoreboard.py
       - tests/test_candidate_gate_characterization.py
       - tests/test_file_size_ratchet.py
       - tests/test_loop_attempt.py
+      - tests/test_loop_billed_reporting.py
       - tests/test_loop_blocked_failure_backoff.py
       - tests/test_loop_cadence.py
       - tests/test_loop_cadence_characterization.py
       - tests/test_loop_cadence_config.py
       - tests/test_loop_content_classification.py
+      - tests/test_loop_merge_conflict_recovery.py
       - tests/test_loop_eval_error_visibility.py
       - tests/test_loop_factory_cadence_wiring.py
       - tests/test_loop_flock_contention.py
@@ -649,6 +655,7 @@ selectors:
       - tests/test_loop_runner_factory_characterization.py
       - tests/test_loop_state.py
       - tests/test_loop_state_additive_fields.py
+      - tests/test_status_baseline_unreachable.py
       - tests/test_td011_eval_rearm.py
 file_dependencies:
   - "src/knotica/core/loop.py"
@@ -656,6 +663,7 @@ file_dependencies:
   - "src/knotica/core/loop_heartbeat.py"
   - "src/knotica/core/loop_progress.py"
   - "src/knotica/core/loop_factory.py"
+  - "src/knotica/core/arena_eval.py"
   - "src/knotica/core/loop_promote.py"
   - "src/knotica/core/loop_retry_backoff.py"
   - "src/knotica/core/loop_cadence_config.py"
@@ -729,10 +737,13 @@ selectors:
       - tests/test_records_suggestion.py
       - tests/test_source_gate.py
       - tests/test_source_ingest.py
+      - tests/test_source_ingest_rework.py
+      - tests/test_suggestion_withdraw.py
 file_dependencies:
   - "src/knotica/core/gap_classifier.py"
   - "src/knotica/core/gapfill.py"
   - "src/knotica/core/gapfill_config.py"
+  - "src/knotica/core/gate_inputs.py"
   - "src/knotica/core/source_gate.py"
   - "src/knotica/core/source_ingest.py"
   - "src/knotica/core/operations/candidate_scope.py"

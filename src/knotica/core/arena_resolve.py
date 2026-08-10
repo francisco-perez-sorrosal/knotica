@@ -22,6 +22,7 @@ from knotica.core.arena import (
     ArenaStage,
     ArenaState,
     ScoreFn,
+    ScorerInfo,
     VariantSpec,
     generate_variant_bodies,
     load_base_query_body,
@@ -42,6 +43,7 @@ def run_arena_and_resolve(
     topic: str,
     arena_score: ScoreFn | None,
     arena_variants: list[VariantSpec] | None,
+    arena_scorer_info: ScorerInfo | None = None,
     arena_n: int,
     candidate_branch: str | None,
     baseline: float,
@@ -67,6 +69,21 @@ def run_arena_and_resolve(
         score=arena_score,
         candidate_branch=candidate_branch,
         promote_on_win=True,
+        scorer=arena_scorer_info,
+        baseline_golden_manifest_sha=_baseline_manifest_sha(store, topic),
     )
     won = arena.stage == ArenaStage.completed and arena.winner_id is not None
     return on_win(arena) if won else on_lose(arena)
+
+
+def _baseline_manifest_sha(store: VaultStore, topic: str) -> str | None:
+    """Golden set the gate baseline was measured on (``None`` when unrecorded).
+
+    Read here rather than passed down from the caller so both heal paths get it
+    without either having to remember -- the same reasoning the loop factory
+    applies to ``arena_score`` itself.
+    """
+    from knotica.core.loop_state import read_loop_state
+
+    state = read_loop_state(store, topic)
+    return state.baseline_golden_manifest_sha if state is not None else None
