@@ -28,6 +28,34 @@ Two checks, both exact and both fail-closed.
 2. **The command surfaces.** `COMMAND_NAMES` must equal the CLI subcommand
    table, and the `commands/*.md` files must equal the plugin-alias table.
 
+3. **Referential integrity of prose that names a tool.** Checks 1 and 2 gate the
+   reference doc. This one gates every *other* place a name is published --
+   `description=`/`fix=` strings the model reads, `commands/*.md` bodies, the
+   session-start hook, and the skill's routing description -- because that is
+   where `compile_run` survived for weeks.
+
+**What check 3 flags, and what it deliberately does not.** Naming a rule for
+"identifier of tool-name shape" is the whole difficulty: the loose version flags
+every field name. Measured on this tree, 189 `description=`/`fix=` literals
+contain just ten distinct snake_case identifiers, and most are parameters or
+config keys (`confirm_nonce`, `eval_window`, `pages_used`) that must never be
+flagged. `golden_review` is a real module. So the rule is not "looks like a
+tool"; it is three shapes that can only be tool references:
+
+  * `<dispatcher>_<action>` where both halves are live but the whole is not a
+    registered tool -- exactly what consolidation leaves behind (`compile_run`
+    is `compile` + action `run`, `loop_run_once` is `loop` + `run_once`). No
+    parameter or config key has this shape, because it requires the suffix to be
+    one of that specific dispatcher's own actions.
+  * `<tool> action=<x>` -- the dispatcher must be live and `<x>` must be one of
+    *its* actions, read from the module's own `_ACTIONS`.
+  * `knotica <cmd>` and `/knotica:<alias>` -- resolved against `COMMAND_NAMES`
+    and `commands/`.
+
+It will not catch a wholly-removed tool whose name has no dispatcher shape. That
+is a stated limit, not an oversight: a rule wide enough to catch it flags
+`next_cursor` too, and a gate that cries wolf gets muted.
+
 **An unparseable document is a failure, not a skip.** If the summary sentence is
 reworded past the shape parsed here, the gate fails and says so. A gate that
 silently stops checking when its input changes is worse than no gate: it reports
@@ -36,6 +64,8 @@ green for a surface nobody is looking at any more.
 
 from __future__ import annotations
 
+import ast
+import importlib
 import re
 import sys
 from pathlib import Path
@@ -43,6 +73,22 @@ from pathlib import Path
 REPO_ROOT = Path(__file__).resolve().parents[1]
 REFERENCE = REPO_ROOT / "docs" / "reference.md"
 COMMANDS_DIR = REPO_ROOT / "commands"
+SRC_DIR = REPO_ROOT / "src"
+SESSION_HOOK = REPO_ROOT / "hooks" / "session_start.sh"
+SKILL = REPO_ROOT / "skills" / "wiki-maintenance" / "SKILL.md"
+
+#: The nine dispatchers, each of which declares its own action tuple.
+DISPATCHERS = (
+    "arena",
+    "branches",
+    "compile",
+    "datasets",
+    "golden",
+    "loop",
+    "notes",
+    "vault",
+    "vault_health",
+)
 
 #: The four `### ` sections whose tables together enumerate every registered tool.
 TOOL_SECTIONS = ("Read tools", "Write tools", "Other flat tools", "Action dispatchers")
@@ -164,6 +210,198 @@ def _check_plugin_aliases(sections: dict[str, tuple[int | None, list[str]]]) -> 
     return _diff("slash command", shipped, documented, "reference.md's alias table")
 
 
+# ---------------------------------------------------------------------------
+# Check 3 -- referential integrity of prose that names a tool
+# ---------------------------------------------------------------------------
+
+_BACKTICKED = re.compile(r"`([^`\n]+)`")
+_DISPATCH_CALL = re.compile(r"\b(?P<tool>[a-z][a-z_]*) +action=(?P<action>[a-z_]+)")
+_CLI_CALL = re.compile(r"\bknotica +(?P<cmd>[a-z][a-z-]*)")
+_SLASH_CALL = re.compile(r"/knotica:(?P<alias>[a-z][a-z-]*)")
+#: Shell comments, stripped before scanning: the hook's prose says "knotica is
+#: not configured", and `is` is not a subcommand.
+_SH_COMMENT = re.compile(r"^\s*#.*$", re.M)
+
+
+def _actions() -> dict[str, tuple[str, ...]]:
+    """Each dispatcher's own `_ACTIONS`, read from the module that declares it."""
+    resolved: dict[str, tuple[str, ...]] = {}
+    for name in DISPATCHERS:
+        module = importlib.import_module(f"knotica.mcp_server.tools_dispatch_{name}")
+        actions = getattr(module, "_ACTIONS", None)
+        if actions:
+            resolved[name] = tuple(actions)
+    return resolved
+
+
+def _literal(node: ast.AST) -> str:
+    """The literal text of a string constant or the literal parts of an f-string."""
+    if isinstance(node, ast.Constant) and isinstance(node.value, str):
+        return node.value
+    if isinstance(node, ast.JoinedStr):
+        return "".join(
+            part.value
+            for part in node.values
+            if isinstance(part, ast.Constant) and isinstance(part.value, str)
+        )
+    return ""
+
+
+def _description_prose() -> list[tuple[str, str]]:
+    """(where, text) for every `description=`/`fix=`/`*_DESCRIPTION` string in `src/`."""
+    out: list[tuple[str, str]] = []
+    for path in sorted(SRC_DIR.rglob("*.py")):
+        try:
+            tree = ast.parse(path.read_text(encoding="utf-8"))
+        except SyntaxError:  # pragma: no cover -- src/ always parses; fail loudly if not
+            return [(path.as_posix(), "")]
+        where = path.relative_to(REPO_ROOT).as_posix()
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Call):
+                for keyword in node.keywords:
+                    if keyword.arg in {"description", "fix"}:
+                        out.append((where, _literal(keyword.value)))
+            if isinstance(node, ast.Assign):
+                names = [getattr(t, "id", "") for t in node.targets]
+                if any(name.endswith("_DESCRIPTION") for name in names):
+                    out.append((where, _literal(node.value)))
+    return out
+
+
+def _scan(where: str, text: str, live: _Surface, *, shell: bool = False) -> list[str]:
+    """Every dead tool reference in one blob of published prose.
+
+    Invocations are only recognised **in code position** -- inside a backtick span
+    for prose, or bare in a shell script. "knotica" is used adjectivally all over
+    this project ("a knotica vault", "your knotica wiki", "knotica so that..."),
+    so matching `knotica <word>` in running prose reports the English word after
+    it as a subcommand. Measured: that mistake produced 17 false findings and 0
+    real ones.
+    """
+    failures: list[str] = []
+    # Code position: a shell script is all code; prose is code only inside backticks.
+    code = [text] if shell else [span.strip() for span in _BACKTICKED.findall(text)]
+
+    for token in code:
+        if token in live.tools or "_" not in token or " " in token:
+            continue
+        head, _, tail = token.partition("_")
+        # A consolidated-away tool: `<dispatcher>_<that dispatcher's own action>`.
+        if tail in live.actions.get(head, ()):
+            failures.append(
+                f"{where}: `{token}` names no registered tool — "
+                f"`{head}` was consolidated, so this is `{head} action={tail}`"
+            )
+
+    for fragment in code:
+        for match in _DISPATCH_CALL.finditer(fragment):
+            tool, action = match.group("tool"), match.group("action")
+            if tool in live.actions and action not in live.actions[tool]:
+                failures.append(
+                    f"{where}: `{tool} action={action}` — {tool!r} has no such action "
+                    f"(valid: {'|'.join(live.actions[tool])})"
+                )
+        for match in _CLI_CALL.finditer(fragment):
+            if match.group("cmd") not in live.commands:
+                failures.append(f"{where}: `knotica {match.group('cmd')}` is not a CLI subcommand")
+        if not shell:
+            failures.extend(_slash_failures(where, fragment, live))
+    return failures
+
+
+def _slash_failures(where: str, text: str, live: _Surface) -> list[str]:
+    """Dead `/knotica:<alias>` references.
+
+    Split out from :func:`_scan` because it is the one rule that needs *no* code
+    position: `/knotica:` cannot occur by accident in English, so a shell comment
+    is scanned too — a stale alias in a comment still misinforms the next reader,
+    and suppressing it was pure lost coverage.
+    """
+    return [
+        f"{where}: `/knotica:{match.group('alias')}` ships no command file"
+        for match in _SLASH_CALL.finditer(text)
+        if match.group("alias") not in live.slash
+    ]
+
+
+class _Surface:
+    """The live vocabulary every published reference is resolved against."""
+
+    def __init__(self) -> None:
+        import anyio
+
+        from knotica.cli import COMMAND_NAMES
+        from knotica.mcp_server.server import build_server
+
+        self.tools = {tool.name for tool in anyio.run(build_server().list_tools)}
+        self.commands = set(COMMAND_NAMES)
+        self.slash = {
+            path.stem for path in COMMANDS_DIR.glob("*.md") if path.name not in NOT_A_COMMAND
+        }
+        self.actions = _actions()
+
+
+def _check_references() -> list[str]:
+    """Every published name that no longer resolves, across four surfaces."""
+    live = _Surface()
+    failures: list[str] = []
+
+    for where, text in _description_prose():
+        failures.extend(_scan(where, text, live))
+
+    for path in sorted(COMMANDS_DIR.glob("*.md")):
+        if path.name in NOT_A_COMMAND:
+            continue
+        failures.extend(
+            _scan(path.relative_to(REPO_ROOT).as_posix(), path.read_text(encoding="utf-8"), live)
+        )
+
+    if SESSION_HOOK.is_file():
+        where = SESSION_HOOK.relative_to(REPO_ROOT).as_posix()
+        text = SESSION_HOOK.read_text(encoding="utf-8")
+        # Two passes, because the two rules need different scopes: `knotica <word>`
+        # is only an invocation in code (the hook's own comments read "knotica is
+        # not configured"), while `/knotica:<alias>` is unambiguous everywhere.
+        failures.extend(_scan(where, _SH_COMMENT.sub("", text), live, shell=True))
+        failures.extend(_slash_failures(where, text, live))
+    else:
+        failures.append(f"{SESSION_HOOK.relative_to(REPO_ROOT).as_posix()} is missing")
+
+    failures.extend(_check_routing_contract(live))
+    return failures
+
+
+def _check_routing_contract(live: _Surface) -> list[str]:
+    """The skill description and the server instructions are one contract, kept twice.
+
+    Both tell a model when to reach for knotica, and they are maintained
+    independently -- so a tool named in one and absent from the other is a
+    routing surface that drifted without anyone editing a shared file.
+    """
+    if not SKILL.is_file():
+        return [f"{SKILL.relative_to(REPO_ROOT).as_posix()} is missing"]
+    frontmatter = re.match(r"\A---\n(.*?)\n---\n", SKILL.read_text(encoding="utf-8"), re.S)
+    if frontmatter is None:
+        return [f"{SKILL.relative_to(REPO_ROOT).as_posix()} has no YAML frontmatter"]
+
+    from knotica.mcp_server.server import _INSTRUCTIONS
+
+    # Unambiguous names only: `loop`, `vault`, `notes` and friends are ordinary
+    # English in a routing description ('the self-improvement loop'), and matching
+    # them as tool references reports prose as drift.
+    described = {
+        name
+        for name in live.tools
+        if "_" in name and re.search(rf"\b{name}\b", frontmatter.group(1))
+    }
+    return [
+        f"skills/wiki-maintenance/SKILL.md names tool {name!r} in its routing description, "
+        "but server.py::_INSTRUCTIONS does not — the two are one contract kept in two places"
+        for name in sorted(described)
+        if not re.search(rf"\b{name}\b", _INSTRUCTIONS)
+    ]
+
+
 def _diff(label: str, actual: set[str], documented: set[str], where: str) -> list[str]:
     """Both directions of a set mismatch, named so the fix is obvious."""
     return [
@@ -182,7 +420,12 @@ def main() -> int:
     text = REFERENCE.read_text(encoding="utf-8")
     sections = _sections(text)
 
-    failures = _check_tools(text, sections) + _check_cli(sections) + _check_plugin_aliases(sections)
+    failures = (
+        _check_tools(text, sections)
+        + _check_cli(sections)
+        + _check_plugin_aliases(sections)
+        + _check_references()
+    )
     if failures:
         print(
             f"surface consistency check FAILED ({len(failures)} finding(s)):",
