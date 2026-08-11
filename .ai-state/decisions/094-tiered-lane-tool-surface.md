@@ -1,7 +1,7 @@
 ---
-id: dec-draft-36f3ddc2
+id: dec-094
 title: The lane rename targets a tiered surface — flat cross-lane primitives plus six lane dispatchers
-status: proposed
+status: accepted
 category: architectural
 date: 2026-08-10
 summary: Locked decision 4's rename is executed as a two-tier surface — roughly nine cross-lane conversational primitives kept flat and unrenamed, plus six lane dispatchers carrying the operator surface — because the eleven code-grounded multi-lane verbs make a flat lane-prefixed rename either double the schema weight or assign a lane arbitrarily, while a dispatcher action alias costs nothing.
@@ -16,11 +16,11 @@ made_by: agent
 agent_type: interface-designer
 branch: worktree-process-swimlanes
 pipeline_tier: full
-# Reciprocal of dec-draft-ab2702b3's `re_affirms`. Written in draft form on
+# Reciprocal of dec-098's `re_affirms`. Written in draft form on
 # purpose: finalize rewrites both halves to their stable ids atomically, and the
 # health check exempts drafts from reciprocity but enforces it once promoted.
 re_affirmed_by:
-  - dec-draft-ab2702b3
+  - dec-098
 dissent: Collapsing roughly 27 tools into six dispatchers concentrates routing into six long descriptions; `improve` alone would carry around twenty actions, and a fat description is a mini-prompt whose quality is unmeasured and whose failure mode (the model picks the right lane and the wrong action) is quieter than picking the wrong tool.
 affected_files:
   - src/knotica/mcp_server/server.py

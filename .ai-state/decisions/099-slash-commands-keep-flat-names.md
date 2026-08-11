@@ -1,7 +1,7 @@
 ---
-id: dec-draft-c5bf05c8
+id: dec-099
 title: Slash commands keep their flat names; the lane is carried in the description
-status: proposed
+status: accepted
 category: behavioral
 date: 2026-08-10
 summary: The `/knotica:*` aliases are not regrouped into `commands/<lane>/` subdirectories — the lane is expressed in each command's picker description instead, because a directory-derived rename has no deprecation path and a shipped hook emits two of the names.

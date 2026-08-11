@@ -1,7 +1,7 @@
 ---
-id: dec-draft-26137ebb
+id: dec-096
 title: Normalize and gate the description corpus before renaming it, and amend the adapter seam to cover prose
-status: proposed
+status: accepted
 category: implementation
 date: 2026-08-10
 summary: "The context review's audit never reached the architecture, so two of its recommendations are folded into the plan as prerequisites — a backtick-normalization pass that makes ten ordinary-English tool names mechanically findable, and a referential-integrity gate over description and fix= prose — and the architecture's non-goal that the rename stops at the adapter layer is amended to hold for identifiers but not for prose, because ten of the twelve files carrying stale-able fix= strings are under core/."

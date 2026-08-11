@@ -23,6 +23,8 @@ affected_files:
   - docs/architecture.md
   - CLAUDE.md
 dissent: "Deleting the aliases outright forecloses cheap reversal if a future external consumer does appear; a slower deprecation cycle (warn-then-remove) would have cost nothing extra for a single-consumer project and preserved that option."
+re_affirmed_by:
+  - dec-090
 ---
 
 ## Context

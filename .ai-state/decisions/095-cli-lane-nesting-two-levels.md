@@ -1,7 +1,7 @@
 ---
-id: dec-draft-af563364
+id: dec-095
 title: CLI subcommands nest one level under their lane, flattened to two levels unless ambiguous
-status: proposed
+status: accepted
 category: architectural
 date: 2026-08-10
 summary: M1's CLI rename nests the nine process subcommands under six lane commands via the existing configure(subparsers) protocol — renaming no module and no test file — and deletes each command's own group level wherever its verb is unique within the lane, so the worst depth is two rather than four and the daily cost is one extra word on five commands.

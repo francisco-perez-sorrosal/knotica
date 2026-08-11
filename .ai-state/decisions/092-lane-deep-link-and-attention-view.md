@@ -1,7 +1,7 @@
 ---
-id: dec-draft-87b21355
+id: dec-092
 title: Lane deep-linking via open_dashboard, and Home reads a new wiki_status attention view
-status: proposed
+status: accepted
 category: architectural
 date: 2026-08-10
 summary: open_dashboard gains `lane` and `focus`, its `topic` default becomes vault-wide, and unknown values degrade rather than error; the cross-topic Home inbox reads a new `wiki_status view="attention"` under three hard budget rules — no lint walk, no note-anchor resolution, and a 10-second visibility-paused poll — moving the cross-topic attention projection out of the CLI-only nudge into a shared one.

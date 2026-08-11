@@ -1,7 +1,7 @@
 ---
-id: dec-draft-2779ae2a
+id: dec-089
 title: The process model is declared once in core/ — served to the client, mirrored at build time, gated by make verify
-status: proposed
+status: accepted
 category: architectural
 date: 2026-08-10
 summary: "Six lanes, their ordered stages, each stage's state predicate and advancing action are declared once in a core/ module that also generates the lane dispatchers' action tables; the server ships the live declaration on an existing tool call, the dashboard bundles a generated fallback that make verify holds byte-honest, and stage state is derived server-side so rail semantics have one implementation."
@@ -32,7 +32,7 @@ third. `VaultPane.tsx:46-51` holds a fourth as a tab tuple. `LoopPane.tsx:28-36`
 second rail on the same pane telling an overlapping story in a different vocabulary.
 
 The swimlane redesign asks for six lanes, each with a rail, projected into four entry points (dashboard,
-MCP, CLI, `/knotica:*`) — and, under `dec-draft-36f3ddc2`, the MCP surface itself is re-cut into six lane
+MCP, CLI, `/knotica:*`) — and, under `dec-094`, the MCP surface itself is re-cut into six lane
 dispatchers whose action tables are the same lane/verb mapping. Building that on the current shape means
 six more inline literals in TypeScript, invisible to Python, ungated, and unable to answer "which stage
 is this vault in?" from anywhere but a browser.
@@ -47,7 +47,7 @@ four modules that used to hold copies of the same literals, and `cli/__init__.py
 surface reference, and a `handoff` flag marking stages the dashboard structurally cannot execute. It
 **references** `core/ingest_activity.py`'s existing `INGEST_STAGES` / `CURATE_STAGES` rather than copying
 them, so no second source of truth for a stage order is created. Lane *membership* is a set, per
-`dec-draft-1d7f84bb`, and it is what generates each lane dispatcher's action table — the tool surface and
+`dec-088`, and it is what generates each lane dispatcher's action table — the tool surface and
 the rails are projections of one declaration, not two.
 
 Four rulings follow:
@@ -55,7 +55,7 @@ Four rulings follow:
 1. **Stage state is derived server-side.** The declaration exports pure predicates; the MCP surface
    returns *derived* per-stage state inside payloads a lane already fetches. The dashboard renders state
    it is given. Rail semantics have exactly one implementation, in Python, unit-testable against a
-   fixture vault. This holds `dec-draft-58b8a899`'s rail contract to one producer of truth even where it
+   fixture vault. This holds `dec-093`'s rail contract to one producer of truth even where it
    permits two derivations of shape.
 
 2. **The client reads the *served* declaration and falls back to a *generated* bundle.** The live
@@ -69,7 +69,7 @@ Four rulings follow:
 3. **The bundled fallback is generated, not authored, and `make verify` holds it honest.** It is emitted
    from the Python declaration and re-checked with `git diff --exit-code` — the same instrument the
    committed dashboard artifact and `DESIGN.md` § 3's package inventory already use. This closes the
-   drift gap `dec-draft-58b8a899` names in its own Consequences ("two producers must be kept honest
+   drift gap `dec-093` names in its own Consequences ("two producers must be kept honest
    against one contract; drift between them is a new failure mode with no existing gate"). The fallback
    carries presentation structure only — ids, titles, order, narration, handoff flags — never predicates.
 
@@ -96,7 +96,7 @@ the server it is talking to offers lanes the server cannot serve. Under Option 1
 
 ### Option 3 — Served declaration only, with a hand-authored bundled fallback
 
-`dec-draft-58b8a899`'s point 5 as literally written. Rejected on the gap that decision itself names: two
+`dec-093`'s point 5 as literally written. Rejected on the gap that decision itself names: two
 producers, one contract, no gate. A hand-authored fallback is a second source of truth wearing a
 fallback's clothes.
 

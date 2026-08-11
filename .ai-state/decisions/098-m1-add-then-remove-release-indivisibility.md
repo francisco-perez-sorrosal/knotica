@@ -1,7 +1,7 @@
 ---
-id: dec-draft-ab2702b3
+id: dec-098
 title: M1's indivisibility is a release property, and the rename lands add-then-remove
-status: proposed
+status: accepted
 category: implementation
 date: 2026-08-10
 summary: "The architecture declares that M1 must land whole, which read as a commit-level constraint would make the largest milestone in the plan undecomposable; it is satisfied instead by one merge and one feat! release, with the six lane dispatchers registered additively and proven equivalent before any flat tool is removed, so no intermediate commit ever holds a half-renamed surface."
@@ -12,10 +12,14 @@ branch: worktree-process-swimlanes
 pipeline_tier: full
 affected_files:
   - src/knotica/mcp_server/server.py
-  - src/knotica/core/process_model.py
   - CONTRIBUTING.md
+# `src/knotica/core/process_model.py` was listed here and has been removed: it is
+# an M1 deliverable that does not exist yet, and this field is gated on resolution
+# so a rename or deletion cannot leave a dangling claim behind. The list is for
+# files on disk; a file the decision anticipates is recorded here in prose until
+# it exists. Add it back when the keystone module lands.
 affected_reqs: [REQ-09, REQ-09b, REQ-09c, REQ-27]
-re_affirms: dec-draft-36f3ddc2
+re_affirms: dec-094
 dissent: "Registering six lane dispatchers alongside the twenty-one flat tools they replace puts the surface at forty-one registrations for the length of two batches — more than double the count the whole rename exists to reduce — and if the pipeline is interrupted or partially merged in that window the project ships the exact failure the consolidation was meant to prevent, with no gate that would notice."
 ---
 
@@ -90,7 +94,7 @@ mitigation would be a pre-merge check asserting the registration count is at or 
 which the surface-consistency gate (Step 13) can carry once the target count is known.
 
 **Neutral.** This decision does not touch what the rename *is*; it governs how it lands. It
-re-affirms `dec-draft-36f3ddc2`'s tiered shape rather than modifying it.
+re-affirms `dec-094`'s tiered shape rather than modifying it.
 
 ## Disconfirmation
 
