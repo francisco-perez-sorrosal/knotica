@@ -85,6 +85,7 @@ class Window:
     dispatched: Counter[str] = field(default_factory=Counter)
     rejected: Counter[str] = field(default_factory=Counter)
     billed: int = 0
+    malformed: int = 0
 
     @property
     def rejected_rate(self) -> float:
@@ -130,7 +131,15 @@ def read_window(directory: Path) -> Window:
         for line in path.read_text(encoding="utf-8").splitlines():
             if not line.strip():
                 continue
-            record = json.loads(line)
+            try:
+                record = json.loads(line)
+            except json.JSONDecodeError:
+                # Two clients can share one sink (Desktop and Claude Code both
+                # write here), so a concurrent append can tear a line. Skipping
+                # it silently would hide data loss, and raising would throw away
+                # a whole window for one bad byte -- so it is counted and shown.
+                window.malformed += 1
+                continue
             event, tool = record.get("event"), record.get("tool", "")
             timestamps.append(str(record.get("ts", "")))
             if run := record.get("run"):
@@ -191,6 +200,11 @@ def _report(label: str, window: Window) -> list[str]:
         f"  span         {window.first_ts or '—'} → {window.last_ts or '—'}",
         f"  dispatches   {window.records}",
         f"  sessions     {len(window.sessions)}   days {len(window.days)}   billed legs {window.billed}",
+        *(
+            [f"  ⚠ {window.malformed} unparseable line(s) skipped (torn concurrent append?)"]
+            if window.malformed
+            else []
+        ),
         f"  rejected-action rate  {window.rejected_rate:.2f}%",
         f"  INVALID_ARGUMENT share {window.invalid_share:.2f}%",
         "  outcome distribution:",

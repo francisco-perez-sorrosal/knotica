@@ -244,3 +244,23 @@ def test_the_recorder_is_a_subclass_because_a_patched_attribute_is_never_reached
     assert isinstance(server, RecordingServer)
     assert type(server).call_tool is RecordingServer.call_tool
     assert RecordingServer.call_tool is not FastMCP.call_tool
+
+
+def test_a_failure_carrying_no_payload_is_recorded_as_error_not_ok(sink: Path) -> None:
+    """Found in review: `_outcome_of` read only the error code, so a failure with
+    no `structuredContent` fell through to `ok` — putting the optimistic-default
+    dishonesty back on exactly the paths that break.
+    """
+    from mcp.types import CallToolResult, TextContent
+
+    from knotica.mcp_server.recording_server import _outcome_of
+
+    unpayloaded = CallToolResult(
+        content=[TextContent(type="text", text="boom")], structuredContent=None, isError=True
+    )
+    succeeded = CallToolResult(
+        content=[TextContent(type="text", text="{}")], structuredContent={"ok": 1}, isError=False
+    )
+
+    assert _outcome_of(unpayloaded) == "error"
+    assert _outcome_of(succeeded) == "ok"
