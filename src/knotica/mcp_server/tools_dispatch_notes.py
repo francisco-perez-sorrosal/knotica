@@ -36,7 +36,6 @@ from mcp.types import CallToolResult
 from knotica.core.notes.store import list_notes
 from knotica.core.notes_config import resolve_notes_config
 from knotica.core.vcs import VaultVcs
-from knotica.mcp_server.dispatch_telemetry import record_dispatch
 from knotica.mcp_server.tools_dispatch_notes_common import (
     _ALL_FILTER,
     _ANCHOR_STATUSES as _ANCHOR_STATUSES,
@@ -193,7 +192,6 @@ def _dispatch_payload(
 ) -> dict[str, Any]:
     cleaned_action = _validate_action(action, _DISPATCHER, _ACTIONS)
     cleaned_topic = _validate_topic(store, topic)
-    record_dispatch(_DISPATCHER, cleaned_action, cleaned_topic)
     notes_config = resolve_notes_config()
     vcs = VaultVcs(vault_path)
 

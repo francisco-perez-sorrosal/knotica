@@ -129,7 +129,7 @@ for the gate, but it is not a component and owns no responsibility. The gate pro
 | `src/knotica/discovery/` | 10 |
 | `src/knotica/evals/` | 16 |
 | `src/knotica/guillotine/` | 9 |
-| `src/knotica/mcp_server/` | 39 |
+| `src/knotica/mcp_server/` | 40 |
 | `src/knotica/okf/` | 11 |
 | `src/knotica/programs/` | 2 |
 | `src/knotica/search/` | 4 |
@@ -213,8 +213,18 @@ envelope constructors every surface returns through. `INVALID_ARGUMENT` signals 
 failure (bad `action`, `mode`, enum, or range) and is distinct from `INVALID_CURSOR` (`dec-040`).
 Every dispatcher validates its action against its own `_ACTIONS` tuple before doing any work.
 
-**Dispatch telemetry.** `mcp_server/dispatch_telemetry.py` exports `record_dispatch` and
-`record_rejected_action` — one structured line per invocation and one per rejected action. Their
+**Dispatch telemetry.** `mcp_server/dispatch_telemetry.py` is the sink; `mcp_server/recording_server.py`
+is the single thing that feeds its `dispatch` signal. `RecordingServer` subclasses `FastMCP` and
+overrides `call_tool` — the one method every tool call passes through, flat and dispatcher alike — so
+**coverage is a property of the server, not a convention each tool module has to follow**: a newly
+registered tool cannot be added without being measured. It records *after* the handler returns, so the
+`outcome` is the terminal result rather than an optimistic default; the nine dispatcher call sites this
+replaced recorded above their handler, where the result is not yet knowable, and so reported `ok`
+whatever happened next. It must be a subclass and not a post-construction patch: `FastMCP.__init__`
+binds `self.call_tool` into the low-level handler, so a later attribute assignment is never reached —
+measured, and silent when wrong. `record_rejected_action` stays with the handlers that refuse an
+unknown action, because it carries the valid set this layer cannot see; a refusal is a distinct
+`rejected` event, so the dispatch count stays exactly one per invocation. Their
 per-domain counts are the evidence `dec-045`'s falsifier depends on: if the model mis-selects within a
 domain, the consolidation hurt and that dispatcher should revert to flat tools. Every signal also
 appends a timestamped JSONL record carrying a five-value routing `outcome`, to an **opt-in** sink

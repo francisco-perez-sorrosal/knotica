@@ -18,7 +18,7 @@ The package is named `mcp_server`, not `mcp`, to avoid shadowing the `mcp` SDK (
 
 1. Extend that dispatcher's `_ACTIONS` tuple — it is the single declaration, and the dispatcher validates `action` against it, returning `INVALID_ARGUMENT` for anything else.
 2. Mutating actions take `mode=dry-run|apply`. Dry-run must be genuinely side-effect-free.
-3. `dispatch_telemetry.py` logs one line per invocation and one per rejected action — keep new actions on that path.
+3. Telemetry needs nothing from you. `recording_server.py` overrides `call_tool`, so every tool and every action is recorded automatically, *after* the handler, with the real outcome — do **not** add a `record_dispatch` call, it would double-count and `tests/test_dispatch_telemetry_census.py` will fail. The one thing still wired by hand is `record_rejected_action`, because only your validator knows the valid set.
 4. If the action spends money, it is **two-phase**: a bare call mints a single-use nonce and returns a preview; only a second call passing that nonce as `confirm` executes. Nonces are per-action and the nonce file is deleted unconditionally on read, so one action's nonce can never confirm another's. Do not add a billed action without this.
 
 ## Billed actions

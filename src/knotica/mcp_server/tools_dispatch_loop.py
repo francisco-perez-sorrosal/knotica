@@ -17,7 +17,7 @@ from mcp.server.fastmcp import FastMCP
 from mcp.types import CallToolResult
 
 from knotica.core.errors import ErrorCode, KnoticaError
-from knotica.mcp_server.dispatch_telemetry import record_dispatch, record_rejected_action
+from knotica.mcp_server.dispatch_telemetry import record_rejected_action
 from knotica.mcp_server.tools_vault import (
     _loop_cadence_payload,
     _loop_once_payload,
@@ -117,7 +117,6 @@ def _dispatch_payload(
     num_threads: int | None,
 ) -> dict[str, Any]:
     cleaned_action = _validate_action(action)
-    record_dispatch(_DISPATCHER, cleaned_action, topic)
     if cleaned_action == "run_once":
         return _loop_once_payload(store, vault_path, topic, confirm=confirm)
     if cleaned_action == "set_baseline":

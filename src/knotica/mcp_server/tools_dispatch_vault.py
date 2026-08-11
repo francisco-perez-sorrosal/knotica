@@ -26,7 +26,7 @@ from knotica.core.config import ConfigState, config_file_path, diagnose, list_va
 from knotica.core.errors import ErrorCode, KnoticaError
 from knotica.evals.llm import API_KEY_ENV_VAR, OAUTH_TOKEN_ENV_VAR
 from knotica.mcp_server import envelope
-from knotica.mcp_server.dispatch_telemetry import record_dispatch, record_rejected_action
+from knotica.mcp_server.dispatch_telemetry import record_rejected_action
 
 __all__ = ["register_dispatch_vault_tools"]
 
@@ -83,7 +83,6 @@ def _dispatch(
     action: str, *, name: str, path: str, make_default: bool, topic: str
 ) -> dict[str, Any]:
     cleaned_action = _validate_action(action)
-    record_dispatch(_DISPATCHER, cleaned_action, "")
     if cleaned_action == "list":
         return _list_payload()
     if cleaned_action == "status":

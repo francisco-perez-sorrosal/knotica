@@ -144,6 +144,13 @@ routing check — `{schema_version, vault_name, topics[], totals}`, deterministi
 day. The sink is off by default and lives outside every vault — tool routing belongs to the server's
 surface, not to a wiki — and its writes are best-effort: a failure is logged, never raised.
 
+Every registered tool is covered, and not because each one remembers to call the recorder:
+`recording_server.py`'s `RecordingServer` subclasses `FastMCP` and overrides `call_tool`, the single
+method every tool call passes through, so a tool cannot be registered without being measured. The
+record is taken *after* the handler returns, which is what makes `outcome` the real result instead of
+an optimistic `ok`. `tests/test_dispatch_telemetry_census.py` enumerates the surface from
+`list_tools()` — never a hand-written list — and asserts exactly one `dispatch` record per tool.
+
 `loop action=run_eval` and `loop action=run_once` are two-phase: a bare call returns a preview and a
 nonce, and only a confirmed second call bills. `run_eval` passes `force=True` and so bypasses the
 cadence hold; `run_once` honours it.

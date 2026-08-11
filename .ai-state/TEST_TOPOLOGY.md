@@ -451,6 +451,7 @@ selectors:
       - tests/test_dispatch_datasets.py
       - tests/test_dispatch_golden.py
       - tests/test_dispatch_loop.py
+      - tests/test_dispatch_telemetry_census.py
       - tests/test_dispatch_telemetry_sink.py
       - tests/test_dispatch_vault.py
       - tests/test_dispatch_vault_health.py
