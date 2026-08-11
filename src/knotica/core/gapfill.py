@@ -1,7 +1,7 @@
 """The gap-fill drain + decide leaf -- join gaps to discovered sources, gate them.
 
-Two responsibilities, one committed queue (``<topic>/.knotica/suggestions/
-suggestions.jsonl``):
+Two responsibilities over one committed queue (``<topic>/.knotica/suggestions/
+suggestions.jsonl``), plus the gap queue's own terminal transitions (below):
 
 * **Drain** (:func:`refresh_suggestions_for_gaps`) reads the P1 gap queue, keeps
   only ``genuine_gap`` records still ``open``, formulates one deterministic query
@@ -12,6 +12,13 @@ suggestions.jsonl``):
 * **Decide** (:func:`apply_decision`) mediates the human approve / reject / defer /
   mark-ingested transition over the D2 lifecycle state machine, requiring a
   non-empty reason on reject, rewriting exactly one record in its own transaction.
+
+The gap queue (``<topic>/.knotica/gaps/gaps.jsonl``) is where a drain *starts*, so
+this module also owns where one *ends*: :func:`apply_gate_outcome` closes the
+originating gap ``open -> resolved`` when a source candidate merges (in the gate
+stamp's own transaction, one commit for both), and :func:`apply_gap_decision` gives
+a human the ``dismiss`` / ``reopen`` transitions. Filing gaps stays with
+``core.gap_classifier`` and :func:`report_gap`.
 
 This is the *only* P3 code that touches ``discovery/`` -- and it does so **lazily,
 inside the function that needs it**, never at module top level. That keeps the
@@ -58,9 +65,11 @@ __all__ = [
     "GATE_VERDICT_MERGED",
     "GATE_VERDICT_REFUSED",
     "DecisionResult",
+    "GapDecisionResult",
     "RefreshResult",
     "ReportedGapResult",
     "apply_decision",
+    "apply_gap_decision",
     "apply_gate_outcome",
     "build_default_discovery_service",
     "build_suggestion_records",
@@ -79,8 +88,12 @@ _SUGGESTIONS_DIRNAME = "suggestions"
 _SUGGESTIONS_FILENAME = "suggestions.jsonl"
 #: Op slot of the drain's suggestion-propose commit (own transaction, one commit).
 _PROPOSE_OP = "suggestion_propose"
-#: Op slot of the approve/reject/defer/mark-ingested commit.
+#: Op slot of the approve/reject/defer/mark-ingested commit. Also the slot of the
+#: machine gate stamp, whose merged verdict closes the originating gap in the
+#: same commit -- one operation, one commit, however many files it touches.
 _REVIEW_OP = "suggestion_review"
+#: Op slot of the human dismiss/reopen gap commit (own transaction, one commit).
+_GAP_REVIEW_OP = "gap_review"
 
 #: Candidate cap per formulated query -- the deterministic v1 formulation asks for
 #: the ``SearchQuery`` default breadth; a wider cap is a ``proposer_version`` bump.
@@ -135,6 +148,15 @@ GATE_VERDICT_MERGED = "merged"
 GATE_VERDICT_REFUSED = "refused"
 _GATE_VERDICTS: frozenset[str] = frozenset({GATE_VERDICT_MERGED, GATE_VERDICT_REFUSED})
 
+#: The gap lifecycle's *human* transitions -- :data:`_ALLOWED_FROM`'s sibling one
+#: queue over. Each decision has exactly one legal source, so one mapping carries
+#: the whole legality table. ``resolved`` is the *machine's* terminal state
+#: (:func:`apply_gate_outcome` stamps it on a merge) and is deliberately the
+#: source of neither: undoing a merge is a vault operation, not a queue edit.
+_GAP_ALLOWED_FROM: Mapping[str, str] = {"dismiss": "open", "reopen": "dismissed"}
+#: The status each gap decision moves the record to (the mapping's mirror image).
+_GAP_TARGET_STATUS: Mapping[str, str] = {"dismiss": "dismissed", "reopen": "open"}
+
 
 @dataclass(frozen=True)
 class RefreshResult:
@@ -179,6 +201,28 @@ class DecisionResult:
     decided_reason: str | None
     ingested_at: str | None
     candidate_title: str
+    changed: bool
+    commit_sha: str
+
+
+@dataclass(frozen=True)
+class GapDecisionResult:
+    """The outcome of a committed gap transition, for the tool envelope to render.
+
+    ``reason`` is echoed back cleaned but is **not** persisted -- not on the
+    ``GapRecord`` (a constitution-frozen shape), and not in the commit subject or
+    ``log.md``, since ``format_commit_subject`` takes only ``(op, topic, title)``.
+    The sibling ``apply_decision`` does persist its ``decided_reason``; this does not.
+    """
+
+    gap_id: str
+    topic: str
+    decision: str
+    from_status: str
+    to_status: str
+    reason: str | None
+    decided_at: str
+    question: str
     changed: bool
     commit_sha: str
 
@@ -464,10 +508,17 @@ def apply_gate_outcome(
     ``mark_ingested``'s legality check -- legal only from ``approved``) and stamps
     ``ingested_at``; on ``verdict="refused"`` it leaves ``status`` untouched (the
     suggestion stays re-workable). Either way it rewrites exactly one record's
-    ``gate_outcome`` and commits the whole file once in its own
-    :class:`VaultTransaction`. The human-decision tables
-    (:data:`_ALLOWED_FROM` / :data:`_TARGET_STATUS` / :func:`apply_decision`) are
-    untouched. Raises ``ValueError`` when no record has ``suggestion_id``.
+    ``gate_outcome`` and commits once in its own :class:`VaultTransaction`.
+
+    A ``merged`` verdict **also closes the originating gap** ``open -> resolved``
+    (:func:`_close_gap_body`), declared to that same transaction rather than a
+    second one: the source candidate that filled the hole is the event that
+    closes it, so the two writes are one operation and land in one commit. A
+    ``refused`` verdict leaves the gap ``open`` -- the hole is still there.
+
+    The human-decision tables (:data:`_ALLOWED_FROM` / :data:`_TARGET_STATUS` /
+    :func:`apply_decision`) are untouched. Raises ``ValueError`` when no record
+    has ``suggestion_id``.
     """
     if verdict not in _GATE_VERDICTS:
         raise _invalid(
@@ -486,9 +537,17 @@ def apply_gate_outcome(
         record, verdict=verdict, gate_outcome=dict(gate_outcome), stamp=stamp
     )
     body = _serialize(_replace_at(records, index, updated))
+    # Planned before the transaction opens (its block declares writes and nothing
+    # else) and declared to that *same* transaction: buffered together, applied
+    # together, rolled back together. No interleaving leaves one half standing.
+    closed_gaps = (
+        _close_gap_body(store, topic, record.gap_id) if verdict == GATE_VERDICT_MERGED else None
+    )
     title = f"gate {verdict} suggestion {suggestion_id[:8]}"
     with VaultTransaction(store, Path(root), _REVIEW_OP, topic, title) as txn:
         txn.write(path, body)
+        if closed_gaps is not None:
+            txn.write(gaps_path(topic), closed_gaps)
     return DecisionResult(
         suggestion_id=suggestion_id,
         decision=f"gate_{verdict}",
@@ -526,6 +585,88 @@ def _stamp_gate_outcome(
             )
         return replace(record, status="ingested", ingested_at=stamp(), gate_outcome=gate_outcome)
     return replace(record, gate_outcome=gate_outcome)
+
+
+def apply_gap_decision(
+    store: VaultStore,
+    root: str | Path,
+    topic: str,
+    gap_id: str,
+    *,
+    decision: str,
+    reason: str | None = None,
+    clock: Callable[[], str] | None = None,
+) -> GapDecisionResult:
+    """Apply one human ``dismiss`` / ``reopen`` gap transition, one commit.
+
+    The gap queue's human path, and the sibling of :func:`apply_decision`: where
+    that mediates the *suggestion* lifecycle, this mediates the *gap* lifecycle
+    the suggestions are derived from. Validates the transition against
+    :data:`_GAP_ALLOWED_FROM` -- ``dismiss`` legal only from ``open``, ``reopen``
+    only from ``dismissed``, anything else a typed ``INVALID_ARGUMENT`` raised
+    before any write -- then rewrites that one record's ``status`` and commits the
+    whole queue once in its own :class:`VaultTransaction`. ``reason`` is advisory
+    (see :class:`GapDecisionResult`); ``clock`` injects the reported
+    ``decided_at`` stamp for deterministic tests. Raises ``ValueError`` when no
+    record has ``gap_id``.
+    """
+    stamp = clock or _utc_now_iso
+    gaps = _read_gaps(store, topic)
+    index = _gap_index_of(gaps, gap_id)
+    if index is None:
+        raise ValueError(f"no gap {gap_id!r} in topic {topic!r}")
+
+    gap = gaps[index]
+    to_status = _plan_gap_decision(gap, decision=decision)
+    body = _gaps_body_with(gaps, index, replace(gap, status=to_status))
+    title = f"{decision} gap {gap_id[:8]}"
+    with VaultTransaction(store, Path(root), _GAP_REVIEW_OP, topic, title) as txn:
+        txn.write(gaps_path(topic), body)
+    return GapDecisionResult(
+        gap_id=gap_id,
+        topic=topic,
+        decision=decision,
+        from_status=gap.status,
+        to_status=to_status,
+        reason=(reason or "").strip() or None,
+        decided_at=stamp(),
+        question=gap.question,
+        changed=txn.result.changed,
+        commit_sha=txn.result.commit_sha,
+    )
+
+
+def _plan_gap_decision(gap: GapRecord, *, decision: str) -> str:
+    """The status ``decision`` moves ``gap`` to; raises on an illegal transition (pure)."""
+    allowed_from = _GAP_ALLOWED_FROM.get(decision)
+    if allowed_from is None:
+        raise _invalid(
+            f"decision must be one of {'|'.join(sorted(_GAP_ALLOWED_FROM))}, got {decision!r}",
+            "Pass a valid gap decision: dismiss or reopen.",
+        )
+    if gap.status != allowed_from:
+        raise _invalid(
+            f"gap {gap.gap_id!r} is {gap.status!r}; cannot {decision}",
+            f"Only an {allowed_from} gap can be {decision}ed.",
+        )
+    return _GAP_TARGET_STATUS[decision]
+
+
+def _close_gap_body(store: VaultStore, topic: str, gap_id: str) -> str | None:
+    """The whole ``gaps.jsonl`` body with ``gap_id`` flipped ``open -> resolved``.
+
+    ``None`` -- meaning "declare no second write" -- when there is nothing to
+    close: no queue file, no record under that ``gap_id``, or a record that is
+    already terminal. Only an ``open`` gap is flipped, so a merge neither
+    re-resolves a resolved gap nor overturns a human's ``dismiss``; and a
+    ``None`` keeps the gate stamp a single-file transaction, which is what makes
+    a gate on a gapless suggestion cost exactly the commit it always cost.
+    """
+    gaps = _read_gaps(store, topic)
+    index = _gap_index_of(gaps, gap_id, status="open")
+    if index is None:
+        return None
+    return _gaps_body_with(gaps, index, replace(gaps[index], status="resolved"))
 
 
 def report_gap(
@@ -708,16 +849,46 @@ def _build_synthetic_gap(
 # ---------------------------------------------------------------------------
 
 
-def _open_genuine_gaps(store: VaultStore, topic: str) -> list[GapRecord]:
-    """The open ``genuine_gap`` records eligible for a drain (dilution excluded)."""
+def _read_gaps(store: VaultStore, topic: str) -> list[GapRecord]:
+    """Parse a topic's whole gap queue (empty when the file is absent/blank)."""
     path = gaps_path(topic)
     if not store.exists(path):
         return []
     text = store.read_text(path)
-    gaps = parse_gaps_jsonl(text) if text.strip() else []
+    return parse_gaps_jsonl(text) if text.strip() else []
+
+
+def _open_genuine_gaps(store: VaultStore, topic: str) -> list[GapRecord]:
+    """The open ``genuine_gap`` records eligible for a drain (dilution excluded)."""
     return [
-        gap for gap in gaps if gap.fault_class == FaultClass.GENUINE_GAP and gap.status == "open"
+        gap
+        for gap in _read_gaps(store, topic)
+        if gap.fault_class == FaultClass.GENUINE_GAP and gap.status == "open"
     ]
+
+
+def _gap_index_of(
+    gaps: Sequence[GapRecord],
+    gap_id: str,
+    *,
+    status: str | None = None,
+) -> int | None:
+    """Position of the record under ``gap_id``, optionally required to be ``status``."""
+    return next(
+        (
+            index
+            for index, gap in enumerate(gaps)
+            if gap.gap_id == gap_id and (status is None or gap.status == status)
+        ),
+        None,
+    )
+
+
+def _gaps_body_with(gaps: Sequence[GapRecord], index: int, updated: GapRecord) -> str:
+    """The whole ``gaps.jsonl`` body with the record at ``index`` replaced."""
+    replaced = list(gaps)
+    replaced[index] = updated
+    return "\n".join(gap.to_json_line() for gap in replaced) + "\n"
 
 
 def _select_gaps(gaps: Sequence[GapRecord], max_gaps: int | None) -> list[GapRecord]:

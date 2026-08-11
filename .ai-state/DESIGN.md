@@ -216,7 +216,13 @@ Every dispatcher validates its action against its own `_ACTIONS` tuple before do
 **Dispatch telemetry.** `mcp_server/dispatch_telemetry.py` exports `record_dispatch` and
 `record_rejected_action` — one structured line per invocation and one per rejected action. Their
 per-domain counts are the evidence `dec-045`'s falsifier depends on: if the model mis-selects within a
-domain, the consolidation hurt and that dispatcher should revert to flat tools.
+domain, the consolidation hurt and that dispatcher should revert to flat tools. Every signal also
+appends a timestamped JSONL record carrying a five-value routing `outcome`, to an **opt-in** sink
+named by `KNOTICA_TELEMETRY_DIR`. That sink is deliberately **outside every vault**: tool routing is a
+property of the server's tool surface, not of any one wiki, so it must neither fragment across
+configured vaults nor vanish while the server is unconfigured. The module stays a stdlib-only leaf by
+resolving its own destination at write time rather than taking a root, and writes best-effort — a sink
+failure is logged and swallowed, never raised.
 
 **Billing gate.** `loop action=run_eval` and `loop action=run_once` are both two-phase: a bare call
 returns a preview and a nonce; only a confirmed second call bills. `run_eval` additionally passes
@@ -371,6 +377,25 @@ snippet extraction, and BM25 scoring run in one shared Python pass, so results a
 Locked invariants. Each is stated with the mechanism that holds it — an invariant with no enforcement
 is a wish. Do not violate without updating this section first.
 
+**The `handoff` stage — an amendment that strengthens client-as-brain, not an exception to it.**
+*(Design target; `Status: Planned` until the process-model declaration lands.)* Client-as-brain has
+always meant that some steps of a user-facing process can only be performed by the client's LLM — most
+sharply Repair's ingest, where the server opens a candidate session and the *client* writes into it via
+the additive `candidate=` argument. Until now that showed up in the dashboard as instructional prose in
+five places: an instruction card that cannot advance, cannot report and cannot terminate. The process
+model declares such a step as a `handoff` stage carrying the matching `/knotica:*` invocation, and the
+lane resumes on observation — the server already journals every successful mutating tool without the
+client reporting in, and a candidate session's state is fully derivable from branch existence.
+
+Two properties make this a strengthening rather than a loophole. First, `handoff` is **mechanically
+held**: a fitness test asserts that a `handoff=True` stage has no dashboard-executable advancing action
+and that a `handoff=False` stage has one, so the boundary between what the server does and what the
+client's brain does becomes a checked property of every rail instead of a convention. Second, the stage
+is built on **observation, not dispatch**: dispatch into the conversation is capability-gated
+(`ui/message` on the MCP-App bridge) and structurally absent on the HTTP mount, so it is progressive
+enhancement down to copyable command text, and no lane's function depends on it. `core/process_model.py`
+is the single declaration; the invariant row above points here rather than restating this paragraph.
+
 **Scope of "the only state" — the one place this is spelled out.** The stateless-server invariant is
 about the *server* and about *durable* state. The loop **daemon** is a separate process, and it keeps
 gitignored runtime markers under `<topic>/.knotica/locks/`: runner heartbeat liveness, in-flight
@@ -383,7 +408,7 @@ here rather than restating this paragraph.
 
 | Invariant | Enforcement |
 |---|---|
-| **Client-as-brain for interactive work.** The MCP surface is deterministic tools; the client's LLM does the cognitive work. The one server-side-LLM tool on the surface is `query`, which runs under the `dec-014` trust boundary — a knotica-owned, env-only credential, resolved lazily so it never touches the lean launch path | `dec-014`; `evals/llm.py` credential resolution |
+| **Client-as-brain for interactive work.** The MCP surface is deterministic tools; the client's LLM does the cognitive work. The one server-side-LLM tool on the surface is `query`, which runs under the `dec-014` trust boundary — a knotica-owned, env-only credential, resolved lazily so it never touches the lean launch path. **A step the dashboard structurally cannot execute is a declared `handoff` stage, never a hole** (see the paragraph below) | `dec-014`; `evals/llm.py` credential resolution; the `handoff` fitness test over `core/process_model.py` |
 | **Stateless server.** No session state. Vault + `config.toml` are the only durable state, resolved per call; topic and vault are always explicit arguments. Gitignored `.knotica/locks/` runtime markers are outside this scope, not an exception to it | `mcp_server/vault_ctx.py`; `dec-004`, `dec-074` |
 | **Vault/code separation.** The wiki is a separate git repo at a user-configured path; several named vaults may be configured and the active one is switchable at runtime. All vault access goes through `VaultStore` — never hardcode a vault path | `core/config.py`; `PathOutsideVaultError` |
 | **One git commit per mutating op, flock-guarded.** Load-bearing: stdio servers may be long-lived and shared across sessions. A no-op transaction is the one sanctioned exception — it makes zero commits rather than an empty one | `core/lock.py`; `dec-008`, `dec-046` |

@@ -63,7 +63,19 @@ OVER_CEILING_BASELINE: dict[str, int] = {
     "core/loop.py": 1168,
     "evals/golden.py": 975,
     "core/records.py": 947,
-    "core/gapfill.py": 944,
+    # Raised 944 -> 1115 for the gap-lifecycle writers: two of the three
+    # `GAP_STATUSES` values had no writer anywhere in `src/knotica/`, so the gap
+    # queue was append-only in practice and its declared terminal state did not
+    # exist. Closing that needs the machine transition (a merged gate verdict
+    # resolves the originating gap, inside the gate stamp's own transaction) and
+    # the human one (`apply_gap_decision`, dismiss/reopen). Neither is extractable
+    # from here: the machine half must be declared to the *same* `VaultTransaction`
+    # as the suggestion stamp or the two writes stop being one commit, and the
+    # human half is the parameter-for-parameter sibling of `apply_decision`, which
+    # lives in this module. td-042 still names the real fix -- split gapfill.py
+    # into file / drain / decide-gate -- and this raise makes that debt larger,
+    # not different.
+    "core/gapfill.py": 1115,
 }
 
 

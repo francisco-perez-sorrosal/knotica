@@ -14,7 +14,6 @@ import type {
   DoctorRepairResult,
   DoctorReport,
   LlmAvailability,
-  LoopOnceResult,
   LoopProgress,
   OkfCheckResult,
   OkfRepairResult,
@@ -30,7 +29,6 @@ type ActionBusy =
   | "doctor-apply"
   | "okf-dry"
   | "okf-apply"
-  | "loop"
   | "bootstrap-train";
 type CheckTab = "doctor" | "lint" | "okf" | "loop";
 
@@ -104,7 +102,6 @@ export function VaultPane({
   const [lint, setLint] = useState<VaultLintResult | null>(null);
   const [okf, setOkf] = useState<OkfCheckResult | null>(null);
   const [repair, setRepair] = useState<OkfRepairResult | null>(null);
-  const [loopResult, setLoopResult] = useState<LoopOnceResult | null>(null);
   const [lintScope, setLintScope] = useState<"topic" | "vault">("topic");
   const [lastLintSession, setLastLintSession] = useState<LintSessionMeta | null>(null);
   const [bootstrapNote, setBootstrapNote] = useState<BootstrapNote | null>(null);
@@ -567,13 +564,7 @@ export function VaultPane({
                 />
               ) : null}
               {checkTab === "loop" ? (
-                <LoopStatus
-                  topic={topic}
-                  gate={gate}
-                  loop={loop}
-                  live={liveLoop}
-                  result={loopResult}
-                />
+                <LoopStatus topic={topic} gate={gate} loop={loop} live={liveLoop} />
               ) : null}
             </div>
 
@@ -720,29 +711,10 @@ export function VaultPane({
               ) : null}
 
               {checkTab === "loop" ? (
-                <>
-                  <p class="muted">
-                    Same as <code>loop_runner.py --once</code> for <strong>{topic}</strong>
-                  </p>
-                  <button
-                    type="button"
-                    disabled={!client || busy !== null}
-                    title="May run a full LLM eval"
-                    onClick={() =>
-                      void runAction(
-                        "loop",
-                        () => client!.loopRunOnce(topic, vault),
-                        setLoopResult,
-                      )
-                    }
-                  >
-                    {busy === "loop" ? "Processing…" : "Process one candidate"}
-                  </button>
-                  <p class="action-note">
-                    Watch stage / gate update live from <code>wiki_status</code>. Requires a frozen
-                    baseline and a pending <code>loop/c/*</code> branch.
-                  </p>
-                </>
+                <p class="muted">
+                  Read-only here. Gating a candidate is billed and two-phase, and lives on the{" "}
+                  <strong>Loop</strong> pane so there is exactly one place it can be triggered from.
+                </p>
               ) : null}
             </aside>
           </div>
@@ -1175,13 +1147,11 @@ function LoopStatus({
   gate,
   loop,
   live,
-  result,
 }: {
   topic: string;
   gate: WikiStatus["gate"] | undefined;
   loop: WikiStatus["loop"] | undefined;
   live: boolean;
-  result: LoopOnceResult | null;
 }) {
   const tone = loopWatchHealth(gate?.state, loop?.stage, live);
   return (
@@ -1201,16 +1171,6 @@ function LoopStatus({
         {loop?.candidate_branch ? ` · ${loop.candidate_branch}` : ""}
         {loop?.last_decision ? ` · last ${loop.last_decision}` : ""}
       </p>
-      {result ? (
-        <p
-          class={`action-result tone-${result.acted && result.decision === "fail" ? "bad" : result.acted ? "ok" : "warn"}`}
-        >
-          {result.acted ? "Acted" : "No-op"}: {result.message}
-          {result.scalar != null ? ` (scalar ${result.scalar.toFixed(4)})` : ""}
-        </p>
-      ) : (
-        <p class="muted">Press Process one candidate to run a cycle.</p>
-      )}
     </div>
   );
 }

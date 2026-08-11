@@ -1,5 +1,6 @@
 import { useEffect, useState } from "preact/hooks";
 
+import { TwoPhaseConfirm, useTwoPhaseAction } from "./TwoPhaseAction";
 import type { ToolClient } from "./toolClient";
 import type {
   GapfillDiscoverResult,
@@ -14,6 +15,9 @@ import type {
   SuggestionsStatusFilter,
   WikiStatus,
 } from "./types";
+
+/** The server's "no cap" sentinel for a drain — it decides how many gaps to take. */
+const DISCOVER_ALL_GAPS = 0;
 
 const FILTERS: Array<{ value: SuggestionsStatusFilter; label: string }> = [
   { value: "pending", label: "pending" },
@@ -58,46 +62,28 @@ export function SourcesPane({
   const [rejectOpenId, setRejectOpenId] = useState<string | null>(null);
   const [gaps, setGaps] = useState<GapsReadResult | null>(null);
   const [gapsError, setGapsError] = useState<string | null>(null);
-  const [discoverPreview, setDiscoverPreview] = useState<GapfillDiscoverResult | null>(null);
-  const [discoverBusy, setDiscoverBusy] = useState<"preview" | "confirm" | null>(null);
-  const [discoverDone, setDiscoverDone] = useState<GapfillDiscoverResult | null>(null);
-
-  /** Phase 1: quote the cost. Never bills — the server mints a nonce and stops. */
-  async function previewDiscover(maxGaps: number) {
-    if (!client || discoverBusy) return;
-    setDiscoverBusy("preview");
-    setGapsError(null);
-    setDiscoverDone(null);
-    try {
-      setDiscoverPreview(await client.gapfillDiscover(topic, maxGaps, "", vault));
-    } catch (cause) {
-      setGapsError(cause instanceof Error ? cause.message : String(cause));
-    } finally {
-      setDiscoverBusy(null);
-    }
-  }
-
-  /** Phase 2: the billing boundary. Only reachable from an explicit second click. */
-  async function confirmDiscover() {
-    if (!client || discoverBusy || !discoverPreview?.confirm_nonce) return;
-    setDiscoverBusy("confirm");
-    setGapsError(null);
-    try {
-      const done = await client.gapfillDiscover(
+  /** Billed and two-phase; the preview quotes, only an explicit second click drains. */
+  const discover = useTwoPhaseAction<GapfillDiscoverResult>({
+    preview: () => client!.gapfillDiscover(topic, DISCOVER_ALL_GAPS, "", vault),
+    confirm: async (nonce, quoted) => {
+      const done = await client!.gapfillDiscover(
         topic,
-        discoverPreview.max_gaps ?? 0,
-        discoverPreview.confirm_nonce,
+        quoted.max_gaps ?? DISCOVER_ALL_GAPS,
+        nonce,
         vault,
       );
-      setDiscoverPreview(null);
-      setDiscoverDone(done);
       // Both queues moved: gaps may have drained, suggestions may have appeared.
       await Promise.all([load(), loadGaps(), onStatusRefresh?.()]);
-    } catch (cause) {
-      setGapsError(cause instanceof Error ? cause.message : String(cause));
-    } finally {
-      setDiscoverBusy(null);
-    }
+      return done;
+    },
+    onError: setGapsError,
+  });
+  const discoverBusy = discover.state.busy;
+
+  function previewDiscover() {
+    if (!client || discoverBusy) return;
+    setGapsError(null);
+    void discover.preview();
   }
 
   async function loadGaps() {
@@ -256,56 +242,49 @@ export function SourcesPane({
             <button
               type="button"
               class="ghost"
-              disabled={!client || discoverBusy !== null || discoverPreview !== null}
-              onClick={() => void previewDiscover(0)}
+              disabled={!client || discoverBusy !== null || discover.state.preview !== null}
+              onClick={previewDiscover}
             >
               {discoverBusy === "preview" ? "Checking…" : "Discover sources…"}
             </button>
           </div>
 
-          {discoverPreview ? (
-            <div class="heal-policy-controls heal-run-eval-confirm sources-discover-confirm">
-              <p class="heal-step-body">
-                {discoverPreview.provider_configured ? (
-                  <>
-                    Would search for <strong>{discoverPreview.would_drain}</strong> of{" "}
-                    <strong>{discoverPreview.open_gaps}</strong> open gap
-                    {discoverPreview.open_gaps === 1 ? "" : "s"} — {discoverPreview.estimated_cost}.
-                    This has <strong>NOT</strong> billed yet; confirm to run and bill.
-                  </>
-                ) : (
-                  <>
-                    No search provider is configured, so this would stage nothing. Set{" "}
-                    <code>KNOTICA_YOUCOM_API_KEY</code> and try again.
-                  </>
-                )}
-              </p>
-              <button
-                type="button"
-                class="heal-freeze-primary"
-                disabled={!client || discoverBusy !== null || !discoverPreview.provider_configured}
-                onClick={() => void confirmDiscover()}
-              >
-                {discoverBusy === "confirm" ? "Searching…" : "Confirm — run and bill"}
-              </button>
-              <button
-                type="button"
-                class="ghost"
-                disabled={discoverBusy !== null}
-                onClick={() => setDiscoverPreview(null)}
-              >
-                Cancel
-              </button>
-            </div>
+          {discover.state.preview ? (
+            <TwoPhaseConfirm
+              busy={discoverBusy}
+              busyLabel="Searching"
+              extraClass="sources-discover-confirm"
+              disabled={
+                !client || discoverBusy !== null || !discover.state.preview.provider_configured
+              }
+              onConfirm={discover.confirm}
+              onCancel={discover.reset}
+            >
+              {discover.state.preview.provider_configured ? (
+                <>
+                  Would search for <strong>{discover.state.preview.would_drain}</strong> of{" "}
+                  <strong>{discover.state.preview.open_gaps}</strong> open gap
+                  {discover.state.preview.open_gaps === 1 ? "" : "s"} —{" "}
+                  {discover.state.preview.estimated_cost}. This has <strong>NOT</strong> billed yet;
+                  confirm to run and bill.
+                </>
+              ) : (
+                <>
+                  No search provider is configured, so this would stage nothing. Set{" "}
+                  <code>KNOTICA_YOUCOM_API_KEY</code> and try again.
+                </>
+              )}
+            </TwoPhaseConfirm>
           ) : null}
 
-          {discoverDone ? (
+          {discover.state.outcome ? (
             <p class="muted sources-partial-note">
-              Discovery drained {discoverDone.gaps_drained} of {discoverDone.gaps_considered} gap
-              {discoverDone.gaps_considered === 1 ? "" : "s"} and staged{" "}
-              {discoverDone.suggestions_staged} suggestion
-              {discoverDone.suggestions_staged === 1 ? "" : "s"}.
-              {discoverDone.suggestions_staged === 0
+              Discovery drained {discover.state.outcome.gaps_drained} of{" "}
+              {discover.state.outcome.gaps_considered} gap
+              {discover.state.outcome.gaps_considered === 1 ? "" : "s"} and staged{" "}
+              {discover.state.outcome.suggestions_staged} suggestion
+              {discover.state.outcome.suggestions_staged === 1 ? "" : "s"}.
+              {discover.state.outcome.suggestions_staged === 0
                 ? " Nothing ranked — the gap stays open."
                 : ""}
             </p>

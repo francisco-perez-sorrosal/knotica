@@ -20,6 +20,7 @@ import {
   type ToolClient,
 } from "./toolClient";
 import { flywheelLabel, flywheelTone } from "./compileStages";
+import { resolvePane } from "./paneRouting";
 import {
   ObsidianLink,
   obsidianOpenVaultFromContext,
@@ -38,21 +39,7 @@ import "./app.css";
 const query = new URLSearchParams(window.location.search);
 const initialTopic = query.get("topic") || "agentic-systems";
 const initialVault = query.get("vault") || "";
-const paneParam = query.get("pane");
-const initialPane = (
-  paneParam === "datasets" ||
-  paneParam === "golden" ||
-  paneParam === "ingest" ||
-  paneParam === "loop" ||
-  paneParam === "ask" ||
-  paneParam === "arena" ||
-  paneParam === "sources" ||
-  paneParam === "notes"
-    ? paneParam === "golden"
-      ? "datasets"
-      : paneParam
-    : "vault"
-) as PaneId;
+const initialPane = resolvePane(query.get("pane"));
 const mcpUrl = query.get("mcp") || "http://127.0.0.1:8765/mcp";
 
 const catalog = signal<WikiStatus | null>(null);

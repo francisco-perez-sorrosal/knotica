@@ -602,14 +602,37 @@ export interface OkfRepairResult {
   commit_sha: string | null;
 }
 
+/** What a confirmed tick would decline on — read-only, quoted by the preview leg. */
+export interface LoopHoldPreview {
+  held: boolean;
+  reasons: string[];
+  cadence_remaining_seconds: number | null;
+}
+
+/**
+ * `loop action=run_once`'s two phases share one wire shape.
+ *
+ * Phase 1 (preview, free) carries `confirm_nonce` + the quote and the holds
+ * that would decline the tick; phase 2 (the tick, billed) carries the gate
+ * outcome. Discriminate on `confirm_nonce` — its presence means nothing has
+ * been spent yet.
+ */
 export interface LoopOnceResult {
+  action: "run_once";
   topic: string;
-  acted: boolean;
-  branch: string | null;
-  sha: string | null;
-  decision: string;
-  scalar: number | null;
-  message: string;
+  // phase 1 — preview
+  estimated_cost?: string;
+  holds?: LoopHoldPreview;
+  confirm_nonce?: string;
+  ttl?: number;
+  // phase 2 — executed
+  billed?: boolean;
+  acted?: boolean;
+  branch?: string | null;
+  sha?: string | null;
+  decision?: string;
+  scalar?: number | null;
+  message?: string;
 }
 
 export interface LoopPendingCandidate {

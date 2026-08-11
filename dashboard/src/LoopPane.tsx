@@ -12,11 +12,13 @@ import {
   isNaiveProbeScore,
   resolveTopicCurrentScore,
 } from "./topicHelpers";
+import { TwoPhaseConfirm, TwoPhaseOutcome, useTwoPhaseAction } from "./TwoPhaseAction";
 import type { ToolClient } from "./toolClient";
 import type {
   CompileStatus,
   ExampleOutcome,
   LoopCadenceConfig,
+  LoopOnceResult,
   LoopProgress,
   LoopRunEvalResult,
   MetricsRecord,
@@ -118,10 +120,39 @@ export function LoopPane({
     numThreads: "",
   });
   const [runEvalThreads, setRunEvalThreads] = useState("");
-  const [runEvalPreview, setRunEvalPreview] = useState<LoopRunEvalResult | null>(null);
-  /** Outcome of the last confirm, shown at the button rather than at the foot of the pane. */
-  const [runEvalOutcome, setRunEvalOutcome] = useState<{ acted: boolean; message: string } | null>(
-    null,
+  /**
+   * The two billed triggers on this pane, both on the shared preview → confirm
+   * primitive. Each mirrors its phase into the pane-wide `busy` flag so the
+   * rest of the controls stay disabled while a billed call is in flight.
+   */
+  const runEval = useTwoPhaseAction<LoopRunEvalResult>(
+    {
+      preview: () => client!.loopRunEval(topicName, "", chosenEvalThreads(), vault ?? ""),
+      confirm: async (nonce, quoted) => {
+        const result = await client!.loopRunEval(topicName, nonce, quoted.num_threads, vault ?? "");
+        setActionNote(result.message ?? "Eval run finished");
+        onStatusRefresh?.();
+        return result;
+      },
+      onError: setActionNote,
+    },
+    (phase) => setBusy(phase ? `run-eval-${phase}` : null),
+  );
+  // Both legs go through one call expression, so the confirm leg is the preview
+  // leg plus the nonce by construction — not by two call sites agreeing.
+  const gateCandidate = (confirm: string) => client!.loopRunOnce(topicName, confirm, vault ?? "");
+  const gateOnce = useTwoPhaseAction<LoopOnceResult>(
+    {
+      preview: () => gateCandidate(""),
+      confirm: async (nonce) => {
+        const result = await gateCandidate(nonce);
+        setActionNote(result.message ?? "Gate cycle finished");
+        onStatusRefresh?.();
+        return result;
+      },
+      onError: setActionNote,
+    },
+    (phase) => setBusy(phase ? `run-once-${phase}` : null),
   );
   const autoProbeAttempted = useRef(false);
   const measureDisabled = !client || busy !== null || !topicReady;
@@ -340,55 +371,17 @@ export function LoopPane({
     });
   }
 
-  /** Phase 1: preview only — never bills. Phase 2 (confirm) is a separate explicit click. */
-  async function previewRunEval() {
-    if (!client || busy) return;
+  /** The operator's thread override, or `undefined` to let the server's cadence decide. */
+  function chosenEvalThreads(): number | undefined {
     const threads = Number(runEvalThreads);
-    const numThreads = Number.isInteger(threads) && threads > 0 ? threads : undefined;
-    setBusy("run-eval-preview");
-    setActionNote(null);
-    setRunEvalOutcome(null);
-    try {
-      const preview = await client.loopRunEval(topicName, "", numThreads, vault ?? "");
-      setRunEvalPreview(preview);
-    } catch (cause) {
-      setActionNote(cause instanceof Error ? cause.message : String(cause));
-    } finally {
-      setBusy(null);
-    }
+    return Number.isInteger(threads) && threads > 0 ? threads : undefined;
   }
 
-  async function confirmRunEval() {
-    if (!client || busy || !runEvalPreview?.confirm_nonce) return;
-    setBusy("run-eval-confirm");
+  /** Phase 1 of a billed trigger — never bills. Phase 2 is a separate explicit click. */
+  function startPreview(action: { preview: () => Promise<void> }) {
+    if (!client || busy) return;
     setActionNote(null);
-    setRunEvalOutcome(null);
-    try {
-      const result = await client.loopRunEval(
-        topicName,
-        runEvalPreview.confirm_nonce,
-        runEvalPreview.num_threads,
-        vault ?? "",
-      );
-      setRunEvalPreview(null);
-      // Reported where the click happened, not only in `actionNote` at the foot
-      // of the pane. A confirm can legitimately bill nothing -- a retry or
-      // cadence hold answers instantly with `acted: false` -- and when the only
-      // sign of that was a line hundreds of pixels below the button, the banner
-      // simply vanished and the action read as broken. A button that says "run
-      // and bill" owes its answer to the same place it asked the question.
-      setRunEvalOutcome({ acted: result.acted === true, message: result.message ?? "" });
-      setActionNote(result.message ?? "Eval run finished");
-      onStatusRefresh?.();
-    } catch (cause) {
-      setActionNote(cause instanceof Error ? cause.message : String(cause));
-    } finally {
-      setBusy(null);
-    }
-  }
-
-  function cancelRunEvalPreview() {
-    setRunEvalPreview(null);
+    void action.preview();
   }
 
   function defendPolicyControls() {
@@ -524,65 +517,43 @@ export function LoopPane({
   }
 
   function runEvalControls() {
-    if (runEvalOutcome) {
+    const { preview, outcome, busy: phase } = runEval.state;
+    if (outcome) {
       return (
-        <div
-          class={`heal-policy-controls heal-run-eval-outcome ${
-            runEvalOutcome.acted ? "" : "no-charge"
-          }`}
-          role="status"
-        >
+        <TwoPhaseOutcome tone={outcome.acted ? "" : "no-charge"} onDismiss={runEval.reset}>
           {/* The headline answers the question the button raises -- "did that
               cost me anything?" -- and nothing else. Whether the eval then
               passed, failed or regressed lives in the message: `acted` means
               the loop did work, not that the work succeeded, so promoting it to
               "Eval ran." sat a success headline above a failure message. */}
-          <p class="heal-step-body">
-            {runEvalOutcome.acted ? (
-              <>
-                <strong>Eval ran — this billed.</strong>{" "}
-                {runEvalOutcome.message || "No further detail was reported."}
-              </>
-            ) : (
-              <>
-                <strong>Nothing ran, nothing was billed.</strong>{" "}
-                {runEvalOutcome.message || "The loop declined this observation."}
-              </>
-            )}
-          </p>
-          <button type="button" class="ghost" onClick={() => setRunEvalOutcome(null)}>
-            Dismiss
-          </button>
-        </div>
+          {outcome.acted ? (
+            <>
+              <strong>Eval ran — this billed.</strong>{" "}
+              {outcome.message || "No further detail was reported."}
+            </>
+          ) : (
+            <>
+              <strong>Nothing ran, nothing was billed.</strong>{" "}
+              {outcome.message || "The loop declined this observation."}
+            </>
+          )}
+        </TwoPhaseOutcome>
       );
     }
-    if (runEvalPreview) {
+    if (preview) {
       return (
-        <div class="heal-policy-controls heal-run-eval-confirm">
-          <p class="heal-step-body">
-            Preview: worker <strong>{runEvalPreview.worker}</strong>, judge{" "}
-            <strong>{runEvalPreview.judge}</strong>, threads{" "}
-            <strong>{runEvalPreview.num_threads}</strong>.
-            {runEvalPreview.estimated_cost ? ` ${runEvalPreview.estimated_cost}.` : ""} This has NOT
-            billed yet — confirm to run and bill.
-          </p>
-          <button
-            type="button"
-            class="heal-freeze-primary"
-            disabled={!client || busy !== null}
-            onClick={() => void confirmRunEval()}
-          >
-            {busy === "run-eval-confirm" ? "Running…" : "Confirm — run and bill"}
-          </button>
-          <button
-            type="button"
-            class="ghost"
-            disabled={busy !== null}
-            onClick={cancelRunEvalPreview}
-          >
-            Cancel
-          </button>
-        </div>
+        <TwoPhaseConfirm
+          busy={phase}
+          busyLabel="Running"
+          disabled={!client || busy !== null}
+          onConfirm={runEval.confirm}
+          onCancel={runEval.reset}
+        >
+          Preview: worker <strong>{preview.worker}</strong>, judge{" "}
+          <strong>{preview.judge}</strong>, threads <strong>{preview.num_threads}</strong>.
+          {preview.estimated_cost ? ` ${preview.estimated_cost}.` : ""} This has NOT billed yet —
+          confirm to run and bill.
+        </TwoPhaseConfirm>
       );
     }
     return (
@@ -604,11 +575,64 @@ export function LoopPane({
           type="button"
           class="heal-freeze-secondary"
           disabled={!client || busy !== null || !topicReady}
-          onClick={() => void previewRunEval()}
+          onClick={() => startPreview(runEval)}
         >
-          {busy === "run-eval-preview" ? "Estimating…" : "Run eval now"}
+          {phase === "preview" ? "Estimating…" : "Run eval now"}
         </button>
       </div>
+    );
+  }
+
+  /** The one dashboard control that reaches `loop action=run_once`. */
+  function gateNowControls(disabled: boolean) {
+    const { preview, outcome, busy: phase } = gateOnce.state;
+    if (outcome) {
+      return (
+        <TwoPhaseOutcome tone={outcome.billed ? "" : "no-charge"} onDismiss={gateOnce.reset}>
+          {outcome.billed ? (
+            <>
+              <strong>Gate cycle ran — this billed.</strong>{" "}
+              {outcome.message || "No further detail was reported."}
+            </>
+          ) : (
+            <>
+              <strong>Nothing ran, nothing was billed.</strong>{" "}
+              {outcome.message || "The loop declined this tick."}
+            </>
+          )}
+        </TwoPhaseOutcome>
+      );
+    }
+    if (preview) {
+      const holds = preview.holds;
+      return (
+        <TwoPhaseConfirm
+          busy={phase}
+          busyLabel="Gating"
+          disabled={!client || busy !== null}
+          onConfirm={gateOnce.confirm}
+          onCancel={gateOnce.reset}
+        >
+          Preview: {preview.estimated_cost ?? "one gate cycle"}.{" "}
+          {holds?.held ? (
+            <>
+              The loop would decline this tick right now
+              {holds.reasons.length > 0 ? ` (${holds.reasons.join("; ")})` : ""}.{" "}
+            </>
+          ) : null}
+          This has NOT billed yet — confirm to run and bill.
+        </TwoPhaseConfirm>
+      );
+    }
+    return (
+      <button
+        type="button"
+        disabled={disabled}
+        title="Nudges the watcher to gate the next candidate now, instead of waiting for its next tick"
+        onClick={() => startPreview(gateOnce)}
+      >
+        {phase === "preview" ? "Estimating…" : "Gate next candidate now"}
+      </button>
     );
   }
 
@@ -874,19 +898,11 @@ export function LoopPane({
                 </li>
               ))}
             </ul>
-            <button
-              type="button"
-              disabled={!client || busy !== null || !baselineFrozen || pendingCount === 0}
-              title="Nudges the watcher to gate the next candidate now, instead of waiting for its next tick"
-              onClick={() =>
-                void runHealAction("process", () => client!.loopRunOnce(topicName, vault))
-              }
-            >
-              {busy === "process" ? "Gating…" : "Gate next candidate now"}
-            </button>
+            {gateNowControls(!client || busy !== null || !baselineFrozen || pendingCount === 0)}
             <p class="muted heal-hint">
               The watcher gates each <code>loop/c/*</code> tip automatically on its next tick — this
-              button just runs one cycle immediately. Gate pass merges; gate fail opens Arena.
+              button just runs one cycle immediately, and is billed: the first click only quotes it.
+              Gate pass merges; gate fail opens Arena.
             </p>
           </div>
         ) : (
