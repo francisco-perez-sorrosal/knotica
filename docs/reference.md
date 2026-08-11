@@ -97,8 +97,8 @@ All 15 top-level parsers take these four, and so does every nested subcommand, i
 
 ## MCP tools
 
-33 tools are registered on the server: 9 action-parameterized **dispatchers** and 24 flat,
-fixed-behavior tools (5 read + 4 write + 15 grouped by purpose below). Every tool accepts a
+35 tools are registered on the server: 9 action-parameterized **dispatchers** and 26 flat,
+fixed-behavior tools (5 read + 4 write + 17 grouped by purpose below). Every tool accepts a
 `vault: str = ""` parameter (targets a configured vault by name; empty = the active one) — the two
 exceptions are the `vault` dispatcher itself (no vault to target before one resolves) and
 `read_protocol`, whose prompt body resolves from the active vault only.
@@ -131,7 +131,7 @@ identical across a paginated walk or the cursor is invalidated.
 | `create_topic` | `topic` (req); `description=""`, `vault=""` | Creates topic dir, empty `SCHEMA.md` overlay, `.knotica/` state. Idempotent (`existed=true`, no commit). |
 | `curate_example` | `topic`, `query`, `answer`, `verdict` (req); `pages_used=None`, `notes=""`, `vault=""` | Appends one example to `qa.jsonl`. Idempotent by content hash. |
 
-### Other flat tools — 15, grouped by purpose
+### Other flat tools — 17, grouped by purpose
 
 | Tool | Params | Notes |
 |---|---|---|

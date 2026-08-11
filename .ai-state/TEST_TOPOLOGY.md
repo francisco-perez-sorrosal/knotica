@@ -478,6 +478,7 @@ selectors:
       - tests/test_mcp_write.py
       - tests/test_server_instructions.py
       - tests/test_server_tool_surface.py
+      - tests/test_surface_consistency_gate.py
       - tests/test_tool_description_guards.py
       - tests/test_two_phase_characterization.py
       - tests/test_vault_targeting.py
@@ -886,6 +887,7 @@ selectors:
       - tests/test_hooks_session_start.py
       - tests/test_packaging_evals_extra.py
       - tests/test_plugin_manifest.py
+      - tests/test_surface_consistency_gate.py
       - tests/test_template.py
 file_dependencies:
   - ".claude-plugin/**"
