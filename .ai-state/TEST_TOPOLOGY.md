@@ -480,6 +480,7 @@ selectors:
       - tests/test_server_instructions.py
       - tests/test_server_tool_surface.py
       - tests/test_surface_consistency_gate.py
+      - tests/test_telemetry_summary.py
       - tests/test_tool_description_guards.py
       - tests/test_two_phase_characterization.py
       - tests/test_vault_targeting.py
