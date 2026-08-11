@@ -16,6 +16,11 @@ made_by: agent
 agent_type: interface-designer
 branch: worktree-process-swimlanes
 pipeline_tier: full
+# Reciprocal of dec-draft-ab2702b3's `re_affirms`. Written in draft form on
+# purpose: finalize rewrites both halves to their stable ids atomically, and the
+# health check exempts drafts from reciprocity but enforces it once promoted.
+re_affirmed_by:
+  - dec-draft-ab2702b3
 dissent: Collapsing roughly 27 tools into six dispatchers concentrates routing into six long descriptions; `improve` alone would carry around twenty actions, and a fat description is a mini-prompt whose quality is unmeasured and whose failure mode (the model picks the right lane and the wrong action) is quieter than picking the wrong tool.
 affected_files:
   - src/knotica/mcp_server/server.py
