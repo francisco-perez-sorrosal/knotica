@@ -23,6 +23,7 @@ from mcp.server.fastmcp import FastMCP
 
 from knotica.mcp_server.app_ui import register_dashboard_app
 from knotica.mcp_server.prompts import register_prompts
+from knotica.mcp_server.recording_server import RecordingServer
 from knotica.mcp_server.resources import register_resources
 from knotica.mcp_server.tools_dispatch_arena import register_dispatch_arena_tools
 from knotica.mcp_server.tools_dispatch_branches import register_dispatch_branches_tools
@@ -87,8 +88,15 @@ def _build_server(*, stateless_http: bool = False) -> FastMCP:
     Pure wiring -- constructing the server and running the ``register_*``
     functions touches no vault (the decorators only record tool metadata), so
     this is safe to call at import time and on an unconfigured host.
+
+    The instance is a :class:`RecordingServer`, which is what gives the whole
+    surface dispatch telemetry: it overrides ``call_tool``, the one method every
+    tool call passes through, so a tool cannot be registered without being
+    measured. It must be a subclass rather than a post-construction patch --
+    ``FastMCP.__init__`` binds ``self.call_tool`` into the low-level handler, so
+    a later attribute assignment is never reached. See ``recording_server.py``.
     """
-    mcp = FastMCP(
+    mcp = RecordingServer(
         _SERVER_NAME,
         instructions=_INSTRUCTIONS,
         stateless_http=stateless_http,

@@ -21,7 +21,7 @@ from knotica.core.compile_promote import compile_promote
 from knotica.core.errors import ErrorCode, KnoticaError
 from knotica.core.loop_promote import loop_promote
 from knotica.mcp_server import envelope
-from knotica.mcp_server.dispatch_telemetry import record_dispatch, record_rejected_action
+from knotica.mcp_server.dispatch_telemetry import record_rejected_action
 from knotica.mcp_server.tools_scoreboard import _delete_payload, _promote_payload
 from knotica.mcp_server.vault_ctx import with_resolved_vault
 from knotica.store import VaultStore
@@ -87,7 +87,6 @@ def _dispatch_payload(
     mode: str,
 ) -> dict[str, Any]:
     cleaned_action = _validate_action(action)
-    record_dispatch(_DISPATCHER, cleaned_action, topic)
     if cleaned_action == "scoreboard":
         return envelope.read_ok(gather_branch_scoreboard(store, vault_path, topic))
     if cleaned_action == "promote_loop":

@@ -385,7 +385,7 @@ file_dependencies:
   - "src/knotica/core/operations/reflow_sources.py"
   - "src/knotica/core/operations/store_source.py"
   - "src/knotica/core/operations/write_page.py"
-integration_boundaries: []   # planner-owned; populates lazily in later pipelines
+integration_boundaries: ["mcp-surface", "cli-surface"]   # planner-owned; core/process_model.py is projected by the lane dispatchers (mcp-surface) and by `knotica lane` (cli-surface) — process-swimlanes M1/M2
 parallel_safe: true
 shared_fixture_scope: per-suite
 shared_state: tmp_path
@@ -451,6 +451,8 @@ selectors:
       - tests/test_dispatch_datasets.py
       - tests/test_dispatch_golden.py
       - tests/test_dispatch_loop.py
+      - tests/test_dispatch_telemetry_census.py
+      - tests/test_dispatch_telemetry_sink.py
       - tests/test_dispatch_vault.py
       - tests/test_dispatch_vault_health.py
       - tests/test_file_size_ratchet.py
@@ -474,9 +476,13 @@ selectors:
       - tests/test_mcp_status.py
       - tests/test_mcp_vault.py
       - tests/test_mcp_write.py
+      - tests/test_referential_integrity_gate.py
       - tests/test_server_instructions.py
       - tests/test_server_tool_surface.py
+      - tests/test_surface_consistency_gate.py
+      - tests/test_telemetry_summary.py
       - tests/test_tool_description_guards.py
+      - tests/test_two_phase_characterization.py
       - tests/test_vault_targeting.py
       - tests/test_wiki_status_gaps.py
       - tests/test_wiki_status_scope_view.py
@@ -484,7 +490,7 @@ selectors:
 file_dependencies:
   - "src/knotica/mcp_server/**"
   - "src/knotica/dashboard/**"
-integration_boundaries: []   # planner-owned; populates lazily in later pipelines
+integration_boundaries: ["vault-semantics", "cli-surface", "plugin-layer"]   # planner-owned; lane dispatchers read core/process_model.py, and the surface-consistency gate spans docs/reference.md + COMMAND_NAMES + commands/ — process-swimlanes M0/P5,P8 and M1
 parallel_safe: true
 shared_fixture_scope: per-suite
 shared_state: tmp_path
@@ -526,7 +532,7 @@ selectors:
       - tests/test_status_nudge.py
 file_dependencies:
   - "src/knotica/cli/**"
-integration_boundaries: []   # planner-owned; populates lazily in later pipelines
+integration_boundaries: ["mcp-surface", "plugin-layer"]   # planner-owned; COMMAND_NAMES is gated against docs/reference.md and hooks/session_start.sh — process-swimlanes M0/P5,P8
 parallel_safe: true
 shared_fixture_scope: per-suite
 shared_state: tmp_path
@@ -675,7 +681,7 @@ file_dependencies:
   - "src/knotica/core/branch_scoreboard.py"
   - "src/knotica/core/branch_delete.py"
   - "src/knotica/core/best_effort.py"
-integration_boundaries: []   # planner-owned; populates lazily in later pipelines
+integration_boundaries: ["gapfill-spine"]   # planner-owned; the candidate gate path drives gap closure — process-swimlanes M0/P3
 parallel_safe: true
 shared_fixture_scope: per-suite
 shared_state: tmp_path
@@ -726,6 +732,7 @@ selectors:
       - tests/test_cli_gapfill.py
       - tests/test_file_size_ratchet.py
       - tests/test_gap_classifier.py
+      - tests/test_gap_lifecycle.py
       - tests/test_gapfill.py
       - tests/test_gapfill_discovery_default.py
       - tests/test_gapfill_integration.py
@@ -750,7 +757,7 @@ file_dependencies:
   - "src/knotica/mcp_server/tools_suggestions.py"
   - "src/knotica/mcp_server/tools_source_ingest.py"
   - "src/knotica/cli/gapfill.py"
-integration_boundaries: []   # planner-owned; populates lazily in later pipelines
+integration_boundaries: ["loop-runtime", "mcp-surface"]   # planner-owned; apply_gate_outcome now closes the originating gap on the gate path (loop-runtime), and the human transition surfaces on the Fill lane dispatcher (mcp-surface) — process-swimlanes M0/P3 and M1
 parallel_safe: true
 shared_fixture_scope: per-suite
 shared_state: tmp_path
@@ -882,6 +889,8 @@ selectors:
       - tests/test_hooks_session_start.py
       - tests/test_packaging_evals_extra.py
       - tests/test_plugin_manifest.py
+      - tests/test_referential_integrity_gate.py
+      - tests/test_surface_consistency_gate.py
       - tests/test_template.py
 file_dependencies:
   - ".claude-plugin/**"
@@ -892,7 +901,7 @@ file_dependencies:
   - "pyproject.toml"
   - "uv.lock"
   - "vault-template/**"
-integration_boundaries: []   # planner-owned; populates lazily in later pipelines
+integration_boundaries: ["mcp-surface", "cli-surface"]   # planner-owned; the referential-integrity gate resolves commands/ + skills/ + hooks/ references against live registrations and COMMAND_NAMES — process-swimlanes M0/P8
 parallel_safe: true
 shared_fixture_scope: per-suite
 shared_state: tmp_path

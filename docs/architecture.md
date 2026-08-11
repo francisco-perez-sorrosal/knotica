@@ -125,7 +125,8 @@ dispatcher actions take `mode=dry-run|apply`.
 The flat tools, by module: `tools_read.py` — `list_topics`, `read_page`, `search`, `list_links`,
 `lint_check`; `tools_write.py` — `write_page`, `store_source`, `create_topic`, `curate_example`;
 `tools_status.py` — `wiki_status`, `metrics_read`, `baseline_probe`; `tools_suggestions.py` —
-`suggestions_read`, `suggestions_review`, `gap_report`; `tools_source_ingest.py` —
+`suggestions_read`, `suggestions_review`; `tools_gaps.py` — `gap_report`, `gaps_read`,
+`gapfill_discover`; `tools_source_ingest.py` —
 `source_ingest_open`, `source_ingest_submit`; `tools_ingest.py` — `ingest_progress`,
 `ingest_activity_read`; `tools_query.py` — `query`; `tools_notes.py` — `note_capture`;
 `tools_prompt_diff.py` — `prompt_diff`; `tools_guide.py` — `read_protocol`.
@@ -137,7 +138,18 @@ Resources: `knotica://schema/root`, `knotica://schema/topic/{topic}`, `knotica:/
 Each dispatcher validates `action` against its own `_ACTIONS` tuple and returns `INVALID_ARGUMENT` for
 anything else; `INVALID_CURSOR` remains distinct. `wiki_status(view="scope")` is the cheapest
 routing check — `{schema_version, vault_name, topics[], totals}`, deterministic and read-only.
-`dispatch_telemetry.py` logs one line per invocation and one per rejected action.
+`dispatch_telemetry.py` logs one line per invocation and one per rejected action. Set
+`KNOTICA_TELEMETRY_DIR` to also append each as a timestamped JSONL record carrying a routing
+`outcome` (`ok` / `INVALID_ARGUMENT` / `NOT_FOUND` / `TOPIC_NOT_FOUND` / `error`), one file per UTC
+day. The sink is off by default and lives outside every vault — tool routing belongs to the server's
+surface, not to a wiki — and its writes are best-effort: a failure is logged, never raised.
+
+Every registered tool is covered, and not because each one remembers to call the recorder:
+`recording_server.py`'s `RecordingServer` subclasses `FastMCP` and overrides `call_tool`, the single
+method every tool call passes through, so a tool cannot be registered without being measured. The
+record is taken *after* the handler returns, which is what makes `outcome` the real result instead of
+an optimistic `ok`. `tests/test_dispatch_telemetry_census.py` enumerates the surface from
+`list_tools()` — never a hand-written list — and asserts exactly one `dispatch` record per tool.
 
 `loop action=run_eval` and `loop action=run_once` are two-phase: a bare call returns a preview and a
 nonce, and only a confirmed second call bills. `run_eval` passes `force=True` and so bypasses the

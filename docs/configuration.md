@@ -256,6 +256,7 @@ This table never holds a credential — see the discovery pipeline in
 | `KNOTICA_CONFIG` | Override the `config.toml` location | Falls back to `~/.config/knotica/config.toml` |
 | `KNOTICA_DESKTOP_CONFIG` | Override the Claude Desktop config file location (test/power-user hook) | Falls back to the macOS `claude_desktop_config.json` path |
 | `KNOTICA_MCP_FROM` | Override the `--from` source used when launching the MCP server via `uvx`/`uv run` | Falls back to source-checkout auto-detection, then the published package name |
+| `KNOTICA_TELEMETRY_DIR` | Directory for the dispatch-telemetry sink: one JSONL file per UTC day, one record per tool call (tool, action, topic, routing outcome) | **Off by default** — no file is written and nothing is retained. The stderr log line emits either way |
 | `KNOTICA_YOUCOM_API_KEY` | Search-provider credential (you.com) | Provider unusable; discovery calls raise a not-configured error naming this variable |
 | `KNOTICA_EXA_API_KEY` | Search-provider credential (exa) — the config-key mapping is recognized, though the exa adapter itself is not currently shipped | Same as above |
 | `CLAUDE_CODE_OAUTH_TOKEN` | Preferred eval-LLM credential — Claude subscription OAuth, no metered spend | Falls back to `ANTHROPIC_API_KEY` with a loud fallback warning; if both are absent, a not-configured error names both |
@@ -263,6 +264,13 @@ This table never holds a credential — see the discovery pipeline in
 | `COLUMNS` | Terminal width for `knotica status` rendering (ignored under `--wide`) | Falls back to a packaged default; a non-integer value also falls back |
 | `NO_COLOR` | Presence disables ANSI color in CLI output | Color follows TTY detection |
 | `TERM` | `TERM=dumb` disables ANSI color | Color follows TTY detection |
+
+Point `KNOTICA_TELEMETRY_DIR` **outside the repo and outside every vault**. Tool routing is a
+property of the server's surface, not of any one wiki, so a per-vault sink would fragment the record
+across configured vaults and lose it entirely while the server is unconfigured. Records carry no
+credential, no free text, no page content and no per-user identity — only the tool name, the action,
+the topic, the routing outcome, and a per-process id that lets sessions be counted. Writes are
+best-effort: a failure is logged and swallowed, never turned into a failed tool call.
 
 A handful of call sites read the whole environment as a block rather than one named variable —
 the CLI's color-policy snapshot, and the base environment for every `git` subprocess call (which

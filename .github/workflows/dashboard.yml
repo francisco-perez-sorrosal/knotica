@@ -1,14 +1,18 @@
 name: Dashboard
 
+# Each trigger lists this file among its paths: a change to the gate must re-run
+# the gate, or an edit here ships unverified by the thing it edits.
 on:
   pull_request:
     paths:
       - "dashboard/**"
       - "src/knotica/dashboard/app.html"
+      - ".github/workflows/dashboard.yml"
   push:
     paths:
       - "dashboard/**"
       - "src/knotica/dashboard/app.html"
+      - ".github/workflows/dashboard.yml"
 
 jobs:
   build:
@@ -21,6 +25,14 @@ jobs:
           cache: npm
           cache-dependency-path: dashboard/package-lock.json
       - run: npm ci
+        working-directory: dashboard
+      # Ordered cheapest to most-derived, so the first red step names the failure
+      # class: behaviour (test), types/bundle (build), stale committed artifact
+      # (diff). `vitest run` transpiles from source via dashboard/vitest.config.ts
+      # and reads nothing the build produces, so it is free to run first — and it
+      # must, or a `tsc` error would mask a broken characterization. `tsc --noEmit`
+      # inside `npm run build` still typechecks the tests (tsconfig include: src).
+      - run: npm test
         working-directory: dashboard
       - run: npm run build
         working-directory: dashboard

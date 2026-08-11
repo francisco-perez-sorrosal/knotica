@@ -2,14 +2,17 @@
 
 A single-file Preact + TypeScript app, mounted two ways from one artifact: as an MCP App (`ui://knotica/dashboard`, opened by the `open_dashboard` tool) and over HTTP (`knotica mcp --http`). Both mounts import the same loader — never the reverse.
 
-## Build
+## Build and test
 
 ```bash
 npm --prefix dashboard install
+npm --prefix dashboard test          # vitest run
 npm --prefix dashboard run build     # tsc --noEmit && vite build && package-artifact
 ```
 
-> The built artifact is **committed**. `npm run build` writes `dashboard/dist/index.html` and packages it to `src/knotica/dashboard/app.html`; the Dashboard CI workflow rebuilds and then runs `git diff --exit-code` on both paths. A source change without a committed rebuild fails CI. Rebuild and commit in the same change.
+`npm test` transpiles from source through `vitest.config.ts` and reads nothing the build produces, so it runs first and fails faster; CI runs the same two commands in that order. There is no separate typecheck step to remember — `tsc --noEmit` inside `npm run build` covers the tests too, because `tsconfig` includes `src`.
+
+> The built artifact is **committed**. `npm run build` writes `dashboard/dist/index.html` and packages it to `src/knotica/dashboard/app.html`, and CI then runs `git diff --exit-code` over both paths. **Only `src/knotica/dashboard/app.html` is actually gated**: `dashboard/dist/` is gitignored, so that path is untracked and can never dirty a diff — naming it in the command does not make it enforced. A source change without a committed rebuild of `app.html` fails CI. Rebuild and commit in the same change.
 
 `src/knotica/dashboard/__init__.py::dashboard_html` resolves the wheel-packaged `app.html` first and falls back to `dashboard/dist/index.html` in a checkout — which is why **an installed user never needs a Node toolchain**. Keep that fallback intact.
 

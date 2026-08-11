@@ -110,7 +110,7 @@ export interface ToolClient {
   vaultMetadataTree(vault?: string, topic?: string): Promise<VaultMetadataTree>;
   okfCheck(vault?: string, strict?: boolean): Promise<OkfCheckResult>;
   okfRepair(mode: "dry-run" | "apply", vault?: string, force?: boolean): Promise<OkfRepairResult>;
-  loopRunOnce(topic: string, vault?: string): Promise<LoopOnceResult>;
+  loopRunOnce(topic: string, confirm?: string, vault?: string): Promise<LoopOnceResult>;
   loopSetBaseline(topic: string, scalar: number, vault?: string): Promise<LoopSetBaselineResult>;
   loopBaselinePolicy(
     topic: string,
@@ -430,8 +430,9 @@ abstract class BaseToolClient implements ToolClient {
     return this.call("vault_health", { action: "okf_repair", mode, vault, force });
   }
 
-  loopRunOnce(topic: string, vault = ""): Promise<LoopOnceResult> {
-    return this.call("loop", { action: "run_once", topic, vault }, LLM_CALL_TIMEOUT_MS);
+  /** Billed and two-phase: omit `confirm` to preview, pass the returned nonce to run. */
+  loopRunOnce(topic: string, confirm = "", vault = ""): Promise<LoopOnceResult> {
+    return this.call("loop", { action: "run_once", topic, confirm, vault }, LLM_CALL_TIMEOUT_MS);
   }
 
   loopSetBaseline(topic: string, scalar: number, vault = ""): Promise<LoopSetBaselineResult> {

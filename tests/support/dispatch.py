@@ -1,17 +1,21 @@
 """Shared plumbing for dispatcher-vs-thin-tool equivalence suites.
 
-The P-B dispatcher modules (`tools_dispatch_loop.py`, `tools_dispatch_branches.py`,
+The nine dispatcher modules (`tools_dispatch_loop.py`, `tools_dispatch_branches.py`,
 `tools_dispatch_compile.py`, ...) are pure routing over existing thin
-implementations and are deliberately **not yet wired into `server.py`**
-(Step 31 wires all seven at once). Equivalence tests therefore need two
-independent MCP server instances per assertion:
+implementations, and `build_server()` registers **all** of them — the flat tools
+they replaced (``loop_run_once`` and its siblings) are gone. Two independent MCP
+server instances are still useful per assertion:
 
-- the **full** server (`knotica.mcp_server.server.build_server()`), which
-  already carries the replaced thin tool (e.g. ``loop_run_once``), and
+- the **full** server (`knotica.mcp_server.server.build_server()`), which carries
+  the whole registered surface as a client sees it, and
 - a **bare** ``FastMCP()`` instance carrying only the dispatcher under test,
-  built by calling its ``register_dispatch_<domain>`` function directly (this
-  is the "importable and unit-testable by passing a bare FastMCP() instance"
-  contract from the implementation plan).
+  built by calling its ``register_dispatch_<domain>`` function directly, so a
+  routing assertion is not perturbed by the other thirty-four registrations.
+
+Note the bare instance is a plain ``FastMCP``, not the ``RecordingServer``
+``build_server()`` returns, so it emits no dispatch telemetry. That is fine for
+routing equivalence and wrong for anything asserting on the sink — use the full
+server there.
 
 Mutating actions need two independent, identically-seeded vaults (calling the
 same mutation twice against one vault would make the second call observe

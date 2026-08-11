@@ -38,6 +38,7 @@ from knotica.core.gapfill import (
 from knotica.core.page import TopicNotFoundError
 from knotica.core.records import RecordParseError, SuggestionRecord
 from knotica.mcp_server import envelope
+from knotica.mcp_server.dispatch_telemetry import record_rejected_action
 from knotica.mcp_server.vault_ctx import with_resolved_vault
 from knotica.search.cursor import Cursor, InvalidCursorError, decode_cursor, encode_cursor
 from knotica.store import VaultStore
@@ -55,7 +56,12 @@ _ALL_VISIBLE: frozenset[str] = frozenset({"pending", "approved", "deferred"})
 #: Recognized ``status`` argument values (the five statuses plus the ``all`` view).
 _STATUS_FILTERS: frozenset[str] = frozenset(_STATUS_VALUES) | {_ALL_FILTER}
 
-#: The four decisions a review may apply, listed for the bad-action error text.
+#: The registered name of the action-taking tool. Named once so the telemetry
+#: label cannot drift from the name the client actually routes on.
+_REVIEW_TOOL = "suggestions_review"
+
+#: The decisions a review may apply, listed for the bad-action error text and
+#: recorded as the valid set when one is refused.
 _ACTIONS: tuple[str, ...] = ("approve", "reject", "defer", "mark_ingested", "withdraw")
 _MODES: frozenset[str] = frozenset({"dry-run", "apply"})
 
@@ -112,7 +118,7 @@ def register_suggestions_tools(mcp: FastMCP) -> None:
             ),
         )
 
-    @mcp.tool(name="suggestions_review", description=_REVIEW_DESCRIPTION)
+    @mcp.tool(name=_REVIEW_TOOL, description=_REVIEW_DESCRIPTION)
     def suggestions_review(
         topic: str,
         suggestion_id: str,
@@ -426,6 +432,11 @@ def _validate_mode(mode: str) -> str:
 def _validate_action(action: str) -> str:
     cleaned = action.strip().lower()
     if cleaned not in _ACTIONS:
+        # Dispatcher-shaped though it is flat: it declares its own `_ACTIONS` and
+        # refuses anything else, so an unknown value here is the same in-domain
+        # mis-selection signal a dispatcher's rejection is, and is recorded the
+        # same way. The `dispatch` record for this call comes from the server.
+        record_rejected_action(_REVIEW_TOOL, action, _ACTIONS)
         raise KnoticaError(
             ErrorCode.INVALID_ARGUMENT,
             f"action must be one of {'|'.join(_ACTIONS)}, got {action!r}",

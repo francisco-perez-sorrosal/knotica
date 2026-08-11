@@ -25,7 +25,7 @@ from knotica.core.datasets_inventory import (
 )
 from knotica.core.errors import ErrorCode, KnoticaError
 from knotica.mcp_server import envelope
-from knotica.mcp_server.dispatch_telemetry import record_dispatch, record_rejected_action
+from knotica.mcp_server.dispatch_telemetry import record_rejected_action
 from knotica.mcp_server.tools_datasets import (
     _EXCEPTIONS,
     _bootstrap_payload,
@@ -98,7 +98,6 @@ def _dispatch_payload(
     target: int,
 ) -> dict[str, Any]:
     cleaned_action = _validate_action(action)
-    record_dispatch(_DISPATCHER, cleaned_action, topic)
     if cleaned_action == "inventory":
         return gather_datasets_inventory(store, topic)
     if cleaned_action == "records":

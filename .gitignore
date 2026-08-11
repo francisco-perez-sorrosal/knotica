@@ -39,6 +39,17 @@ skills-lock.json
 # refreshes an existing copy, so a committed one would silently go stale.
 .claude/praxion-rules.yaml.example
 
+# Dispatch-telemetry JSONL sink. Its default home is outside every repo (the
+# sink is opt-in via KNOTICA_TELEMETRY_DIR and tool routing is not vault data),
+# but a relative override pointed here while the server runs with this repo as
+# its working directory would otherwise land in the index.
+#
+# ANCHORED to the repo root on purpose. Unanchored, `.knotica/` matches at every
+# depth and would silently shadow `vault-template/.knotica/` -- which IS
+# committed and carries the four seed prompts. An existing tracked file survives
+# that, but the next one added there would vanish without a word.
+/.knotica/
+
 # OS
 .DS_Store
 

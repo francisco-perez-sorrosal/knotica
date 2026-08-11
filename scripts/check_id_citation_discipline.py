@@ -26,9 +26,13 @@ backlog, not a permanent exemption: entries are removed as files are cleaned
 up, never added to -- and touching a baselined file forces its cleanup, since
 the pre-commit scan does not consult this list for files in the commit. It
 stood at 21 files when the gate landed; `src/knotica/discovery/service.py`
-left it on 2026-08-05, so it is now the 20 entries listed below. The count is
-not restated in prose -- deriving it from the list is what keeps it true.
-See the notes column on td-014 in .ai-state/TECH_DEBT_RESOLVED.md.
+left it on 2026-08-05 and `tests/support/dispatch.py` on 2026-08-10, the latter
+when a stale docstring citing a pipeline step number was rewritten.
+
+The remaining count is deliberately NOT restated here. The previous version of
+this paragraph asserted that the count is never restated and then restated it
+in the same sentence, which is precisely how it went stale -- read the number
+off the list. See the notes column on td-014 in .ai-state/TECH_DEBT_RESOLVED.md.
 
 Exempt paths (pipeline/ADR-finalize/docs state):
   .ai-work/, .ai-state/, docs/
@@ -118,7 +122,6 @@ BASELINE_EXEMPT_PATHS = frozenset(
         "src/knotica/discovery/youcom.py",
         "tests/discovery/test_openalex.py",
         "tests/discovery/test_records.py",
-        "tests/support/dispatch.py",
         "tests/test_arena_race_characterization.py",
         "tests/test_best_effort_characterization.py",
         "tests/test_branch_namespaces_characterization.py",

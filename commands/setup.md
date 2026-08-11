@@ -30,8 +30,9 @@ so gather the choices here, then drive the deterministic `knotica init` CLI.
      (topic `agentic-systems`) or `query` with the AWM prove question — see
      `docs/CLAUDE_DESKTOP.md` in the repo.
    - **Optional (headless `query` / compile):** Desktop does not inherit shell env.
-     To use MCP `query`, `compile_run`, or Arena from Chat, add
-     `CLAUDE_CODE_OAUTH_TOKEN` (preferred; run `claude setup-token` from Claude Code)
-     or `ANTHROPIC_API_KEY` to `mcpServers.knotica.env` in Desktop config — see
-     `docs/CLAUDE_DESKTOP.md` § Headless LLM credentials. Ingest/curate need none.
+     To use MCP `query`, `compile action=run`, or `datasets action=bootstrap` from
+     Chat, add `CLAUDE_CODE_OAUTH_TOKEN` (preferred; run `claude setup-token` from
+     Claude Code) or `ANTHROPIC_API_KEY` to `mcpServers.knotica.env` in Desktop
+     config — see `docs/CLAUDE_DESKTOP.md` § Headless LLM credentials. Ingest and
+     curate need none, and neither does the arena — it makes no model call.
    - In Claude Code: try `/knotica:ingest <source-url>` or `/knotica:query`.

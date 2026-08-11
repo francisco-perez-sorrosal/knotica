@@ -20,7 +20,7 @@ from knotica.core.config import ResolvedVault
 from knotica.core.errors import ErrorCode, KnoticaError
 from knotica.core.vault_metadata_tree import gather_vault_metadata_tree
 from knotica.mcp_server import envelope
-from knotica.mcp_server.dispatch_telemetry import record_dispatch, record_rejected_action
+from knotica.mcp_server.dispatch_telemetry import record_rejected_action
 from knotica.mcp_server.tools_vault import (
     _doctor_payload,
     _doctor_repair_payload,
@@ -109,7 +109,6 @@ def _dispatch_payload(
     topic: str,
 ) -> dict[str, Any]:
     cleaned_action = _validate_action(action)
-    record_dispatch(_DISPATCHER, cleaned_action, topic)
     if cleaned_action == "doctor":
         return _doctor_payload(store, resolved, quick=quick, include_fix=fix)
     if cleaned_action == "repair":

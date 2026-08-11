@@ -223,6 +223,13 @@ RAW_WRITE_FUNCTION_ALLOWLIST = frozenset(
         "mcp_server/confirm_nonce.py::mint",
         # Consumes (and deletes) the same gitignored nonce file minted above.
         "mcp_server/confirm_nonce.py::consume",
+        # Appends the dispatch-telemetry JSONL record. Its destination is an
+        # opt-in directory named by `KNOTICA_TELEMETRY_DIR` and resolved at write
+        # time -- no vault root is ever in scope here, which is the point: tool
+        # routing is a property of the server's tool surface, not of any one
+        # wiki, so the sink deliberately lives outside every vault and is not
+        # subject to the single-writer transaction path.
+        "mcp_server/dispatch_telemetry.py::_append",
     }
 )
 

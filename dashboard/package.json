@@ -5,7 +5,8 @@
   "type": "module",
   "scripts": {
     "build": "tsc --noEmit && vite build && node scripts/package-artifact.mjs",
-    "dev": "vite"
+    "dev": "vite",
+    "test": "vitest run"
   },
   "dependencies": {
     "@modelcontextprotocol/ext-apps": "^1.7.4",
@@ -21,6 +22,7 @@
     "@types/dompurify": "^3.0.5",
     "typescript": "^5.9.3",
     "vite": "^7.1.7",
-    "vite-plugin-singlefile": "^2.3.0"
+    "vite-plugin-singlefile": "^2.3.0",
+    "vitest": "^4.1.10"
   }
 }
