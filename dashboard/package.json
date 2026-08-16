@@ -9,19 +9,19 @@
     "test": "vitest run"
   },
   "dependencies": {
-    "@modelcontextprotocol/ext-apps": "^1.7.4",
-    "@modelcontextprotocol/sdk": "^1.28.1",
-    "@preact/signals": "^2.0.1",
-    "dompurify": "^3.4.12",
-    "marked": "^18.0.6",
-    "preact": "^10.27.2",
+    "@modelcontextprotocol/ext-apps": "^1.7.5",
+    "@modelcontextprotocol/sdk": "^1.30.0",
+    "@preact/signals": "^2.11.0",
+    "dompurify": "^3.4.13",
+    "marked": "^18.0.9",
+    "preact": "^10.29.8",
     "uplot": "^1.6.31"
   },
   "devDependencies": {
-    "@preact/preset-vite": "^2.10.1",
-    "@types/dompurify": "^3.0.5",
-    "typescript": "^5.9.3",
-    "vite": "^7.1.7",
+    "@preact/preset-vite": "^2.10.6",
+    "@types/dompurify": "^3.2.0",
+    "typescript": "^7.0.2",
+    "vite": "^8.2.1",
     "vite-plugin-singlefile": "^2.3.0",
     "vitest": "^4.1.10"
   }
