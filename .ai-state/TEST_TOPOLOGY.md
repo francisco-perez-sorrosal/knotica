@@ -539,6 +539,7 @@ selectors:
       - tests/test_cli_eval.py
       - tests/test_cli_help_grouping.py
       - tests/test_cli_init.py
+      - tests/test_cli_lane_rail.py
       - tests/test_cli_lanes.py
       - tests/test_cli_loop.py
       - tests/test_cli_mcp.py

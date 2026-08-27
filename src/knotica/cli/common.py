@@ -15,10 +15,11 @@ from __future__ import annotations
 
 import argparse
 import sys
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from importlib import import_module
-from typing import Protocol, TextIO, cast
+from types import MappingProxyType
+from typing import Any, Protocol, TextIO, cast
 
 from knotica.core import process_model
 
@@ -268,6 +269,55 @@ def lane_rail(lane: str) -> str:
     return _RAIL_JOIN[process_model.LANE_KIND[lane]].join(stage.title for stage in stages)
 
 
+#: The MCP verb each ``Stage.action`` names, mapped to the CLI invocation that
+#: performs the same real-world operation -- adapter-owned prose, not a
+#: structural derivation (several verbs, e.g. ``suggestions_review``/``query``,
+#: have no CLI equivalent at all and are deliberately absent here). A verb
+#: reached from more than one lane's rail (``loop`` gates both Fill and
+#: Improve; ``vault_health`` backs both Tend's ``doctor`` and ``okf`` stages)
+#: renders the one real command that performs it, regardless of which lane's
+#: rail is asking.
+_VERB_CLI_COMMAND: Mapping[str, str] = MappingProxyType(
+    {
+        "gapfill_discover": "fill discover",
+        "loop": "improve loop",
+        "compile": "improve compile",
+        "datasets": "improve bootstrap-train",
+        "branches": "improve promote",
+        "vault_health": "tend doctor",
+    }
+)
+
+#: Shown for a stage the client-as-brain advances through conversation, not a
+#: CLI invocation (``Stage.handoff`` or no declared ``action`` at all).
+_HANDOFF_TEXT = "handled via conversation"
+
+#: Shown for a stage whose verb has no CLI equivalent (dashboard/MCP-only).
+_NO_CLI_COMMAND_TEXT = "no CLI equivalent -- dashboard/MCP only"
+
+
+def _advancing_text(stage: process_model.Stage, topic: str) -> str:
+    """The rail's "how to advance this stage" text for ``stage``."""
+    if stage.handoff or stage.action is None:
+        return _HANDOFF_TEXT
+    command = _VERB_CLI_COMMAND.get(stage.action)
+    if command is None:
+        return _NO_CLI_COMMAND_TEXT
+    return f"knotica {command} --topic {topic}"
+
+
+def _render_lane_rail(
+    console: Console, lane: str, topic: str, stages: Sequence[Mapping[str, Any]]
+) -> None:
+    """Print ``lane``'s rail: each declared stage's title, live state, and
+    advancing command -- one line per stage, in rail order."""
+    declared = {stage.id: stage for stage in process_model.LANE_STAGES[lane]}
+    console.data(f"{lane} rail -- topic: {topic}")
+    for live in stages:
+        stage = declared[live["id"]]
+        console.data(f"  {stage.title:<14} {live['state']:<10} {_advancing_text(stage, topic)}")
+
+
 def _suppress_common_defaults(parser: argparse.ArgumentParser) -> None:
     """Re-parent a command parser one level deeper without losing pre-name flags.
 
@@ -300,6 +350,13 @@ class LaneCommand:
     Membership is resolved by *observing* which parsers each member module
     registers, so a module that contributes two leaves (``compile`` also
     registers ``promote``) needs no declaration here and no edit there.
+
+    A lane with members also accepts a hidden ``--topic`` at its own level:
+    ``knotica <lane> --topic <t>`` with no subcommand renders that lane's
+    live rail (each stage's title, current state, and the command that
+    advances it) instead of the usage/misuse fallback. The flag is
+    ``help=SUPPRESS``-ed so ``knotica <lane> --help`` stays byte-identical;
+    each member subcommand still declares its own ``--topic`` independently.
     """
 
     def __init__(self, *, lane: str, summary: str, members: Sequence[str] = ()) -> None:
@@ -331,6 +388,11 @@ class LaneCommand:
         if not self.members:
             return parser
 
+        # Hidden (help=SUPPRESS): a bare `knotica <lane> --topic <t>` renders
+        # the live rail via `run()` below, but `--help`/`-h` output must stay
+        # byte-identical to today's, so this flag is documented in this
+        # module's docstring instead.
+        parser.add_argument("--topic", metavar="NAME", help=argparse.SUPPRESS)
         lane_sub = parser.add_subparsers(dest=self.dest, metavar="<command>")
         for module_name in self.members:
             module = cast(CommandModule, import_module(f"knotica.cli.{module_name}"))
@@ -342,11 +404,47 @@ class LaneCommand:
         return parser
 
     def run(self, args: argparse.Namespace) -> int:
-        """Dispatch to the selected member command, or print the lane's help."""
+        """Dispatch to the chosen member, render the rail, or print the lane's help.
+
+        A bare invocation (no member chosen) renders the live rail only when
+        ``--topic`` was given -- the rail is inherently per-topic, so with no
+        topic there is nothing to render and the prior misuse path is kept.
+        """
         chosen = getattr(args, self.dest, None)
-        if chosen is None or chosen not in self._modules:
-            return self.print_usage()
-        return self._modules[chosen].run(args)
+        if chosen is not None and chosen in self._modules:
+            return self._modules[chosen].run(args)
+        topic = getattr(args, "topic", None)
+        if chosen is None and self.members and topic:
+            return self._render_rail(args, topic)
+        return self.print_usage()
+
+    def _render_rail(self, args: argparse.Namespace, topic: str) -> int:
+        """Render this lane's rail: each stage's title, live state, and advancing command.
+
+        Imports are local: ``core.status`` pulls in ``evals.golden`` (and, through
+        it, an LLM client module), which every other lane's bare invocation --
+        and every module that merely imports this one, e.g. ``doctor`` -- must
+        not inherit just to render a rail nobody asked for.
+        """
+        from knotica.core.config import diagnose
+        from knotica.core.page import TopicNotFoundError
+        from knotica.core.status import gather_wiki_status
+        from knotica.store import LocalFSStore
+
+        console = console_from_args(args)
+        diagnosis = diagnose()
+        if diagnosis.vault is None:
+            return unconfigured(console)
+        vault = diagnosis.vault
+        store = LocalFSStore(vault.path)
+        try:
+            payload = gather_wiki_status(store, vault.path, topic=topic, view="summary")
+        except TopicNotFoundError as error:
+            console.error(str(error))
+            return EXIT_ERROR
+        stages = payload["topics"][0]["lanes"][self.lane]
+        _render_lane_rail(console, self.lane, topic, stages)
+        return EXIT_SUCCESS
 
     def print_usage(self) -> int:
         """Print the lane's own help to stderr and report misuse."""

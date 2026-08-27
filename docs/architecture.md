@@ -106,9 +106,9 @@ Cross-cutting features composed from the components above; none owns a single di
 
 ## 4. Interfaces
 
-**35 MCP tools** — 25 flat conversational tools, 9 operator dispatchers, and `open_dashboard`. Every
-tool resolves config per call and returns a structured envelope rather than raising. Mutating
-dispatcher actions take `mode=dry-run|apply`.
+**21 MCP tools** — 13 Tier-1 flat tools, the `vault` dispatcher, `open_dashboard`, and 6 process-lane
+dispatchers. Every tool resolves config per call and returns a structured envelope rather than raising.
+Mutating dispatcher actions take `mode=dry-run|apply`.
 
 | Dispatcher | Actions |
 |---|---|
@@ -136,8 +136,11 @@ Resources: `knotica://schema/root`, `knotica://schema/topic/{topic}`, `knotica:/
 `lint`, `curate` — static names, lazily resolved bodies.
 
 Each dispatcher validates `action` against its own `_ACTIONS` tuple and returns `INVALID_ARGUMENT` for
-anything else; `INVALID_CURSOR` remains distinct. `wiki_status(view="scope")` is the cheapest
-routing check — `{schema_version, vault_name, topics[], totals}`, deterministic and read-only.
+anything else; `INVALID_CURSOR` remains distinct. Two `wiki_status` views serve routing and monitoring:
+`view="scope"` is the cheapest routing check — `{schema_version, vault_name, topics[], totals}`,
+deterministic and read-only; `view="attention"` is the cross-topic inbox projection, proven
+structurally cheaper than summary (no lint walk, no git subprocess, no note-anchor resolution) and
+safe to poll on every Human-facing screen refresh.
 `dispatch_telemetry.py` logs one line per invocation and one per rejected action. Set
 `KNOTICA_TELEMETRY_DIR` to also append each as a timestamped JSONL record carrying a routing
 `outcome` (`ok` / `INVALID_ARGUMENT` / `NOT_FOUND` / `TOPIC_NOT_FOUND` / `error`), one file per UTC
