@@ -17,6 +17,13 @@ Invariants — do not violate without updating `DESIGN.md` first:
 - **Loops always work on a git clone, never the live vault**; results return as branches for human review.
 - **Single source of truth for prompts**: operation prompts live in the vault (`.knotica/prompts/`, root defaults + earned topic overrides) and are simultaneously the MCP-prompt UX surface and the DSPy/SIA-evolvable substrate.
 
+## Lane vocabulary
+
+The six process lanes — `home`, `learn`, `answer`, `improve`, `fill`, `tend` — are declared once in `src/knotica/core/process_model.py`; every surface (MCP dispatchers, CLI groups, dashboard rails, slash-command descriptions) is a projection of that declaration.
+
+- **Marker convention** — the identifier sense of a lane name is always written in a backtick span (`fill`, `tend`); the ordinary English word never is. All six are common words, so without this rule no reader or gate can tell a lane reference from a sentence.
+- **Home / Tend / Improve discriminator** — *Home is cross-topic and actionable; Tend is mechanical and per-vault; Improve is measured and per-topic.* All three answer the same question shape; point here rather than restating the boundary.
+
 ## Project conventions
 
 - Python 3.12+, **uv-managed** (`uv sync --extra evals`, `uv run`); src layout under `src/knotica/`.
