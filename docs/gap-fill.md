@@ -49,10 +49,10 @@ Gap records land at `<topic>/.knotica/gaps/gaps.jsonl`, one commit per non-empty
 whose `(qa_id, fault_class)` pair is already open is dropped — a regression that persists across
 cycles does not spam the queue.
 
-Read that queue back with `gaps_read` — in conversation, or in the dashboard's **Sources** pane,
-which lists open gaps above the suggestion cards. This matters most right after you file one by
-hand: a gap has no candidate sources until [discovery](#p2--discover) runs, so the suggestion list
-is legitimately empty and the gap is the only evidence anything happened.
+Read that queue back with `gaps_read` — in conversation, or in the dashboard's `Fill` lane
+**Gaps** stage, which lists open gaps. This matters most right after you file one by hand: a gap
+has no candidate sources until [discovery](#p2--discover) runs, so the suggestion list is
+legitimately empty and the gap is the only evidence anything happened.
 
 ## Where gaps come from
 

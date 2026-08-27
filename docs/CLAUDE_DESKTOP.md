@@ -146,5 +146,5 @@ Every tool, argument, and dispatcher action: [reference](reference.md).
 - [self-improvement](self-improvement.md) — gate policy, the arena, cadence, billed triggers
 - [gap-fill](gap-fill.md) — the suggestion queue
 - [configuration](configuration.md) — `config.toml`, `[models]`, `[loop]`
-- [dashboard](dashboard.md) — panes and the HTTP mount
+- [dashboard](dashboard.md) — the five process lanes and the HTTP mount
 - [reference](reference.md) — every command, tool, and dispatcher action
