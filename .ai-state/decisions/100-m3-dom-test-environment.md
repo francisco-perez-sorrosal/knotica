@@ -1,7 +1,7 @@
 ---
-id: dec-draft-783494cb
+id: dec-100
 title: Add jsdom + @testing-library/preact to dashboard/ now, at M3
-status: proposed
+status: accepted
 category: implementation
 date: 2026-08-27
 summary: M3 adds a DOM test environment (jsdom + @testing-library/preact) instead of deferring it again, closing the Step-6 residual gap where a rendered slot→content link could not be asserted.

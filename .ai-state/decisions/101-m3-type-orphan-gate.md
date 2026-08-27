@@ -1,7 +1,7 @@
 ---
-id: dec-draft-dd5687f0
+id: dec-101
 title: Close the type-orphan defect class via tsconfig flags, not a full linter
-status: proposed
+status: accepted
 category: implementation
 date: 2026-08-27
 summary: M3 enables noUnusedLocals/noUnusedParameters in dashboard/tsconfig.json as the cheapest mechanical fix for the type-orphan defect class Step 5's light-review found; td-053's fuller linter/formatter gap stays open.
