@@ -12,14 +12,21 @@ import type {
 import { ArmedButton } from "../ArmedButton";
 import { deriveChecklistStages } from "../laneRailState";
 import type { StageState } from "../laneRailState";
+import { DriftStage } from "./DriftStage";
 
 /**
  * `TendLane` (`INTERFACE_DESIGN.md §2.6`) — the per-vault mechanical checklist
- * absorbing `VaultPane.tsx`'s "Checks" tabs (doctor/lint/okf/loop). `VaultPane`
- * itself is untouched here (its own deletion is a later, dedicated step); the
- * three read panels below are a **behaviour-preserving move**, not a rewrite
- * — `DoctorPanel`/`LintPanel`/`OkfStatus` (with its `OkfPanel`/`RepairPanel`
- * halves) keep `VaultPane.tsx`'s exact logic, just re-homed. `DoctorRemediations`
+ * absorbing `VaultPane.tsx`'s "Checks" tabs (doctor/lint/okf/loop) plus a
+ * fifth `drift` stage (`DriftStage.tsx`) merging `NotesPane.tsx`'s browse
+ * view and `NotesDriftView.tsx`'s review queue. `VaultPane`/`NotesPane`/
+ * `NotesDriftView` are untouched here (their own deletion is a later,
+ * dedicated step); the three read panels below are a **behaviour-preserving
+ * move**, not a rewrite — `DoctorPanel`/`LintPanel`/`OkfStatus` (with its
+ * `OkfPanel`/`RepairPanel` halves) keep `VaultPane.tsx`'s exact logic, just
+ * re-homed. `DriftStage` is the one stage that is topic-scoped rather than
+ * vault-wide (`notes`'s MCP dispatcher rejects an empty topic), so `TendLane`
+ * threads the same ambient `topic` every other topic-scoped pane already
+ * receives from `App.tsx`. `DoctorRemediations`
  * (the interactive select-paths/apply-repair workflow) is **not** ported in
  * this step: the paired test-engineer's `LEARNINGS_test-engineer_step66.md`
  * explicitly scoped doctor's auto-repair cascade as "an orthogonal mechanism
@@ -196,10 +203,12 @@ function useTendChecks(client: ToolClient | null, vault: string) {
 export function TendLane({
   client,
   vault,
+  topic,
   obsidianCtx,
 }: {
   client: ToolClient | null;
   vault: string;
+  topic: string;
   obsidianCtx: ObsidianContext;
 }): JSX.Element {
   const {
@@ -222,8 +231,12 @@ export function TendLane({
     { id: "lint", title: "Lint", status: lintCheckStatus(lint) },
     { id: "okf", title: "OKF", status: okfCheckStatus(okf) },
     { id: "migrate", title: "Migrate", status: "pending" },
+    // Never resolves on its own -- the honest "not checked" state IS the
+    // point (§2.7's Tend row), so this stage never derives complete/blocked.
+    { id: "drift", title: "Drift", status: "pending" },
   ]);
-  const [doctorStage, lintStage, okfStage, migrateStage] = checklist;
+  const [doctorStage, lintStage, okfStage, migrateStage, driftStage] =
+    checklist;
 
   return (
     <main class="pane-main tend">
@@ -276,6 +289,10 @@ export function TendLane({
 
         <StageShell state={migrateStage.state} position={4} title="Migrate">
           <MigrateHandoff />
+        </StageShell>
+
+        <StageShell state={driftStage.state} position={5} title="Drift">
+          <DriftStage client={client} topic={topic} vault={vault} />
         </StageShell>
       </ol>
 

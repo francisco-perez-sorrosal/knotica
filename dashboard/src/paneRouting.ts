@@ -6,11 +6,14 @@ import type { PaneId } from "./types";
  * Every `?pane=` value the dashboard accepts, mapped to the pane it opens.
  * Keys are the allowlist; a key whose value differs from itself is a legacy
  * alias kept working after the pane was renamed (`golden` → `datasets`), or
- * one of the six process lanes resolving to the pane that best represents it
- * today (`learn` → `ingest`, `answer` → `ask`, `improve` → `loop`,
- * `fill` → `sources`; `home` and `tend` both land on `vault`). Exported so a
- * caller can confirm a key is actually in the allowlist, not merely falling
- * through to the same default an unrecognised value would get.
+ * one of the four still-topical process lanes resolving to the pane that
+ * best represents it today (`learn` → `ingest`, `answer` → `ask`,
+ * `fill` → `sources`; `home` lands on `vault`). `improve` and `tend` resolve
+ * to their own real lane panes now that `ImproveLane`/`TendLane` are mounted
+ * (the dissolution's add phase) — Step 79's removal phase retires the panes
+ * they absorb. Exported so a caller can confirm a key is actually in the
+ * allowlist, not merely falling through to the same default an unrecognised
+ * value would get.
  *
  * Resolution is **exact-match, no trimming, no case folding** — uniformly for
  * legacy pane keys and lane keys alike. A mistyped case or stray whitespace
@@ -29,9 +32,9 @@ export const PANE_BY_PARAM = new Map<string, PaneId>([
   ["home", "vault"],
   ["learn", "ingest"],
   ["answer", "ask"],
-  ["improve", "loop"],
+  ["improve", "improve"],
   ["fill", "sources"],
-  ["tend", "vault"],
+  ["tend", "tend"],
 ]);
 
 const DEFAULT_PANE: PaneId = "vault";
@@ -65,6 +68,8 @@ export function resolvePane(param: string | null): PaneId {
  * uniformly with `resolvePane`.
  */
 export function resolveLaneFocus(lane: string, focus: string): PaneId {
-  const qualified = focus ? PANE_BY_LANE_FOCUS.get(`${lane}:${focus}`) : undefined;
+  const qualified = focus
+    ? PANE_BY_LANE_FOCUS.get(`${lane}:${focus}`)
+    : undefined;
   return qualified ?? PANE_BY_PARAM.get(lane) ?? DEFAULT_PANE;
 }

@@ -46,6 +46,6 @@ describe("paneFromToolInput reads lane/focus from a synthetic ontoolinput payloa
 
   it("falls through to the lane's own mapping when the lane is known but the focus is not", () => {
     const input = { arguments: { lane: "improve", focus: "not-a-real-focus" } };
-    expect(paneFromToolInput(input, "notes")).toBe("loop");
+    expect(paneFromToolInput(input, "notes")).toBe("improve");
   });
 });

@@ -1,4 +1,10 @@
-import { cleanup, fireEvent, render, screen, within } from "@testing-library/preact";
+import {
+  cleanup,
+  fireEvent,
+  render,
+  screen,
+  within,
+} from "@testing-library/preact";
 import type { JSX } from "preact";
 import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 
@@ -33,7 +39,14 @@ import type {
  *
  *   1. `<TendLane client={...} vault={...} obsidianCtx={...} />` -- three
  *      props, no `topic` (Tend is per-vault, not per-topic --
- *      `CLAUDE.md`'s Home/Tend/Improve discriminator).
+ *      `CLAUDE.md`'s Home/Tend/Improve discriminator). **Declared change
+ *      (implementer, Step 67)**: `TendLane` now also takes a required
+ *      `topic` prop, threading it through to its fifth stage,
+ *      `DriftStage.tsx` -- `notes`'s own MCP dispatcher rejects an empty
+ *      topic, so the one stage that reaches it cannot stay vault-wide the
+ *      way doctor/lint/okf/migrate do. `renderTendLane` below defaults it
+ *      to a fixture constant; every existing assertion in this file is
+ *      untouched by the addition.
  *   2. On mount, `TendLane` calls `client.doctorRun`, `client.vaultLint`,
  *      and `client.okfCheck` exactly once each, unconditionally -- the
  *      checklist rail shows all peers simultaneously (no more tabs), so all
@@ -79,7 +92,9 @@ import type {
  *      text, per `LEARNINGS_implementer_step63.md`'s documented gotcha).
  *
  * Not tested here (out of this step's scope, or a later milestone's job):
- * the `drift` stage (Step 67/68), any lane-level `outcome`/"Terminal" summary
+ * the `drift` stage's own rendering/collapse-budget/mutation behavior
+ * (covered standalone by `DriftStage.test.tsx`; this file only pins that it
+ * is wired in as the checklist's fifth row), any lane-level `outcome`/"Terminal" summary
  * banner (`INTERFACE_DESIGN.md §2.6`'s own mockup reads "Terminal: clean"
  * while simultaneously showing a check that needs a fix -- inconsistent with
  * C3 as literally stated, flagged in `LEARNINGS_test-engineer_step66.md`
@@ -91,6 +106,7 @@ import type {
 interface TendLaneProps {
   client: ToolClient | null;
   vault: string;
+  topic: string;
   obsidianCtx: ObsidianContext;
 }
 
@@ -119,18 +135,29 @@ function baseDoctorReport(overrides: Partial<DoctorReport> = {}): DoctorReport {
     quick: false,
     ok: true,
     exit_code: 0,
-    checks: [{ name: "git", status: "PASS", message: "working tree clean", remediation: null }],
+    checks: [
+      {
+        name: "git",
+        status: "PASS",
+        message: "working tree clean",
+        remediation: null,
+      },
+    ],
     summary: { pass: 1, warn: 0, fail: 0 },
     fix_guidance: null,
     ...overrides,
   };
 }
 
-function baseLintResult(overrides: Partial<VaultLintResult> = {}): VaultLintResult {
+function baseLintResult(
+  overrides: Partial<VaultLintResult> = {},
+): VaultLintResult {
   return { topic: "", violations: [], ...overrides };
 }
 
-function baseOkfResult(overrides: Partial<OkfCheckResult> = {}): OkfCheckResult {
+function baseOkfResult(
+  overrides: Partial<OkfCheckResult> = {},
+): OkfCheckResult {
   return {
     status: "ok",
     failed: false,
@@ -144,7 +171,9 @@ function baseOkfResult(overrides: Partial<OkfCheckResult> = {}): OkfCheckResult 
   };
 }
 
-function baseOkfRepairResult(overrides: Partial<OkfRepairResult> = {}): OkfRepairResult {
+function baseOkfRepairResult(
+  overrides: Partial<OkfRepairResult> = {},
+): OkfRepairResult {
   return {
     status: "ok",
     dry_run: true,
@@ -168,18 +197,41 @@ function fakeClient(
     okfRepair?: OkfRepairResult;
   } = {},
 ) {
-  const doctorRun = vi.fn(async (..._args: unknown[]) => overrides.doctor ?? baseDoctorReport());
-  const vaultLint = vi.fn(async (..._args: unknown[]) => overrides.lint ?? baseLintResult());
-  const okfCheck = vi.fn(async (..._args: unknown[]) => overrides.okf ?? baseOkfResult());
+  const doctorRun = vi.fn(
+    async (..._args: unknown[]) => overrides.doctor ?? baseDoctorReport(),
+  );
+  const vaultLint = vi.fn(
+    async (..._args: unknown[]) => overrides.lint ?? baseLintResult(),
+  );
+  const okfCheck = vi.fn(
+    async (..._args: unknown[]) => overrides.okf ?? baseOkfResult(),
+  );
   const okfRepair = vi.fn(
     async (..._args: unknown[]) => overrides.okfRepair ?? baseOkfRepairResult(),
   );
-  const client = { doctorRun, vaultLint, okfCheck, okfRepair } as unknown as ToolClient;
+  const client = {
+    doctorRun,
+    vaultLint,
+    okfCheck,
+    okfRepair,
+  } as unknown as ToolClient;
   return { client, doctorRun, vaultLint, okfCheck, okfRepair };
 }
 
-function renderTendLane(client: ToolClient, vault = VAULT): Element {
-  return render(<TendLane client={client} vault={vault} obsidianCtx={{}} />).container;
+const TOPIC = "agentic-systems";
+
+// `DriftStage` (the fifth checklist row) defers every read until its own
+// `[Check]` control is clicked -- no test in this file clicks it, so
+// `fakeClient` above deliberately carries no `notesList`/`notesDrift` stub;
+// see `DriftStage.test.tsx` for that stage's own behavior.
+function renderTendLane(
+  client: ToolClient,
+  vault = VAULT,
+  topic = TOPIC,
+): Element {
+  return render(
+    <TendLane client={client} vault={vault} topic={topic} obsidianCtx={{}} />,
+  ).container;
 }
 
 function stageNodes(container: Element): HTMLElement[] {
@@ -190,18 +242,20 @@ const DOCTOR = 0;
 const LINT = 1;
 const OKF = 2;
 const MIGRATE = 3;
+const DRIFT = 4;
 
 describe("the checklist rail", () => {
-  it("renders exactly the four doctor/lint/okf/migrate stages, in that order", () => {
+  it("renders exactly the five doctor/lint/okf/migrate/drift stages, in that order", () => {
     const { client } = fakeClient();
     const container = renderTendLane(client);
 
     const nodes = stageNodes(container);
-    expect(nodes).toHaveLength(4);
+    expect(nodes).toHaveLength(5);
     expect(nodes[DOCTOR].textContent).toMatch(/doctor/i);
     expect(nodes[LINT].textContent).toMatch(/lint/i);
     expect(nodes[OKF].textContent).toMatch(/okf/i);
     expect(nodes[MIGRATE].textContent).toMatch(/migrate/i);
+    expect(nodes[DRIFT].textContent).toMatch(/drift/i);
   });
 
   it("labels the stage list with the tend lane name", () => {
@@ -211,11 +265,12 @@ describe("the checklist rail", () => {
     expect(screen.getByRole("list", { name: "tend stages" })).toBeTruthy();
   });
 
-  it("shows all four stages as pending before any check has resolved -- the honest §2.7 loading state", () => {
+  it("shows all five stages as pending before any check has resolved -- the honest §2.7 loading state", () => {
     const { client } = fakeClient();
     const container = renderTendLane(client);
 
     expect(stageNodes(container).map((node) => node.dataset.state)).toEqual([
+      "pending",
       "pending",
       "pending",
       "pending",
@@ -229,7 +284,9 @@ describe("the checklist rail", () => {
     await vi.waitFor(() => expect(doctorRun).toHaveBeenCalled());
 
     expect(container.querySelector(".check-tabs")).toBeNull();
-    expect(screen.queryByRole("navigation", { name: "Vault checks" })).toBeNull();
+    expect(
+      screen.queryByRole("navigation", { name: "Vault checks" }),
+    ).toBeNull();
   });
 
   it("fetches doctor, vault-wide lint, and okf for the given vault on mount", async () => {
@@ -245,7 +302,9 @@ describe("the checklist rail", () => {
     expect(doctorRun.mock.calls[0]).toContain("kb-vault");
     expect(vaultLint.mock.calls[0]).toContain("kb-vault");
     // Vault-wide: Tend has no topic to scope lint to.
-    expect(vaultLint.mock.calls[0].some((arg) => arg === "" || arg === undefined)).toBe(true);
+    expect(
+      vaultLint.mock.calls[0].some((arg) => arg === "" || arg === undefined),
+    ).toBe(true);
     expect(okfCheck.mock.calls[0]).toContain("kb-vault");
   });
 });
@@ -253,11 +312,16 @@ describe("the checklist rail", () => {
 describe("doctor's checklist state follows the strict 'clean' rule (C1)", () => {
   it("is complete when every check passes", async () => {
     const { client } = fakeClient({
-      doctor: baseDoctorReport({ checks: [], summary: { pass: 0, warn: 0, fail: 0 } }),
+      doctor: baseDoctorReport({
+        checks: [],
+        summary: { pass: 0, warn: 0, fail: 0 },
+      }),
     });
     const container = renderTendLane(client);
 
-    await vi.waitFor(() => expect(stageNodes(container)[DOCTOR].dataset.state).toBe("complete"));
+    await vi.waitFor(() =>
+      expect(stageNodes(container)[DOCTOR].dataset.state).toBe("complete"),
+    );
   });
 
   it("is blocked when a check fails, and surfaces that check's remediation", async () => {
@@ -268,13 +332,20 @@ describe("doctor's checklist state follows the strict 'clean' rule (C1)", () => 
       remediation: "run `knotica tend doctor repair --apply`",
     };
     const { client } = fakeClient({
-      doctor: baseDoctorReport({ checks: [failCheck], summary: { pass: 0, warn: 0, fail: 1 } }),
+      doctor: baseDoctorReport({
+        checks: [failCheck],
+        summary: { pass: 0, warn: 0, fail: 1 },
+      }),
     });
     const container = renderTendLane(client);
 
-    await vi.waitFor(() => expect(stageNodes(container)[DOCTOR].dataset.state).toBe("blocked"));
+    await vi.waitFor(() =>
+      expect(stageNodes(container)[DOCTOR].dataset.state).toBe("blocked"),
+    );
     expect(
-      within(stageNodes(container)[DOCTOR]).getByText(/knotica tend doctor repair --apply/),
+      within(stageNodes(container)[DOCTOR]).getByText(
+        /knotica tend doctor repair --apply/,
+      ),
     ).toBeTruthy();
   });
 
@@ -286,11 +357,16 @@ describe("doctor's checklist state follows the strict 'clean' rule (C1)", () => 
       remediation: null,
     };
     const { client } = fakeClient({
-      doctor: baseDoctorReport({ checks: [warnCheck], summary: { pass: 0, warn: 1, fail: 0 } }),
+      doctor: baseDoctorReport({
+        checks: [warnCheck],
+        summary: { pass: 0, warn: 1, fail: 0 },
+      }),
     });
     const container = renderTendLane(client);
 
-    await vi.waitFor(() => expect(stageNodes(container)[DOCTOR].dataset.state).toBe("blocked"));
+    await vi.waitFor(() =>
+      expect(stageNodes(container)[DOCTOR].dataset.state).toBe("blocked"),
+    );
   });
 });
 
@@ -299,7 +375,9 @@ describe("lint's checklist state follows the strict 'clean' rule (C1)", () => {
     const { client } = fakeClient({ lint: baseLintResult({ violations: [] }) });
     const container = renderTendLane(client);
 
-    await vi.waitFor(() => expect(stageNodes(container)[LINT].dataset.state).toBe("complete"));
+    await vi.waitFor(() =>
+      expect(stageNodes(container)[LINT].dataset.state).toBe("complete"),
+    );
   });
 
   it("is blocked by even a single violation, and surfaces the violated path", async () => {
@@ -310,11 +388,17 @@ describe("lint's checklist state follows the strict 'clean' rule (C1)", () => {
       message: "missing tags",
       fix: "add frontmatter tags",
     };
-    const { client } = fakeClient({ lint: baseLintResult({ violations: [violation] }) });
+    const { client } = fakeClient({
+      lint: baseLintResult({ violations: [violation] }),
+    });
     const container = renderTendLane(client);
 
-    await vi.waitFor(() => expect(stageNodes(container)[LINT].dataset.state).toBe("blocked"));
-    expect(within(stageNodes(container)[LINT]).getByText(/mipro\.md/)).toBeTruthy();
+    await vi.waitFor(() =>
+      expect(stageNodes(container)[LINT].dataset.state).toBe("blocked"),
+    );
+    expect(
+      within(stageNodes(container)[LINT]).getByText(/mipro\.md/),
+    ).toBeTruthy();
   });
 });
 
@@ -325,29 +409,48 @@ describe("okf's checklist state follows the strict 'clean' rule (C1)", () => {
     });
     const container = renderTendLane(client);
 
-    await vi.waitFor(() => expect(stageNodes(container)[OKF].dataset.state).toBe("complete"));
+    await vi.waitFor(() =>
+      expect(stageNodes(container)[OKF].dataset.state).toBe("complete"),
+    );
   });
 
   it("is blocked when the schema check fails, and surfaces the error message", async () => {
     const { client } = fakeClient({
       okf: baseOkfResult({
         failed: true,
-        errors: [{ path: "concepts/foo.md", code: "schema", message: "unknown field 'bar'", severity: "error" }],
+        errors: [
+          {
+            path: "concepts/foo.md",
+            code: "schema",
+            message: "unknown field 'bar'",
+            severity: "error",
+          },
+        ],
       }),
     });
     const container = renderTendLane(client);
 
-    await vi.waitFor(() => expect(stageNodes(container)[OKF].dataset.state).toBe("blocked"));
-    expect(within(stageNodes(container)[OKF]).getByText(/unknown field 'bar'/)).toBeTruthy();
+    await vi.waitFor(() =>
+      expect(stageNodes(container)[OKF].dataset.state).toBe("blocked"),
+    );
+    expect(
+      within(stageNodes(container)[OKF]).getByText(/unknown field 'bar'/),
+    ).toBeTruthy();
   });
 
   it("is blocked when only advisory notes are present -- not merely non-failing", async () => {
     const { client } = fakeClient({
-      okf: baseOkfResult({ failed: false, errors: [], notes: ["a reserved file drifted from its template"] }),
+      okf: baseOkfResult({
+        failed: false,
+        errors: [],
+        notes: ["a reserved file drifted from its template"],
+      }),
     });
     const container = renderTendLane(client);
 
-    await vi.waitFor(() => expect(stageNodes(container)[OKF].dataset.state).toBe("blocked"));
+    await vi.waitFor(() =>
+      expect(stageNodes(container)[OKF].dataset.state).toBe("blocked"),
+    );
   });
 });
 
@@ -366,7 +469,9 @@ describe("the migrate stage has no MCP surface yet (INTERFACE_DESIGN.md §2.6)",
     await vi.waitFor(() => expect(doctorRun).toHaveBeenCalled());
 
     expect(
-      within(stageNodes(container)[MIGRATE]).getByText(/knotica tend migrate --dry-run/),
+      within(stageNodes(container)[MIGRATE]).getByText(
+        /knotica tend migrate --dry-run/,
+      ),
     ).toBeTruthy();
   });
 

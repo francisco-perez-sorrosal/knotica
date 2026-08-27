@@ -24,7 +24,9 @@ export type PaneId =
   | "golden"
   | "ingest"
   | "sources"
-  | "notes";
+  | "notes"
+  | "improve"
+  | "tend";
 
 export type DatasetRole =
   "trainset" | "held_out" | "seal" | "candidates" | "reviewed";

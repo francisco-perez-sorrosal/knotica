@@ -7,6 +7,8 @@ import { ArenaPane } from "./ArenaPane";
 import { AskPane } from "./AskPane";
 import { DatasetsPane } from "./DatasetsPane";
 import { IngestPane } from "./IngestPane";
+import { ImproveLane } from "./lanes/improve/ImproveLane";
+import { TendLane } from "./lanes/tend/TendLane";
 import { LoopPane } from "./LoopPane";
 import { NotesPane } from "./NotesPane";
 import { SourcesPane } from "./SourcesPane";
@@ -115,49 +117,54 @@ export function App() {
     [],
   );
 
-  const refreshStatus = useCallback(async (includeMetrics = true) => {
-    const toolClient = clientRef.current;
-    if (!toolClient) return;
-    const vaultArg = resolvedVaultArg();
-    try {
-      // Vault-wide status always resolves (no topic) and lists the vault's valid
-      // topics — fetch it FIRST so we can reconcile the topic before any
-      // topic-scoped read. Switching vaults otherwise leaves a topic from the
-      // previous vault, whose topic-scoped reads 404 and break the whole view.
-      const vaultWide = await toolClient.wikiStatus("", vaultArg);
-      catalog.value = vaultWide;
-      if (!vaultRef.current && vaultWide.vault_name) {
-        setVault(vaultWide.vault_name);
-        vaultRef.current = vaultWide.vault_name;
+  const refreshStatus = useCallback(
+    async (includeMetrics = true) => {
+      const toolClient = clientRef.current;
+      if (!toolClient) return;
+      const vaultArg = resolvedVaultArg();
+      try {
+        // Vault-wide status always resolves (no topic) and lists the vault's valid
+        // topics — fetch it FIRST so we can reconcile the topic before any
+        // topic-scoped read. Switching vaults otherwise leaves a topic from the
+        // previous vault, whose topic-scoped reads 404 and break the whole view.
+        const vaultWide = await toolClient.wikiStatus("", vaultArg);
+        catalog.value = vaultWide;
+        if (!vaultRef.current && vaultWide.vault_name) {
+          setVault(vaultWide.vault_name);
+          vaultRef.current = vaultWide.vault_name;
+        }
+        const topics = vaultWide.topics.map((row) => row.topic);
+        let topicArg = topicRef.current;
+        if (topics.length > 0 && !topics.includes(topicArg)) {
+          topicArg = topics[0];
+          setTopic(topicArg);
+          topicRef.current = topicArg;
+          const url = new URL(window.location.href);
+          url.searchParams.set("topic", topicArg);
+          window.history.replaceState({}, "", url);
+        }
+        if (topics.includes(topicArg)) {
+          const [topicScoped, nextMetrics] = await Promise.all([
+            toolClient.wikiStatus(topicArg, vaultArg),
+            includeMetrics
+              ? toolClient.metricsRead(topicArg, vaultArg)
+              : Promise.resolve(null),
+          ]);
+          status.value = topicScoped;
+          if (nextMetrics) metrics.value = nextMetrics;
+        } else {
+          // A vault with no topics yet — nothing topic-scoped to show.
+          status.value = null;
+          metrics.value = null;
+        }
+        error.value = null;
+        updated.value = new Date();
+      } catch (cause) {
+        error.value = cause instanceof Error ? cause.message : String(cause);
       }
-      const topics = vaultWide.topics.map((row) => row.topic);
-      let topicArg = topicRef.current;
-      if (topics.length > 0 && !topics.includes(topicArg)) {
-        topicArg = topics[0];
-        setTopic(topicArg);
-        topicRef.current = topicArg;
-        const url = new URL(window.location.href);
-        url.searchParams.set("topic", topicArg);
-        window.history.replaceState({}, "", url);
-      }
-      if (topics.includes(topicArg)) {
-        const [topicScoped, nextMetrics] = await Promise.all([
-          toolClient.wikiStatus(topicArg, vaultArg),
-          includeMetrics ? toolClient.metricsRead(topicArg, vaultArg) : Promise.resolve(null),
-        ]);
-        status.value = topicScoped;
-        if (nextMetrics) metrics.value = nextMetrics;
-      } else {
-        // A vault with no topics yet — nothing topic-scoped to show.
-        status.value = null;
-        metrics.value = null;
-      }
-      error.value = null;
-      updated.value = new Date();
-    } catch (cause) {
-      error.value = cause instanceof Error ? cause.message : String(cause);
-    }
-  }, [resolvedVaultArg]);
+    },
+    [resolvedVaultArg],
+  );
 
   const refreshStatusRef = useRef(refreshStatus);
   refreshStatusRef.current = refreshStatus;
@@ -229,7 +236,8 @@ export function App() {
           return;
         } catch (cause) {
           if (!stopped) {
-            const detail = cause instanceof Error ? cause.message : String(cause);
+            const detail =
+              cause instanceof Error ? cause.message : String(cause);
             error.value = `MCP App bridge unavailable (${detail}); trying HTTP…`;
           }
         }
@@ -295,18 +303,16 @@ export function App() {
   const vaultOpenUri = obsidianOpenVaultFromContext(obsidianCtx);
   const available = catalog.value?.available_vaults ?? [];
   const topics = catalog.value?.topics.map((row) => row.topic) ?? [topic];
-  const topicRow = findTopicRow(status.value, topic) ?? findTopicRow(catalog.value, topic);
+  const topicRow =
+    findTopicRow(status.value, topic) ?? findTopicRow(catalog.value, topic);
   const chipLabel = flywheelLabel({
     compiledPresent: Boolean(topicRow?.compiled?.present),
     compileReady: topicRow?.compile_ready,
     stage: status.value?.compile?.stage,
   });
   const chipTone = flywheelTone(chipLabel);
-  const { baseline: baselineScalar, source: baselineSource } = resolveTopicBaseline(
-    status.value,
-    metrics.value,
-    topicRow,
-  );
+  const { baseline: baselineScalar, source: baselineSource } =
+    resolveTopicBaseline(status.value, metrics.value, topicRow);
   const baselineTone = baselineChipTone(baselineSource);
   const baselinePrefix = baselineChipPrefix(baselineSource);
   const baselineLabel =
@@ -434,13 +440,19 @@ export function App() {
                   <span class="sr-only">Switch vault</span>
                   <select
                     value={vault || vaultName}
-                    onChange={(event) => void selectVault((event.target as HTMLSelectElement).value)}
+                    onChange={(event) =>
+                      void selectVault(
+                        (event.target as HTMLSelectElement).value,
+                      )
+                    }
                     aria-label="Switch vault"
                   >
                     {available.map((entry) => (
                       <option value={entry.name} key={entry.name}>
                         {entry.name}
-                        {entry.name === catalog.value?.default_vault ? " (active)" : ""}
+                        {entry.name === catalog.value?.default_vault
+                          ? " (active)"
+                          : ""}
                       </option>
                     ))}
                   </select>
@@ -463,7 +475,10 @@ export function App() {
               </ObsidianLink>
             </p>
             {showNewKb ? (
-              <form class="doctor-repair-toolbar" onSubmit={(event) => void submitNewKb(event)}>
+              <form
+                class="doctor-repair-toolbar"
+                onSubmit={(event) => void submitNewKb(event)}
+              >
                 <label class="heal-inline-field">
                   <span>path</span>
                   <input
@@ -471,7 +486,9 @@ export function App() {
                     required
                     value={newKbPath}
                     placeholder="/path/to/vault"
-                    onInput={(event) => setNewKbPath((event.target as HTMLInputElement).value)}
+                    onInput={(event) =>
+                      setNewKbPath((event.target as HTMLInputElement).value)
+                    }
                   />
                 </label>
                 <label class="heal-inline-field">
@@ -480,7 +497,9 @@ export function App() {
                     type="text"
                     value={newKbName}
                     placeholder={newKbBasename(newKbPath) || "vault name"}
-                    onInput={(event) => setNewKbName((event.target as HTMLInputElement).value)}
+                    onInput={(event) =>
+                      setNewKbName((event.target as HTMLInputElement).value)
+                    }
                   />
                 </label>
                 <label class="heal-inline-field">
@@ -489,10 +508,16 @@ export function App() {
                     type="text"
                     value={newKbTopic}
                     placeholder="optional"
-                    onInput={(event) => setNewKbTopic((event.target as HTMLInputElement).value)}
+                    onInput={(event) =>
+                      setNewKbTopic((event.target as HTMLInputElement).value)
+                    }
                   />
                 </label>
-                <button type="submit" class="primary" disabled={newKbBusy || !newKbPath.trim()}>
+                <button
+                  type="submit"
+                  class="primary"
+                  disabled={newKbBusy || !newKbPath.trim()}
+                >
                   {newKbBusy ? "Creating…" : "Create"}
                 </button>
                 <button
@@ -517,14 +542,18 @@ export function App() {
               <span class="sr-only">Topic</span>
               <select
                 value={topic}
-                onChange={(event) => selectTopic((event.target as HTMLSelectElement).value)}
+                onChange={(event) =>
+                  selectTopic((event.target as HTMLSelectElement).value)
+                }
                 aria-label="Topic"
               >
-                {(topics.includes(topic) ? topics : [topic, ...topics]).map((name) => (
-                  <option value={name} key={name}>
-                    {name}
-                  </option>
-                ))}
+                {(topics.includes(topic) ? topics : [topic, ...topics]).map(
+                  (name) => (
+                    <option value={name} key={name}>
+                      {name}
+                    </option>
+                  ),
+                )}
               </select>
             </label>
 
@@ -540,7 +569,10 @@ export function App() {
             </button>
 
             {showNewTopic ? (
-              <form class="doctor-repair-toolbar" onSubmit={(event) => void submitNewTopic(event)}>
+              <form
+                class="doctor-repair-toolbar"
+                onSubmit={(event) => void submitNewTopic(event)}
+              >
                 <label class="heal-inline-field">
                   <span>topic</span>
                   <input
@@ -548,7 +580,9 @@ export function App() {
                     required
                     value={newTopicName}
                     placeholder="pretraining"
-                    onInput={(event) => setNewTopicName((event.target as HTMLInputElement).value)}
+                    onInput={(event) =>
+                      setNewTopicName((event.target as HTMLInputElement).value)
+                    }
                   />
                 </label>
                 <button
@@ -616,7 +650,10 @@ export function App() {
               >
                 Notes
                 {notesDriftedCount > 0 ? (
-                  <span class="pane-tab-badge" title="Notes whose anchors drifted">
+                  <span
+                    class="pane-tab-badge"
+                    title="Notes whose anchors drifted"
+                  >
                     {notesDriftedCount}
                   </span>
                 ) : null}
@@ -641,6 +678,20 @@ export function App() {
                 onClick={() => selectPane("datasets")}
               >
                 Datasets
+              </button>
+              <button
+                type="button"
+                class={pane === "improve" ? "active" : ""}
+                onClick={() => selectPane("improve")}
+              >
+                Improve
+              </button>
+              <button
+                type="button"
+                class={pane === "tend" ? "active" : ""}
+                onClick={() => selectPane("tend")}
+              >
+                Tend
               </button>
             </nav>
 
@@ -685,18 +736,21 @@ export function App() {
           <span>
             {catalog.value.llm.reason === "deps" ? (
               <>
-                Credentials found but eval dependencies are missing. Restart the server with:{" "}
-                <code>uv run --extra evals knotica mcp …</code>
+                Credentials found but eval dependencies are missing. Restart the
+                server with: <code>uv run --extra evals knotica mcp …</code>
               </>
             ) : (
               <>
                 Ask, Arena, Compile and live evals need credentials. Set{" "}
-                <code>CLAUDE_CODE_OAUTH_TOKEN</code> (preferred) or <code>ANTHROPIC_API_KEY</code>{" "}
-                in the server environment.
+                <code>CLAUDE_CODE_OAUTH_TOKEN</code> (preferred) or{" "}
+                <code>ANTHROPIC_API_KEY</code> in the server environment.
               </>
             )}
           </span>
-          <button type="button" onClick={() => (llmBannerDismissed.value = true)}>
+          <button
+            type="button"
+            onClick={() => (llmBannerDismissed.value = true)}
+          >
             Dismiss
           </button>
         </aside>
@@ -769,10 +823,34 @@ export function App() {
         />
       ) : null}
       {pane === "ingest" ? (
-        <IngestPane client={client} topic={topic} vault={resolvedVaultName} obsidianCtx={obsidianCtx} />
+        <IngestPane
+          client={client}
+          topic={topic}
+          vault={resolvedVaultName}
+          obsidianCtx={obsidianCtx}
+        />
       ) : null}
       {pane === "datasets" || pane === "golden" ? (
         <DatasetsPane client={client} topic={topic} vault={resolvedVaultName} />
+      ) : null}
+      {pane === "improve" ? (
+        <ImproveLane
+          client={client}
+          topic={topic}
+          vault={resolvedVaultName}
+          status={status.value}
+          metrics={metrics.value}
+          obsidianCtx={obsidianCtx}
+          onStatusRefresh={() => refreshStatus(true)}
+        />
+      ) : null}
+      {pane === "tend" ? (
+        <TendLane
+          client={client}
+          vault={resolvedVaultName}
+          topic={topic}
+          obsidianCtx={obsidianCtx}
+        />
       ) : null}
     </>
   );

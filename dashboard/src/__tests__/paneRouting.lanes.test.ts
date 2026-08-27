@@ -35,9 +35,9 @@ const LANE_TARGET_PANE: Readonly<Record<string, PaneId>> = {
   home: "vault",
   learn: "ingest",
   answer: "ask",
-  improve: "loop",
+  improve: "improve",
   fill: "sources",
-  tend: "vault",
+  tend: "tend",
 };
 
 describe("the six process lanes as accepted ?pane= values", () => {
@@ -111,13 +111,13 @@ describe("focus-qualified lane resolution (resolveLaneFocus)", () => {
 
   it("falls through to the lane's own plain mapping when focus is the empty string", () => {
     // No focus at all is the common case (a bare `open_dashboard(lane="improve")`).
-    expect(resolveLaneFocus("improve", "")).toBe("loop");
+    expect(resolveLaneFocus("improve", "")).toBe("improve");
   });
 
   it("falls through to the lane's own plain mapping when focus does not match any documented case", () => {
     // A focus value that simply doesn't exist for this lane must not surface
     // as undefined -- it degrades to what a bare lane, with no focus, would give.
-    expect(resolveLaneFocus("improve", "not-a-real-focus")).toBe("loop");
+    expect(resolveLaneFocus("improve", "not-a-real-focus")).toBe("improve");
   });
 
   it("falls through to the lane's own plain mapping for a lane with no documented focus case at all", () => {
