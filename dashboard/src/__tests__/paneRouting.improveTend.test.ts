@@ -120,9 +120,9 @@ describe("the surviving panes' own ?pane= resolutions are untouched by the lane 
     ["ask", "ask"],
     ["ingest", "ingest"],
     ["sources", "sources"],
-    ["learn", "ingest"],
-    ["answer", "ask"],
-    ["fill", "sources"],
+    ["learn", "learn"],
+    ["answer", "answer"],
+    ["fill", "fill"],
   ];
 
   it.each(UNCHANGED)("still resolves %s to %s", (param, pane) => {

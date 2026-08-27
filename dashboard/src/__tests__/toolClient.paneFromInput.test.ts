@@ -18,7 +18,7 @@ describe("paneFromToolInput reads lane/focus from a synthetic ontoolinput payloa
 
   it("resolves a bare lane with no focus to that lane's own mapping", () => {
     const input = { arguments: { lane: "fill" } };
-    expect(paneFromToolInput(input, "tend")).toBe("sources");
+    expect(paneFromToolInput(input, "tend")).toBe("fill");
   });
 
   it("keeps the caller's fallback pane when the payload carries no lane at all", () => {

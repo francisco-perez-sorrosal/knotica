@@ -33,10 +33,10 @@ import type { PaneId } from "../types";
 
 const LANE_TARGET_PANE: Readonly<Record<string, PaneId>> = {
   home: "tend",
-  learn: "ingest",
-  answer: "ask",
+  learn: "learn",
+  answer: "answer",
   improve: "improve",
-  fill: "sources",
+  fill: "fill",
   tend: "tend",
 };
 
@@ -123,14 +123,14 @@ describe("focus-qualified lane resolution (resolveLaneFocus)", () => {
 
   it("falls through to the lane's own plain mapping for a lane with no documented focus case at all", () => {
     // "fill" never appears in the qualified table; any focus value on it
-    // must still land on "sources", the lane's own unqualified mapping.
-    expect(resolveLaneFocus("fill", "whatever")).toBe("sources");
+    // must still land on "fill", the lane's own unqualified mapping.
+    expect(resolveLaneFocus("fill", "whatever")).toBe("fill");
   });
 
   it("does not let a focus value meaningful under one lane leak into another lane's resolution", () => {
     // "heal" is an Improve stage. Under "learn" it must still land on learn's
-    // own mapping ("ingest") -- a focus never redirects across lanes.
-    expect(resolveLaneFocus("learn", "heal")).toBe("ingest");
+    // own mapping ("learn") -- a focus never redirects across lanes.
+    expect(resolveLaneFocus("learn", "heal")).toBe("learn");
   });
 
   it("degrades an unrecognised lane to the default pane regardless of focus", () => {

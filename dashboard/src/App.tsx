@@ -5,7 +5,10 @@ import { applyDocumentTheme } from "@modelcontextprotocol/ext-apps";
 
 import { AskPane } from "./AskPane";
 import { IngestPane } from "./IngestPane";
+import { AnswerLane } from "./lanes/answer/AnswerLane";
+import { FillLane } from "./lanes/fill/FillLane";
 import { ImproveLane } from "./lanes/improve/ImproveLane";
+import { LearnLane } from "./lanes/learn/LearnLane";
 import { TendLane } from "./lanes/tend/TendLane";
 import { SourcesPane } from "./SourcesPane";
 import {
@@ -654,6 +657,27 @@ export function App() {
                   </span>
                 ) : null}
               </button>
+              <button
+                type="button"
+                class={pane === "learn" ? "active" : ""}
+                onClick={() => selectPane("learn")}
+              >
+                Learn
+              </button>
+              <button
+                type="button"
+                class={pane === "answer" ? "active" : ""}
+                onClick={() => selectPane("answer")}
+              >
+                Answer
+              </button>
+              <button
+                type="button"
+                class={pane === "fill" ? "active" : ""}
+                onClick={() => selectPane("fill")}
+              >
+                Fill
+              </button>
             </nav>
 
             <div class="chrome-status">
@@ -769,6 +793,32 @@ export function App() {
           vault={resolvedVaultName}
           topic={topic}
           obsidianCtx={obsidianCtx}
+        />
+      ) : null}
+      {pane === "learn" ? (
+        <LearnLane
+          client={client}
+          topic={topic}
+          vault={resolvedVaultName}
+          obsidianCtx={obsidianCtx}
+        />
+      ) : null}
+      {pane === "answer" ? (
+        <AnswerLane
+          client={client}
+          topic={topic}
+          vault={resolvedVaultName}
+          obsidianCtx={obsidianCtx}
+          status={status.value}
+        />
+      ) : null}
+      {pane === "fill" ? (
+        <FillLane
+          client={client}
+          topic={topic}
+          vault={resolvedVaultName}
+          status={status.value}
+          onStatusRefresh={() => refreshStatus(false)}
         />
       ) : null}
     </>

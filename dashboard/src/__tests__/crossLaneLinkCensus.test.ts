@@ -184,9 +184,9 @@ describe("pre-existing topical and new-lane resolutions are unaffected by the re
     ["ingest", "ingest"],
     ["ask", "ask"],
     ["sources", "sources"],
-    ["learn", "ingest"],
-    ["answer", "ask"],
-    ["fill", "sources"],
+    ["learn", "learn"],
+    ["answer", "answer"],
+    ["fill", "fill"],
     ["improve", "improve"],
     ["tend", "tend"],
   ];

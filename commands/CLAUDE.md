@@ -1,6 +1,6 @@
 # `commands/` — plugin slash commands
 
-One file per `/knotica:*` alias, 14 in total. These are **prompts, not code**: the model reads the body and acts. Precision matters more than brevity.
+One file per `/knotica:*` alias, 15 in total. These are **prompts, not code**: the model reads the body and acts. Precision matters more than brevity.
 
 ## Anatomy
 
