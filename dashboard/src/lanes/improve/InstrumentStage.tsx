@@ -1,6 +1,7 @@
 import type { JSX } from "preact";
 import { useCallback, useEffect, useState } from "preact/hooks";
 
+import { ArmedButton } from "../ArmedButton";
 import type { ToolClient } from "../../toolClient";
 import type { DatasetsInventory } from "../../types";
 
@@ -12,21 +13,25 @@ import type { DatasetsInventory } from "../../types";
  * the top level, outside the single `▸` disclosure that holds everything
  * else.
  *
- * The two spend-immediately billed actions (`Bootstrap`, `Bootstrap
- * trainset`) gate on an in-DOM two-click armed→confirm affordance before the
- * billing call fires — the first click arms the control (relabelling it to
- * "Confirm … — bills", with a `Cancel` ghost button to back out), and only
- * the second, explicit click spends. Per the orchestrator's no-native-dialogs
- * ruling (`LEARNINGS.md`): a sandboxed MCP-App iframe has no `allow-modals`,
- * so `window.confirm()` can be silently suppressed and return `false`,
- * bricking the action on Claude Desktop. Neither action mints a server-side
- * `confirm_nonce` (unlike `observe`'s `run_eval`), so this is the honest
- * client-side mirror of "explicit confirmation" for them — the same shape
- * `HealStage.tsx`'s `compile action=run` control already established for its
- * own nonce-less billed action. `Freeze golden` keeps `window.confirm()`
- * unchanged: it is not one of the two actions the ruling covers, and it was
- * already `DatasetsPane`'s existing behavior before this absorption, not a
- * new spend surface introduced here.
+ * All three spend-immediately billed actions (`Bootstrap`, `Bootstrap
+ * trainset`, `Freeze golden`) gate on the shared `ArmedButton` two-click
+ * armed→confirm affordance before the billing call fires — the first click
+ * arms the control (relabelling it to "Confirm … — bills", with a `Cancel`
+ * ghost button to back out), and only the second, explicit click spends. Per
+ * the orchestrator's no-native-dialogs ruling (`LEARNINGS.md`): a sandboxed
+ * MCP-App iframe has no `allow-modals`, so `window.confirm()` can be silently
+ * suppressed and return `false`, bricking the action on Claude Desktop. None
+ * of the three mints a server-side `confirm_nonce` (unlike `observe`'s
+ * `run_eval`), so this is the honest client-side mirror of "explicit
+ * confirmation" for all of them. `Freeze golden` previously kept
+ * `window.confirm()` as pre-existing `DatasetsPane` behavior; the ruling is
+ * dashboard-wide, not billed-actions-only, so it is converted here too
+ * (`LEARNINGS.md`, "Carried to the ImproveLane assembly step") — a suppressed
+ * native confirm silently returns `false` in the sandboxed MCP-App mount,
+ * making Freeze un-triggerable on Claude Desktop regardless of whether it was
+ * "new" spend surface. The reviewed-set-below-floor warning `window.confirm`
+ * used to fold into its dialog text now renders as inline copy instead, since
+ * there is no dialog left to carry it.
  */
 
 type InstrumentToolClient = Pick<
@@ -55,6 +60,7 @@ export function InstrumentStage({
   const [expanded, setExpanded] = useState(false);
   const [armedBootstrap, setArmedBootstrap] = useState(false);
   const [armedBootstrapTrain, setArmedBootstrapTrain] = useState(false);
+  const [armedFreeze, setArmedFreeze] = useState(false);
 
   const reloadInventory = useCallback(async () => {
     if (!client) return;
@@ -103,14 +109,6 @@ export function InstrumentStage({
     }
   }
 
-  function handleBootstrapClick() {
-    if (!armedBootstrap) {
-      setArmedBootstrap(true);
-      return;
-    }
-    void runBootstrap();
-  }
-
   async function runBootstrapTrain() {
     if (!client) return;
     setBusy("bootstrap-train");
@@ -134,31 +132,8 @@ export function InstrumentStage({
     }
   }
 
-  function handleBootstrapTrainClick() {
-    if (!armedBootstrapTrain) {
-      setArmedBootstrapTrain(true);
-      return;
-    }
-    void runBootstrapTrain();
-  }
-
   async function runFreeze() {
     if (!client) return;
-    // The shortfall is stated before the write: freezing below the floor is a
-    // judgement the human is entitled to make, but only if they are told what
-    // they are trading away.
-    const shortfallWarning = belowFloor
-      ? `\n\nOnly ${reviewedN} reviewed candidate${reviewedN === 1 ? "" : "s"} — below the ` +
-        `recommended ${floor}. The eval scalar will be noisier until the set grows.`
-      : "";
-    if (
-      !window.confirm(
-        `Freeze ${reviewedN} reviewed candidate${reviewedN === 1 ? "" : "s"} into held-out ` +
-          `golden.jsonl + MANIFEST.json?${shortfallWarning}`,
-      )
-    ) {
-      return;
-    }
     setBusy("freeze");
     setError(null);
     try {
@@ -173,6 +148,7 @@ export function InstrumentStage({
       setError(cause instanceof Error ? cause.message : String(cause));
     } finally {
       setBusy(null);
+      setArmedFreeze(false);
     }
   }
 
@@ -198,52 +174,38 @@ export function InstrumentStage({
           ) : null}
         </div>
         <div class="instrument-actions">
-          <button
-            type="button"
-            disabled={busy !== null}
-            onClick={handleBootstrapClick}
+          <ArmedButton
+            armed={armedBootstrap}
+            busy={busy === "bootstrap"}
+            disabled={busy !== null && busy !== "bootstrap"}
+            label="Bootstrap"
+            armedLabel="Confirm bootstrap — bills"
+            busyLabel="Bootstrapping…"
             title="LLM synthesize candidates from entity pages"
-          >
-            {busy === "bootstrap"
-              ? "Bootstrapping…"
-              : armedBootstrap
-                ? "Confirm bootstrap — bills"
-                : "Bootstrap"}
-          </button>
-          {armedBootstrap && busy === null ? (
-            <button
-              type="button"
-              class="ghost"
-              onClick={() => setArmedBootstrap(false)}
-            >
-              Cancel
-            </button>
-          ) : null}
-          <button
-            type="button"
-            disabled={busy !== null}
-            onClick={handleBootstrapTrainClick}
+            onArm={() => setArmedBootstrap(true)}
+            onConfirm={() => void runBootstrap()}
+            onCancel={() => setArmedBootstrap(false)}
+          />
+          <ArmedButton
+            armed={armedBootstrapTrain}
+            busy={busy === "bootstrap-train"}
+            disabled={busy !== null && busy !== "bootstrap-train"}
+            label="Bootstrap trainset"
+            armedLabel="Confirm bootstrap trainset — bills"
+            busyLabel="Bootstrapping trainset…"
             title="LLM crawl and label pages into the trainset"
-          >
-            {busy === "bootstrap-train"
-              ? "Bootstrapping trainset…"
-              : armedBootstrapTrain
-                ? "Confirm bootstrap trainset — bills"
-                : "Bootstrap trainset"}
-          </button>
-          {armedBootstrapTrain && busy === null ? (
-            <button
-              type="button"
-              class="ghost"
-              onClick={() => setArmedBootstrapTrain(false)}
-            >
-              Cancel
-            </button>
-          ) : null}
-          <button
-            type="button"
-            class="primary"
-            disabled={busy !== null || !freezeReady}
+            onArm={() => setArmedBootstrapTrain(true)}
+            onConfirm={() => void runBootstrapTrain()}
+            onCancel={() => setArmedBootstrapTrain(false)}
+          />
+          <ArmedButton
+            armed={armedFreeze}
+            busy={busy === "freeze"}
+            disabled={(busy !== null && busy !== "freeze") || !freezeReady}
+            label="Freeze golden"
+            armedLabel="Confirm freeze — writes files"
+            busyLabel="Freezing…"
+            className="primary"
             title={
               freezeBlocked
                 ? "Freeze refuses a Reviewed set that overlaps the trainset — clear the overlap first"
@@ -251,12 +213,20 @@ export function InstrumentStage({
                   ? "No reviewed candidates to freeze"
                   : "Promote Reviewed → held-out golden.jsonl"
             }
-            onClick={() => void runFreeze()}
-          >
-            {busy === "freeze" ? "Freezing…" : "Freeze golden"}
-          </button>
+            onArm={() => setArmedFreeze(true)}
+            onConfirm={() => void runFreeze()}
+            onCancel={() => setArmedFreeze(false)}
+          />
         </div>
       </header>
+
+      {belowFloor ? (
+        <p class="muted freeze-shortfall-warning">
+          Only {reviewedN} reviewed candidate{reviewedN === 1 ? "" : "s"} —
+          below the recommended {floor}. The eval scalar will be noisier until
+          the set grows.
+        </p>
+      ) : null}
 
       {note ? <p class="saved-note">{note}</p> : null}
       {error ? <aside role="alert">{error}</aside> : null}

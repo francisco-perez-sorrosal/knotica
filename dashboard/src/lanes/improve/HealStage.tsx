@@ -1,6 +1,7 @@
 import type { JSX } from "preact";
 import { useEffect, useState } from "preact/hooks";
 
+import { ArmedButton } from "../ArmedButton";
 import type { ToolClient } from "../../toolClient";
 import type { ArenaHistory, ArenaStatus, WikiStatus } from "../../types";
 
@@ -15,13 +16,9 @@ import type { ArenaHistory, ArenaStatus, WikiStatus } from "../../types";
  * `compile action=run` is a single billed call with no free preview leg
  * (unlike `gate`'s `run_once`, which mints a server-side nonce). Per the
  * orchestrator's no-native-dialogs ruling (`LEARNINGS.md`), a spend-immediately
- * control with no nonce cycle gates on an in-DOM two-click armed→confirm
+ * control with no nonce cycle gates on the shared `ArmedButton` two-click
  * affordance instead of `window.confirm()` — never native, and never a single
- * click. This is inlined here rather than extracted to a shared `lanes/`
- * primitive: `InstrumentStage.tsx` (the sibling that needed the same shape for
- * its own two spend-immediately dataset actions) had not landed at the time
- * this step ran, so the extraction site was contested — flagged in
- * `LEARNINGS_implementer_step71.md` for the assembly step to unify.
+ * click.
  */
 
 export function HealStage({
@@ -94,14 +91,6 @@ export function HealStage({
     }
   }
 
-  function handleCompileClick() {
-    if (!armed) {
-      setArmed(true);
-      return;
-    }
-    void runCompile();
-  }
-
   const variants = [...(arenaStatus?.variants ?? [])].sort(
     (a, b) => (b.scalar ?? -1) - (a.scalar ?? -1),
   );
@@ -149,24 +138,19 @@ export function HealStage({
       ) : null}
 
       <div class="heal-step-actions">
-        <button
-          type="button"
-          data-testid="heal-compile-run"
-          class="heal-freeze-primary"
-          disabled={!client || busy}
-          onClick={handleCompileClick}
-        >
-          {busy
-            ? "Compiling…"
-            : armed
-              ? "Confirm compile — bills"
-              : "Compile now"}
-        </button>
-        {armed && !busy ? (
-          <button type="button" class="ghost" onClick={() => setArmed(false)}>
-            Cancel
-          </button>
-        ) : null}
+        <ArmedButton
+          armed={armed}
+          busy={busy}
+          disabled={!client}
+          label="Compile now"
+          armedLabel="Confirm compile — bills"
+          busyLabel="Compiling…"
+          className="heal-freeze-primary"
+          testId="heal-compile-run"
+          onArm={() => setArmed(true)}
+          onConfirm={() => void runCompile()}
+          onCancel={() => setArmed(false)}
+        />
       </div>
     </div>
   );

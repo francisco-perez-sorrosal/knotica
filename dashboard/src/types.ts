@@ -14,12 +14,7 @@ export type LoopStage =
  * against the gate baseline, so no variant was measured. Distinct from
  * `reverted`, which means the race ran and nobody won. */
 export type ArenaStage =
-  | "idle"
-  | "racing"
-  | "promoting"
-  | "completed"
-  | "reverted"
-  | "aborted";
+  "idle" | "racing" | "promoting" | "completed" | "reverted" | "aborted";
 export type PaneId =
   | "vault"
   | "ask"
@@ -31,7 +26,8 @@ export type PaneId =
   | "sources"
   | "notes";
 
-export type DatasetRole = "trainset" | "held_out" | "seal" | "candidates" | "reviewed";
+export type DatasetRole =
+  "trainset" | "held_out" | "seal" | "candidates" | "reviewed";
 
 export interface DatasetFileRow {
   role: DatasetRole;
@@ -192,6 +188,17 @@ export interface LoopProgress {
   examples?: ExampleOutcome[];
 }
 
+/** One rail row's already-derived state (`core/process_model.py::derive_stages`,
+ * `core/status_lanes.py::lanes_block`) -- the server is the one source of
+ * position truth; the client renders this verbatim, never re-derives it. */
+export type LaneRailStageState = "pending" | "active" | "complete" | "blocked";
+
+export interface LaneRailStageStatus {
+  id: string;
+  state: LaneRailStageState;
+  reason: string | null;
+}
+
 export interface WikiStatus {
   schema_version: number;
   vault: string;
@@ -223,6 +230,13 @@ export interface WikiStatus {
     suggestions?: SuggestionStatusSummary;
     gaps?: GapStatusSummary;
     notes?: NotesStatusSummary;
+    /** Every non-Home lane's rail, server-derived and total (Step 48). Optional
+     *  for backward compat with a `wiki_status` payload predating the lanes
+     *  block -- absent means "render every stage pending," never a crash. */
+    lanes?: Record<
+      "learn" | "answer" | "improve" | "fill" | "tend",
+      LaneRailStageStatus[]
+    >;
   }>;
   totals: {
     topics: number;
@@ -235,7 +249,11 @@ export interface WikiStatus {
   };
   last_lint: string | null;
   unpushed: number | null;
-  gate: { state: GateState; baseline: number | null; last_scalar: number | null };
+  gate: {
+    state: GateState;
+    baseline: number | null;
+    last_scalar: number | null;
+  };
   llm: LlmAvailability;
   loop: {
     runner: LoopRunnerLiveness;
@@ -263,19 +281,17 @@ export interface WikiStatus {
     /** Gate policy: "latest" tracks reality; "best" is a high-water mark. */
     baseline_policy?: "latest" | "best";
     pending_candidates?: LoopPendingCandidate[];
-    metrics_hint?: { last_scalar: number | null; last_generation: number | null } | null;
+    metrics_hint?: {
+      last_scalar: number | null;
+      last_generation: number | null;
+    } | null;
     progress?: LoopProgress | null;
   };
   compile?: CompileStatus | null;
 }
 
 export type CompileStage =
-  | "idle"
-  | "running"
-  | "optimizing"
-  | "evaluating"
-  | "completed"
-  | "failed";
+  "idle" | "running" | "optimizing" | "evaluating" | "completed" | "failed";
 
 export interface CompileHistoryEntry {
   history_id: string;
@@ -329,11 +345,7 @@ export interface CompilePromoteResult {
 }
 
 export type ScoreboardEntryKind =
-  | "default"
-  | "compile"
-  | "loop_candidate"
-  | "loop_result"
-  | "arena_variant";
+  "default" | "compile" | "loop_candidate" | "loop_result" | "arena_variant";
 
 export interface ScoreboardEntry {
   kind: ScoreboardEntryKind;
@@ -587,7 +599,12 @@ export interface OkfCheckResult {
   bundle_root: string;
   concept_files_checked: number;
   reserved_files_checked: number;
-  errors: Array<{ path: string; code: string; message: string; severity: string }>;
+  errors: Array<{
+    path: string;
+    code: string;
+    message: string;
+    severity: string;
+  }>;
   notes: string[];
   strict_failures: string[];
 }
@@ -785,10 +802,7 @@ export interface GapStatusSummary {
 }
 
 export type ReputabilityTier =
-  | "peer_reviewed"
-  | "preprint_known_lab"
-  | "established_org"
-  | "general_web";
+  "peer_reviewed" | "preprint_known_lab" | "established_org" | "general_web";
 
 export interface SuggestionReputability {
   tier: ReputabilityTier;
@@ -814,7 +828,8 @@ export interface SuggestionCandidate {
   schema_version: number;
 }
 
-export type SuggestionStatus = "pending" | "approved" | "rejected" | "deferred" | "ingested";
+export type SuggestionStatus =
+  "pending" | "approved" | "rejected" | "deferred" | "ingested";
 
 export type GateOutcomeVerdict = "merged" | "refused";
 
@@ -993,7 +1008,8 @@ export type AnchorFidelity = "span" | "page" | "topic";
  * and `orphaned` are drift: `fuzzy` found only a paraphrase, `orphaned` found
  * nothing at all.
  */
-export type AnchorStatus = "exact" | "unanchored" | "shifted" | "fuzzy" | "orphaned";
+export type AnchorStatus =
+  "exact" | "unanchored" | "shifted" | "fuzzy" | "orphaned";
 export type AnchorStatusFilter = AnchorStatus | "all";
 
 /**
@@ -1234,4 +1250,5 @@ export interface NotePromoteGapResult {
 /** The two ``target``s the dashboard offers; ``golden`` always rejects tool-side (dec-059). */
 export type PromoteTarget = "trainset" | "gap";
 
-export type NotePromoteActionResult = NotePromoteTrainsetResult | NotePromoteGapResult;
+export type NotePromoteActionResult =
+  NotePromoteTrainsetResult | NotePromoteGapResult;

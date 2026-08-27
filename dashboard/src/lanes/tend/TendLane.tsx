@@ -1,10 +1,7 @@
 import { useEffect, useState } from "preact/hooks";
 import type { JSX } from "preact";
 
-import {
-  ObsidianFileLink,
-  type ObsidianContext,
-} from "../../obsidianLinks";
+import { ObsidianFileLink, type ObsidianContext } from "../../obsidianLinks";
 import { formatToolFailure, type ToolClient } from "../../toolClient";
 import type {
   DoctorReport,
@@ -12,6 +9,7 @@ import type {
   OkfRepairResult,
   VaultLintResult,
 } from "../../types";
+import { ArmedButton } from "../ArmedButton";
 import { deriveChecklistStages } from "../laneRailState";
 import type { StageState } from "../laneRailState";
 
@@ -72,7 +70,9 @@ function stageGlyph(state: StageState, position: number): string {
 
 function doctorCheckStatus(report: DoctorReport | null): CheckStatus {
   if (!report) return "pending";
-  return report.summary.fail === 0 && report.summary.warn === 0 ? "complete" : "blocked";
+  return report.summary.fail === 0 && report.summary.warn === 0
+    ? "complete"
+    : "blocked";
 }
 
 function doctorTone(report: DoctorReport): Health {
@@ -92,7 +92,9 @@ function lintToneFor(count: number): Health {
 
 function okfCheckStatus(result: OkfCheckResult | null): CheckStatus {
   if (!result) return "pending";
-  return !result.failed && result.errors.length === 0 && result.notes.length === 0
+  return !result.failed &&
+    result.errors.length === 0 &&
+    result.notes.length === 0
     ? "complete"
     : "blocked";
 }
@@ -175,15 +177,6 @@ function useTendChecks(client: ToolClient | null, vault: string) {
     }
   }
 
-  function handleOkfApplyClick() {
-    if (busy !== null) return;
-    if (!okfApplyArmed) {
-      setOkfApplyArmed(true);
-      return;
-    }
-    void runOkfApply();
-  }
-
   return {
     doctor,
     lint,
@@ -194,7 +187,8 @@ function useTendChecks(client: ToolClient | null, vault: string) {
     busy,
     okfApplyArmed,
     runOkfDryRun,
-    handleOkfApplyClick,
+    armOkfApply: () => setOkfApplyArmed(true),
+    runOkfApply,
     cancelOkfApply: () => setOkfApplyArmed(false),
   };
 }
@@ -218,7 +212,8 @@ export function TendLane({
     busy,
     okfApplyArmed,
     runOkfDryRun,
-    handleOkfApplyClick,
+    armOkfApply,
+    runOkfApply,
     cancelOkfApply,
   } = useTendChecks(client, vault);
 
@@ -252,19 +247,29 @@ export function TendLane({
           state={lintStage.state}
           position={2}
           title="Lint"
-          healthChip={lint ? <HealthChip tone={lintToneFor(lint.violations.length)} /> : null}
+          healthChip={
+            lint ? (
+              <HealthChip tone={lintToneFor(lint.violations.length)} />
+            ) : null
+          }
         >
           <LintPanel result={lint} busy={loading} obsidianCtx={obsidianCtx} />
         </StageShell>
 
         <StageShell state={okfStage.state} position={3} title="OKF">
-          <OkfStatus okf={okf} repair={repair} busy={loading} obsidianCtx={obsidianCtx} />
+          <OkfStatus
+            okf={okf}
+            repair={repair}
+            busy={loading}
+            obsidianCtx={obsidianCtx}
+          />
           <OkfActions
             client={client}
             busy={busy}
             armed={okfApplyArmed}
             onDryRun={() => void runOkfDryRun()}
-            onApplyClick={handleOkfApplyClick}
+            onArm={armOkfApply}
+            onConfirm={() => void runOkfApply()}
             onCancel={cancelOkfApply}
           />
         </StageShell>
@@ -275,8 +280,9 @@ export function TendLane({
       </ol>
 
       <p class="muted" data-testid="tend-gate-note">
-        Read-only here. Gating a candidate is billed and two-phase, and lives on the{" "}
-        <strong>Improve</strong> pane so there is exactly one place it can be triggered from.
+        Read-only here. Gating a candidate is billed and two-phase, and lives on
+        the <strong>Improve</strong> pane so there is exactly one place it can
+        be triggered from.
       </p>
     </main>
   );
@@ -323,14 +329,16 @@ function OkfActions({
   busy,
   armed,
   onDryRun,
-  onApplyClick,
+  onArm,
+  onConfirm,
   onCancel,
 }: {
   client: ToolClient | null;
   busy: TendBusy;
   armed: boolean;
   onDryRun: () => void;
-  onApplyClick: () => void;
+  onArm: () => void;
+  onConfirm: () => void;
   onCancel: () => void;
 }): JSX.Element {
   return (
@@ -344,29 +352,24 @@ function OkfActions({
         >
           {busy === "okf-dry" ? "Previewing…" : "Repair dry-run"}
         </button>
-        <button
-          type="button"
-          class="danger"
-          data-testid="tend-okf-repair-apply"
-          disabled={!client || busy !== null}
-          onClick={onApplyClick}
-        >
-          {busy === "okf-apply" ? "Applying…" : armed ? "Confirm apply — writes files" : "Repair apply"}
-        </button>
-        {armed && busy === null ? (
-          <button
-            type="button"
-            class="ghost"
-            data-testid="tend-okf-repair-apply-cancel"
-            onClick={onCancel}
-          >
-            Cancel
-          </button>
-        ) : null}
+        <ArmedButton
+          armed={armed}
+          busy={busy === "okf-apply"}
+          disabled={!client || (busy !== null && busy !== "okf-apply")}
+          label="Repair apply"
+          armedLabel="Confirm apply — writes files"
+          busyLabel="Applying…"
+          className="danger"
+          testId="tend-okf-repair-apply"
+          cancelTestId="tend-okf-repair-apply-cancel"
+          onArm={onArm}
+          onConfirm={onConfirm}
+          onCancel={onCancel}
+        />
       </div>
       <p class="action-note">
-        Same as <code>knotica okf check|repair</code>. Apply writes files and creates one git
-        commit.
+        Same as <code>knotica okf check|repair</code>. Apply writes files and
+        creates one git commit.
       </p>
     </>
   );
@@ -377,7 +380,9 @@ function OkfActions({
 function MigrateHandoff(): JSX.Element {
   return (
     <div class="remediation-panel">
-      <p class="muted">No dashboard surface yet — run the CLI directly to preview a migration.</p>
+      <p class="muted">
+        No dashboard surface yet — run the CLI directly to preview a migration.
+      </p>
       <div class="tend-cli">
         <code>{MIGRATE_DRY_RUN_COMMAND}</code>
         <button
@@ -406,21 +411,28 @@ function DoctorPanel({
   busy: boolean;
 }): JSX.Element {
   if (!report) {
-    return <p class="muted empty-check">{busy ? "Running doctor…" : "No doctor result yet."}</p>;
+    return (
+      <p class="muted empty-check">
+        {busy ? "Running doctor…" : "No doctor result yet."}
+      </p>
+    );
   }
   const tone = doctorTone(report);
   return (
     <div class={`remediation-panel health-${tone}`}>
       <div class="loop-watch-top">
         <h3>
-          Doctor · {report.summary.pass} pass / {report.summary.warn} warn / {report.summary.fail}{" "}
-          fail
+          Doctor · {report.summary.pass} pass / {report.summary.warn} warn /{" "}
+          {report.summary.fail} fail
         </h3>
         <HealthChip tone={tone} />
       </div>
       <ul class="check-list" aria-label="Doctor checks">
         {report.checks.map((row) => (
-          <li class={`check-row check-${row.status.toLowerCase()}`} key={row.name}>
+          <li
+            class={`check-row check-${row.status.toLowerCase()}`}
+            key={row.name}
+          >
             <span
               class={`health-chip ${checkStatusTone(row.status)}`}
               aria-label={`Status: ${row.status}`}
@@ -467,7 +479,11 @@ function LintPanel({
   obsidianCtx: ObsidianContext;
 }): JSX.Element {
   if (!result) {
-    return <p class="muted empty-check">{busy ? "Linting…" : "No lint result yet."}</p>;
+    return (
+      <p class="muted empty-check">
+        {busy ? "Linting…" : "No lint result yet."}
+      </p>
+    );
   }
   const tone = lintToneFor(result.violations.length);
   return (
@@ -514,12 +530,18 @@ function OkfStatus({
   obsidianCtx: ObsidianContext;
 }): JSX.Element {
   if (!okf && !repair) {
-    return <p class="muted empty-check">{busy ? "Checking OKF…" : "No OKF result yet."}</p>;
+    return (
+      <p class="muted empty-check">
+        {busy ? "Checking OKF…" : "No OKF result yet."}
+      </p>
+    );
   }
   return (
     <>
       {okf ? <OkfPanel result={okf} obsidianCtx={obsidianCtx} /> : null}
-      {repair ? <RepairPanel result={repair} obsidianCtx={obsidianCtx} /> : null}
+      {repair ? (
+        <RepairPanel result={repair} obsidianCtx={obsidianCtx} />
+      ) : null}
     </>
   );
 }
@@ -532,7 +554,11 @@ function OkfPanel({
   obsidianCtx: ObsidianContext;
 }): JSX.Element {
   const tone: Health =
-    result.failed || result.errors.length > 0 ? "bad" : result.notes.length > 0 ? "warn" : "ok";
+    result.failed || result.errors.length > 0
+      ? "bad"
+      : result.notes.length > 0
+        ? "warn"
+        : "ok";
   return (
     <div class={`remediation-panel health-${tone}`}>
       <div class="loop-watch-top">
@@ -543,8 +569,9 @@ function OkfPanel({
         <HealthChip tone={tone} />
       </div>
       <p class="muted">
-        {result.concept_files_checked} concepts · {result.reserved_files_checked} reserved ·{" "}
-        {result.errors.length} errors · {result.notes.length} notes
+        {result.concept_files_checked} concepts ·{" "}
+        {result.reserved_files_checked} reserved · {result.errors.length} errors
+        · {result.notes.length} notes
       </p>
       {result.errors.length > 0 ? (
         <ul class="violation-list">
@@ -579,7 +606,8 @@ function RepairPanel({
   result: OkfRepairResult;
   obsidianCtx: ObsidianContext;
 }): JSX.Element {
-  const tone: Health = result.files_changed.length === 0 ? "ok" : result.dry_run ? "warn" : "ok";
+  const tone: Health =
+    result.files_changed.length === 0 ? "ok" : result.dry_run ? "warn" : "ok";
   return (
     <div class={`remediation-panel health-${tone}`}>
       <div class="loop-watch-top">
@@ -590,12 +618,16 @@ function RepairPanel({
         <HealthChip tone={tone} />
       </div>
       <p class="muted">
-        {result.files_changed.length} file{result.files_changed.length === 1 ? "" : "s"}
+        {result.files_changed.length} file
+        {result.files_changed.length === 1 ? "" : "s"}
         {result.commit_sha ? ` · commit ${result.commit_sha.slice(0, 8)}` : ""}
         {result.report_path ? (
           <>
             {" · report "}
-            <ObsidianFileLink ctx={obsidianCtx} relativePath={result.report_path}>
+            <ObsidianFileLink
+              ctx={obsidianCtx}
+              relativePath={result.report_path}
+            >
               {result.report_path}
             </ObsidianFileLink>
           </>
