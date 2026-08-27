@@ -1,4 +1,10 @@
-"""``knotica datasets`` helpers — trainset cold-start and golden freeze.
+"""Dataset helpers — trainset cold-start and golden freeze.
+
+Both verbs register directly into the Improve lane (``knotica improve
+bootstrap-train`` / ``knotica improve freeze``): they are already unique
+there, so this module's own group level would name the lane twice. The
+namespace still carries a ``datasets_command`` marker, set by each leaf, so
+the dispatch below reads the chosen verb without knowing which lane routed it.
 
 ``bootstrap-train`` synthesizes seeded train examples from the topic's own
 pages (LLM-grounded, ``source: seed_train`` — the cold-start scaffold that real
@@ -32,18 +38,8 @@ __all__ = ["configure", "run"]
 def configure(
     subparsers: argparse._SubParsersAction[argparse.ArgumentParser],
 ) -> argparse.ArgumentParser:
-    """Register ``datasets`` with ``bootstrap-train`` and ``freeze`` subcommands."""
-    parser = subparsers.add_parser(
-        "datasets",
-        parents=[common_parent()],
-        help="dataset helpers for train/golden prep",
-        description=(
-            "Cold-start a topic's trainset from its own pages (bootstrap-train) "
-            "and freeze reviewed golden candidates into the held-out set (freeze)."
-        ),
-    )
-    sub = parser.add_subparsers(dest="datasets_command", metavar="<subcommand>")
-    boot = sub.add_parser(
+    """Register ``bootstrap-train`` and ``freeze`` into the caller's subparsers."""
+    boot = subparsers.add_parser(
         "bootstrap-train",
         parents=[common_parent(nested=True)],
         help="synthesize seeded train examples from the topic's own pages (LLM)",
@@ -60,7 +56,8 @@ def configure(
         "--target", type=int, default=30, metavar="N", help="records to generate (default: 30)"
     )
     boot.add_argument("--json", action="store_true", help="emit machine-readable JSON")
-    freeze_cmd = sub.add_parser(
+    boot.set_defaults(datasets_command="bootstrap-train")
+    freeze_cmd = subparsers.add_parser(
         "freeze",
         parents=[common_parent(nested=True)],
         help="freeze reviewed golden candidates into held-out golden.jsonl",
@@ -71,7 +68,8 @@ def configure(
     )
     freeze_cmd.add_argument("--topic", required=True, metavar="NAME", help="topic to freeze")
     freeze_cmd.add_argument("--json", action="store_true", help="emit machine-readable JSON")
-    return parser
+    freeze_cmd.set_defaults(datasets_command="freeze")
+    return boot
 
 
 def run(args: argparse.Namespace) -> int:
@@ -81,7 +79,7 @@ def run(args: argparse.Namespace) -> int:
         return _run_bootstrap_train(console, args)
     if command == "freeze":
         return _run_freeze(console, args)
-    console.error("usage: knotica datasets {bootstrap-train,freeze} --topic NAME")
+    console.error("usage: knotica improve {bootstrap-train,freeze} --topic NAME")
     return EXIT_ERROR
 
 

@@ -1,4 +1,11 @@
-"""``knotica compile`` — DSPy MIPROv2 compile of the query op on a vault clone."""
+"""``knotica improve compile`` — DSPy MIPROv2 compile of the query op on a clone.
+
+Two verbs register directly into the Improve lane: ``compile`` runs the
+optimization on a vault clone, and ``promote`` is the human gate that merges
+the reviewed branch. ``promote`` lands as a *sibling* rather than under
+``compile`` — it is already unique within the lane, and nesting it would make
+the lane name and the group name say the same thing twice.
+"""
 
 from __future__ import annotations
 
@@ -27,15 +34,16 @@ __all__ = ["configure", "run"]
 def configure(
     subparsers: argparse._SubParsersAction[argparse.ArgumentParser],
 ) -> argparse.ArgumentParser:
+    """Register ``compile`` and its ``promote`` sibling into the caller's subparsers."""
     parser = subparsers.add_parser(
         "compile",
-        parents=[common_parent()],
+        parents=[common_parent(nested=True)],
         help="compile the query program for a topic (clone → branch)",
         description=(
             "Gate on ≥30 query-train examples and a held-out golden set, clone the "
             "vault, optimize with MIPROv2 (or bootstrap), write "
             "<topic>/.knotica/compiled/, and return a compile/<topic>/<sha> branch "
-            "for human review. Use `compile promote` to merge after review."
+            "for human review. Use `knotica improve promote` to merge after review."
         ),
     )
     parser.add_argument("--topic", metavar="NAME", help="topic to compile")
@@ -46,13 +54,12 @@ def configure(
         help="skip MIPROv2 and write a bootstrap artifact (demos + guidance)",
     )
 
-    compile_sub = parser.add_subparsers(dest="compile_command", metavar="<subcommand>")
-    promote = compile_sub.add_parser(
+    promote = subparsers.add_parser(
         "promote",
         parents=[common_parent(nested=True)],
         help="merge a reviewed compile/<topic>/… branch into the default branch",
         description=(
-            "Human gate after compile_run: merge compile/<topic>/<sha> into main/master "
+            "Human gate after `knotica improve compile`: merge compile/<topic>/<sha> into main/master "
             "with --no-ff under the vault lock. Refuses arbitrary branch names and dirty trees."
         ),
     )
@@ -75,6 +82,7 @@ def configure(
         action="store_true",
         help="merge the compile branch into the default branch",
     )
+    promote.set_defaults(compile_command="promote")
     return parser
 
 
@@ -84,7 +92,8 @@ def run(args: argparse.Namespace) -> int:
 
     if not args.topic:
         print(
-            "knotica compile: error: the following arguments are required: --topic", file=sys.stderr
+            "knotica improve compile: error: the following arguments are required: --topic",
+            file=sys.stderr,
         )
         return EXIT_MISUSE
 

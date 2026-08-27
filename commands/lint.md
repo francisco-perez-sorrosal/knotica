@@ -1,5 +1,5 @@
 ---
-description: Lint knotica wiki pages against the schema (links, structure, confidence, supersession).
+description: "[Tend] Lint knotica wiki pages against the schema (links, structure, confidence, supersession)."
 argument-hint: "[topic]"
 allowed-tools:
   - mcp__plugin_knotica_knotica__*

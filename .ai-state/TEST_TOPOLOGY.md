@@ -459,7 +459,9 @@ selectors:
       - tests/test_dispatch_vault.py
       - tests/test_dispatch_vault_health.py
       - tests/test_file_size_ratchet.py
+      - tests/test_fill_review_gap.py
       - tests/test_http_dashboard.py
+      - tests/test_lane_action_deprecation.py
       - tests/test_lane_dispatchers.py
       - tests/test_lane_rename_invariants.py
       - tests/test_loop_dispatch_cadence_run_eval.py
@@ -529,6 +531,7 @@ selectors:
       - tests/test_cli_doctor.py
       - tests/test_cli_eval.py
       - tests/test_cli_init.py
+      - tests/test_cli_lanes.py
       - tests/test_cli_loop.py
       - tests/test_cli_mcp.py
       - tests/test_cli_migrate.py
@@ -737,6 +740,7 @@ selectors:
     arg:
       - tests/test_cli_gapfill.py
       - tests/test_file_size_ratchet.py
+      - tests/test_fill_review_gap.py
       - tests/test_gap_classifier.py
       - tests/test_gap_lifecycle.py
       - tests/test_gapfill.py

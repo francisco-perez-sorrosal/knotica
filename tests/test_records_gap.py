@@ -54,6 +54,7 @@ GAP_RECORD_FIELDS = frozenset(
         "manifest_ref",
         "origin",
         "reported_reason",
+        "decided_reason",
     }
 )
 

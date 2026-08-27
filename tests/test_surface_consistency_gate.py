@@ -132,13 +132,13 @@ def test_a_command_names_entry_absent_from_the_cli_table_is_rejected(tree: Path)
     _edit(
         tree,
         "docs/reference.md",
-        lambda text: text.replace("| `guillotine <claim>` |", "| `ghost <claim>` |", 1),
+        lambda text: text.replace("| `fill discover` |", "| `ghost discover` |", 1),
     )
 
     result = _run(tree)
 
     assert result.returncode == 1
-    assert "CLI subcommand 'guillotine' exists but is absent" in result.stderr
+    assert "CLI subcommand 'fill' exists but is absent" in result.stderr
 
 
 def test_a_shipped_slash_command_absent_from_the_alias_table_is_rejected(tree: Path) -> None:

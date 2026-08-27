@@ -36,10 +36,24 @@ another:
   caller actually passes are forwarded, so each verb keeps *its own* defaults.
   Two verbs in one lane declaring the same parameter with different defaults is
   therefore harmless -- neither default is ever imposed on the other.
+
+**Deprecation, not just rejection.** A lane module may declare
+``SUPERSEDED_ACTIONS: Mapping[str, str]`` (a module-level constant next to its
+``_LANE``/``_PURPOSE_DESCRIPTION``) mapping an old action string to the live one that
+replaced it. It is empty by default -- the nine-topical-to-six-lane re-cut
+renamed no action string, so there is nothing to alias yet -- but the
+mechanism exists so a future rename never has to break a caller mid-flight:
+calling the old name still reaches the new action's handler and gets its
+payload back, with a ``deprecation`` note added telling the caller what to
+pass instead. The note rides only on a **success** envelope; a failure is
+returned unchanged, so the failure's own ``fix=`` stays the one thing a
+caller acts on. An unrecognised action that is *not* declared superseded is
+rejected exactly as before -- ``INVALID_ARGUMENT`` plus the live action set.
 """
 
 from __future__ import annotations
 
+import importlib
 import inspect
 from collections.abc import Callable, Mapping
 from functools import reduce
@@ -264,6 +278,19 @@ def _forwarded(verb: str, arguments: Mapping[str, Any]) -> dict[str, Any]:
 # ---------------------------------------------------------------------------
 
 
+def _superseded_actions(lane: str) -> Mapping[str, str]:
+    """``lane``'s own ``SUPERSEDED_ACTIONS`` -- empty when the module declares none.
+
+    Resolved by importing the lane module fresh on every dispatch (it is
+    already loaded by the time a dispatcher call reaches here, so this is a
+    ``sys.modules`` lookup, not a re-import) rather than captured once at
+    registration -- the same "always reflects the live declaration" contract
+    :func:`_lane_narrations` keeps for the process model.
+    """
+    module = importlib.import_module(f"{__package__}.tools_dispatch_{lane}")
+    return getattr(module, "SUPERSEDED_ACTIONS", {})
+
+
 def _reject(lane: str, raw_action: str, actions: tuple[str, ...]) -> ToolResult:
     record_rejected_action(lane, raw_action, actions)
     return envelope.error_envelope(
@@ -278,6 +305,10 @@ def _reject(lane: str, raw_action: str, actions: tuple[str, ...]) -> ToolResult:
 def _dispatch(lane: str, actions: tuple[str, ...], arguments: dict[str, Any]) -> ToolResult:
     raw_action = str(arguments.pop(_SELECTOR, "") or "")
     verb = raw_action.strip().lower()
+    replacement = _superseded_actions(lane).get(verb)
+    if replacement is not None:
+        result = _dispatch(lane, actions, {**arguments, _SELECTOR: replacement})
+        return envelope.with_deprecation_note(result, replacement)
     if verb not in actions:
         return _reject(lane, raw_action, actions)
     handler = _flat_handlers().get(verb)
@@ -339,11 +370,20 @@ def _register_router(mcp: FastMCP, lane: str, purpose: str) -> None:
 def register_lane_dispatcher(mcp: FastMCP, lane: str, purpose: str) -> None:
     """Register ``lane``'s dispatcher, generated from the process-model declaration.
 
+    Routing prose lives in exactly two places on this surface: ``_INSTRUCTIONS``
+    in ``server.py`` (one copy, server-wide) and the description assembled here
+    (one copy per lane). No individual tool's description narrates the surface;
+    it says what that tool does and names at most two siblings, and only to
+    disambiguate.
+
     Args:
         mcp: The server to register on.
         lane: One of :data:`~knotica.core.process_model.LANES`.
-        purpose: The lane's own description prose; the generated action list is
-            appended to it.
+        purpose: The lane's own description prose, in the four-part shape --
+            what it does, ``Does NOT``, ``Requires``, ``Returns`` -- with the
+            billed actions named in full. The generated action list is appended
+            to it, so per-action wording belongs in the declaration's narrations
+            (``LANE_MEMBERSHIP``), never hand-copied into a lane module.
     """
     actions = lane_actions(lane)
     if not actions:

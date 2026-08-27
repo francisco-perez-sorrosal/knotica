@@ -63,9 +63,10 @@ _MAX_GATE_CYCLES = 20
 _OPEN_DESCRIPTION = (
     "Open (or resume) an ingest of ONE approved gap-fill suggestion onto its own "
     "candidate context, so the loop can gate the result before it touches the wiki. "
-    "Pass the suggestion_id of an APPROVED suggestion (from suggestions_read "
-    "status=approved). Returns an opaque `candidate` handle to pass to every "
-    "store_source/write_page for this ingest, the provenance to weave into the "
+    "Pass the suggestion_id of an APPROVED suggestion (from `fill "
+    "action=suggestions_read` with status=approved). Returns an opaque `candidate` "
+    "handle to pass to every `store_source`/`write_page` for this ingest, the "
+    "provenance to weave into the "
     "pages, and a resume block listing what is already written (re-open to resume "
     "a partial ingest -- never restart). Idempotent: opening twice returns the same "
     "handle and the current state. Does NOT ingest -- you then follow the ingest "
@@ -73,7 +74,7 @@ _OPEN_DESCRIPTION = (
     "only; no wiki page changes on the default branch. Never call this from "
     "detection alone -- only after the user has explicitly confirmed the "
     "suggestion is approved for ingest; an unconfirmed detection routes to "
-    "suggestions_read or an offer instead."
+    "`fill action=suggestions_read` or an offer instead."
 )
 
 _SUBMIT_DESCRIPTION = (
@@ -314,8 +315,8 @@ def _apply_payload(
             ErrorCode.INVALID_ARGUMENT,
             f"source_ingest_submit failed because no source/pages exist on the "
             f"candidate for suggestion {suggestion_id!r}.",
-            fix="Run source_ingest_open then store_source/write_page with "
-            "candidate=<handle> first.",
+            fix="Run `fill action=source_ingest_open`, then `store_source` and "
+            "`write_page` with candidate=<handle> first.",
         )
     gate_eligible, gate_eligible_reason = _gate_eligibility(store, topic)
     if not gate_eligible:
@@ -335,8 +336,8 @@ def _apply_payload(
             ErrorCode.GIT_ERROR,
             f"source_ingest_submit failed because the gate processed {published!r} "
             "without producing a verdict (most likely a harness evaluation error).",
-            fix="Run `knotica doctor` to inspect the loop state and eval logs, "
-            "then retry source_ingest_submit(mode=apply).",
+            fix="Run `knotica tend doctor` to inspect the loop state and eval logs, "
+            "then retry `fill action=source_ingest_submit` with mode=apply.",
         )
     return _verdict_envelope("apply", topic, suggestion_id, record)
 
@@ -364,8 +365,8 @@ def _run_gate(store: VaultStore, vault_path: Path, topic: str, target_branch: st
         ErrorCode.GIT_ERROR,
         f"source_ingest_submit failed because the gate never picked up "
         f"{target_branch!r} within {_MAX_GATE_CYCLES} cycles.",
-        fix="Run `knotica doctor` to inspect the loop state, or re-run "
-        "source_ingest_submit(mode=apply).",
+        fix="Run `knotica tend doctor` to inspect the loop state, or re-run "
+        "`fill action=source_ingest_submit` with mode=apply.",
     )
 
 

@@ -1,5 +1,5 @@
 ---
-description: Interactive first-run wizard — scaffold a knotica vault, wire the MCP server, pre-warm.
+description: "[Setup] Interactive first-run wizard — scaffold a knotica vault, wire the MCP server, pre-warm."
 allowed-tools:
   - AskUserQuestion
   - Bash(knotica init:*)

@@ -27,12 +27,17 @@ _DISPATCHER = "arena"
 _ACTIONS = ("status", "history")
 
 _ARENA_DISPATCH_DESCRIPTION = (
-    "Operator arena control (rarely conversational; the dashboard/CLI reach "
-    "this directly). action=status reads the current/last Arena race for a "
-    "topic — variants, scores, stage, winner (same as arena_status, "
-    "read-only). action=history reads recent Arena race history, capped by "
-    "`limit` (default 20, same as arena_history, read-only). Pass vault to "
-    "select a configured vault."
+    "Race prompt variants against each other and read the result. Operator-tier "
+    "and rarely conversational; on the published surface this is reached as "
+    "`improve action=arena` with `arena_action` selecting the read. "
+    "`arena_action=status` reads the current or last race for a topic — "
+    "variants, scores, stage, winner. `arena_action=history` reads recent race "
+    "history, capped by `limit` (default 20). "
+    "Does NOT: start a race, and does NOT score one — both actions here are "
+    "read-only. "
+    "Requires: an explicit topic. Pass vault to select a configured vault. "
+    "Returns: the race record as data; an absent race is an empty result, not "
+    "an error."
 )
 
 

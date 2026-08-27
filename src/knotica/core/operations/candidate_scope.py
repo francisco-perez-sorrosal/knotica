@@ -69,6 +69,6 @@ def _open_worktree_path(vault_root: str | PurePath, candidate: str) -> Path:
     raise KnoticaError(
         ErrorCode.SUGGESTION_NOT_FOUND,
         f"write to candidate {candidate!r} failed because no open ingest session has that handle.",
-        fix="Call source_ingest_open first to obtain a candidate handle, then pass "
-        "it to store_source / write_page.",
+        fix="Call `fill action=source_ingest_open` first to obtain a candidate "
+        "handle, then pass it to `store_source` / `write_page`.",
     )

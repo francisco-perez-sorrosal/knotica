@@ -18,18 +18,28 @@ layout, and the error codes a caller can actually hit. For a guided first run, s
 
 `knotica --version` prints the package version and exits 0. Bare `knotica` (no subcommand)
 prints help to stderr and exits `2`. `knotica <cmd> --help` prints argparse help on stdout and
-exits 0. The 15 registered subcommands, in help-listing order:
+exits 0. The 12 registered **top-level** subcommands, in help-listing order — the six
+process lanes plus the six commands that belong to no lane:
 
 ```
-init, desktop, mcp, doctor, status, migrate, prompt, guillotine, okf,
-eval, datasets, compile, loop, gapfill, service
+init, desktop, mcp, status, prompt,
+home, learn, answer, improve, fill, tend,
+service
 ```
+
+The lane names are spliced into `COMMAND_NAMES` from `core/process_model.py`, so the CLI, the
+MCP lane dispatchers and the dashboard rails all project the one declaration.
+
+Every command that moved under a lane keeps working under its old top-level name: `main` rewrites
+the invocation and prints a one-line deprecation notice **to stderr**, never stdout, so a `--json`
+pipe and the SessionStart hook's `2>&1` capture both stay clean. The old names are absent from
+`--help` from day one.
 
 > [!IMPORTANT]
 > **stdout carries data only; stderr carries every message** (info, warnings, errors, debug,
 > progress). Scripts that parse `knotica` output must read stdout, never stderr. Three exceptions:
-> `guillotine`'s human-readable report (not `--json`) prints to stderr, and neither `loop` nor `okf`
-> writes to stdout at all — neither has a `--json` mode.
+> `tend guillotine`'s human-readable report (not `--json`) prints to stderr, and neither
+> `improve loop` nor `tend okf` writes to stdout at all — neither has a `--json` mode.
 
 ### Exit codes
 
@@ -39,10 +49,10 @@ eval, datasets, compile, loop, gapfill, service
 | 1 | `EXIT_ERROR` | A check FAILED or the operation failed. |
 | 2 | `EXIT_MISUSE` | Bad arguments — argparse also emits this. |
 | 3 | `EXIT_NOT_CONFIGURED` | No `config.toml` / vault resolved. |
-| 4 | `EXIT_MIGRATION_AVAILABLE` | `migrate --check` only; up-to-date is `EXIT_SUCCESS`. |
-| 5 | `EXIT_NO_GOLDEN_SET` | `eval` only: topic has no golden set — run `eval --bootstrap` first. |
+| 4 | `EXIT_MIGRATION_AVAILABLE` | `tend migrate --check` only; up-to-date is `EXIT_SUCCESS`. |
+| 5 | `EXIT_NO_GOLDEN_SET` | `improve eval` only: topic has no golden set — run `improve eval --bootstrap` first. |
 
-`guillotine` reuses the small integers as **command-local** labels: `EXIT_CLAIM_NOT_FOUND = 1`,
+`tend guillotine` reuses the small integers as **command-local** labels: `EXIT_CLAIM_NOT_FOUND = 1`,
 `EXIT_PATCH_FAILED = 3`, `EXIT_APPLY_FAILED = 4` — same values, guillotine-specific meaning.
 
 The unconfigured message is byte-identical everywhere it appears:
@@ -60,12 +70,15 @@ knotica is not configured — run `/knotica:setup` (Claude Code) or `knotica ini
 | `--no-color` | off | Disable color (also auto-off when not a TTY, `NO_COLOR` set, or `TERM=dumb`). |
 | `--no-input` | off | Never prompt; fail fast if required input is missing. |
 
-All 15 top-level parsers take these four, and so does every nested subcommand, in either position —
-`knotica okf --quiet check` and `knotica okf check --quiet` mean the same thing.
+All 12 top-level parsers take these four, and so does every nested subcommand, at every depth and in
+either position — `knotica tend --quiet okf check`, `knotica tend okf --quiet check` and
+`knotica tend okf check --quiet` all mean the same thing. A lane suppresses its members' own
+defaults on registration, which is what keeps a flag typed *before* a subcommand name from being
+silently discarded.
 
-`--json` is **not** common — each of these adds its own: `doctor`, `doctor repair`, `status`,
-`migrate`, `guillotine`, `eval`, `datasets bootstrap-train`, `datasets freeze`, `compile`,
-`compile promote`, `service status`.
+`--json` is **not** common — each of these adds its own: `tend doctor`, `tend doctor repair`,
+`status`, `tend migrate`, `tend guillotine`, `improve eval`, `improve bootstrap-train`,
+`improve freeze`, `improve compile`, `improve promote`, `service status`.
 
 ### Subcommands
 
@@ -75,22 +88,25 @@ All 15 top-level parsers take these four, and so does every nested subcommand, i
 | `desktop install` | Yes | (common only) | Patches (or creates) the Desktop config's `mcpServers.knotica` entry — additive, `.bak` backup, every other server preserved, `env` carried over untouched. |
 | `desktop status` | No | (common only) | Read-only. Prints `command`, `args`, `env` (names only, never values). |
 | `mcp` | Serves | `--vault NAME` none<br>`--http` off<br>`--host HOST` `127.0.0.1`<br>`--port PORT` `8765` | Serves the MCP tool surface. Stdio mode blocks until disconnect; stdout is the JSON-RPC channel — no diagnostic byte reaches it. `--http` needs the server's HTTP extra (`uvicorn`). |
-| `doctor` | No | `--quick` off<br>`--json` off<br>`--fix` off (read-only guidance) | Deterministic mechanical checks — never invokes an LLM. Exit `1` on any FAIL row. |
-| `doctor repair` | Yes | `--dry-run` / `--apply` mutually exclusive, required<br>`--paths PATH...` required with `--apply` unless `--all-tracked`<br>`--all-tracked` off<br>`--delete-untracked` off<br>`--json` off | Path-scoped restore to HEAD, vault-lock guarded. Never `git restore .`. |
 | `status` | No | `--json` off<br>`--topic NAME` none<br>`--wide` off<br>`--nudge` off | Pure read: pages/curated/unpushed counts per topic, last lint. |
-| `migrate` | Yes | `--check` off (exit-code only, never writes)<br>`--dry-run` off<br>`--yes` off<br>`--json` off<br>`--topic NAME` none = whole vault | Three-way template-diff migration through one `VaultTransaction`; preserves files the vault has evolved past the template (warns, never overwrites). |
 | `prompt <operation>` | No | `operation` positional, required (`ingest`\|`query`\|`lint`\|`curate`)<br>`--topic NAME` `""`<br>`--source`, `--question`, `--verdict` parity-only, not consumed by this adapter | Renders the vault-resolved operation prompt body verbatim to stdout — byte-identical with the MCP `prompts/get` handler. |
-| `guillotine <claim>` | Dry-run by default | `claim` positional, required<br>`--topic NAME` required<br>`--dry-run` / `--no-dry-run` default `True`<br>`--apply` off, implies not-dry-run<br>`--verdict NAME` none = recommended (`keep`\|`qualify`\|`demote`\|`dispute`\|`retract`\|`quarantine_source`\|`delete_unsupported_synthesis`)<br>`--json` off<br>`--include-sources` / `--no-include-sources` default `True`<br>`--include-reports` off<br>`--max-results N` `50`<br>`--out PATH` reserved, not yet implemented | Claim-level memory audit + reversible retraction. `--apply` commits the verdict as applied and files a re-grounding gap — **no wiki page content is edited**. |
-| `okf check` | No | `--strict` off<br>`--export-ready` off | OKF compatibility check; all output via stderr (payload-on-stderr, like `guillotine`). |
-| `okf export` | Yes | `--output PATH` / `-o` required<br>`--pure` off<br>`--link-style {bundle-relative,relative}` `bundle-relative`<br>`--lossy-embeds` off<br>`--force` off<br>`--export-ready` off | Writes a portable OKF bundle to `--output`. |
-| `okf repair` | Yes | `--dry-run` / `--apply` mutually exclusive, required<br>`--force` off | One git commit on `--apply`; relocates old reports, skips dirty/uncommitted files. |
-| `eval` | Yes (clone's `metrics.jsonl` only) | `--topic NAME` required<br>`--ref COMMIT` source vault's HEAD<br>`--bootstrap` off (stages golden candidates, does not freeze)<br>`--json` off<br>`--max-total-tokens N` packaged ceiling<br>`--max-usd USD` packaged ceiling<br>`--judge-snapshot MODEL` pinned default<br>`--worker-snapshot MODEL` pinned default<br>`--n-judge-samples N` harness default, must be odd<br>`--num-threads N` `4` | Headless per-topic eval harness. Clones the source vault at a pinned SHA — **never touches the live vault**. Credential: `CLAUDE_CODE_OAUTH_TOKEN` preferred, falls back to `ANTHROPIC_API_KEY` (warns on fallback). |
-| `datasets bootstrap-train` | Yes | `--topic NAME` required<br>`--target N` `30`<br>`--json` off | LLM-synthesizes seeded QA pairs from the topic's own pages, appends to `qa.jsonl`. |
-| `datasets freeze` | Yes | `--topic NAME` required<br>`--json` off | Promotes reviewed candidates into `golden.jsonl` + `MANIFEST.json`, one commit. Refuses questions overlapping the trainset. |
-| `compile` | Yes | `--topic NAME` required for the top-level run (checked manually)<br>`--json` off<br>`--no-mipro` off — skip MIPROv2, write a bootstrap artifact instead | Clone → gate on ≥30 query-train examples + a held-out golden set → MIPROv2 optimize → write `<topic>/.knotica/compiled/` → return a branch for human review. No auto-merge. |
-| `compile promote` | Yes on `--apply` | `--topic NAME` required<br>`--branch NAME` required<br>`--json` off<br>`--dry-run` / `--apply` mutually exclusive, required | Human gate: merges `compile/<topic>/<sha>` into the default branch with `--no-ff`, vault-lock guarded. Refuses arbitrary branch names and dirty trees. |
-| `loop` | Yes | `--topic NAME` required<br>`--vault PATH` config's resolved vault<br>`--once` off<br>`--set-baseline SCALAR`<br>`--baseline-policy {latest,best}`<br>`--rebaseline {best,latest}`<br>`--mark-observed` off<br>`--interval SECONDS` `5.0`<br>`--eval-threads N` `4`<br>`--observe-quiet SECONDS` `20.0`<br>`--push REMOTE` none<br>`--no-arena` off<br>`--no-observe` off<br>`--branch-prefix` `DEFAULT_BRANCH_PREFIX`<br>`--arena-variants JSON` none = generated variants | The self-improvement watcher (observe → gate → heal). No mode flag ⇒ watch forever (the default; there is no `--watch` flag); the five mode flags above are mutually exclusive with each other. **Never writes to stdout** — no `--json` exists here. |
-| `gapfill discover` | Yes (clean no-op without a search provider) | `--topic NAME` required<br>`--vault PATH` config's resolved vault<br>`--max-gaps N` none = all | Drains open `genuine_gap` records through the configured search provider + OpenAlex, stages ranked candidates in `suggestions.jsonl`. When no `KNOTICA_YOUCOM_API_KEY` resolves — process environment first, then `./.env`, then `~/.config/knotica/.env` — prints a no-op notice and exits `0`. |
+| `home` | No | (common only) | The cross-topic inbox: what needs attention right now, as plain text. Exits `0` **unconditionally** — an unconfigured install is an empty inbox, not an error — and signals emptiness with empty stdout. Renders through the same function as `status --nudge`, which is kept permanently because the shipped SessionStart hook calls it. |
+| `learn` | No | (common only) | Guidance only, exits `0`: Learn is a conversational protocol, so it carries no deterministic CLI verb. Points at `/knotica:ingest` and `knotica prompt ingest`. |
+| `answer` | No | (common only) | Guidance only, exits `0`: Answer is a conversational protocol, so it carries no deterministic CLI verb. Points at `/knotica:query` and `knotica prompt query`. |
+| `improve eval` | Yes (clone's `metrics.jsonl` only) | `--topic NAME` required<br>`--ref COMMIT` source vault's HEAD<br>`--bootstrap` off (stages golden candidates, does not freeze)<br>`--json` off<br>`--max-total-tokens N` packaged ceiling<br>`--max-usd USD` packaged ceiling<br>`--judge-snapshot MODEL` pinned default<br>`--worker-snapshot MODEL` pinned default<br>`--n-judge-samples N` harness default, must be odd<br>`--num-threads N` `4` | Headless per-topic eval harness. Clones the source vault at a pinned SHA — **never touches the live vault**. Credential: `CLAUDE_CODE_OAUTH_TOKEN` preferred, falls back to `ANTHROPIC_API_KEY` (warns on fallback). |
+| `improve loop` | Yes | `--topic NAME` required<br>`--vault PATH` config's resolved vault<br>`--once` off<br>`--set-baseline SCALAR`<br>`--baseline-policy {latest,best}`<br>`--rebaseline {best,latest}`<br>`--mark-observed` off<br>`--interval SECONDS` `5.0`<br>`--eval-threads N` `4`<br>`--observe-quiet SECONDS` `20.0`<br>`--push REMOTE` none<br>`--no-arena` off<br>`--no-observe` off<br>`--branch-prefix` `DEFAULT_BRANCH_PREFIX`<br>`--arena-variants JSON` none = generated variants | The self-improvement watcher (observe → gate → heal). No mode flag ⇒ watch forever (the default; there is no `--watch` flag); the five mode flags above are mutually exclusive with each other. **Never writes to stdout** — no `--json` exists here. |
+| `improve compile` | Yes | `--topic NAME` required for the top-level run (checked manually)<br>`--json` off<br>`--no-mipro` off — skip MIPROv2, write a bootstrap artifact instead | Clone → gate on ≥30 query-train examples + a held-out golden set → MIPROv2 optimize → write `<topic>/.knotica/compiled/` → return a branch for human review. No auto-merge. |
+| `improve promote` | Yes on `--apply` | `--topic NAME` required<br>`--branch NAME` required<br>`--json` off<br>`--dry-run` / `--apply` mutually exclusive, required | Human gate: merges `compile/<topic>/<sha>` into the default branch with `--no-ff`, vault-lock guarded. Refuses arbitrary branch names and dirty trees. |
+| `improve bootstrap-train` | Yes | `--topic NAME` required<br>`--target N` `30`<br>`--json` off | LLM-synthesizes seeded QA pairs from the topic's own pages, appends to `qa.jsonl`. |
+| `improve freeze` | Yes | `--topic NAME` required<br>`--json` off | Promotes reviewed candidates into `golden.jsonl` + `MANIFEST.json`, one commit. Refuses questions overlapping the trainset. |
+| `fill discover` | Yes (clean no-op without a search provider) | `--topic NAME` required<br>`--vault PATH` config's resolved vault<br>`--max-gaps N` none = all | Drains open `genuine_gap` records through the configured search provider + OpenAlex, stages ranked candidates in `suggestions.jsonl`. When no `KNOTICA_YOUCOM_API_KEY` resolves — process environment first, then `./.env`, then `~/.config/knotica/.env` — prints a no-op notice and exits `0`. |
+| `tend doctor` | No | `--quick` off<br>`--json` off<br>`--fix` off (read-only guidance) | Deterministic mechanical checks — never invokes an LLM. Exit `1` on any FAIL row. |
+| `tend doctor repair` | Yes | `--dry-run` / `--apply` mutually exclusive, required<br>`--paths PATH...` required with `--apply` unless `--all-tracked`<br>`--all-tracked` off<br>`--delete-untracked` off<br>`--json` off | Path-scoped restore to HEAD, vault-lock guarded. Never `git restore .`. |
+| `tend okf check` | No | `--strict` off<br>`--export-ready` off | OKF compatibility check; all output via stderr (payload-on-stderr, like `guillotine`). |
+| `tend okf export` | Yes | `--output PATH` / `-o` required<br>`--pure` off<br>`--link-style {bundle-relative,relative}` `bundle-relative`<br>`--lossy-embeds` off<br>`--force` off<br>`--export-ready` off | Writes a portable OKF bundle to `--output`. |
+| `tend okf repair` | Yes | `--dry-run` / `--apply` mutually exclusive, required<br>`--force` off | One git commit on `--apply`; relocates old reports, skips dirty/uncommitted files. |
+| `tend migrate` | Yes | `--check` off (exit-code only, never writes)<br>`--dry-run` off<br>`--yes` off<br>`--json` off<br>`--topic NAME` none = whole vault | Three-way template-diff migration through one `VaultTransaction`; preserves files the vault has evolved past the template (warns, never overwrites). |
+| `tend guillotine <claim>` | Dry-run by default | `claim` positional, required<br>`--topic NAME` required<br>`--dry-run` / `--no-dry-run` default `True`<br>`--apply` off, implies not-dry-run<br>`--verdict NAME` none = recommended (`keep`\|`qualify`\|`demote`\|`dispute`\|`retract`\|`quarantine_source`\|`delete_unsupported_synthesis`)<br>`--json` off<br>`--include-sources` / `--no-include-sources` default `True`<br>`--include-reports` off<br>`--max-results N` `50`<br>`--out PATH` reserved, not yet implemented | Claim-level memory audit + reversible retraction. `--apply` commits the verdict as applied and files a re-grounding gap — **no wiki page content is edited**. |
 | `service install` | Yes (idempotent) | `--vault NAME` configured default<br>`--dry-run` off | Installs the OS-managed loop daemon (launchd macOS, systemd Linux — "code-complete but untested"). Rolls back the partial unit on failure. **Never runs automatically** — a live install is something you run yourself. |
 | `service uninstall` | Yes | `--dry-run` off | Clean no-op if nothing installed. |
 | `service status` | No | `--vault NAME` configured default<br>`--json` off | Read-only: install state + per-topic runner liveness via the heartbeat convention. |
@@ -153,7 +169,7 @@ Every dispatcher validates `action` against a fixed tuple; an unrecognized actio
 | `learn` | generated from the process model: `create_topic`, `store_source`, `ingest_progress`, `write_page`, `ingest_activity_read`, `curate_example` | Per wrapped verb | the union of its verbs' own params |
 | `answer` | generated: `query`, `curate_example`, `note_capture`, `gap_report`, `notes` | Per wrapped verb | the union of its verbs' own params |
 | `improve` | generated: `datasets`, `golden`, `baseline_probe`, `curate_example`, `notes`, `loop`, `arena`, `compile`, `branches`, `prompt_diff`, `metrics_read`, `query` | Per wrapped verb | the union of its verbs' own params |
-| `fill` | generated: `gap_report`, `gaps_read`, `notes`, `gapfill_discover`, `suggestions_read`, `suggestions_review`, `store_source`, `ingest_progress`, `write_page`, `ingest_activity_read`, `source_ingest_open`, `source_ingest_submit`, `loop` | Per wrapped verb | the union of its verbs' own params |
+| `fill` | generated: `gap_report`, `gaps_read`, `review_gap`, `notes`, `gapfill_discover`, `suggestions_read`, `suggestions_review`, `store_source`, `ingest_progress`, `write_page`, `ingest_activity_read`, `source_ingest_open`, `source_ingest_submit`, `loop` | Per wrapped verb | the union of its verbs' own params |
 | `tend` | generated: `vault_health`, `lint_check`, `notes`, `note_capture` | Per wrapped verb | the union of its verbs' own params |
 
 **The six lane dispatchers are generated.** Their action tables, call shapes and description
@@ -181,17 +197,18 @@ sub-action. There is no alias layer — the old flat names return an unknown-too
 | `suggestions_review` | `fill action=suggestions_review` | `topic`, `suggestion_id`, `action` (req); `mode="dry-run"`, `reason=""`, `vault=""` | `action` ∈ `approve`\|`reject`\|`defer`\|`mark_ingested`\|`withdraw`. `reject` requires a non-empty `reason`. `withdraw` returns an `approved` suggestion to `pending` without asserting an ingest. |
 | `gaps_read` | `fill action=gaps_read` | `topic` (req); `status="open"`, `cursor=""`, `limit=20`, `vault=""` | Paginated P1 gap queue — the stage *before* sources exist. `status` ∈ `open`\|`resolved`\|`dismissed`\|`all` (here `all` means all three, unlike `suggestions_read`). `limit` max `50`. Returns `origin_counts` alongside `status_counts`. |
 | `gapfill_discover` | `fill action=gapfill_discover` | `topic` (req); `max_gaps=0`, `confirm=""`, `vault=""` | **Billed, two-phase.** A bare call previews (`open_gaps`, `would_drain`, `provider_configured`, `estimated_cost`) and returns a single-use `confirm_nonce` with a 300 s `ttl`, spending nothing; only a call passing that nonce as `confirm` runs the search. `max_gaps=0` drains every open gap. No provider key → clean no-op, `provider_configured=false`. |
+| `review_gap` | `fill action=review_gap` | `topic`, `gap_id`, `decision` (req); `reason=""`, `vault=""` | The human close over the gap queue. `decision=dismiss` requires a non-empty `reason` and is legal only from `open`; `decision=reopen` is legal only from `dismissed` and its `reason` is optional. Any other source status refuses with `INVALID_ARGUMENT`. The reason is persisted on the gap record (`decided_reason`) and survives a re-read. |
 | `source_ingest_open` | `fill action=source_ingest_open` | `topic`, `suggestion_id` (req), `vault=""` | Opens/resumes a private candidate context for one approved suggestion. Idempotent (same handle on reopen). |
 | `source_ingest_submit` | `fill action=source_ingest_submit` | `topic`, `suggestion_id` (req); `mode="dry-run"`, `vault=""` | Finalizes candidate ingest, drives the loop gate synchronously. `mode=apply` returns `merged`\|`refused`\|`blocked`. |
 | `ingest_activity_read` | `learn action=ingest_activity_read` | `topic=""`, `run_id=""`, `limit=120`, `vault=""` | Reads recent ingest-activity events for the dashboard. Read-only. |
 | `arena` | `improve action=arena` + `arena_action=` | `limit=20` | Actions: `status`, `history`. No — all read-only. |
-| `branches` | `improve action=branches` + `branches_action=` | `branch=""`, `kind=""` | Actions: `scoreboard`, `promote_loop`, `promote`, `delete`. Yes, on all but `scoreboard`. |
-| `compile` | `improve action=compile` + `compile_action=` | `branch=""`, `use_mipro=True` | Actions: `run`, `status`, `promote`. Yes, on `promote`. |
+| `branches` | `improve action=branches` + `branches_action=` | `branch=""`, `kind=""`, `mode="dry-run"` | Actions: `scoreboard`, `promote_loop`, `promote`, `delete`. Yes, on all but `scoreboard`. |
+| `compile` | `improve action=compile` + `compile_action=` | `branch=""`, `use_mipro=True`, `mode="dry-run"` | Actions: `run`, `status`, `promote`. Yes, on `promote`. |
 | `datasets` | `improve action=datasets` + `datasets_action=` | `role=""`, `limit=200`, `target=30` | Actions: `inventory`, `records`, `bootstrap`, `bootstrap_train`, `freeze`. No. |
 | `golden` | `improve action=golden` + `golden_action=` | `accepted_json=""` | Actions: `load`, `save`. No. |
 | `loop` | `improve action=loop` + `loop_action=` | `scalar`, `policy=""`, `mode="best"`, `eval_min_interval_hours`, `eval_window`, `eval_num_threads`, `confirm=""`, `num_threads` | Actions: `run_once`, `set_baseline`, `baseline_policy`, `rebaseline`, `cadence`, `run_eval`. No (nonce-confirmed instead — see below). |
-| `notes` | `tend action=notes` + `notes_action=` | `note_id=""`, `intent="all"`, `status="all"`, `cursor=""`, `limit=20`, `anchor=0`, `page=""`, `quote=""`, `target="trainset"`, `question=""`, `answer=""`, `verdict="good"` | Actions: `list`, `read`, `drift`, `reanchor`, `detach`, `promote`, `archive`. Yes, on the 4 mutating actions. |
-| `vault_health` | `tend action=vault_health` + `vault_health_action=` | `quick=False`, `fix=False`, `paths_json="[]"`, `all_tracked=False`, `delete_untracked=False`, `strict=False`, `force=False` | Actions: `doctor`, `repair`, `okf_check`, `okf_repair`, `lint`, `metadata_tree`. Yes, on `repair`/`okf_repair`. |
+| `notes` | `tend action=notes` + `notes_action=` | `note_id=""`, `intent="all"`, `status="all"`, `cursor=""`, `limit=20`, `anchor=0`, `page=""`, `quote=""`, `target="trainset"`, `question=""`, `answer=""`, `verdict="good"`, `mode="dry-run"` | Actions: `list`, `read`, `drift`, `reanchor`, `detach`, `promote`, `archive`. Yes, on the 4 mutating actions. |
+| `vault_health` | `tend action=vault_health` + `vault_health_action=` | `quick=False`, `fix=False`, `paths_json="[]"`, `all_tracked=False`, `delete_untracked=False`, `strict=False`, `force=False`, `mode="dry-run"` | Actions: `doctor`, `repair`, `okf_check`, `okf_repair`, `lint`, `metadata_tree`. Yes, on `repair`/`okf_repair`. |
 
 **`loop`'s `run_once` and `run_eval` are two-phase billed** (as `improve action=loop loop_action=run_once`). Call once with no `confirm` to
 mint a single-use nonce and see a cost preview (`ttl=300` seconds) — nothing is billed. Call again
@@ -326,7 +343,7 @@ success envelope as warnings only.
 | `SOURCE_EXISTS` | `store_source` citation key exists with different content. | Use a different citation key — sources are immutable. |
 | `INVALID_FRONTMATTER` | Frontmatter or JSON payload malformed. | Add/fix the named fields. |
 | `LOCK_BUSY` | Vault mutation lock held by another operation. | Retryable — retry in a moment. |
-| `GIT_ERROR` | Git operation failed. | Run `knotica doctor`. |
+| `GIT_ERROR` | Git operation failed. | Run `knotica tend doctor`. |
 | `INVALID_CURSOR` | Stale/malformed/wrong-filter pagination cursor. | Restart the search without a cursor. |
 | `INVALID_ARGUMENT` | Generic bad argument (empty required field, out-of-range, bad enum). | Correct the named argument and call again. |
 | `LLM_API_ERROR` | Headless LLM call failed. | Retryable for transient statuses; not for auth rejections. |

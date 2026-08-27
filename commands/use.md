@@ -1,5 +1,5 @@
 ---
-description: Switch or inspect the active knotica knowledge base (vault).
+description: "[Home] Switch or inspect the active knotica knowledge base (vault)."
 argument-hint: "[vault-name]"
 allowed-tools:
   - mcp__plugin_knotica_knotica__*

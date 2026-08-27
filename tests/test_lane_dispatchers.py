@@ -165,6 +165,7 @@ class RepresentativeCall:
 _SUGGESTION_ID = "dispatch-equiv-suggestion"
 _NOTE_ID = "dispatch-equiv-note"
 _SEEDED_PAGE = "agent-memory"
+_GAP_ID = "dispatch-equiv-gap"
 
 
 def _seed_suggestion(vault: Path, *, suggestion_id: str, status: str) -> None:
@@ -204,6 +205,44 @@ def _seed_suggestion(vault: Path, *, suggestion_id: str, status: str) -> None:
     store = LocalFSStore(vault)
     path = suggestions_path(TOPIC)
     with VaultTransaction(store, vault, "test_seed", TOPIC, "seed suggestion for test") as txn:
+        txn.write(path, record.to_json_line() + "\n")
+
+
+def _seed_gap(vault: Path, *, gap_id: str, status: str) -> None:
+    """Commit one gap record directly -- house pattern, see `_seed_suggestion`."""
+    from knotica.core.gap_classifier import gaps_path
+    from knotica.core.records import GapEvidence, GapRecord
+    from knotica.core.transaction import VaultTransaction
+    from knotica.store import LocalFSStore
+
+    record = GapRecord(
+        gap_id=gap_id,
+        topic=TOPIC,
+        qa_id=f"golden-{gap_id}",
+        fault_class="genuine_gap",
+        status=status,
+        classifier_version=1,
+        detected_generation=5,
+        detected_at="2026-07-18T23:01:00Z",
+        scalar_at_detection=0.9493,
+        baseline_scalar=0.96,
+        question="What does the seeded gap leave unanswered?",
+        reference_pages=("speculative-decoding",),
+        reference_pages_exist=False,
+        evidence=GapEvidence(
+            quality_delta=-0.12,
+            qa_accuracy_delta=-0.12,
+            citation_validity_delta=0.0,
+            retrieval_trace=(),
+            pages_added=(),
+            pages_removed=(),
+            prior_generation=4,
+        ),
+        manifest_ref=f"{TOPIC}/.knotica/eval-runs/gen-5/manifest.json",
+    )
+    store = LocalFSStore(vault)
+    path = gaps_path(TOPIC)
+    with VaultTransaction(store, vault, "test_seed", TOPIC, "seed gap for test") as txn:
         txn.write(path, record.to_json_line() + "\n")
 
 
@@ -279,6 +318,12 @@ _REPRESENTATIVE: dict[tuple[str, str | None], RepresentativeCall] = {
     ("prompt_diff", None): RepresentativeCall({"topic": TOPIC}),
     ("gaps_read", None): RepresentativeCall({"topic": TOPIC}),
     ("gapfill_discover", None): RepresentativeCall({"topic": TOPIC}, volatile=("confirm_nonce",)),
+    ("review_gap", None): RepresentativeCall(
+        {"topic": TOPIC, "gap_id": _GAP_ID, "decision": "dismiss", "reason": "not worth sourcing"},
+        mutating=True,
+        seed=lambda vault: _seed_gap(vault, gap_id=_GAP_ID, status="open"),
+        volatile=("commit_sha", "decided_at"),
+    ),
     ("suggestions_read", None): RepresentativeCall({"topic": TOPIC}),
     ("suggestions_review", None): RepresentativeCall(
         {"topic": TOPIC, "suggestion_id": _SUGGESTION_ID, "action": "defer", "mode": "dry-run"},

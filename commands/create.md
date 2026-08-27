@@ -1,5 +1,5 @@
 ---
-description: Create and initialize a new knotica knowledge base (vault) — asks for path, name, and topic.
+description: "[Home] Create and initialize a new knotica knowledge base (vault) — asks for path, name, and topic."
 argument-hint: "[name]"
 allowed-tools:
   - AskUserQuestion

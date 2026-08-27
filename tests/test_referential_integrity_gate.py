@@ -99,12 +99,22 @@ def test_the_same_body_passes_once_the_dead_name_is_removed(tree: Path) -> None:
 
 
 def test_a_dead_tool_name_in_a_description_string_is_rejected(tree: Path) -> None:
-    """The surface a model actually reads when choosing a tool."""
+    """The surface a model actually reads when choosing a tool.
+
+    The injection anchors on the first words of `_LOOP_DISPATCH_DESCRIPTION`.
+    That opening was reworded when the description corpus was collapsed into the
+    lane action tables, so the anchor moved with it -- the rule under test (a
+    dead `<dispatcher>_<action>` name inside a `description=` string fails the
+    gate) is unchanged, and `_edit` asserts the injection actually landed, so a
+    future reword fails loudly here rather than silently passing a vacuous test.
+    """
     _edit(
         tree,
         "src/knotica/mcp_server/tools_dispatch_loop.py",
         lambda text: text.replace(
-            '"Operator loop control', '"Same as `loop_run_once`. Operator loop control', 1
+            '"Run and steer the self-improvement gate',
+            '"Same as `loop_run_once`. Run and steer the self-improvement gate',
+            1,
         ),
     )
 
@@ -140,7 +150,7 @@ def test_a_dead_cli_invocation_in_the_session_hook_is_rejected(tree: Path) -> No
     _edit(
         tree,
         "hooks/session_start.sh",
-        lambda text: text.replace("knotica doctor", "knotica frobnicate", 1),
+        lambda text: text.replace("knotica tend doctor", "knotica frobnicate", 1),
     )
 
     result = _run(tree)

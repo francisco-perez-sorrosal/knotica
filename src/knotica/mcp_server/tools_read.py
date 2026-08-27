@@ -48,11 +48,11 @@ from knotica.store import LocalFSStore, VaultStore
 
 _READ_PAGE_DESCRIPTION = (
     "Read one wiki page and return its raw markdown plus parsed frontmatter. Does NOT "
-    "resolve or follow wikilinks (use list_links) and does NOT search (use search). "
-    "Precondition: the page exists under the given topic; call search or list_topics first "
-    "if unsure. The page argument accepts a topic-relative name (agent-memory), a "
-    "vault-relative path from search (sources/<topic>/<citation-key> or "
-    "<topic>/reports/...), or a bare citation key for a stored source. Returns the full "
+    "resolve or follow wikilinks (use `list_links`) and does NOT search (use `search`). "
+    "Requires: the page exists under the given topic; call `search` first if unsure. "
+    "The page argument accepts a topic-relative name (agent-memory), a "
+    "vault-relative path from `search` (sources/<topic>/<citation-key> or "
+    "<topic>/reports/...), or a bare citation key for a stored source. Returns: the full "
     "page body — call this only for pages you have decided to read. "
     "Pass vault to select a configured vault name (default: config default_vault)."
 )

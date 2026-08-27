@@ -62,8 +62,22 @@ OVER_CEILING_BASELINE: dict[str, int] = {
     "evals/harness.py": 1234,
     "core/loop.py": 1168,
     "evals/golden.py": 975,
-    "core/records.py": 947,
-    # Raised 944 -> 1115 for the gap-lifecycle writers: two of the three
+    # Raised 947 -> 955 for `GapRecord.decided_reason`: an additive optional
+    # field (mirrors `SuggestionRecord.decided_reason`) so the human gap
+    # transition's reason survives a re-read instead of existing only in the
+    # one-shot tool result. One field, one docstring, one line each in
+    # `to_json_line`/`from_json_line` -- not extractable from a frozen record's
+    # own (de)serialization pair.
+    "core/records.py": 955,
+    # Raised 1115 -> 1138 for `review_gap`'s dismiss-requires-a-reason rule and
+    # its `decided_reason` persistence: `_plan_gap_decision` grew a reason check
+    # and a docstring, and `apply_gap_decision` now threads the cleaned reason
+    # onto the record it replaces. Same module as the prior raise below, same
+    # reason it cannot move: the human gap transition's whole legality table
+    # lives here beside `apply_decision`'s. td-042 still names the real fix --
+    # split gapfill.py into file / drain / decide-gate.
+    #
+    # Prior raise, 944 -> 1115, for the gap-lifecycle writers: two of the three
     # `GAP_STATUSES` values had no writer anywhere in `src/knotica/`, so the gap
     # queue was append-only in practice and its declared terminal state did not
     # exist. Closing that needs the machine transition (a merged gate verdict
@@ -72,10 +86,8 @@ OVER_CEILING_BASELINE: dict[str, int] = {
     # from here: the machine half must be declared to the *same* `VaultTransaction`
     # as the suggestion stamp or the two writes stop being one commit, and the
     # human half is the parameter-for-parameter sibling of `apply_decision`, which
-    # lives in this module. td-042 still names the real fix -- split gapfill.py
-    # into file / drain / decide-gate -- and this raise makes that debt larger,
-    # not different.
-    "core/gapfill.py": 1115,
+    # lives in this module.
+    "core/gapfill.py": 1138,
 }
 
 

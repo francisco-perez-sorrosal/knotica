@@ -163,7 +163,7 @@ def run_baseline_probe(
         raise KnoticaError(
             ErrorCode.NOT_CONFIGURED,
             f"Topic {cleaned!r} does not exist; cannot write a cold-start anchor.",
-            fix="Create the topic (e.g. create_topic) then retry.",
+            fix="Create the topic with `learn action=create_topic`, then retry.",
         )
 
     scalar = NAIVE_COLD_START_SCALAR

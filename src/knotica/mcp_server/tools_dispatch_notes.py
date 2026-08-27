@@ -108,7 +108,7 @@ _NOTES_DISPATCH_DESCRIPTION = (
     "default) or a reported gap (`target=gap`, only for a dispute/gap/question "
     "-intent note; a reflection is rejected). `target=golden` always rejects -- "
     "trainset and golden must stay disjoint, so that promotion runs through "
-    "`golden_review` instead. `question` defaults to the note's own text when "
+    "`improve action=golden` instead. `question` defaults to the note's own text when "
     "the note's `intent` already is `question`. `action=archive` flips a "
     "note's `status` to `archived` and touches nothing else -- no anchor "
     "index, no `## Anchors` change, and it never deletes the file; archiving "

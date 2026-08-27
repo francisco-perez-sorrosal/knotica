@@ -582,7 +582,7 @@ def _check_schema_layers(
                         f" the root constitution's {root.schema_version} -- overlays"
                         " extend the root and never contradict it."
                     ),
-                    fix="Run `knotica migrate` to bring the overlay to the root's schema_version.",
+                    fix="Run `knotica tend migrate` to bring the overlay to the root's schema_version.",
                 )
             )
     return violations

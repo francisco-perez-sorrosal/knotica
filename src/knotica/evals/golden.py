@@ -161,7 +161,7 @@ class GoldenSetMissingError(GoldenSetError):
                 "set to evaluate against."
             ),
             fix=(
-                f"Bootstrap one with `knotica eval --bootstrap --topic {topic}`, "
+                f"Bootstrap one with `knotica improve eval --bootstrap --topic {topic}`, "
                 "then review and freeze the generated pairs."
             ),
         )

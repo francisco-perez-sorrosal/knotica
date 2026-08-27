@@ -53,14 +53,21 @@ _SERVER_NAME = "knotica"
 
 #: Top-level guidance the client surfaces to its model (MCP ``instructions``).
 #: knotica is client-as-brain, and this is the only router on skill-less clients
-#: (e.g. Claude Desktop). It carries three things and *no* enumerated protocol
+#: (e.g. Claude Desktop). It carries four things and *no* enumerated protocol
 #: steps: (a) a detection heuristic (route on the symptoms of wiki-relevant
-#: conversation, confirmed by a cheap scope-check), (b) the stable invariant
-#: guards that must hold even if the client never loads a protocol (full-text
-#: source storage, explicit topic, deterministic-tools/you-do-the-cognition), and
-#: (c) a pointer to ``read_protocol`` for the multi-step operations. The step
-#: sequences live only in the vault operation prompts (the DSPy/SIA-evolvable
-#: source of truth) -- restating them here would create a second, drift-prone copy.
+#: conversation, confirmed by a cheap scope-check), (a2) the lane map, (b) the
+#: stable invariant guards that must hold even if the client never loads a
+#: protocol (full-text source storage, explicit topic,
+#: deterministic-tools/you-do-the-cognition), and (c) a pointer to
+#: ``read_protocol`` for the multi-step operations. The step sequences live only
+#: in the vault operation prompts (the DSPy/SIA-evolvable source of truth) --
+#: restating them here would create a second, drift-prone copy.
+#:
+#: **This is one of exactly two places routing prose lives.** The other is each
+#: lane dispatcher's generated action table. A tool's own description says what
+#: *that* tool does and names at most two siblings, and only to disambiguate --
+#: it never narrates the surface, because a routing table kept in thirty-odd
+#: files is a routing table with thirty-odd copies to drift.
 #: This is a static string: no vault read at construction.
 _INSTRUCTIONS = (
     "knotica maintains a compounding, AI-curated knowledge wiki in a git-backed Obsidian "
@@ -70,6 +77,16 @@ _INSTRUCTIONS = (
     "the user wants captured, or a reported wiki gap or error — call `wiki_status(view='scope')` "
     "to learn which topics the vault covers, then decide: in scope, route to a knotica operation "
     "(read/offer only — never mutate without the user's go-ahead); out of scope, answer normally. "
+    # (a2) The lane map -- the one copy of routing prose. Each lane's own
+    # description carries its action table (the second and only other copy);
+    # no individual tool's description narrates the surface.
+    "Multi-step work runs in six process lanes: `learn` (turn an outside source into pages), "
+    "`answer` (ask the wiki and react to what comes back), `improve` (measure a topic and raise "
+    "its bar — several actions are billed), `fill` (close a knowledge gap with an outside "
+    "source — discovery is billed), `tend` (keep the vault mechanically sound). Call `home` "
+    "(read-only, no arguments) when unsure which lane applies: it returns every lane's stage "
+    "rail and the actions that lane accepts. Each lane's own description lists its actions — "
+    "that list is the routing table, not this text. "
     # (b) Stable invariant guards -- must hold even if a protocol is never loaded.
     "Store every source's FULL text faithfully — never a summary, abstract, or excerpt; topic is "
     "always an explicit argument; the vault (git) is the only state. "

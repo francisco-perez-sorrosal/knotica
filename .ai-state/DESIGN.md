@@ -80,7 +80,7 @@ and the `TEST_TOPOLOGY.md` rule change it forced, are `dec-075`.
 | `src/knotica/core/operations/` | Mostly one module per mutating operation, though `guillotine.py` exports two and `reanchor_note.py` three. Nine modules open a `VaultTransaction`, each opening exactly one; `doctor_repair.py` and `promote_note.py` open none — the latter delegates to `curate_example` or `gapfill.report_gap`, which carry their own. `__init__.py` re-exports a subset (`write_page`, `store_source`, `create_topic`, `curate_example`, `migrate`, `doctor_repair`, `apply_guillotine`, `persist_guillotine_artifacts`) while the notes operations and `reflow_sources` are imported by path. `candidate_scope.py` is a routing helper, not an operation | Built |
 | `src/knotica/core/notes/` | Personal-notes overlay model: `anchor` (document + append-only anchor history), `resolve` (the read-time resolution ladder, rungs 0–10), `candidates` + `scoring` (fuzzy candidate generation and the Hypothesis-weighted scorer), `supersession` (page-replaced vs passage-reworded), `reconcile` (post-merge drift-queue notification), `store` (read-only enumeration). `dec-058`, `dec-061` | Built |
 | `src/knotica/mcp_server/` | FastMCP adapter: 25 flat conversational tools, 9 operator dispatchers, the 6 process-lane dispatchers (`tools_dispatch_<lane>.py`, generated from `core/process_model.py` by `tools_dispatch_lane_common.py` and registered alongside the flat surface while the lane rename lands), `open_dashboard`, 4 resources + 1 UI resource, 4 prompts. `vault_ctx.with_resolved_vault` is the per-call config-resolution and error-mapping seam every tool routes through — the concrete form of the stateless-server invariant. Named `mcp_server` to avoid shadowing the `mcp` SDK (`dec-009`) | Built |
-| `src/knotica/cli/` | `knotica` console entry point. `cli/__init__.py::COMMAND_NAMES` is the single declaration of the subcommand set; one module per command plus `common.py` (Console, exit codes, stdout=data / stderr=messages) | Built |
+| `src/knotica/cli/` | `knotica` console entry point. `cli/__init__.py::COMMAND_NAMES` is the single declaration of the top-level subcommand set — the six process lanes (read from `core/process_model.py`, never restated) plus the six unlaned commands; one module per command, six lane modules that re-parent their members one level deeper, plus `common.py` (Console, exit codes, `LaneCommand`, stdout=data / stderr=messages) | Built |
 | `src/knotica/evals/` | Frozen-corpus evaluator: clones the vault at a pinned SHA, scores a held-out golden set through `dspy.Evaluate` over a baseline runner and a cached LLM-as-judge, composes one stable scalar, and appends a `MetricsRecord` **on the clone**. `anthropic`/`dspy` are isolated in the `evals` extra and imported lazily | Built |
 | `src/knotica/programs/` | The DSPy query program: MIPROv2 with a bootstrap fallback, recording `optimizer`/`fallback_reason` on the artifact, plus `CompiledRunner` | Built |
 | `src/knotica/discovery/` | Outbound source discovery for gap-fill. Pure network boundary: no vault access, no LLM, no state. `normalize.py` is the identity leaf — the single declaration of when two candidates are the same source. `dec-026`, `dec-027` | Built |
@@ -121,7 +121,7 @@ for the gate, but it is not a component and owns no responsibility. The gate pro
 | Package | Modules |
 |---|---|
 | `src/knotica/` | 1 |
-| `src/knotica/cli/` | 17 |
+| `src/knotica/cli/` | 23 |
 | `src/knotica/core/` | 63 |
 | `src/knotica/core/notes/` | 8 |
 | `src/knotica/core/operations/` | 13 |

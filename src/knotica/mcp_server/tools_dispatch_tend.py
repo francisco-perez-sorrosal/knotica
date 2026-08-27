@@ -11,6 +11,8 @@ equivalent.
 
 from __future__ import annotations
 
+from collections.abc import Mapping
+
 from mcp.server.fastmcp import FastMCP
 
 from knotica.mcp_server.tools_dispatch_lane_common import register_lane_dispatcher
@@ -19,17 +21,37 @@ __all__ = ["register_dispatch_tend_tools"]
 
 _LANE = "tend"
 
-_PURPOSE = (
-    "Keep the vault mechanically sound: run the health checks and "
-    "repairs, check pages against the topic's schema, check and repair "
-    "OKF conformance, and maintain the notes overlay as prose moves "
-    "under it. Independent checks, not a sequence -- each stands alone. "
-    "Migration runs from the CLI (knotica migrate), not from here. Tend "
-    "is mechanical and per-vault; it makes no measured claim about a "
-    "topic's quality (that is improve)."
+#: Old action string -> the live one that replaced it. Empty: no action moved
+#: when this lane was cut from the topical dispatchers, so there is nothing to
+#: alias yet. See `tools_dispatch_lane_common`'s module docstring for the
+#: mechanism this feeds -- a superseded call still reaches the live action's
+#: handler and gets a `deprecation` note back, in the same turn.
+SUPERSEDED_ACTIONS: Mapping[str, str] = {}
+
+#: The lane's own prose, in the four-part shape every lane description takes:
+#: what it does, ``Does NOT``, ``Requires``, ``Returns``. Named
+#: ``*_DESCRIPTION`` so ``scripts/check_surface_consistency.py`` scans it --
+#: the gate resolves every tool and action a description names, and a lane
+#: purpose is the highest-traffic model-facing prose on the surface.
+_PURPOSE_DESCRIPTION = (
+    "Keep the vault mechanically sound: run the health checks and repairs, "
+    "check pages against the topic's schema, check and repair OKF conformance, "
+    "and maintain the notes overlay as the prose beneath it moves. Independent "
+    "checks, not a sequence -- each stands alone. Tend is mechanical and "
+    "per-vault.\n"
+    "Does NOT: make any measured claim about a topic's quality (that is "
+    "`improve`), and does NOT migrate a schema overlay -- migration runs from "
+    "the CLI (`knotica tend migrate`), not from here.\n"
+    "Requires: a configured vault, and nothing else -- no prior stage and no "
+    "watermark, since the checks are independent. The repairing and "
+    "notes-mutating actions take mode=dry-run|apply and never fire from a "
+    "detection pass: only after the user has explicitly confirmed the change.\n"
+    "Returns: each action's own payload, unchanged from calling that verb "
+    "directly -- a dry-run describes the change it would make without writing; "
+    "only mode=apply commits."
 )
 
 
 def register_dispatch_tend_tools(mcp: FastMCP) -> None:
     """Register the ``tend`` lane dispatcher on ``mcp``."""
-    register_lane_dispatcher(mcp, _LANE, _PURPOSE)
+    register_lane_dispatcher(mcp, _LANE, _PURPOSE_DESCRIPTION)

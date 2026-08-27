@@ -152,7 +152,7 @@ def _parse_wip_branch(candidate: str) -> tuple[str, str]:
         ErrorCode.SUGGESTION_NOT_FOUND,
         f"{candidate!r} is not a well-formed ingest handle "
         f"(expected {WIP_BRANCH_PREFIX!r} + '<topic>/{_SOURCE_INFIX}<id8>').",
-        fix="Call source_ingest_open first to obtain a candidate handle.",
+        fix="Call `fill action=source_ingest_open` first to obtain a candidate handle.",
     )
     if not candidate.startswith(WIP_BRANCH_PREFIX):
         raise malformed

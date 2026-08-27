@@ -1,5 +1,5 @@
 ---
-description: Show knotica wiki status — pages per topic, compile-ready count, lint, unpushed commits.
+description: "[Home] Show knotica wiki status — pages per topic, compile-ready count, lint, unpushed commits."
 argument-hint: "[topic]"
 allowed-tools:
   - Bash(knotica status:*)

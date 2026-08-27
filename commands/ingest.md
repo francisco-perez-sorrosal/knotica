@@ -1,5 +1,5 @@
 ---
-description: Ingest a source into the knotica wiki (fetch, place by topic, write pages, log).
+description: "[Learn] Ingest a source into the knotica wiki (fetch, place by topic, write pages, log)."
 argument-hint: "<source-url> [topic]"
 allowed-tools:
   - mcp__plugin_knotica_knotica__*

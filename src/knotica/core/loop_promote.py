@@ -71,7 +71,8 @@ def loop_promote(
                 f"loop promote failed because branch {branch!r} must start with "
                 f"{RESULT_BRANCH_PREFIX!r} or {DEFAULT_BRANCH_PREFIX!r}"
             ),
-            fix="Pass loop/r/<shortsha> from branch_scoreboard, or a loop/c/* tip with a fetched loop/r branch.",
+            fix="Pass loop/r/<shortsha> from `improve action=branches branches_action=scoreboard`, or a "
+            "loop/c/* tip with a fetched loop/r branch.",
         )
 
     try:
@@ -86,7 +87,7 @@ def loop_promote(
         return err(
             ErrorCode.GIT_ERROR,
             "loop promote failed because the vault worktree is dirty",
-            fix="Commit changes or run `knotica doctor repair`, then retry.",
+            fix="Commit changes or run `knotica tend doctor repair`, then retry.",
         )
 
     target_branch = cleaned_branch
@@ -107,8 +108,9 @@ def loop_promote(
             ErrorCode.GIT_ERROR,
             (f"loop promote failed because result branch {target_branch!r} does not exist locally"),
             fix=(
-                "Run loop_runner once so the eval clone tip is fetched onto loop/r/<sha>, "
-                "or pass an existing loop/r branch from branch_scoreboard."
+                "Run one gate cycle (`improve action=loop loop_action=run_once`) so the "
+                "eval clone tip is fetched onto loop/r/<sha>, "
+                "or pass an existing loop/r branch from `improve action=branches branches_action=scoreboard`."
             ),
         )
 

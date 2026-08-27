@@ -591,7 +591,7 @@ def restore_worktree_paths(
             raise KnoticaError(
                 ErrorCode.GIT_ERROR,
                 f"doctor repair failed because git restore failed: {error}",
-                fix="Re-run `knotica doctor repair --dry-run` and apply only still-dirty paths.",
+                fix="Re-run `knotica tend doctor repair --dry-run` and apply only still-dirty paths.",
             ) from error
         return normalized
     finally:

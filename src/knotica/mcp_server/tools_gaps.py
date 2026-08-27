@@ -42,6 +42,7 @@ from mcp.types import CallToolResult
 from knotica.core.errors import ErrorCode, KnoticaError
 from knotica.core.gap_classifier import gaps_path
 from knotica.core.gapfill import (
+    apply_gap_decision,
     build_default_discovery_service,
     refresh_suggestions_for_gaps,
     report_gap,
@@ -98,22 +99,33 @@ _REPORT_DESCRIPTION = (
 _GAPS_READ_DESCRIPTION = (
     "List diagnosed knowledge gaps for one topic -- the P1 queue that feeds source "
     "discovery, before any candidate sources exist for them. A gap appears here the "
-    "moment it is filed (by the loop's regression classifier, by gap_report, or by "
-    "the guillotine) and stays until a discovery drain promotes it into "
-    "suggestions_read cards. Filter by status (open|resolved|dismissed, or 'all'; "
+    "moment it is filed (by the eval loop's regression classifier, by `gap_report`, "
+    "or by the guillotine) and stays until a discovery drain promotes it into "
+    "`fill action=suggestions_read` cards. Filter by status (open|resolved|dismissed, or 'all'; "
     "default open). Each gap carries its origin (measured|reported|retracted), "
     "fault_class (genuine_gap|dilution), the failed question, and reference_pages. "
     "Sorted newest-first. Paginate with the opaque cursor from a prior next_cursor "
     "(default 20, max 50 per page). Read-only -- no commits, no lock. Use this to "
     "answer 'what gaps are open on this topic' and to show a filed gap has landed; "
-    "use suggestions_read for gaps that already have sources to approve."
+    "use `fill action=suggestions_read` for gaps that already have sources to approve."
+)
+
+_REVIEW_GAP_DESCRIPTION = (
+    "Dismiss a diagnosed gap that is not worth sourcing, or reopen one you "
+    "dismissed. decision='dismiss' requires a non-empty 'reason' and is legal "
+    "ONLY from an open gap; decision='reopen' is legal only from a dismissed "
+    "gap and 'reason' is optional. A resolved gap -- already answered by a "
+    "merged source -- accepts neither: undoing a merge is a vault operation, "
+    "not a queue edit; a source status refuses with an INVALID_ARGUMENT error. "
+    "The reason is persisted on the gap record and survives a re-read. One "
+    "commit; requires a lock."
 )
 
 _DISCOVER_DESCRIPTION = (
     "Run source discovery for a topic's open gaps: formulate one query per gap, "
     "call the configured search provider plus OpenAlex enrichment, and stage the "
     "ranked candidates as pending suggestions for review. This is the step that "
-    "turns a gap into something suggestions_read can show. "
+    "turns a gap into something `fill action=suggestions_read` can show. "
     "BILLED and two-phase: a bare call previews (how many gaps would drain, "
     "whether a provider is configured, the cost) and returns a short-lived "
     "confirm_nonce WITHOUT spending anything; only a second call passing that "
@@ -186,6 +198,21 @@ def register_gaps_lane_tools(mcp: FastMCP) -> None:
             vault,
             lambda store, resolved: _discover_payload(
                 store, resolved.path, topic, max_gaps=max_gaps, confirm=confirm
+            ),
+        )
+
+    @mcp.tool(name="review_gap", description=_REVIEW_GAP_DESCRIPTION)
+    def review_gap(
+        topic: str,
+        gap_id: str,
+        decision: str,
+        reason: str = "",
+        vault: str = "",
+    ) -> ToolResult:
+        return with_resolved_vault(
+            vault,
+            lambda store, resolved: _review_gap_payload(
+                store, resolved.path, topic, gap_id, decision=decision, reason=reason
             ),
         )
 
@@ -382,6 +409,59 @@ def _resolve_gap_offset(cursor: str, status_filter: str) -> int:
             "Cursor was minted for a different status filter and cannot continue this read."
         )
     return decoded.offset
+
+
+# ---------------------------------------------------------------------------
+# review_gap -- the human dismiss/reopen transition over the gap queue
+# ---------------------------------------------------------------------------
+
+
+def _review_gap_payload(
+    store: VaultStore,
+    root: str | Path,
+    topic: str,
+    gap_id: str,
+    *,
+    decision: str,
+    reason: str,
+) -> dict[str, Any]:
+    """Validate the request and apply one human dismiss/reopen transition.
+
+    ``apply_gap_decision`` raises a bare ``ValueError`` for an unknown ``gap_id``
+    (it has no MCP-facing caller of its own to map that error) -- caught here and
+    re-raised as a typed ``INVALID_ARGUMENT`` so this tool never lets an
+    unmapped exception escape the envelope boundary, mirroring
+    ``tools_suggestions.py``'s ``_require_record`` guard for the sibling
+    suggestion transition.
+    """
+    cleaned_topic = _validate_topic(topic)
+    try:
+        result = apply_gap_decision(
+            store,
+            root,
+            cleaned_topic,
+            gap_id,
+            decision=decision,
+            reason=reason or None,
+        )
+    except ValueError as error:
+        raise KnoticaError(
+            ErrorCode.INVALID_ARGUMENT,
+            str(error),
+            fix="Call `fill action=gaps_read` to list current gap ids.",
+        ) from error
+    return {
+        "gap_id": result.gap_id,
+        "topic": result.topic,
+        "decision": result.decision,
+        "from_status": result.from_status,
+        "to_status": result.to_status,
+        "reason": result.reason,
+        "decided_at": result.decided_at,
+        "question": result.question,
+        "changed": result.changed,
+        "commit_sha": result.commit_sha,
+    }
 
 
 # ---------------------------------------------------------------------------

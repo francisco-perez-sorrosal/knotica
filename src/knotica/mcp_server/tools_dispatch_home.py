@@ -19,14 +19,24 @@ __all__ = ["register_dispatch_home_tools"]
 
 _LANE = "home"
 
-_PURPOSE = (
-    "Route into the right process lane. Read-only, takes no arguments: returns "
-    "each lane's ordered stage rail and the actions that lane accepts, so a "
-    "caller can pick the lane before picking the action. Home is cross-topic and "
-    "actionable; it runs no process of its own and advances no stage."
+#: The lane's own prose, in the four-part shape every lane description takes:
+#: what it does, ``Does NOT``, ``Requires``, ``Returns``. Named
+#: ``*_DESCRIPTION`` so ``scripts/check_surface_consistency.py`` scans it --
+#: the gate resolves every tool and action a description names, and a lane
+#: purpose is the highest-traffic model-facing prose on the surface.
+_PURPOSE_DESCRIPTION = (
+    "Route into the right process lane. Read-only and takes no arguments: it "
+    "answers 'which lane, and what can that lane do?' before you commit to an "
+    "action. Home is cross-topic and actionable.\n"
+    "Does NOT: run a process of its own, advance any stage, or read the vault "
+    "-- it is an index of the surface, not a step in it.\n"
+    "Requires: nothing. No topic, no vault, no configuration.\n"
+    "Returns: every other lane's ordered stage rail -- each stage's id, title, "
+    "and whether it is a handoff to a human -- plus the exact action names that "
+    "lane accepts, so the next call can be made without guessing."
 )
 
 
 def register_dispatch_home_tools(mcp: FastMCP) -> None:
     """Register the ``home`` lane router on ``mcp``."""
-    register_lane_dispatcher(mcp, _LANE, _PURPOSE)
+    register_lane_dispatcher(mcp, _LANE, _PURPOSE_DESCRIPTION)

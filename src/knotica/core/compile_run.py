@@ -245,7 +245,7 @@ def run_compile(
                     f"compile failed because compiled scalar {compiled_scalar:.4f} "
                     f"did not beat baseline {baseline_scalar:.4f}."
                 ),
-                fix="Add more diverse curated examples and re-run compile.",
+                fix="Add more diverse curated examples, then re-run `improve action=compile compile_action=run`.",
             )
 
         artifact = CompiledArtifact(
@@ -327,7 +327,7 @@ def run_compile(
         raise KnoticaError(
             ErrorCode.GIT_ERROR,
             f"compile failed because git reported: {error}",
-            fix="Run `knotica doctor` and retry compile on a clean vault.",
+            fix="Run `knotica tend doctor` and retry compile on a clean vault.",
         ) from error
     except Exception as error:  # noqa: BLE001
         write_compile_state(
@@ -357,14 +357,14 @@ def _doctor_gate(store: VaultStore, root: Path, *, config_detail: str) -> None:
         raise KnoticaError(
             ErrorCode.NOT_CONFIGURED,
             "compile failed because doctor --quick reported a FAIL.",
-            fix="Run `knotica doctor` and repair before compiling.",
+            fix="Run `knotica tend doctor` and repair before compiling.",
         )
     vcs = VaultVcs(root)
     if vcs.is_dirty():
         raise KnoticaError(
             ErrorCode.GIT_ERROR,
             "compile failed because the vault worktree is dirty.",
-            fix="Commit or `knotica doctor repair` scoped dirty paths, then retry.",
+            fix="Commit or `knotica tend doctor repair` scoped dirty paths, then retry.",
         )
 
 
@@ -396,7 +396,7 @@ def _compare_runners(
             "compile post-eval needs LLM credentials; refusing to fabricate scores.",
             fix=(
                 "Set CLAUDE_CODE_OAUTH_TOKEN (preferred) or ANTHROPIC_API_KEY in the "
-                "server/CLI environment, then rerun compile."
+                "server/CLI environment, then re-run `improve action=compile compile_action=run`."
             ),
         )
 

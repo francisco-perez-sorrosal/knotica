@@ -1,5 +1,5 @@
 ---
-description: Save a personal note (marginalia) against a KB topic, anchored to the passage that provoked it.
+description: "[Tend] Save a personal note (marginalia) against a KB topic, anchored to the passage that provoked it."
 argument-hint: "<your note>"
 allowed-tools:
   - AskUserQuestion

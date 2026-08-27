@@ -1,4 +1,7 @@
-"""``knotica gapfill`` -- the on-demand gap-fill discovery trigger.
+"""``knotica fill discover`` -- the on-demand gap-fill discovery trigger.
+
+``discover`` registers directly into the Fill lane: the verb is already unique
+there, so this module's own group level would name the lane twice.
 
 ``discover`` is the primary, human-invoked way to run the drain: it reads a
 topic's open ``genuine_gap`` records, formulates one deterministic query per
@@ -40,18 +43,8 @@ __all__ = ["configure", "run"]
 def configure(
     subparsers: argparse._SubParsersAction[argparse.ArgumentParser],
 ) -> argparse.ArgumentParser:
-    """Register ``gapfill`` with its ``discover`` subcommand."""
-    parser = subparsers.add_parser(
-        "gapfill",
-        parents=[common_parent()],
-        help="gap-fill source discovery (stage suggestions from diagnosed gaps)",
-        description=(
-            "Run source discovery for a topic's open genuine_gap records and stage "
-            "the ranked candidates as pending suggestions for human review."
-        ),
-    )
-    sub = parser.add_subparsers(dest="gapfill_command", metavar="<subcommand>")
-    discover = sub.add_parser(
+    """Register ``discover`` into the caller's subparsers (the Fill lane)."""
+    discover = subparsers.add_parser(
         "discover",
         parents=[common_parent(nested=True)],
         help="drain open genuine_gaps into pending suggestions (real search calls)",
@@ -71,16 +64,12 @@ def configure(
         metavar="N",
         help="cap the drain to the N highest-|quality_delta| open gaps (default: all)",
     )
-    return parser
+    return discover
 
 
 def run(args: argparse.Namespace) -> int:
-    """Dispatch the selected ``gapfill`` subcommand."""
-    console = console_from_args(args)
-    if getattr(args, "gapfill_command", None) == "discover":
-        return _run_discover(console, args)
-    console.error("usage: knotica gapfill discover --topic NAME [--max-gaps N]")
-    return EXIT_ERROR
+    """Run the discovery drain for the requested topic."""
+    return _run_discover(console_from_args(args), args)
 
 
 def _run_discover(console: Console, args: argparse.Namespace) -> int:

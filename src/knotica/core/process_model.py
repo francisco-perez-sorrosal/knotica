@@ -363,6 +363,9 @@ LANE_MEMBERSHIP: Mapping[tuple[str, str | None], frozenset[tuple[str, str, str]]
             ("gapfill_discover", None): frozenset(
                 {("fill", "discover", "propose outside sources for an open gap (billed)")}
             ),
+            ("review_gap", None): frozenset(
+                {("fill", "gap", "dismiss a gap not worth sourcing, or reopen a dismissed one")}
+            ),
             ("suggestions_read", None): frozenset(
                 {("fill", "approve", "read the proposed sources waiting on you")}
             ),
