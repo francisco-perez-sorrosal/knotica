@@ -7,7 +7,7 @@ export function ArenaPane({
   client,
   topic,
   vault,
-  status: wikiStatus,
+  status: _wikiStatus,
   onOpenAsk,
   onOpenLoop,
 }: {

@@ -5,7 +5,7 @@ import "uplot/dist/uPlot.min.css";
 import { isCompileActive } from "./compileStages";
 import { PromptDiff } from "./PromptDiff";
 import { ScoreboardPanel } from "./ScoreboardPanel";
-import { ObsidianFileLink, type ObsidianContext } from "./obsidianLinks";
+import type { ObsidianContext } from "./obsidianLinks";
 import {
   currentScoreSourceLabel,
   findTopicRow,
@@ -43,7 +43,7 @@ export function LoopPane({
   client,
   topic,
   vault,
-  obsidianCtx,
+  obsidianCtx: _obsidianCtx,
   onOpenArena,
   onOpenAsk,
   onOpenVault,
@@ -293,7 +293,6 @@ export function LoopPane({
   const healed = stage === "passed" || arenaStage === "completed";
   const displayStage = compiling ? "compiling" : normalizeStage(stage);
   const arenaLive = arenaStage !== "idle" && arenaStage != null;
-  const queryPromptPath = `${topicName}/.knotica/prompts/query.md`;
 
   async function runHealAction(label: string, action: () => Promise<{ message?: string }>) {
     if (!client || busy) return;
