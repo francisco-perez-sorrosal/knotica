@@ -174,11 +174,19 @@ acyclic. Two `mcp_server` modules carry an `mcp_server → evals` edge at import
 or `litellm` — every one of those is behind a lazy import, which is what keeps the extra off the launch
 path.
 
-The lane-rail redesign in flight is adding a new `dashboard/src/lanes/` tree under the `dashboard/`
-leaf above: `laneRailState.ts` is a pure, framework-free derivation module (no Preact, no DOM, no
-fetch) turning a lane's process position into the shared four-state rail vocabulary
-(`pending`/`active`/`complete`/`blocked`) that every lane's rendered rail will read from. Full
-component-table treatment lands once the standalone pane surface it replaces is fully dissolved.
+The lane-rail redesign has replaced the standalone pane surface with a `dashboard/src/lanes/` tree
+under the `dashboard/` leaf above. Shared at the tree root: `laneRailState.ts`, a pure,
+framework-free derivation module (no Preact, no DOM, no fetch) turning a lane's process position
+into the four-state rail vocabulary (`pending`/`active`/`complete`/`blocked`) every rendered rail
+reads from; `LaneRail.tsx` and `ArmedButton.tsx`, its render and armed-confirm counterparts;
+`hostCapabilities.ts`, which decides what the embedding host can dispatch; and `HandoffStage.tsx`,
+the stage that makes client-as-brain visible by handing a billed cognitive step back to the client's
+own LLM as a slash command rather than calling one server-side. Below it, one directory per lane —
+`learn/`, `answer/`, `fill/`, `improve/`, `tend/` — each holding that lane's rail component and its
+stage components. Five lanes are the whole navigable surface: no standalone `*Pane.tsx` module
+remains, and every legacy `?pane=` key degrades to the lane that absorbed its work
+(`paneRouting.ts`). Presentation shared by two lanes lives beside the tree rather than inside either
+one (`answerPresentation.tsx`, `notePresentation.tsx`).
 
 ## 4. Interfaces
 

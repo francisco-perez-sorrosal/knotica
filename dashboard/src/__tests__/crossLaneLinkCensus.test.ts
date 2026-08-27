@@ -5,25 +5,21 @@ import type { PaneId } from "../types";
 
 /**
  * The removal phase of the `ImproveLane`/`TendLane` dissolution
- * (`IMPLEMENTATION_PLAN.md` Step 79, `INTERFACE_DESIGN.md §2.0`). Today's
- * tree still has all nine legacy files this milestone dissolves, so every
- * "is gone" assertion below is RED by construction; Step 79's implementer
- * acts on this file's own enumeration of which files to delete.
+ * (`INTERFACE_DESIGN.md §2.0`) — this file's own enumeration is what named
+ * the files to delete.
  *
  * **All eight pane modules are deleted**: `VaultPane.tsx`, `LoopPane.tsx`,
  * `CompilePanel.tsx`, `ScoreboardPanel.tsx`, `ArenaPane.tsx`,
  * `DatasetsPane.tsx`, `NotesPane.tsx`, `NotesDriftView.tsx`. The first six
- * were absorbed by `TendLane` (Step 65) and `ImproveLane`'s six stages
- * (Steps 69–75), both mounted at Step 77; the last two were absorbed by
- * `DriftStage` (Steps 67/68), which landed later than this suite was first
- * written and unblocked the two `it.skip`s that used to guard them.
+ * were absorbed by `TendLane` and `ImproveLane`'s six stages; the last two
+ * by `DriftStage`, which landed later than this suite was first written and
+ * unblocked the two `it.skip`s that used to guard them.
  *
  * **`NotePromoteDialog.tsx` is deliberately absent from every list here**,
  * as is the extracted `notePresentation.tsx`. Both are *reused* by
  * `DriftStage.tsx` rather than dissolved — a module a survivor still imports
  * did not die, it moved conceptually. Asserting their absence would delete a
- * live dependency; see `LEARNINGS_implementer_step79.md` for the
- * per-file delete-vs-reuse ruling.
+ * live dependency.
  *
  * `@types/node` is not a project dependency; `fs`/`path`/`url` are loaded via
  * a dynamic `import()` with a variable specifier, the same technique
@@ -120,15 +116,15 @@ describe("no surviving file imports a dissolved pane module by its module specif
 /**
  * `INTERFACE_DESIGN.md §2.0` clause 3 names exactly four retiring cross-lane
  * prop identifiers (`onOpenArena`/`onOpenAsk`/`onOpenVault` on `LoopPane`,
- * `onOpenAsk`/`onOpenLoop` on `ArenaPane` — `AskPane`'s own `onOpenLoop`/
- * `onOpenArena` were already removed by Steps 69/73). The census below
+ * `onOpenAsk`/`onOpenLoop` on `ArenaPane` — the ask pane's own `onOpenLoop`/
+ * `onOpenArena` went earlier, with its cross-lane banners). The census below
  * matches those four names precisely rather than the bare `onOpen` substring
  * the design doc's own "mechanical check" line uses — a bare substring match
- * collides with `SourcesPane.tsx`'s pre-existing, unrelated internal
- * `onOpenReject` prop (a same-file dialog toggle, not cross-lane navigation),
- * which would survive this dissolution and false-positive forever. Flagged
+ * collides with the suggestion queue's unrelated internal `onOpenReject` prop
+ * (a same-file dialog toggle, not cross-lane navigation, and still live in
+ * `lanes/fill/QueueStage.tsx`), which would false-positive forever. Flagged
  * as an imprecision in the design doc's literal wording, not guessed past
- * silently — see `LEARNINGS_test-engineer_step80.md`.
+ * silently.
  */
 const CROSS_LANE_PROPS = [
   "onOpenArena",
@@ -181,12 +177,9 @@ describe("every legacy ?pane= value degrades to the lane that absorbed it (REQ-1
 
 describe("pre-existing topical and new-lane resolutions are unaffected by the removal phase", () => {
   const UNCHANGED: ReadonlyArray<readonly [string, PaneId]> = [
-    ["ingest", "ingest"],
-    ["ask", "ask"],
-    ["sources", "sources"],
-    ["learn", "ingest"],
-    ["answer", "ask"],
-    ["fill", "sources"],
+    ["learn", "learn"],
+    ["answer", "answer"],
+    ["fill", "fill"],
     ["improve", "improve"],
     ["tend", "tend"],
   ];
@@ -205,6 +198,9 @@ describe("PANE_BY_PARAM never maps a key to a retired PaneId once the removal ph
       "datasets",
       "golden",
       "notes",
+      "ask",
+      "ingest",
+      "sources",
     ]);
     const offendingValues = [...PANE_BY_PARAM.values()].filter((value) =>
       retired.has(value),
@@ -246,12 +242,9 @@ describe("the pane-tabs nav shows lanes, not the tabs the dissolution retired", 
     },
   );
 
-  it.each(["Ask", "Sources", "Ingest", "Improve", "Tend"])(
-    "still renders the %s tab",
-    (label) => {
-      expect(paneTabsBlock()).toMatch(new RegExp(`>\\s*${label}\\s*[<{]`));
-    },
-  );
+  it.each(["Improve", "Tend"])("still renders the %s tab", (label) => {
+    expect(paneTabsBlock()).toMatch(new RegExp(`>\\s*${label}\\s*[<{]`));
+  });
 });
 
 describe("the relocated gate-note sentence exists exactly once now that VaultPane.tsx is gone", () => {

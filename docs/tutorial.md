@@ -91,8 +91,9 @@ returns the standalone URL instead, which you serve yourself:
 knotica mcp --http --port 8765
 ```
 
-Then browse `http://127.0.0.1:8765/?topic=agentic-systems`. The tabs are Vault, Ask, Loop, Sources,
-Notes, Arena, Ingest, and Datasets; `?pane=ask` preselects one. Details in [dashboard](dashboard.md).
+Then browse `http://127.0.0.1:8765/?topic=agentic-systems&lane=answer`. The dashboard is structured
+as five process lanes: `Learn`, `Answer`, `Fill`, `Improve`, and `Tend`. Use `?lane=answer` to open
+the question-answering lane. Details in [dashboard](dashboard.md).
 
 ## Step 5. Ask the prove question
 
@@ -120,8 +121,8 @@ Two ways to ask, and they are not equivalent:
 
 In Claude Code the plugin's MCP server is lean by default. Run `/knotica:headless on`, then reconnect
 the server or start a new session — dependencies are chosen when the server process launches, so a
-running lean server cannot gain them in place. Then, in the dashboard's Ask pane, submit the question
-and click **Pin as Before**: that freezes this answer for the Step 9 comparison.
+running lean server cannot gain them in place. Then, in the dashboard's `Answer` lane **Ask** stage,
+submit the question and click **Pin as Before**: that freezes this answer for the Step 9 comparison.
 
 ## Step 6. Curate until compile-ready
 
@@ -136,13 +137,13 @@ Compile refuses unless all three gates hold:
 "Query-style" is exact: verdict `good` or `corrected`, and the query does not begin with `ingest `.
 Curating an ingest is useful, but it does not count toward the 30.
 
-**Fill the trainset.** Ask more questions, then save each answer you judge — the Ask pane's **Save as
-good** / **Save as bad** button, `/knotica:curate agentic-systems good` in Code, or asking Claude to
-curate the exchange. All land on `curate_example`, which appends one row and commits once;
-re-submitting an identical `(query, answer, verdict)` is a safe no-op.
+**Fill the trainset.** Ask more questions, then save each answer you judge — the `Answer` lane's
+**Ask** stage **Save as good** / **Save as bad** button, `/knotica:curate agentic-systems good` in
+Code, or asking Claude to curate the exchange. All land on `curate_example`, which appends one row
+and commits once; re-submitting an identical `(query, answer, verdict)` is a safe no-op.
 
-**Freeze the golden set.** The Datasets pane walks Bootstrap → Review → Freeze, each step unlocking
-when its precondition is met. The CLI covers the two ends:
+**Freeze the golden set.** The `Improve` lane's **Instrument** stage walks Bootstrap → Review →
+Freeze, each step unlocking when its precondition is met. The CLI covers the two ends:
 
 ```bash
 knotica improve eval --bootstrap --topic agentic-systems   # synthesize candidates into staging (bills)

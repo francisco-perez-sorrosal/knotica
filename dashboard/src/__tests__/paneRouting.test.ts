@@ -12,18 +12,19 @@ import type { PaneId } from "../types";
  * deliberately left unpinned rather than guessed at.
  *
  * The tool-shaped panes this file once enumerated (`vault`, `loop`, `arena`,
- * `datasets`, `notes`) dissolved into the `improve`/`tend` lanes; their keys
- * survive as inbound aliases and are pinned in `crossLaneLinkCensus.test.ts`,
- * which owns the legacy-alias table. What stays here is what this file has
- * always been about: a self-resolving value opens the pane it names, and an
- * unusable value never throws.
+ * `datasets`, `notes`, then `ask`, `ingest`, `sources`) dissolved into the
+ * process lanes; their keys survive as inbound aliases and are pinned in
+ * `crossLaneLinkCensus.test.ts`/`m4DissolutionCensus.test.tsx`, which own the
+ * legacy-alias tables. What stays here is what this file has always been
+ * about: a self-resolving value opens the pane it names, and an unusable
+ * value never throws.
  */
 
 /** Values a caller may pass that name the pane they resolve to. */
 const SELF_RESOLVING: readonly PaneId[] = [
-  "ask",
-  "ingest",
-  "sources",
+  "learn",
+  "answer",
+  "fill",
   "improve",
   "tend",
 ];

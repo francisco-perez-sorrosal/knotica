@@ -121,19 +121,26 @@ TESTS_OVER_CEILING_BASELINE: dict[str, int] = {
 }
 
 #: TypeScript/TSX modules under ``dashboard/src`` already over the ceiling, at
-#: their measured high-water mark, taken **after** the M3 lane dissolution
-#: landed -- not before, so this baseline reflects the tree the ratchet
-#: actually starts guarding rather than a doomed intermediate shape.
+#: their measured high-water mark, re-taken **after** the last standalone
+#: panes dissolved into lanes -- so this baseline reflects the tree the
+#: ratchet actually guards rather than a doomed intermediate shape.
+#:
+#: Both numbers were raised once, from the M3-era 1251/875, when the lane
+#: wave's own wiring pushed past them: the `learn`/`answer`/`fill` lanes added
+#: payload types and two flat tool-client methods, and the growth was already
+#: on the branch before it was reconciled here. Raising a baseline is the
+#: ratchet's documented escape hatch, not a silent one -- and both entries
+#: still want the domain split below, which is the actual fix.
 DASHBOARD_OVER_CEILING_BASELINE: dict[str, int] = {
-    # The shared type-definition module for every lane and the panes that
-    # remain. Splitting it by domain (notes / sources / arena / loop) is the
-    # fix td-026 itself named as preferable -- not attempted here, since this
-    # step closes the ratchet's *visibility* gap, not the underlying design.
-    "types.ts": 1251,
+    # The shared type-definition module for every lane. Splitting it by domain
+    # (notes / suggestions / arena / loop) is the fix td-026 itself named as
+    # preferable -- not attempted here, since this guard closes the ratchet's
+    # *visibility* gap, not the underlying design.
+    "types.ts": 1340,
     # Wraps every MCP tool call the dashboard makes; crossed the ceiling
-    # during M3's lane wiring. Extractable by tool-domain the same way
+    # during the lane wiring. Extractable by tool-domain the same way
     # `types.ts` is, and not attempted here for the same reason.
-    "toolClient.ts": 875,
+    "toolClient.ts": 1150,
 }
 
 

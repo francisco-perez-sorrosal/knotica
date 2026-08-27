@@ -16,12 +16,13 @@ export type LoopStage =
 export type ArenaStage =
   "idle" | "racing" | "promoting" | "completed" | "reverted" | "aborted";
 /**
- * The panes the dashboard can show. The tool-shaped panes this set once
- * carried (`vault`, `loop`, `arena`, `datasets`, `golden`, `notes`) dissolved
- * into the `improve` and `tend` process lanes; their `?pane=` keys live on as
- * inbound aliases in `paneRouting.ts` but are no longer destinations.
+ * The panes the dashboard can show — five process lanes and nothing else.
+ * Every tool-shaped pane this set once carried (`vault`, `loop`, `arena`,
+ * `datasets`, `golden`, `notes`, then `ask`, `ingest`, `sources`) dissolved
+ * into the lane that owns its work; their `?pane=` keys live on as inbound
+ * aliases in `paneRouting.ts` but are no longer destinations.
  */
-export type PaneId = "ask" | "ingest" | "sources" | "improve" | "tend";
+export type PaneId = "improve" | "tend" | "learn" | "answer" | "fill";
 
 export type DatasetRole =
   "trainset" | "held_out" | "seal" | "candidates" | "reviewed";
@@ -227,7 +228,7 @@ export interface WikiStatus {
     suggestions?: SuggestionStatusSummary;
     gaps?: GapStatusSummary;
     notes?: NotesStatusSummary;
-    /** Every non-Home lane's rail, server-derived and total (Step 48). Optional
+    /** Every non-Home lane's rail, server-derived and total. Optional
      *  for backward compat with a `wiki_status` payload predating the lanes
      *  block -- absent means "render every stage pending," never a crash. */
     lanes?: Record<
@@ -951,6 +952,21 @@ export interface GapfillDiscoverResult {
   suggestions_staged?: number;
 }
 
+/** ``gap_report``'s result -- the flat Tier-1 tool Answer's ``react`` stage calls for "Report gap". */
+export interface GapReportResult {
+  topic: string;
+  gap_id: string;
+  qa_id: string;
+  question: string;
+  fault_class: GapFaultClass;
+  status: GapStatus;
+  origin: GapOrigin;
+  reason: string;
+  reference_pages: string[];
+  written: boolean;
+  duplicate: boolean;
+}
+
 export interface GapsReadResult {
   topic: string;
   status_filter: GapsStatusFilter;
@@ -1077,6 +1093,32 @@ export interface NotesListResult {
 export interface NotesStatusSummary {
   total: number;
   drifted: number;
+}
+
+/**
+ * ``note_capture``'s multi-page-match ambiguity -- one ``{page, heading}``
+ * mapping per claimed page the quote matched, in claimed order. Unlike
+ * ``notes action=drift``'s own ``NoteDriftAlternative``, this carries no
+ * ``overlap`` -- nothing was scored here.
+ */
+export interface NoteCaptureAlternative {
+  page: string;
+  heading: string;
+}
+
+/** ``note_capture``'s result -- the flat Tier-1 tool Answer's ``react`` stage calls for "Note it". */
+export interface NoteCaptureResult {
+  topic: string;
+  note_id: string;
+  path: string;
+  intent: NoteIntent;
+  anchors: NoteAnchor[];
+  alternatives: NoteCaptureAlternative[];
+  placement: string;
+  written: boolean;
+  duplicate: boolean;
+  commit: string;
+  warnings?: string[];
 }
 
 // ---------------------------------------------------------------------------
@@ -1249,3 +1291,50 @@ export type PromoteTarget = "trainset" | "gap";
 
 export type NotePromoteActionResult =
   NotePromoteTrainsetResult | NotePromoteGapResult;
+
+// ---------------------------------------------------------------------------
+// The handoff stage (`INTERFACE_DESIGN.md §3`) --
+// `fill(action="session_status")`'s read contract.
+// ---------------------------------------------------------------------------
+
+export type SessionState =
+  | "not_started"
+  | "waiting_on_client"
+  | "client_wrote"
+  | "rework_in_flight"
+  | "submitted"
+  | "merged"
+  | "refused"
+  | "blocked"
+  | "swept";
+
+export type SessionNextActor = "you" | "claude" | "system" | "none";
+
+/**
+ * The gate's verdict on a session's candidate, as ``session_status`` reports
+ * it -- a narrower shape than the stored ``GateOutcome`` (no ``ref``/
+ * ``regressed_questions``).
+ */
+export interface SessionGateOutcome {
+  verdict: GateOutcomeVerdict;
+  scalar: number;
+  baseline_scalar: number;
+  /** Present on ``refused`` only. */
+  reason?: string;
+}
+
+/** ``fill(action="session_status")``'s wire contract -- the handoff stage's one read. */
+export interface SessionStatus {
+  suggestion_id: string;
+  stage: string;
+  stage_index: number;
+  state: SessionState;
+  source_present: boolean;
+  pages_present: string[];
+  index_synced: boolean;
+  gate_eligible: boolean;
+  gate_eligible_reason: string;
+  restored_from: string | null;
+  gate_outcome: SessionGateOutcome | null;
+  next: { actor: SessionNextActor; do: string };
+}

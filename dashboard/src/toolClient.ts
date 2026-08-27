@@ -3,6 +3,7 @@ import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
 
 import { resolveLaneFocus } from "./paneRouting";
+import type { HostCapabilities, Mount } from "./lanes/hostCapabilities";
 import type {
   ArenaHistory,
   ArenaStatus,
@@ -19,6 +20,7 @@ import type {
   DoctorRepairResult,
   DoctorReport,
   GapfillDiscoverResult,
+  GapReportResult,
   GapsReadResult,
   GapsStatusFilter,
   GoldenCandidate,
@@ -35,7 +37,9 @@ import type {
   MetricsWindow,
   NoteAnchorActionResult,
   NoteArchiveActionResult,
+  NoteCaptureResult,
   NoteDecisionEnvelope,
+  NoteIntent,
   NoteIntentFilter,
   NotePromoteActionResult,
   NoteReadResult,
@@ -48,6 +52,7 @@ import type {
   QueryAnswer,
   PromptDiffResult,
   PromoteTarget,
+  SessionStatus,
   SuggestionAction,
   SuggestionsReadResult,
   SuggestionsStatusFilter,
@@ -69,10 +74,34 @@ export interface ToolClient {
     pagesUsed?: string[],
     vault?: string,
   ): Promise<Record<string, unknown>>;
+  noteCapture(
+    topic: string,
+    note: string,
+    quote?: string,
+    pages?: string[],
+    intent?: NoteIntent,
+    tags?: string[],
+    vault?: string,
+  ): Promise<NoteCaptureResult>;
+  gapReport(
+    topic: string,
+    question: string,
+    reason?: string,
+    referencePages?: string[],
+    vault?: string,
+  ): Promise<GapReportResult>;
   arenaStatus(topic: string, vault?: string): Promise<ArenaStatus>;
-  arenaHistory(topic: string, vault?: string, limit?: number): Promise<ArenaHistory>;
+  arenaHistory(
+    topic: string,
+    vault?: string,
+    limit?: number,
+  ): Promise<ArenaHistory>;
   compileStatus(topic: string, vault?: string): Promise<CompileStatus>;
-  compileRun(topic: string, vault?: string, useMipro?: boolean): Promise<CompileRunResult>;
+  compileRun(
+    topic: string,
+    vault?: string,
+    useMipro?: boolean,
+  ): Promise<CompileRunResult>;
   compilePromote(
     topic: string,
     branch: string,
@@ -92,15 +121,26 @@ export interface ToolClient {
     vault?: string,
     limit?: number,
   ): Promise<DatasetRecords>;
-  datasetsBootstrap(topic: string, vault?: string): Promise<DatasetsBootstrapResult>;
+  datasetsBootstrap(
+    topic: string,
+    vault?: string,
+  ): Promise<DatasetsBootstrapResult>;
   datasetsBootstrapTrain(
     topic: string,
     target?: number,
     vault?: string,
   ): Promise<DatasetsBootstrapTrainResult>;
   datasetsFreeze(topic: string, vault?: string): Promise<DatasetsFreezeResult>;
-  ingestActivityRead(topic: string, vault?: string, runId?: string): Promise<IngestActivity>;
-  doctorRun(vault?: string, quick?: boolean, fix?: boolean): Promise<DoctorReport>;
+  ingestActivityRead(
+    topic: string,
+    vault?: string,
+    runId?: string,
+  ): Promise<IngestActivity>;
+  doctorRun(
+    vault?: string,
+    quick?: boolean,
+    fix?: boolean,
+  ): Promise<DoctorReport>;
   doctorRepair(
     mode: "dry-run" | "apply",
     vault?: string,
@@ -111,9 +151,21 @@ export interface ToolClient {
   vaultLint(topic?: string, vault?: string): Promise<VaultLintResult>;
   vaultMetadataTree(vault?: string, topic?: string): Promise<VaultMetadataTree>;
   okfCheck(vault?: string, strict?: boolean): Promise<OkfCheckResult>;
-  okfRepair(mode: "dry-run" | "apply", vault?: string, force?: boolean): Promise<OkfRepairResult>;
-  loopRunOnce(topic: string, confirm?: string, vault?: string): Promise<LoopOnceResult>;
-  loopSetBaseline(topic: string, scalar: number, vault?: string): Promise<LoopSetBaselineResult>;
+  okfRepair(
+    mode: "dry-run" | "apply",
+    vault?: string,
+    force?: boolean,
+  ): Promise<OkfRepairResult>;
+  loopRunOnce(
+    topic: string,
+    confirm?: string,
+    vault?: string,
+  ): Promise<LoopOnceResult>;
+  loopSetBaseline(
+    topic: string,
+    scalar: number,
+    vault?: string,
+  ): Promise<LoopSetBaselineResult>;
   loopBaselinePolicy(
     topic: string,
     policy: "latest" | "best",
@@ -199,7 +251,11 @@ export interface ToolClient {
     limit?: number,
     vault?: string,
   ): Promise<NotesListResult>;
-  notesRead(topic: string, noteId: string, vault?: string): Promise<NoteReadResult>;
+  notesRead(
+    topic: string,
+    noteId: string,
+    vault?: string,
+  ): Promise<NoteReadResult>;
   notesDrift(
     topic: string,
     cursor?: string,
@@ -248,6 +304,19 @@ export interface ToolClient {
     description?: string,
     vault?: string,
   ): Promise<Record<string, unknown>>;
+  sessionStatus(
+    topic: string,
+    suggestionId: string,
+    vault?: string,
+  ): Promise<SessionStatus>;
+  /** Capabilities the current mount advertises -- `{}` off-bridge. Read once by `deriveDispatchTier`; no lane re-derives `mount` itself (`INTERFACE_DESIGN.md §3.5`). */
+  readonly hostCapabilities: HostCapabilities;
+  /** Which transport this client speaks over -- fixed for the client's lifetime. */
+  readonly mount: Mount;
+  /** `ui/message` -- starts a turn in the host's conversation. A no-op off-bridge. */
+  sendMessage(text: string): Promise<void>;
+  /** `ui/update-model-context` -- queues context for the next turn, no turn started. A no-op off-bridge. */
+  updateModelContext(text: string): Promise<void>;
   close(): Promise<void>;
 }
 
@@ -276,6 +345,11 @@ abstract class BaseToolClient implements ToolClient {
     args: Record<string, unknown>,
     timeoutMs?: number,
   ): Promise<T>;
+
+  abstract readonly hostCapabilities: HostCapabilities;
+  abstract readonly mount: Mount;
+  abstract sendMessage(text: string): Promise<void>;
+  abstract updateModelContext(text: string): Promise<void>;
 
   wikiStatus(topic: string, vault = ""): Promise<WikiStatus> {
     return this.call("wiki_status", { topic, vault });
@@ -307,6 +381,42 @@ abstract class BaseToolClient implements ToolClient {
     });
   }
 
+  noteCapture(
+    topic: string,
+    note: string,
+    quote = "",
+    pages: string[] = [],
+    intent: NoteIntent = "reflection",
+    tags: string[] = [],
+    vault = "",
+  ): Promise<NoteCaptureResult> {
+    return this.call("note_capture", {
+      topic,
+      note,
+      quote,
+      pages,
+      intent,
+      tags,
+      vault,
+    });
+  }
+
+  gapReport(
+    topic: string,
+    question: string,
+    reason = "",
+    referencePages: string[] = [],
+    vault = "",
+  ): Promise<GapReportResult> {
+    return this.call("gap_report", {
+      topic,
+      question,
+      reason,
+      reference_pages: referencePages,
+      vault,
+    });
+  }
+
   arenaStatus(topic: string, vault = ""): Promise<ArenaStatus> {
     return this.call("arena", { action: "status", topic, vault });
   }
@@ -319,7 +429,11 @@ abstract class BaseToolClient implements ToolClient {
     return this.call("compile", { action: "status", topic, vault });
   }
 
-  compileRun(topic: string, vault = "", useMipro = true): Promise<CompileRunResult> {
+  compileRun(
+    topic: string,
+    vault = "",
+    useMipro = true,
+  ): Promise<CompileRunResult> {
     return this.call(
       "compile",
       { action: "run", topic, vault, use_mipro: useMipro },
@@ -333,7 +447,13 @@ abstract class BaseToolClient implements ToolClient {
     mode: "dry-run" | "apply",
     vault = "",
   ): Promise<CompilePromoteResult> {
-    return this.call("compile", { action: "promote", topic, branch, mode, vault });
+    return this.call("compile", {
+      action: "promote",
+      topic,
+      branch,
+      mode,
+      vault,
+    });
   }
 
   goldenReviewLoad(topic: string, vault = ""): Promise<GoldenReview> {
@@ -363,11 +483,24 @@ abstract class BaseToolClient implements ToolClient {
     vault = "",
     limit = 200,
   ): Promise<DatasetRecords> {
-    return this.call("datasets", { action: "records", topic, role, vault, limit });
+    return this.call("datasets", {
+      action: "records",
+      topic,
+      role,
+      vault,
+      limit,
+    });
   }
 
-  datasetsBootstrap(topic: string, vault = ""): Promise<DatasetsBootstrapResult> {
-    return this.call("datasets", { action: "bootstrap", topic, vault }, LLM_CALL_TIMEOUT_MS);
+  datasetsBootstrap(
+    topic: string,
+    vault = "",
+  ): Promise<DatasetsBootstrapResult> {
+    return this.call(
+      "datasets",
+      { action: "bootstrap", topic, vault },
+      LLM_CALL_TIMEOUT_MS,
+    );
   }
 
   datasetsBootstrapTrain(
@@ -386,7 +519,11 @@ abstract class BaseToolClient implements ToolClient {
     return this.call("datasets", { action: "freeze", topic, vault });
   }
 
-  ingestActivityRead(topic: string, vault = "", runId = ""): Promise<IngestActivity> {
+  ingestActivityRead(
+    topic: string,
+    vault = "",
+    runId = "",
+  ): Promise<IngestActivity> {
     return this.call("ingest_activity_read", {
       topic,
       vault,
@@ -428,16 +565,37 @@ abstract class BaseToolClient implements ToolClient {
     return this.call("vault_health", { action: "okf_check", vault, strict });
   }
 
-  okfRepair(mode: "dry-run" | "apply", vault = "", force = false): Promise<OkfRepairResult> {
-    return this.call("vault_health", { action: "okf_repair", mode, vault, force });
+  okfRepair(
+    mode: "dry-run" | "apply",
+    vault = "",
+    force = false,
+  ): Promise<OkfRepairResult> {
+    return this.call("vault_health", {
+      action: "okf_repair",
+      mode,
+      vault,
+      force,
+    });
   }
 
   /** Billed and two-phase: omit `confirm` to preview, pass the returned nonce to run. */
-  loopRunOnce(topic: string, confirm = "", vault = ""): Promise<LoopOnceResult> {
-    return this.call("loop", { action: "run_once", topic, confirm, vault }, LLM_CALL_TIMEOUT_MS);
+  loopRunOnce(
+    topic: string,
+    confirm = "",
+    vault = "",
+  ): Promise<LoopOnceResult> {
+    return this.call(
+      "loop",
+      { action: "run_once", topic, confirm, vault },
+      LLM_CALL_TIMEOUT_MS,
+    );
   }
 
-  loopSetBaseline(topic: string, scalar: number, vault = ""): Promise<LoopSetBaselineResult> {
+  loopSetBaseline(
+    topic: string,
+    scalar: number,
+    vault = "",
+  ): Promise<LoopSetBaselineResult> {
     return this.call("loop", { action: "set_baseline", topic, scalar, vault });
   }
 
@@ -446,7 +604,12 @@ abstract class BaseToolClient implements ToolClient {
     policy: "latest" | "best",
     vault = "",
   ): Promise<LoopBaselinePolicyResult> {
-    return this.call("loop", { action: "baseline_policy", topic, policy, vault });
+    return this.call("loop", {
+      action: "baseline_policy",
+      topic,
+      policy,
+      vault,
+    });
   }
 
   loopRebaseline(
@@ -504,7 +667,14 @@ abstract class BaseToolClient implements ToolClient {
     mode: "dry-run" | "apply",
     vault = "",
   ): Promise<CompilePromoteResult> {
-    return this.call("branches", { action: "promote", kind, topic, branch, mode, vault });
+    return this.call("branches", {
+      action: "promote",
+      kind,
+      topic,
+      branch,
+      mode,
+      vault,
+    });
   }
 
   branchDelete(
@@ -513,7 +683,13 @@ abstract class BaseToolClient implements ToolClient {
     mode: "dry-run" | "apply",
     vault = "",
   ): Promise<BranchDeleteResult> {
-    return this.call("branches", { action: "delete", topic, branch, mode, vault });
+    return this.call("branches", {
+      action: "delete",
+      topic,
+      branch,
+      mode,
+      vault,
+    });
   }
 
   promptDiff(
@@ -543,7 +719,13 @@ abstract class BaseToolClient implements ToolClient {
     limit = 20,
     vault = "",
   ): Promise<SuggestionsReadResult> {
-    return this.call("suggestions_read", { topic, status, cursor, limit, vault });
+    return this.call("suggestions_read", {
+      topic,
+      status,
+      cursor,
+      limit,
+      vault,
+    });
   }
 
   gapsRead(
@@ -596,14 +778,36 @@ abstract class BaseToolClient implements ToolClient {
     limit = 20,
     vault = "",
   ): Promise<NotesListResult> {
-    return this.call("notes", { action: "list", topic, intent, status, cursor, limit, vault });
+    return this.call("notes", {
+      action: "list",
+      topic,
+      intent,
+      status,
+      cursor,
+      limit,
+      vault,
+    });
   }
 
-  notesRead(topic: string, noteId: string, vault = ""): Promise<NoteReadResult> {
-    return this.call("notes", { action: "read", topic, note_id: noteId, vault });
+  notesRead(
+    topic: string,
+    noteId: string,
+    vault = "",
+  ): Promise<NoteReadResult> {
+    return this.call("notes", {
+      action: "read",
+      topic,
+      note_id: noteId,
+      vault,
+    });
   }
 
-  notesDrift(topic: string, cursor = "", limit = 20, vault = ""): Promise<NotesDriftResult> {
+  notesDrift(
+    topic: string,
+    cursor = "",
+    limit = 20,
+    vault = "",
+  ): Promise<NotesDriftResult> {
     return this.call("notes", { action: "drift", topic, cursor, limit, vault });
   }
 
@@ -650,7 +854,11 @@ abstract class BaseToolClient implements ToolClient {
     noteId: string,
     target: PromoteTarget,
     mode: "dry-run" | "apply" = "dry-run",
-    fields: { question?: string; answer?: string; verdict?: "good" | "bad" } = {},
+    fields: {
+      question?: string;
+      answer?: string;
+      verdict?: "good" | "bad";
+    } = {},
     vault = "",
   ): Promise<NoteDecisionEnvelope | NotePromoteActionResult> {
     return this.call("notes", {
@@ -672,7 +880,13 @@ abstract class BaseToolClient implements ToolClient {
     mode: "dry-run" | "apply" = "dry-run",
     vault = "",
   ): Promise<NoteDecisionEnvelope | NoteArchiveActionResult> {
-    return this.call("notes", { action: "archive", topic, note_id: noteId, mode, vault });
+    return this.call("notes", {
+      action: "archive",
+      topic,
+      note_id: noteId,
+      mode,
+      vault,
+    });
   }
 
   vaultUse(name: string): Promise<Record<string, unknown>> {
@@ -685,7 +899,13 @@ abstract class BaseToolClient implements ToolClient {
     topic = "",
     makeDefault = true,
   ): Promise<Record<string, unknown>> {
-    return this.call("vault", { action: "create", name, path, topic, make_default: makeDefault });
+    return this.call("vault", {
+      action: "create",
+      name,
+      path,
+      topic,
+      make_default: makeDefault,
+    });
   }
 
   /**
@@ -704,13 +924,34 @@ abstract class BaseToolClient implements ToolClient {
     return this.call("create_topic", { topic, description, vault });
   }
 
+  /** The handoff stage's one read (`INTERFACE_DESIGN.md §3.3`). */
+  sessionStatus(
+    topic: string,
+    suggestionId: string,
+    vault = "",
+  ): Promise<SessionStatus> {
+    return this.call("fill", {
+      action: "session_status",
+      topic,
+      suggestion_id: suggestionId,
+      vault,
+    });
+  }
+
   abstract close(): Promise<void>;
 }
 
 /** Standalone client for the dashboard's own stateless streamable-HTTP mount. */
 export class HttpToolClient extends BaseToolClient {
-  private readonly client = new Client({ name: "knotica-dashboard", version: "0.1.0" });
+  private readonly client = new Client({
+    name: "knotica-dashboard",
+    version: "0.1.0",
+  });
   private connected: Promise<void> | undefined;
+
+  /** No host over HTTP -- nothing to advertise. */
+  readonly hostCapabilities: HostCapabilities = {};
+  readonly mount: Mount = "http";
 
   constructor(private readonly endpoint: string) {
     super();
@@ -719,6 +960,17 @@ export class HttpToolClient extends BaseToolClient {
   async close(): Promise<void> {
     await this.client.close();
   }
+
+  /**
+   * `deriveDispatchTier` resolves tier D for every HTTP-mounted client
+   * regardless of capabilities, and tier D never invokes this method -- there
+   * is no host to send to. A no-op keeps the interface total rather than
+   * throwing on a path a correctly-tiered caller cannot reach.
+   */
+  async sendMessage(): Promise<void> {}
+
+  /** See `sendMessage` -- same reasoning, same unreachable-by-tier-D guarantee. */
+  async updateModelContext(): Promise<void> {}
 
   protected async call<T>(
     name: string,
@@ -748,10 +1000,17 @@ export class HttpToolClient extends BaseToolClient {
  */
 export class BridgeToolClient extends BaseToolClient {
   private readonly ready: Promise<void>;
+  readonly hostCapabilities: HostCapabilities;
+  readonly mount: Mount = "bridge";
 
   constructor(private readonly app: App) {
     super();
     this.ready = Promise.resolve();
+    // Optional-called: fakes standing in for `App` in tests (recording hosts
+    // that only implement `callServerTool`) predate this capability, and a
+    // real host that hasn't upgraded should degrade to "advertises nothing"
+    // rather than throw at construction.
+    this.hostCapabilities = this.app.getHostCapabilities?.() ?? {};
   }
 
   /** Connect a fresh App instance and return a client ready for tool calls. */
@@ -763,6 +1022,16 @@ export class BridgeToolClient extends BaseToolClient {
 
   async close(): Promise<void> {
     // Host owns the postMessage transport lifetime.
+  }
+
+  /** Starts a turn in the host's conversation (`ui/message`, tier A). */
+  async sendMessage(text: string): Promise<void> {
+    await this.app.sendMessage({ role: "user", content: [{ type: "text", text }] });
+  }
+
+  /** Queues context for the next turn, without starting one (`ui/update-model-context`, tier B). */
+  async updateModelContext(text: string): Promise<void> {
+    await this.app.updateModelContext({ content: [{ type: "text", text }] });
   }
 
   protected async call<T>(
@@ -788,12 +1057,15 @@ export function preferBridgeMount(): boolean {
 }
 
 export function extractToolPayload<T>(result: unknown, name: string): T {
-  const toolResult = isRecord(result) && "toolResult" in result ? result.toolResult : result;
+  const toolResult =
+    isRecord(result) && "toolResult" in result ? result.toolResult : result;
   if (isRecord(toolResult) && toolResult.isError) {
     throw new Error(formatToolFailure(readResultText(toolResult), name));
   }
   const payload =
-    isRecord(toolResult) && "structuredContent" in toolResult && toolResult.structuredContent != null
+    isRecord(toolResult) &&
+    "structuredContent" in toolResult &&
+    toolResult.structuredContent != null
       ? toolResult.structuredContent
       : readResultText(toolResult);
   if (payload === undefined) {
@@ -811,7 +1083,10 @@ export function formatToolFailure(payload: unknown, name: string): string {
   if (isRecord(payload)) {
     const err = isRecord(payload.error) ? payload.error : payload;
     if (typeof err.message === "string" && err.message.trim()) {
-      const fix = typeof err.fix === "string" && err.fix.trim() ? ` To fix: ${err.fix}` : "";
+      const fix =
+        typeof err.fix === "string" && err.fix.trim()
+          ? ` To fix: ${err.fix}`
+          : "";
       return `${err.message}${fix}`;
     }
   }

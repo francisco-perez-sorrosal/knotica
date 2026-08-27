@@ -1,7 +1,7 @@
 import type { JSX } from "preact";
 import { useState } from "preact/hooks";
 
-import { AnswerCard } from "../../AskPane";
+import { AnswerCard } from "../../answerPresentation";
 import type { ObsidianContext } from "../../obsidianLinks";
 import { PromptDiff } from "../../PromptDiff";
 import type { ToolClient } from "../../toolClient";
@@ -14,11 +14,12 @@ import type { QueryAnswer, WikiStatus } from "../../types";
  * before/after `query` answer cards rendered in-lane. Per `§2.0` clause 2,
  * the probe's terminal state lives inside Improve, so this calls
  * `client.query` directly rather than linking to Answer — the same tool
- * `AskPane.tsx`'s own `ask()` already calls, reusing its `AnswerCard` for
- * identical markdown-rendering and citation-linking behavior.
+ * `AnswerLane` itself calls, reusing the shared `AnswerCard`
+ * (`answerPresentation.tsx`) for identical markdown-rendering and
+ * citation-linking behavior.
  *
  * `query` carries no `confirm`/nonce parameter (unlike `run_once`/
- * `run_eval`), and `AskPane`'s own established UX for the same tool is a
+ * `run_eval`), and the established UX for the same tool is a
  * single "Ask" click — this probe matches that precedent rather than
  * inventing an armed→confirm dialog for a call that isn't two-phase
  * anywhere else on this surface.

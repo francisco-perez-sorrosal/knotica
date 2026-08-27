@@ -277,6 +277,7 @@ README omitted despite it being a full, shipped alias.
 | `/knotica:use` | `[vault-name]` | Switch or inspect the active knowledge base; no arg reports status + lists configured vaults. |
 | `/knotica:headless` | `[on\|off\|status]` | Enable, disable, or check server-side LLM mode (`query`, `compile`, the loop's evals — not the arena, which makes no model call). |
 | `/knotica:ingest` | `<source-url> [topic]` | Fetch a source, place it by topic, write pages, log. |
+| `/knotica:fill` | `<suggestion-id> [topic]` | Continue writing into an open candidate session — the Fill lane's ingest handoff dispatch target. |
 | `/knotica:query` | `<question> [topic]` | Answer a question grounded in curated topic pages. |
 | `/knotica:lint` | `[topic]` | Lint pages against the schema. |
 | `/knotica:curate` | `[topic] [verdict]` | Curate the last interaction into compile-ready training signal. |

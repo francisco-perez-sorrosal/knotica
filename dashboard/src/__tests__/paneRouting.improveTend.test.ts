@@ -113,16 +113,15 @@ describe("resolvePane resolves improve/tend to their own new panes, not the abso
 });
 
 describe("the surviving panes' own ?pane= resolutions are untouched by the lane work", () => {
-  // The keys whose target the dissolution did not move. Every key it *did*
+  // The keys whose target this dissolution did not move. Every key it *did*
   // repoint (`loop`/`vault`/`arena`/`datasets`/`golden`/`notes`/`home`) is
-  // pinned in `crossLaneLinkCensus.test.ts`, which owns the legacy-alias table.
+  // pinned in `crossLaneLinkCensus.test.ts`; the later `ingest`/`ask`/
+  // `sources` repoint is pinned in `m4DissolutionCensus.test.tsx`. Each
+  // census owns its own wave's alias table.
   const UNCHANGED: ReadonlyArray<readonly [string, PaneId]> = [
-    ["ask", "ask"],
-    ["ingest", "ingest"],
-    ["sources", "sources"],
-    ["learn", "ingest"],
-    ["answer", "ask"],
-    ["fill", "sources"],
+    ["learn", "learn"],
+    ["answer", "answer"],
+    ["fill", "fill"],
   ];
 
   it.each(UNCHANGED)("still resolves %s to %s", (param, pane) => {
@@ -172,7 +171,7 @@ describe("App.tsx mounts ImproveLane and TendLane, fed from the app's own poll s
   });
 
   it("keeps every surviving pane's render block intact", () => {
-    for (const survivor of ["ask", "sources", "ingest"]) {
+    for (const survivor of ["learn", "answer", "fill"]) {
       expect(extractPaneBlock(survivor)).not.toBeNull();
     }
   });

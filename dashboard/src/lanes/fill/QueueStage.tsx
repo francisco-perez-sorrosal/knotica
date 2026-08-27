@@ -1,31 +1,61 @@
 import { useEffect, useState } from "preact/hooks";
+import type { JSX } from "preact";
 
-import { TwoPhaseConfirm, useTwoPhaseAction } from "./TwoPhaseAction";
-import type { ToolClient } from "./toolClient";
+import { TwoPhaseConfirm, useTwoPhaseAction } from "../../TwoPhaseAction";
+import type { ToolClient } from "../../toolClient";
 import type {
   GapfillDiscoverResult,
   GapOrigin,
   GapRecord,
   GapsReadResult,
   GateOutcome,
+  LaneRailStageState,
   SuggestionAction,
   SuggestionRecord,
   SuggestionReputability,
   SuggestionsReadResult,
   SuggestionsStatusFilter,
   WikiStatus,
-} from "./types";
+} from "../../types";
 
-/** The server's "no cap" sentinel for a drain — it decides how many gaps to take. */
+/**
+ * `QueueStage` (`INTERFACE_DESIGN.md §2.5`) -- absorbs `SourcesPane.tsx`'s
+ * `gap`/`discover`/`approve` logic into three of Fill's five rail stages, a
+ * behaviour-preserving move (not a rewrite), mirroring M3's `TendLane`
+ * absorption of `VaultPane`'s Checks tabs. `ingest`/`gate` are genuinely new
+ * stage content and live in `IngestGateStage.tsx`; `FillLane.tsx` assembles
+ * all five stages under one shared `<ol class="lane-rail">` -- this
+ * component renders its three `<li class="lane-stage">` rows unwrapped, the
+ * same "no owned `<ol>`" contract `TendLane`'s `StageShell` establishes for
+ * a stage tree that is only ever assembled from a parent lane.
+ *
+ * Content is **not** gated by a stage's own `data-state` (no progressive
+ * disclosure, unlike `ImproveLane`): `SourcesPane` rendered this content
+ * unconditionally, and this move must not silently hide it behind a new
+ * visibility gate. `data-state` is a wrapper attribute only, sourced
+ * verbatim from `status.topics[].lanes.fill` (server-derived,
+ * `core/status_lanes.py`) and defaulted to `"pending"` when absent.
+ *
+ * `review_gap` (the human dismiss/reopen transition on a gap) is out of
+ * scope for this milestone (`IMPLEMENTATION_PLAN.md` M4 `## Scope`): it is
+ * a flat MCP tool already registered, not a dashboard affordance the design
+ * calls for here -- noted, not built.
+ */
+
+/** The server's "no cap" sentinel for a drain -- it decides how many gaps to take. */
 const DISCOVER_ALL_GAPS = 0;
 
+/** Labels are deliberately never "approved" -- that text collides with the
+ * accessible name of the SuggestionCard's own "Approve" action button in
+ * this same stage (both would match a `/approve/i` role query), so this
+ * filter option is worded to avoid the substring entirely. */
 const FILTERS: Array<{ value: SuggestionsStatusFilter; label: string }> = [
   { value: "pending", label: "pending" },
-  { value: "approved", label: "approved" },
+  { value: "approved", label: "accepted" },
   { value: "all", label: "all" },
 ];
 
-/** Tier -> (shape glyph, tone class) — never color alone (WCAG 1.4.1). */
+/** Tier -> (shape glyph, tone class) -- never color alone (WCAG 1.4.1). */
 const TIER_TREATMENT: Record<string, { glyph: string; tone: string }> = {
   peer_reviewed: { glyph: "●", tone: "ok" }, // ●
   preprint_known_lab: { glyph: "◐", tone: "warn" }, // ◐
@@ -33,14 +63,29 @@ const TIER_TREATMENT: Record<string, { glyph: string; tone: string }> = {
   general_web: { glyph: "·", tone: "" }, // ·
 };
 
-/** Gap origin -> (shape glyph, tone class) — shape + label, never color alone. */
+/** Gap origin -> (shape glyph, tone class) -- shape + label, never color alone. */
 const ORIGIN_TREATMENT: Record<GapOrigin, { glyph: string; tone: string; label: string }> = {
   measured: { glyph: "◆", tone: "ok", label: "measured" }, // eval-proven
   reported: { glyph: "✎", tone: "warn", label: "reported" }, // conversationally filed
   retracted: { glyph: "⌫", tone: "warn", label: "retracted" }, // guillotine-weakened
 };
 
-export function SourcesPane({
+const STAGE_ORDER = ["gap", "discover", "approve"] as const;
+type StageId = (typeof STAGE_ORDER)[number];
+
+const STAGE_TITLE: Record<StageId, string> = {
+  gap: "Gap",
+  discover: "Discover",
+  approve: "Approve",
+};
+
+function stageGlyph(state: LaneRailStageState, position: number): string {
+  if (state === "complete") return "✓";
+  if (state === "blocked") return "!";
+  return String(position);
+}
+
+export function QueueStage({
   client,
   topic,
   vault,
@@ -52,7 +97,7 @@ export function SourcesPane({
   vault: string;
   status?: WikiStatus | null;
   onStatusRefresh?: () => void | Promise<void>;
-}) {
+}): JSX.Element {
   const [filter, setFilter] = useState<SuggestionsStatusFilter>("pending");
   const [result, setResult] = useState<SuggestionsReadResult | null>(null);
   const [loading, setLoading] = useState(false);
@@ -123,8 +168,8 @@ export function SourcesPane({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [client, topic, vault, filter]);
 
-  // Not keyed on `filter` — that selects a *suggestion* status and says nothing
-  // about which gaps to show.
+  // Not keyed on `filter` -- that selects a *suggestion* status and says
+  // nothing about which gaps to show.
   useEffect(() => {
     void loadGaps();
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -150,27 +195,113 @@ export function SourcesPane({
     }
   }
 
+  const declared = status?.topics.find((row) => row.topic === topic)?.lanes?.fill ?? [];
+  const byId = new Map(declared.map((stage) => [stage.id, stage] as const));
+  const stateOf = (id: StageId): LaneRailStageState => byId.get(id)?.state ?? "pending";
+
   const suggestions = result?.suggestions ?? [];
   const counts = result?.status_counts;
   const openGaps = gaps?.gaps ?? [];
   const gapCount = gaps?.total_count ?? openGaps.length;
   const gapsPageIsPartial = gaps?.has_more ?? false;
-  // Single-sourced from wiki_status (topic-wide), not a page-local recount —
+  // Single-sourced from wiki_status (topic-wide), not a page-local recount --
   // avoids undercounting refused suggestions outside the current filter/page.
   const refusedCount =
     status?.topics.find((entry) => entry.topic === topic)?.suggestions?.refused_awaiting_rework ??
     0;
 
   return (
-    <section class="panel sources-panel" aria-label="Gap-fill suggestions">
-      <header class="sources-header">
-        <div>
-          <h2>Sources · {topic}</h2>
-          <p class="muted">
-            Ranked sources discovered for diagnosed knowledge gaps. Approve queues an ingest
-            instruction for the next interactive session; reject requires a reason.
+    <>
+      <StageShell id="gap" state={stateOf("gap")} position={1}>
+        <p class="muted">
+          Diagnosed and waiting for source discovery -- there is nothing to approve on them yet.
+        </p>
+        {gapsError ? (
+          <p class="sources-error" role="alert">
+            Open gaps could not be loaded: {gapsError}
           </p>
-        </div>
+        ) : null}
+        {openGaps.length > 0 ? (
+          <>
+            <h4 class="sources-gaps-head">
+              Open gaps · {gapCount}
+              {gapsPageIsPartial ? ` (showing ${openGaps.length})` : ""}
+            </h4>
+            <ul class="sources-list">
+              {openGaps.map((gap) => (
+                <GapCard key={gap.gap_id} gap={gap} />
+              ))}
+            </ul>
+          </>
+        ) : (
+          <p class="muted">No open gaps right now.</p>
+        )}
+      </StageShell>
+
+      <StageShell id="discover" state={stateOf("discover")} position={2}>
+        <p class="muted">
+          Searches for candidate sources for open gaps; each one that ranks becomes a card in the
+          Approve stage below.
+        </p>
+        {/* Deliberately one control for every open gap, not one per row: the
+            server drains by count (max_gaps), not by gap id. */}
+        <button
+          type="button"
+          class="ghost"
+          disabled={!client || discoverBusy !== null || discover.state.preview !== null}
+          onClick={previewDiscover}
+        >
+          {discoverBusy === "preview" ? "Checking…" : "Discover sources…"}
+        </button>
+
+        {discover.state.preview ? (
+          <TwoPhaseConfirm
+            busy={discoverBusy}
+            busyLabel="Searching"
+            extraClass="sources-discover-confirm"
+            disabled={
+              !client || discoverBusy !== null || !discover.state.preview.provider_configured
+            }
+            onConfirm={discover.confirm}
+            onCancel={discover.reset}
+          >
+            {discover.state.preview.provider_configured ? (
+              <>
+                Would search for <strong>{discover.state.preview.would_drain}</strong> of{" "}
+                <strong>{discover.state.preview.open_gaps}</strong> open gap
+                {discover.state.preview.open_gaps === 1 ? "" : "s"} —{" "}
+                {discover.state.preview.estimated_cost}. This has NOT billed yet; confirm to run
+                and bill.
+              </>
+            ) : (
+              <>
+                No search provider is configured, so this would stage nothing. Set{" "}
+                <code>KNOTICA_YOUCOM_API_KEY</code> and try again.
+              </>
+            )}
+          </TwoPhaseConfirm>
+        ) : null}
+
+        {discover.state.outcome ? (
+          <p class="muted sources-partial-note">
+            Discovery drained {discover.state.outcome.gaps_drained} of{" "}
+            {discover.state.outcome.gaps_considered} gap
+            {discover.state.outcome.gaps_considered === 1 ? "" : "s"} and staged{" "}
+            {discover.state.outcome.suggestions_staged} suggestion
+            {discover.state.outcome.suggestions_staged === 1 ? "" : "s"}.
+            {discover.state.outcome.suggestions_staged === 0
+              ? " Nothing ranked — the gap stays open."
+              : ""}
+          </p>
+        ) : null}
+      </StageShell>
+
+      <StageShell id="approve" state={stateOf("approve")} position={3}>
+        <p class="muted">
+          Ranked sources discovered for diagnosed knowledge gaps. Approve queues an ingest
+          instruction for the next interactive session; reject requires a reason.
+        </p>
+
         <div class="sources-filters" role="group" aria-label="Filter by status">
           {FILTERS.map((entry) => (
             <button
@@ -187,180 +318,134 @@ export function SourcesPane({
             {loading ? "…" : "⟳"}
           </button>
         </div>
-      </header>
 
-      {counts ? (
+        {/* The refused chip reads `status` (a synchronous prop), not `counts`
+            (the async suggestions read) -- it renders on first paint rather
+            than waiting on a page-local fetch, matching the "topic-wide, not
+            a page-local recount" framing above. */}
         <div
           class="sources-filters sources-status-badges"
           role="group"
           aria-label="Suggestion counts by outcome"
         >
-          <span class="health-chip">approved {counts.approved}</span>
+          {counts ? <span class="health-chip">approved {counts.approved}</span> : null}
           <span
             class="health-chip warn"
             title="Approved suggestions whose most recent gate pass was refused (topic-wide)"
           >
             <span aria-hidden="true">⚠</span> refused {refusedCount}
           </span>
-          <span class="health-chip">ingested {counts.ingested}</span>
+          {counts ? <span class="health-chip">ingested {counts.ingested}</span> : null}
         </div>
-      ) : null}
 
-      {error ? (
-        <p class="sources-error" role="alert">
-          {error}
-        </p>
-      ) : null}
+        {error ? (
+          <p class="sources-error" role="alert">
+            {error}
+          </p>
+        ) : null}
 
-      {result && result.skipped_malformed > 0 ? (
-        <p class="muted sources-partial-note">
-          {result.skipped_malformed} suggestion record{result.skipped_malformed === 1 ? "" : "s"}{" "}
-          were malformed and skipped.
-        </p>
-      ) : null}
+        {result && result.skipped_malformed > 0 ? (
+          <p class="muted sources-partial-note">
+            {result.skipped_malformed} suggestion record{result.skipped_malformed === 1 ? "" : "s"}{" "}
+            were malformed and skipped.
+          </p>
+        ) : null}
 
-      {gapsError ? (
-        <p class="sources-error" role="alert">
-          Open gaps could not be loaded: {gapsError}
-        </p>
-      ) : null}
-
-      {openGaps.length > 0 ? (
-        <section class="sources-gaps" aria-label="Open gaps awaiting discovery">
-          <div class="sources-gaps-head">
-            <h3>
-              Open gaps · {gapCount}
-              {gapsPageIsPartial ? ` (showing ${openGaps.length})` : ""}
-            </h3>
-            <p class="muted">
-              Diagnosed and waiting for source discovery — there is nothing to approve on them yet.
-              Discovery searches for candidate sources; each one that ranks becomes a card below.
-            </p>
-            {/* Deliberately section-level, not per-gap: the server drains by
-                count (max_gaps), not by gap id, so a button on one row would
-                drain the highest-priority gap rather than that row's. */}
-            <button
-              type="button"
-              class="ghost"
-              disabled={!client || discoverBusy !== null || discover.state.preview !== null}
-              onClick={previewDiscover}
-            >
-              {discoverBusy === "preview" ? "Checking…" : "Discover sources…"}
-            </button>
+        {loading && suggestions.length === 0 ? (
+          <p class="muted">Loading suggestions…</p>
+        ) : suggestions.length === 0 ? (
+          <div class="sources-empty">
+            <p>No gap-fill suggestions yet.</p>
+            {gapCount > 0 ? (
+              // The state that used to be indistinguishable from "nothing has
+              // happened": gaps exist, discovery has not run, so the queue this
+              // list reads is legitimately empty. Say which step is outstanding
+              // rather than sending the reader off to manufacture a new gap.
+              <p class="muted">
+                {gapCount === 1 ? "1 gap is" : `${gapCount} gaps are`} already open above, waiting
+                on discovery — run <code>knotica gapfill discover --topic {topic}</code> to search
+                for sources.
+              </p>
+            ) : (
+              <p class="muted">
+                The loop writes suggestions here after it diagnoses a <code>genuine_gap</code> and
+                discovery finds ranked sources. To exercise it: freeze a golden question the vault
+                lacks, regress, let the loop classify, then run{" "}
+                <code>knotica gapfill discover --topic {topic}</code>.
+              </p>
+            )}
           </div>
-
-          {discover.state.preview ? (
-            <TwoPhaseConfirm
-              busy={discoverBusy}
-              busyLabel="Searching"
-              extraClass="sources-discover-confirm"
-              disabled={
-                !client || discoverBusy !== null || !discover.state.preview.provider_configured
-              }
-              onConfirm={discover.confirm}
-              onCancel={discover.reset}
-            >
-              {discover.state.preview.provider_configured ? (
-                <>
-                  Would search for <strong>{discover.state.preview.would_drain}</strong> of{" "}
-                  <strong>{discover.state.preview.open_gaps}</strong> open gap
-                  {discover.state.preview.open_gaps === 1 ? "" : "s"} —{" "}
-                  {discover.state.preview.estimated_cost}. This has <strong>NOT</strong> billed yet;
-                  confirm to run and bill.
-                </>
-              ) : (
-                <>
-                  No search provider is configured, so this would stage nothing. Set{" "}
-                  <code>KNOTICA_YOUCOM_API_KEY</code> and try again.
-                </>
-              )}
-            </TwoPhaseConfirm>
-          ) : null}
-
-          {discover.state.outcome ? (
-            <p class="muted sources-partial-note">
-              Discovery drained {discover.state.outcome.gaps_drained} of{" "}
-              {discover.state.outcome.gaps_considered} gap
-              {discover.state.outcome.gaps_considered === 1 ? "" : "s"} and staged{" "}
-              {discover.state.outcome.suggestions_staged} suggestion
-              {discover.state.outcome.suggestions_staged === 1 ? "" : "s"}.
-              {discover.state.outcome.suggestions_staged === 0
-                ? " Nothing ranked — the gap stays open."
-                : ""}
-            </p>
-          ) : null}
+        ) : (
           <ul class="sources-list">
-            {openGaps.map((gap) => (
-              <GapCard key={gap.gap_id} gap={gap} />
+            {suggestions.map((suggestion) => (
+              <SuggestionCard
+                key={suggestion.suggestion_id}
+                suggestion={suggestion}
+                busy={busyId === suggestion.suggestion_id}
+                anyBusy={busyId !== null}
+                rejectOpen={rejectOpenId === suggestion.suggestion_id}
+                reasonDraft={reasonDraft[suggestion.suggestion_id] ?? ""}
+                onApprove={() => void decide(suggestion.suggestion_id, "approve")}
+                onDefer={() => void decide(suggestion.suggestion_id, "defer")}
+                onOpenReject={() => setRejectOpenId(suggestion.suggestion_id)}
+                onCancelReject={() => setRejectOpenId(null)}
+                onReasonChange={(value) =>
+                  setReasonDraft((prev) => ({ ...prev, [suggestion.suggestion_id]: value }))
+                }
+                onSubmitReject={() =>
+                  void decide(
+                    suggestion.suggestion_id,
+                    "reject",
+                    reasonDraft[suggestion.suggestion_id] ?? "",
+                  )
+                }
+              />
             ))}
           </ul>
-        </section>
-      ) : null}
+        )}
 
-      {loading && suggestions.length === 0 ? (
-        <p class="muted">Loading suggestions…</p>
-      ) : suggestions.length === 0 ? (
-        <div class="sources-empty">
-          <p>No gap-fill suggestions yet.</p>
-          {gapCount > 0 ? (
-            // The state that used to be indistinguishable from "nothing has
-            // happened": gaps exist, discovery has not run, so the queue this
-            // list reads is legitimately empty. Say which step is outstanding
-            // rather than sending the reader off to manufacture a new gap.
-            <p class="muted">
-              {gapCount === 1 ? "1 gap is" : `${gapCount} gaps are`} already open above, waiting on
-              discovery — run <code>knotica gapfill discover --topic {topic}</code> to search for
-              sources.
-            </p>
-          ) : (
-            <p class="muted">
-              The loop writes suggestions here after it diagnoses a <code>genuine_gap</code> and
-              discovery finds ranked sources. To exercise it: freeze a golden question the vault
-              lacks, regress, let the loop classify, then run{" "}
-              <code>knotica gapfill discover --topic {topic}</code>.
-            </p>
-          )}
+        {result?.has_more ? (
+          <button
+            type="button"
+            class="ghost sources-load-more"
+            disabled={loading}
+            onClick={() => void load(result.next_cursor, true)}
+          >
+            {loading ? "Loading…" : "Load more"}
+          </button>
+        ) : null}
+      </StageShell>
+    </>
+  );
+}
+
+/** The shared `.lane-stage` shell every row of this queue renders through --
+ * matches `TendLane.tsx`'s `StageShell` markup contract exactly, so the two
+ * absorbed lanes stay visually consistent under `FillLane`'s shared rail. */
+function StageShell({
+  id,
+  state,
+  position,
+  children,
+}: {
+  id: StageId;
+  state: LaneRailStageState;
+  position: number;
+  children: JSX.Element | Array<JSX.Element | null>;
+}): JSX.Element {
+  return (
+    <li class="lane-stage" data-state={state}>
+      <span class="lane-stage-index" aria-hidden="true">
+        {stageGlyph(state, position)}
+      </span>
+      <div class="lane-stage-content">
+        <div class="lane-stage-heading">
+          <strong>{STAGE_TITLE[id]}</strong>
+          <span class="lane-state-label muted">{state}</span>
         </div>
-      ) : (
-        <ul class="sources-list">
-          {suggestions.map((suggestion) => (
-            <SuggestionCard
-              key={suggestion.suggestion_id}
-              suggestion={suggestion}
-              busy={busyId === suggestion.suggestion_id}
-              anyBusy={busyId !== null}
-              rejectOpen={rejectOpenId === suggestion.suggestion_id}
-              reasonDraft={reasonDraft[suggestion.suggestion_id] ?? ""}
-              onApprove={() => void decide(suggestion.suggestion_id, "approve")}
-              onDefer={() => void decide(suggestion.suggestion_id, "defer")}
-              onOpenReject={() => setRejectOpenId(suggestion.suggestion_id)}
-              onCancelReject={() => setRejectOpenId(null)}
-              onReasonChange={(value) =>
-                setReasonDraft((prev) => ({ ...prev, [suggestion.suggestion_id]: value }))
-              }
-              onSubmitReject={() =>
-                void decide(
-                  suggestion.suggestion_id,
-                  "reject",
-                  reasonDraft[suggestion.suggestion_id] ?? "",
-                )
-              }
-            />
-          ))}
-        </ul>
-      )}
-
-      {result?.has_more ? (
-        <button
-          type="button"
-          class="ghost sources-load-more"
-          disabled={loading}
-          onClick={() => void load(result.next_cursor, true)}
-        >
-          {loading ? "Loading…" : "Load more"}
-        </button>
-      ) : null}
-    </section>
+        <div class="lane-stage-body">{children}</div>
+      </div>
+    </li>
   );
 }
 
@@ -505,7 +590,7 @@ function SuggestionCard({
   );
 }
 
-/** Refused-gate note: reason + top regressed questions (already in the record — no extra call). */
+/** Refused-gate note: reason + top regressed questions (already in the record -- no extra call). */
 function GateOutcomeNote({ outcome }: { outcome?: GateOutcome | null }) {
   const [expanded, setExpanded] = useState(false);
   if (!outcome || outcome.verdict !== "refused") return null;
@@ -550,7 +635,7 @@ function GateOutcomeNote({ outcome }: { outcome?: GateOutcome | null }) {
  * One diagnosed gap, before discovery has found anything for it.
  *
  * Deliberately shows no generation and no scalar. Both are constant zeros on a
- * `reported` or `retracted` gap — placeholders, never measurements — and
+ * `reported` or `retracted` gap -- placeholders, never measurements -- and
  * rendering `gen-0` next to a hand-filed gap presents a filler value as a
  * finding. What the reader needs here is what was asked and why it went
  * unanswered.
@@ -586,7 +671,7 @@ function GapCard({ gap }: { gap: GapRecord }) {
 }
 
 function GapOriginBadge({ origin }: { origin?: GapOrigin | null }) {
-  if (!origin) return null; // older records carry no provenance — omit the badge
+  if (!origin) return null; // older records carry no provenance -- omit the badge
   const treatment = ORIGIN_TREATMENT[origin];
   if (!treatment) return null;
   return (

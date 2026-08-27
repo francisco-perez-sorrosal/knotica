@@ -15,7 +15,7 @@ affected_files:
   - src/knotica/mcp_server/tools_suggestions.py
   - src/knotica/mcp_server/confirm_nonce.py
   - src/knotica/mcp_server/tools_vault.py
-  - dashboard/src/SourcesPane.tsx
+  - dashboard/src/lanes/fill/QueueStage.tsx
   - tests/test_mcp_gaps_read.py
 dissent: "Leaving discovery on the CLI would have kept every billed path off the web surface entirely, which is a defensible line to hold; a button that spends is a strictly larger blast radius than a command someone has to type."
 ---

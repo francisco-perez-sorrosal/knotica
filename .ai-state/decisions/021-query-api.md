@@ -10,7 +10,7 @@ made_by: agent
 agent_type: systems-architect
 branch: worktree-hackathon-loop-ideas
 pipeline_tier: standard
-affected_files: [src/knotica/core/query_engine.py, src/knotica/mcp_server/tools_query.py, .ai-state/design-history/PRE_PLAN.md, dashboard/src/AskPane.tsx]
+affected_files: [src/knotica/core/query_engine.py, src/knotica/mcp_server/tools_query.py, .ai-state/design-history/PRE_PLAN.md, dashboard/src/lanes/answer/AnswerLane.tsx]
 affected_reqs: []
 dissent: Keeping PRE_PLAN's separate `wiki_query` tool name would make Phase 3a compile visible in the tool surface and force dashboards/agents to pick between two answer APIs.
 re_affirms: [dec-003]

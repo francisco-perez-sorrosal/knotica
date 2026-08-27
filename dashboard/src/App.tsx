@@ -3,11 +3,11 @@ import { signal } from "@preact/signals";
 import type { App as ExtApp } from "@modelcontextprotocol/ext-apps";
 import { applyDocumentTheme } from "@modelcontextprotocol/ext-apps";
 
-import { AskPane } from "./AskPane";
-import { IngestPane } from "./IngestPane";
+import { AnswerLane } from "./lanes/answer/AnswerLane";
+import { FillLane } from "./lanes/fill/FillLane";
 import { ImproveLane } from "./lanes/improve/ImproveLane";
+import { LearnLane } from "./lanes/learn/LearnLane";
 import { TendLane } from "./lanes/tend/TendLane";
-import { SourcesPane } from "./SourcesPane";
 import {
   BridgeToolClient,
   HttpToolClient,
@@ -312,14 +312,14 @@ export function App() {
   const baselinePrefix = baselineChipPrefix(baselineSource);
   const baselineLabel =
     baselineScalar != null ? baselineScalar.toFixed(4) : "—";
-  const sourcesPendingCount = topicRow?.suggestions?.pending ?? 0;
-  // Open gaps count toward the Sources badge too. A gap you just filed has no
+  const fillPendingCount = topicRow?.suggestions?.pending ?? 0;
+  // Open gaps count toward the Fill badge too. A gap you just filed has no
   // suggestion yet — discovery has not run — so counting suggestions alone left
-  // the tab bare and the gap unfindable without opening the pane and knowing to
+  // the tab bare and the gap unfindable without opening the lane and knowing to
   // look. Both are "something here wants a decision", which is what the badge means.
-  const sourcesOpenGapCount = topicRow?.gaps?.open_total ?? 0;
-  const sourcesAttentionCount = sourcesPendingCount + sourcesOpenGapCount;
-  // Drifted, not total: the badge is an attention signal, matching Sources' pending count.
+  const fillOpenGapCount = topicRow?.gaps?.open_total ?? 0;
+  const fillAttentionCount = fillPendingCount + fillOpenGapCount;
+  // Drifted, not total: the badge is an attention signal, matching Fill's pending count.
   // Absent on a server whose wiki_status predates the notes summary — then no badge.
   const notesDriftedCount = topicRow?.notes?.drifted ?? 0;
   const llm = catalog.value?.llm;
@@ -605,35 +605,6 @@ export function App() {
             <nav class="pane-tabs" aria-label="Dashboard panes">
               <button
                 type="button"
-                class={pane === "ask" ? "active" : ""}
-                onClick={() => selectPane("ask")}
-              >
-                Ask
-              </button>
-              <button
-                type="button"
-                class={pane === "sources" ? "active" : ""}
-                onClick={() => selectPane("sources")}
-              >
-                Sources
-                {sourcesAttentionCount > 0 ? (
-                  <span
-                    class="pane-tab-badge"
-                    title={`${sourcesPendingCount} suggestion(s) awaiting review · ${sourcesOpenGapCount} open gap(s) awaiting discovery`}
-                  >
-                    {sourcesAttentionCount}
-                  </span>
-                ) : null}
-              </button>
-              <button
-                type="button"
-                class={pane === "ingest" ? "active" : ""}
-                onClick={() => selectPane("ingest")}
-              >
-                Ingest
-              </button>
-              <button
-                type="button"
                 class={pane === "improve" ? "active" : ""}
                 onClick={() => selectPane("improve")}
               >
@@ -651,6 +622,35 @@ export function App() {
                     title="Notes whose anchors drifted"
                   >
                     {notesDriftedCount}
+                  </span>
+                ) : null}
+              </button>
+              <button
+                type="button"
+                class={pane === "learn" ? "active" : ""}
+                onClick={() => selectPane("learn")}
+              >
+                Learn
+              </button>
+              <button
+                type="button"
+                class={pane === "answer" ? "active" : ""}
+                onClick={() => selectPane("answer")}
+              >
+                Answer
+              </button>
+              <button
+                type="button"
+                class={pane === "fill" ? "active" : ""}
+                onClick={() => selectPane("fill")}
+              >
+                Fill
+                {fillAttentionCount > 0 ? (
+                  <span
+                    class="pane-tab-badge"
+                    title={`${fillPendingCount} suggestion(s) awaiting review · ${fillOpenGapCount} open gap(s) awaiting discovery`}
+                  >
+                    {fillAttentionCount}
                   </span>
                 ) : null}
               </button>
@@ -726,32 +726,6 @@ export function App() {
         </aside>
       ) : null}
 
-      {pane === "ask" ? (
-        <AskPane
-          client={client}
-          topic={topic}
-          vault={resolvedVaultName}
-          obsidianCtx={obsidianCtx}
-          status={status.value}
-        />
-      ) : null}
-      {pane === "sources" ? (
-        <SourcesPane
-          client={client}
-          topic={topic}
-          vault={resolvedVaultName}
-          status={status.value}
-          onStatusRefresh={() => refreshStatus(false)}
-        />
-      ) : null}
-      {pane === "ingest" ? (
-        <IngestPane
-          client={client}
-          topic={topic}
-          vault={resolvedVaultName}
-          obsidianCtx={obsidianCtx}
-        />
-      ) : null}
       {pane === "improve" ? (
         <ImproveLane
           client={client}
@@ -769,6 +743,32 @@ export function App() {
           vault={resolvedVaultName}
           topic={topic}
           obsidianCtx={obsidianCtx}
+        />
+      ) : null}
+      {pane === "learn" ? (
+        <LearnLane
+          client={client}
+          topic={topic}
+          vault={resolvedVaultName}
+          obsidianCtx={obsidianCtx}
+        />
+      ) : null}
+      {pane === "answer" ? (
+        <AnswerLane
+          client={client}
+          topic={topic}
+          vault={resolvedVaultName}
+          obsidianCtx={obsidianCtx}
+          status={status.value}
+        />
+      ) : null}
+      {pane === "fill" ? (
+        <FillLane
+          client={client}
+          topic={topic}
+          vault={resolvedVaultName}
+          status={status.value}
+          onStatusRefresh={() => refreshStatus(false)}
         />
       ) : null}
     </>
