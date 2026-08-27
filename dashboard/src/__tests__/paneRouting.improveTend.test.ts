@@ -4,15 +4,12 @@ import { PANE_BY_PARAM, resolvePane } from "../paneRouting";
 import type { PaneId } from "../types";
 
 /**
- * The add-phase half of the `ImproveLane`/`TendLane` dissolution
+ * The `ImproveLane`/`TendLane` half of the dissolution
  * (`INTERFACE_DESIGN.md` — the four absorbed panes fold into `improve`; the
- * checklist panes fold into `tend`). Nothing is removed yet: `?pane=loop`,
- * `?pane=vault`, and every other existing key must keep resolving exactly as
- * they do today. Two things change, and only two:
+ * checklist panes fold into `tend`). Two things are pinned here:
  *
- * 1. `?pane=improve` and `?pane=tend` stop aliasing to an existing pane
- *    (`loop`/`vault`) and instead resolve to their own new `PaneId`s — the
- *    real `ImproveLane`/`TendLane` components, both already landed
+ * 1. `?pane=improve` and `?pane=tend` resolve to their own `PaneId`s — the
+ *    real `ImproveLane`/`TendLane` components, both landed
  *    (`dashboard/src/lanes/improve/ImproveLane.tsx`,
  *    `dashboard/src/lanes/tend/TendLane.tsx`), are reachable end to end for
  *    the first time.
@@ -40,9 +37,7 @@ import type { PaneId } from "../types";
  *
  *   1. Each pane's conditional render in `App.tsx` follows the file's own
  *      uniform shape, `{pane === "<id>" ? (\n  <Component ... />\n) : null}`
- *      — true for all eight of today's panes bar `datasets`/`golden`'s
- *      compound condition. `improve`/`tend` are assumed to follow the same
- *      shape, not `datasets`'s two-pane one.
+ *      — uniformly true of every surviving pane.
  *   2. `ImproveLane`/`TendLane` are threaded with exactly the prop names
  *      their own already-landed signatures declare (`ImproveLane.tsx`:
  *      `client`/`topic`/`vault`/`status`/`metrics`/`obsidianCtx`/
@@ -117,18 +112,14 @@ describe("resolvePane resolves improve/tend to their own new panes, not the abso
   });
 });
 
-describe("the add phase is additive-only: every pre-existing ?pane= resolution is unchanged", () => {
+describe("the surviving panes' own ?pane= resolutions are untouched by the lane work", () => {
+  // The keys whose target the dissolution did not move. Every key it *did*
+  // repoint (`loop`/`vault`/`arena`/`datasets`/`golden`/`notes`/`home`) is
+  // pinned in `crossLaneLinkCensus.test.ts`, which owns the legacy-alias table.
   const UNCHANGED: ReadonlyArray<readonly [string, PaneId]> = [
-    ["vault", "vault"],
     ["ask", "ask"],
-    ["loop", "loop"],
-    ["arena", "arena"],
-    ["datasets", "datasets"],
-    ["golden", "datasets"],
     ["ingest", "ingest"],
     ["sources", "sources"],
-    ["notes", "notes"],
-    ["home", "vault"],
     ["learn", "ingest"],
     ["answer", "ask"],
     ["fill", "sources"],
@@ -138,8 +129,8 @@ describe("the add phase is additive-only: every pre-existing ?pane= resolution i
     expect(resolvePane(param)).toBe(pane);
   });
 
-  it("falls back to the vault pane for an unrecognised value, exactly as before", () => {
-    expect(resolvePane("not-a-real-pane")).toBe("vault" as PaneId);
+  it("falls back to the default pane for an unrecognised value", () => {
+    expect(resolvePane("not-a-real-pane")).toBe("tend" as PaneId);
   });
 });
 
@@ -180,18 +171,9 @@ describe("App.tsx mounts ImproveLane and TendLane, fed from the app's own poll s
     expect(block).toMatch(/vault=\{resolvedVaultName\}/);
   });
 
-  it("keeps every pre-existing pane's render block intact (additive-only)", () => {
-    for (const legacy of [
-      "vault",
-      "ask",
-      "loop",
-      "sources",
-      "notes",
-      "arena",
-      "ingest",
-    ]) {
-      expect(extractPaneBlock(legacy)).not.toBeNull();
+  it("keeps every surviving pane's render block intact", () => {
+    for (const survivor of ["ask", "sources", "ingest"]) {
+      expect(extractPaneBlock(survivor)).not.toBeNull();
     }
-    expect(appSource).toContain('pane === "datasets" || pane === "golden" ? (');
   });
 });

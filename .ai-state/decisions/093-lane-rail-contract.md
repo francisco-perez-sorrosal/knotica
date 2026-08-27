@@ -17,9 +17,9 @@ branch: worktree-process-swimlanes
 pipeline_tier: full
 dissent: A single rail kind would be simpler; adding `checklist` for one lane (Tend) risks a per-lane-kind proliferation that dissolves the abstraction the decision exists to create.
 affected_files:
-  - dashboard/src/LoopPane.tsx
+  - dashboard/src/lanes/laneRailState.ts
+  - dashboard/src/lanes/LaneRail.tsx
   - dashboard/src/IngestPane.tsx
-  - dashboard/src/VaultPane.tsx
   - src/knotica/core/ingest_activity.py
 ---
 

@@ -15,18 +15,13 @@ export type LoopStage =
  * `reverted`, which means the race ran and nobody won. */
 export type ArenaStage =
   "idle" | "racing" | "promoting" | "completed" | "reverted" | "aborted";
-export type PaneId =
-  | "vault"
-  | "ask"
-  | "loop"
-  | "arena"
-  | "datasets"
-  | "golden"
-  | "ingest"
-  | "sources"
-  | "notes"
-  | "improve"
-  | "tend";
+/**
+ * The panes the dashboard can show. The tool-shaped panes this set once
+ * carried (`vault`, `loop`, `arena`, `datasets`, `golden`, `notes`) dissolved
+ * into the `improve` and `tend` process lanes; their `?pane=` keys live on as
+ * inbound aliases in `paneRouting.ts` but are no longer destinations.
+ */
+export type PaneId = "ask" | "ingest" | "sources" | "improve" | "tend";
 
 export type DatasetRole =
   "trainset" | "held_out" | "seal" | "candidates" | "reviewed";

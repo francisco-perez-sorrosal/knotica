@@ -7,7 +7,7 @@ import {
   ANCHOR_TREATMENT,
   INTENT_TREATMENT,
   pageLabel,
-} from "../../NotesDriftView";
+} from "../../notePresentation";
 import type { ToolClient } from "../../toolClient";
 import type {
   NoteAnchor,
@@ -21,17 +21,17 @@ import type {
 } from "../../types";
 
 /**
- * Tend's fifth checklist stage (`INTERFACE_DESIGN.md §2.6`) -- merges
- * `NotesPane.tsx`'s browse view and `NotesDriftView.tsx`'s review queue into
- * one collapsed-by-default surface. Collapsed is the honest state: nothing
- * is fetched, and nothing is claimed clean or broken, until the operator
- * pays the one-git-read-per-anchor cost explicitly via `[Check]`.
+ * Tend's fifth checklist stage (`INTERFACE_DESIGN.md §2.6`) -- merges the
+ * former notes browser and drift review queue into one collapsed-by-default
+ * surface. Collapsed is the honest state: nothing is fetched, and nothing is
+ * claimed clean or broken, until the operator pays the one-git-read-per-anchor
+ * cost explicitly via `[Check]`.
  *
- * `NotesPane.tsx`/`NotesDriftView.tsx` are untouched by this step (their
- * removal is a later, dedicated step) -- this file reuses their exported
- * building blocks (`ActionConfirm`, the treatment tables, `pageLabel`)
- * rather than their private per-item card renderers, which the merge's
- * shape (one list, not two tabs) does not carry over unchanged.
+ * Both predecessors are now deleted; their shared building blocks
+ * (`ActionConfirm`, the treatment tables, `pageLabel`) survive in
+ * `notePresentation.tsx` and are reused verbatim here. Their private per-item
+ * card renderers did not survive -- the merge's shape (one list, not two tabs)
+ * does not carry them over unchanged.
  *
  * Decoration is driven by presence in the `notesDrift` result, not by a
  * client-side copy of the server's queue-membership rule: `notesDrift`

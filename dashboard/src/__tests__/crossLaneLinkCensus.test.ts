@@ -10,32 +10,20 @@ import type { PaneId } from "../types";
  * "is gone" assertion below is RED by construction; Step 79's implementer
  * acts on this file's own enumeration of which files to delete.
  *
- * **Six of the nine are ready for deletion** — `VaultPane.tsx`,
- * `LoopPane.tsx`, `CompilePanel.tsx`, `ScoreboardPanel.tsx`, `ArenaPane.tsx`,
- * `DatasetsPane.tsx` — their content was fully absorbed into `TendLane`
- * (Step 65) and `ImproveLane`'s six stages (Steps 69–75), both landed and
- * mounted (Step 77).
+ * **All eight pane modules are deleted**: `VaultPane.tsx`, `LoopPane.tsx`,
+ * `CompilePanel.tsx`, `ScoreboardPanel.tsx`, `ArenaPane.tsx`,
+ * `DatasetsPane.tsx`, `NotesPane.tsx`, `NotesDriftView.tsx`. The first six
+ * were absorbed by `TendLane` (Step 65) and `ImproveLane`'s six stages
+ * (Steps 69–75), both mounted at Step 77; the last two were absorbed by
+ * `DriftStage` (Steps 67/68), which landed later than this suite was first
+ * written and unblocked the two `it.skip`s that used to guard them.
  *
- * **Two of the nine are NOT ready and are deliberately excluded from the
- * absence assertions below, via `it.skip`**: `NotesPane.tsx` and
- * `NotesDriftView.tsx`. The plan's Step 67 ("`TendLane`'s `drift` stage:
- * absorb `NotesPane` + `NotesDriftView`, collapse D3") and its paired Step 68
- * were never executed in this pipeline pass — confirmed by (a) their total
- * absence from `WIP.md`'s step log (which jumps 66 → 69), (b) no
- * `DriftStage.tsx` file and no `drift`-stage code anywhere in `TendLane.tsx`,
- * (c) `git log` showing only two commits for the Tend/Improve lanes, neither
- * mentioning drift, and (d) `TendLane.test.tsx`'s own header (Step 66)
- * explicitly deferring "the `drift` stage (Step 67/68)" to those steps.
- * Deleting `NotesPane.tsx`/`NotesDriftView.tsx` now would drop the
- * checklist's fifth stage — and D3's still-unresolved duplicate
- * preview/confirm dialog — with no replacement anywhere in the tree. This is
- * a registered objection, not a silent scope cut: see
- * `LEARNINGS_test-engineer_step80.md` for the full evidence and the
- * recommendation (run Steps 67/68, or explicitly re-scope Step 79, before
- * either file is deleted). The `?pane=notes` alias below is unaffected by
- * this — it is a pure routing decision (send the stale bookmark to `tend`,
- * where the drift stage will eventually live) and does not require the
- * drift stage to exist.
+ * **`NotePromoteDialog.tsx` is deliberately absent from every list here**,
+ * as is the extracted `notePresentation.tsx`. Both are *reused* by
+ * `DriftStage.tsx` rather than dissolved — a module a survivor still imports
+ * did not die, it moved conceptually. Asserting their absence would delete a
+ * live dependency; see `LEARNINGS_implementer_step79.md` for the
+ * per-file delete-vs-reuse ruling.
  *
  * `@types/node` is not a project dependency; `fs`/`path`/`url` are loaded via
  * a dynamic `import()` with a variable specifier, the same technique
@@ -100,23 +88,13 @@ const DISSOLVED_FILES = [
   "ScoreboardPanel.tsx",
   "ArenaPane.tsx",
   "DatasetsPane.tsx",
-] as const;
-
-// Blocked on Steps 67/68 — see the header doc above.
-const ABSORPTION_BLOCKED_FILES = [
   "NotesPane.tsx",
   "NotesDriftView.tsx",
 ] as const;
 
-describe("the nine dissolved files: six are gone, two remain blocked on the drift-stage absorption", () => {
+describe("every dissolved pane module is gone from dashboard/src", () => {
   it.each(DISSOLVED_FILES)("%s no longer exists in dashboard/src", (name) => {
     expect(fsModule.existsSync(pathModule.join(srcDir, name))).toBe(false);
-  });
-
-  it.skip("NotesPane.tsx / NotesDriftView.tsx should also be gone, but this is blocked: their drift-stage absorption (plan Steps 67/68) never ran, so deleting them now would drop the checklist's fifth stage and D3's dialog resolution with no replacement anywhere in the tree. Un-skip once TendLane grows a drift stage.", () => {
-    for (const name of ABSORPTION_BLOCKED_FILES) {
-      expect(fsModule.existsSync(pathModule.join(srcDir, name))).toBe(false);
-    }
   });
 });
 

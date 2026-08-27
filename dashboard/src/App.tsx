@@ -3,16 +3,11 @@ import { signal } from "@preact/signals";
 import type { App as ExtApp } from "@modelcontextprotocol/ext-apps";
 import { applyDocumentTheme } from "@modelcontextprotocol/ext-apps";
 
-import { ArenaPane } from "./ArenaPane";
 import { AskPane } from "./AskPane";
-import { DatasetsPane } from "./DatasetsPane";
 import { IngestPane } from "./IngestPane";
 import { ImproveLane } from "./lanes/improve/ImproveLane";
 import { TendLane } from "./lanes/tend/TendLane";
-import { LoopPane } from "./LoopPane";
-import { NotesPane } from "./NotesPane";
 import { SourcesPane } from "./SourcesPane";
-import { VaultPane } from "./VaultPane";
 import {
   BridgeToolClient,
   HttpToolClient,
@@ -23,7 +18,7 @@ import {
   type ToolClient,
 } from "./toolClient";
 import { flywheelLabel, flywheelTone } from "./compileStages";
-import { resolveLaneFocus, resolvePane } from "./paneRouting";
+import { DEFAULT_PANE, resolveLaneFocus, resolvePane } from "./paneRouting";
 import {
   ObsidianLink,
   obsidianOpenVaultFromContext,
@@ -415,7 +410,8 @@ export function App() {
   function selectPane(next: PaneId) {
     setPane(next);
     const url = new URL(window.location.href);
-    if (next === "vault") url.searchParams.delete("pane");
+    // The default pane is the bare URL — no `?pane=` to strip off later.
+    if (next === DEFAULT_PANE) url.searchParams.delete("pane");
     else url.searchParams.set("pane", next);
     window.history.replaceState({}, "", url);
   }
@@ -609,24 +605,10 @@ export function App() {
             <nav class="pane-tabs" aria-label="Dashboard panes">
               <button
                 type="button"
-                class={pane === "vault" ? "active" : ""}
-                onClick={() => selectPane("vault")}
-              >
-                Vault
-              </button>
-              <button
-                type="button"
                 class={pane === "ask" ? "active" : ""}
                 onClick={() => selectPane("ask")}
               >
                 Ask
-              </button>
-              <button
-                type="button"
-                class={pane === "loop" ? "active" : ""}
-                onClick={() => selectPane("loop")}
-              >
-                Loop
               </button>
               <button
                 type="button"
@@ -645,39 +627,10 @@ export function App() {
               </button>
               <button
                 type="button"
-                class={pane === "notes" ? "active" : ""}
-                onClick={() => selectPane("notes")}
-              >
-                Notes
-                {notesDriftedCount > 0 ? (
-                  <span
-                    class="pane-tab-badge"
-                    title="Notes whose anchors drifted"
-                  >
-                    {notesDriftedCount}
-                  </span>
-                ) : null}
-              </button>
-              <button
-                type="button"
-                class={pane === "arena" ? "active" : ""}
-                onClick={() => selectPane("arena")}
-              >
-                Arena
-              </button>
-              <button
-                type="button"
                 class={pane === "ingest" ? "active" : ""}
                 onClick={() => selectPane("ingest")}
               >
                 Ingest
-              </button>
-              <button
-                type="button"
-                class={pane === "datasets" || pane === "golden" ? "active" : ""}
-                onClick={() => selectPane("datasets")}
-              >
-                Datasets
               </button>
               <button
                 type="button"
@@ -692,6 +645,14 @@ export function App() {
                 onClick={() => selectPane("tend")}
               >
                 Tend
+                {notesDriftedCount > 0 ? (
+                  <span
+                    class="pane-tab-badge"
+                    title="Notes whose anchors drifted"
+                  >
+                    {notesDriftedCount}
+                  </span>
+                ) : null}
               </button>
             </nav>
 
@@ -765,18 +726,6 @@ export function App() {
         </aside>
       ) : null}
 
-      {pane === "vault" ? (
-        <VaultPane
-          client={client}
-          catalog={catalog.value}
-          status={status.value}
-          topic={topic}
-          vault={resolvedVaultName}
-          obsidianCtx={obsidianCtx}
-          onSelectTopic={selectTopic}
-          onStatusRefresh={() => refreshStatus(false)}
-        />
-      ) : null}
       {pane === "ask" ? (
         <AskPane
           client={client}
@@ -784,20 +733,6 @@ export function App() {
           vault={resolvedVaultName}
           obsidianCtx={obsidianCtx}
           status={status.value}
-        />
-      ) : null}
-      {pane === "loop" ? (
-        <LoopPane
-          status={status.value}
-          metrics={metrics.value}
-          client={client}
-          topic={topic}
-          vault={resolvedVaultName}
-          obsidianCtx={obsidianCtx}
-          onOpenArena={() => selectPane("arena")}
-          onOpenAsk={() => selectPane("ask")}
-          onOpenVault={() => selectPane("vault")}
-          onStatusRefresh={() => refreshStatus(true)}
         />
       ) : null}
       {pane === "sources" ? (
@@ -809,19 +744,6 @@ export function App() {
           onStatusRefresh={() => refreshStatus(false)}
         />
       ) : null}
-      {pane === "notes" ? (
-        <NotesPane client={client} topic={topic} vault={resolvedVaultName} />
-      ) : null}
-      {pane === "arena" ? (
-        <ArenaPane
-          client={client}
-          topic={topic}
-          vault={resolvedVaultName}
-          status={status.value}
-          onOpenAsk={() => selectPane("ask")}
-          onOpenLoop={() => selectPane("loop")}
-        />
-      ) : null}
       {pane === "ingest" ? (
         <IngestPane
           client={client}
@@ -829,9 +751,6 @@ export function App() {
           vault={resolvedVaultName}
           obsidianCtx={obsidianCtx}
         />
-      ) : null}
-      {pane === "datasets" || pane === "golden" ? (
-        <DatasetsPane client={client} topic={topic} vault={resolvedVaultName} />
       ) : null}
       {pane === "improve" ? (
         <ImproveLane
