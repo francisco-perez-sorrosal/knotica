@@ -103,6 +103,8 @@ Cross-cutting features composed from the components above; none owns a single di
 - Running the loop as an OS service → `src/knotica/service/`; CLI entry `src/knotica/cli/service.py`.
 - Dashboard → `dashboard/` (Preact source), `src/knotica/dashboard/` (artifact loader),
   `src/knotica/mcp_server/app_ui.py` + `http_app.py` (the two mounts).
+- Lane rail state (pure, framework-free derivation — no Preact, no DOM, no fetch) →
+  `dashboard/src/lanes/laneRailState.ts`, the shared state machine the six lane rails render from.
 
 ## 4. Interfaces
 

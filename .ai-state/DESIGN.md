@@ -174,6 +174,12 @@ acyclic. Two `mcp_server` modules carry an `mcp_server → evals` edge at import
 or `litellm` — every one of those is behind a lazy import, which is what keeps the extra off the launch
 path.
 
+The lane-rail redesign in flight is adding a new `dashboard/src/lanes/` tree under the `dashboard/`
+leaf above: `laneRailState.ts` is a pure, framework-free derivation module (no Preact, no DOM, no
+fetch) turning a lane's process position into the shared four-state rail vocabulary
+(`pending`/`active`/`complete`/`blocked`) that every lane's rendered rail will read from. Full
+component-table treatment lands once the standalone pane surface it replaces is fully dissolved.
+
 ## 4. Interfaces
 
 ### MCP tool surface
