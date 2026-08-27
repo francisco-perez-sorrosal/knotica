@@ -3,296 +3,37 @@ import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
 
 import { resolveLaneFocus } from "./paneRouting";
+import { installToolCallGroups } from "./toolClientCore";
 import type { HostCapabilities, Mount } from "./lanes/hostCapabilities";
-import type {
-  ArenaHistory,
-  ArenaStatus,
-  BranchDeleteResult,
-  BranchScoreboard,
-  CompilePromoteResult,
-  CompileRunResult,
-  CompileStatus,
-  DatasetRecords,
-  DatasetsBootstrapResult,
-  DatasetsBootstrapTrainResult,
-  DatasetsFreezeResult,
-  DatasetsInventory,
-  DoctorRepairResult,
-  DoctorReport,
-  GapfillDiscoverResult,
-  GapReportResult,
-  GapsReadResult,
-  GapsStatusFilter,
-  GoldenCandidate,
-  GoldenReview,
-  GoldenSaveResult,
-  IngestActivity,
-  LoopBaselinePolicyResult,
-  LoopCadenceConfig,
-  LoopOnceResult,
-  LoopRebaselineResult,
-  LoopRunEvalResult,
-  LoopSetBaselineResult,
-  BaselineProbeResult,
-  MetricsWindow,
-  NoteAnchorActionResult,
-  NoteArchiveActionResult,
-  NoteCaptureResult,
-  NoteDecisionEnvelope,
-  NoteIntent,
-  NoteIntentFilter,
-  NotePromoteActionResult,
-  NoteReadResult,
-  NotesDriftResult,
-  NotesListResult,
-  AnchorStatusFilter,
-  OkfCheckResult,
-  OkfRepairResult,
-  PaneId,
-  QueryAnswer,
-  PromptDiffResult,
-  PromoteTarget,
-  SessionStatus,
-  StatusView,
-  SuggestionAction,
-  SuggestionsReadResult,
-  SuggestionsStatusFilter,
-  SuggestionReviewResult,
-  VaultLintResult,
-  VaultMetadataTree,
-  WikiStatus,
-} from "./types";
+import { answerToolCalls, type AnswerToolCalls } from "./lanes/answer/client";
+import { fillToolCalls, type FillToolCalls } from "./lanes/fill/client";
+import { homeToolCalls, type HomeToolCalls } from "./lanes/home/client";
+import {
+  improveToolCalls,
+  type ImproveToolCalls,
+} from "./lanes/improve/client";
+import { learnToolCalls, type LearnToolCalls } from "./lanes/learn/client";
+import { tendToolCalls, type TendToolCalls } from "./lanes/tend/client";
+import type { PaneId } from "./types";
 
-export interface ToolClient {
-  wikiStatus(topic: string, vault?: string, view?: StatusView): Promise<WikiStatus>;
-  metricsRead(topic: string, vault?: string): Promise<MetricsWindow>;
-  query(topic: string, question: string, vault?: string): Promise<QueryAnswer>;
-  curateExample(
-    topic: string,
-    query: string,
-    answer: string,
-    verdict: "good" | "bad",
-    pagesUsed?: string[],
-    vault?: string,
-  ): Promise<Record<string, unknown>>;
-  noteCapture(
-    topic: string,
-    note: string,
-    quote?: string,
-    pages?: string[],
-    intent?: NoteIntent,
-    tags?: string[],
-    vault?: string,
-  ): Promise<NoteCaptureResult>;
-  gapReport(
-    topic: string,
-    question: string,
-    reason?: string,
-    referencePages?: string[],
-    vault?: string,
-  ): Promise<GapReportResult>;
-  arenaStatus(topic: string, vault?: string): Promise<ArenaStatus>;
-  arenaHistory(
-    topic: string,
-    vault?: string,
-    limit?: number,
-  ): Promise<ArenaHistory>;
-  compileStatus(topic: string, vault?: string): Promise<CompileStatus>;
-  compileRun(
-    topic: string,
-    vault?: string,
-    useMipro?: boolean,
-  ): Promise<CompileRunResult>;
-  compilePromote(
-    topic: string,
-    branch: string,
-    mode: "dry-run" | "apply",
-    vault?: string,
-  ): Promise<CompilePromoteResult>;
-  goldenReviewLoad(topic: string, vault?: string): Promise<GoldenReview>;
-  goldenReviewSave(
-    topic: string,
-    accepted: GoldenCandidate[],
-    vault?: string,
-  ): Promise<GoldenSaveResult>;
-  datasetsInventory(topic: string, vault?: string): Promise<DatasetsInventory>;
-  datasetsRecords(
-    topic: string,
-    role: string,
-    vault?: string,
-    limit?: number,
-  ): Promise<DatasetRecords>;
-  datasetsBootstrap(
-    topic: string,
-    vault?: string,
-  ): Promise<DatasetsBootstrapResult>;
-  datasetsBootstrapTrain(
-    topic: string,
-    target?: number,
-    vault?: string,
-  ): Promise<DatasetsBootstrapTrainResult>;
-  datasetsFreeze(topic: string, vault?: string): Promise<DatasetsFreezeResult>;
-  ingestActivityRead(
-    topic: string,
-    vault?: string,
-    runId?: string,
-  ): Promise<IngestActivity>;
-  doctorRun(
-    vault?: string,
-    quick?: boolean,
-    fix?: boolean,
-  ): Promise<DoctorReport>;
-  doctorRepair(
-    mode: "dry-run" | "apply",
-    vault?: string,
-    paths?: string[],
-    allTracked?: boolean,
-    deleteUntracked?: boolean,
-  ): Promise<DoctorRepairResult>;
-  vaultLint(topic?: string, vault?: string): Promise<VaultLintResult>;
-  vaultMetadataTree(vault?: string, topic?: string): Promise<VaultMetadataTree>;
-  okfCheck(vault?: string, strict?: boolean): Promise<OkfCheckResult>;
-  okfRepair(
-    mode: "dry-run" | "apply",
-    vault?: string,
-    force?: boolean,
-  ): Promise<OkfRepairResult>;
-  loopRunOnce(
-    topic: string,
-    confirm?: string,
-    vault?: string,
-  ): Promise<LoopOnceResult>;
-  loopSetBaseline(
-    topic: string,
-    scalar: number,
-    vault?: string,
-  ): Promise<LoopSetBaselineResult>;
-  loopBaselinePolicy(
-    topic: string,
-    policy: "latest" | "best",
-    vault?: string,
-  ): Promise<LoopBaselinePolicyResult>;
-  loopRebaseline(
-    topic: string,
-    mode: "best" | "latest",
-    vault?: string,
-  ): Promise<LoopRebaselineResult>;
-  baselineProbe(topic: string, vault?: string): Promise<BaselineProbeResult>;
-  loopCadence(
-    topic: string,
-    overrides?: {
-      evalMinIntervalHours?: number;
-      evalWindow?: string;
-      evalNumThreads?: number;
-    },
-    vault?: string,
-  ): Promise<LoopCadenceConfig>;
-  loopRunEval(
-    topic: string,
-    confirm?: string,
-    numThreads?: number,
-    vault?: string,
-  ): Promise<LoopRunEvalResult>;
-  branchScoreboard(topic: string, vault?: string): Promise<BranchScoreboard>;
-  branchPromote(
-    kind: "compile" | "loop",
-    topic: string,
-    branch: string,
-    mode: "dry-run" | "apply",
-    vault?: string,
-  ): Promise<CompilePromoteResult>;
-  branchDelete(
-    topic: string,
-    branch: string,
-    mode: "dry-run" | "apply",
-    vault?: string,
-  ): Promise<BranchDeleteResult>;
-  promptDiff(
-    topic: string,
-    branch?: string,
-    vault?: string,
-    baseRef?: string,
-    headRef?: string,
-    historyId?: string,
-    mode?: "git" | "compiled",
-  ): Promise<PromptDiffResult>;
-  suggestionsRead(
-    topic: string,
-    status?: SuggestionsStatusFilter,
-    cursor?: string,
-    limit?: number,
-    vault?: string,
-  ): Promise<SuggestionsReadResult>;
-  gapsRead(
-    topic: string,
-    status?: GapsStatusFilter,
-    cursor?: string,
-    limit?: number,
-    vault?: string,
-  ): Promise<GapsReadResult>;
-  gapfillDiscover(
-    topic: string,
-    maxGaps?: number,
-    confirm?: string,
-    vault?: string,
-  ): Promise<GapfillDiscoverResult>;
-  suggestionsReview(
-    topic: string,
-    suggestionId: string,
-    action: SuggestionAction,
-    mode: "dry-run" | "apply",
-    reason?: string,
-    vault?: string,
-  ): Promise<SuggestionReviewResult>;
-  notesList(
-    topic: string,
-    intent?: NoteIntentFilter,
-    status?: AnchorStatusFilter,
-    cursor?: string,
-    limit?: number,
-    vault?: string,
-  ): Promise<NotesListResult>;
-  notesRead(
-    topic: string,
-    noteId: string,
-    vault?: string,
-  ): Promise<NoteReadResult>;
-  notesDrift(
-    topic: string,
-    cursor?: string,
-    limit?: number,
-    vault?: string,
-  ): Promise<NotesDriftResult>;
-  notesReanchor(
-    topic: string,
-    noteId: string,
-    anchorIndex: number,
-    mode: "dry-run" | "apply",
-    page?: string,
-    quote?: string,
-    vault?: string,
-  ): Promise<NoteDecisionEnvelope | NoteAnchorActionResult>;
-  notesDetach(
-    topic: string,
-    noteId: string,
-    anchorIndex: number,
-    mode: "dry-run" | "apply",
-    vault?: string,
-  ): Promise<NoteDecisionEnvelope | NoteAnchorActionResult>;
-  notesPromote(
-    topic: string,
-    noteId: string,
-    target: PromoteTarget,
-    mode: "dry-run" | "apply",
-    fields?: { question?: string; answer?: string; verdict?: "good" | "bad" },
-    vault?: string,
-  ): Promise<NoteDecisionEnvelope | NotePromoteActionResult>;
-  notesArchive(
-    topic: string,
-    noteId: string,
-    mode: "dry-run" | "apply",
-    vault?: string,
-  ): Promise<NoteDecisionEnvelope | NoteArchiveActionResult>;
+/**
+ * The single client type every lane component holds.
+ *
+ * Its per-lane halves are declared beside the lanes that call them
+ * (`lanes/<lane>/client.ts`); what is declared here is what belongs to no one
+ * lane -- vault and topic administration, which the shell owns, and the
+ * transport surface itself. Composition is by interface extension, so the
+ * member set is exactly the union: consumers see one type and import it from
+ * one place, as they always have.
+ */
+export interface ToolClient
+  extends
+    HomeToolCalls,
+    LearnToolCalls,
+    AnswerToolCalls,
+    ImproveToolCalls,
+    FillToolCalls,
+    TendToolCalls {
   vaultUse(name: string): Promise<Record<string, unknown>>;
   vaultCreate(
     name: string,
@@ -305,11 +46,6 @@ export interface ToolClient {
     description?: string,
     vault?: string,
   ): Promise<Record<string, unknown>>;
-  sessionStatus(
-    topic: string,
-    suggestionId: string,
-    vault?: string,
-  ): Promise<SessionStatus>;
   /** Capabilities the current mount advertises -- `{}` off-bridge. Read once by `deriveDispatchTier`; no lane re-derives `mount` itself (`INTERFACE_DESIGN.md §3.5`). */
   readonly hostCapabilities: HostCapabilities;
   /** Which transport this client speaks over -- fixed for the client's lifetime. */
@@ -322,24 +58,25 @@ export interface ToolClient {
 }
 
 /**
- * Deadline for the calls that drive a server-side LLM: the billed dispatchers
- * (`compile action=run`, `datasets action=bootstrap|bootstrap_train`,
- * `loop action=run_eval|run_once`, `gapfill_discover`) and `query`.
- *
- * The MCP SDK defaults every request to 60 s, which no real eval finishes inside
- * — a golden set is many answer-plus-judge round trips, and a throttled one adds
- * retry backoff on top. Past the deadline the client aborts, the browser drops
- * the connection, and the server logs a bare `ClientDisconnect` while the run it
- * already billed for keeps going, invisibly. Bounded rather than infinite, so a
- * genuinely wedged call still fails instead of hanging the pane forever.
- *
- * `resetTimeoutOnProgress` is deliberately not used instead: the server sends no
- * MCP progress notifications (it writes progress to disk for the UI to poll), so
- * there is nothing on this channel for it to reset against.
+ * Declaration merging is what makes the composition real rather than nominal:
+ * the six lane groups are installed onto this prototype at module load, and
+ * this interface tells the compiler they are there. `implements ToolClient`
+ * below is then a genuine check over the whole merged member set, not just
+ * over the handful of methods the class body declares.
  */
-const LLM_CALL_TIMEOUT_MS = 15 * 60 * 1000;
+interface BaseToolClient
+  extends
+    HomeToolCalls,
+    LearnToolCalls,
+    AnswerToolCalls,
+    ImproveToolCalls,
+    FillToolCalls,
+    TendToolCalls {}
 
-/** Shared tool wrappers — subclasses only implement transport ``call``. */
+/**
+ * Everything a tool client does that is not a tool call: the transport hook
+ * subclasses fill in, and the vault/topic administration the shell drives.
+ */
 abstract class BaseToolClient implements ToolClient {
   protected abstract call<T>(
     name: string,
@@ -351,548 +88,6 @@ abstract class BaseToolClient implements ToolClient {
   abstract readonly mount: Mount;
   abstract sendMessage(text: string): Promise<void>;
   abstract updateModelContext(text: string): Promise<void>;
-
-  wikiStatus(
-    topic: string,
-    vault = "",
-    view: StatusView = "summary",
-  ): Promise<WikiStatus> {
-    return this.call("wiki_status", { topic, vault, view });
-  }
-
-  metricsRead(topic: string, vault = ""): Promise<MetricsWindow> {
-    return this.call("metrics_read", { topic, limit: 100, vault });
-  }
-
-  query(topic: string, question: string, vault = ""): Promise<QueryAnswer> {
-    return this.call("query", { topic, question, vault }, LLM_CALL_TIMEOUT_MS);
-  }
-
-  curateExample(
-    topic: string,
-    query: string,
-    answer: string,
-    verdict: "good" | "bad",
-    pagesUsed: string[] = [],
-    vault = "",
-  ): Promise<Record<string, unknown>> {
-    return this.call("curate_example", {
-      topic,
-      query,
-      answer,
-      verdict,
-      pages_used: pagesUsed,
-      vault,
-    });
-  }
-
-  noteCapture(
-    topic: string,
-    note: string,
-    quote = "",
-    pages: string[] = [],
-    intent: NoteIntent = "reflection",
-    tags: string[] = [],
-    vault = "",
-  ): Promise<NoteCaptureResult> {
-    return this.call("note_capture", {
-      topic,
-      note,
-      quote,
-      pages,
-      intent,
-      tags,
-      vault,
-    });
-  }
-
-  gapReport(
-    topic: string,
-    question: string,
-    reason = "",
-    referencePages: string[] = [],
-    vault = "",
-  ): Promise<GapReportResult> {
-    return this.call("gap_report", {
-      topic,
-      question,
-      reason,
-      reference_pages: referencePages,
-      vault,
-    });
-  }
-
-  arenaStatus(topic: string, vault = ""): Promise<ArenaStatus> {
-    return this.call("arena", { action: "status", topic, vault });
-  }
-
-  arenaHistory(topic: string, vault = "", limit = 20): Promise<ArenaHistory> {
-    return this.call("arena", { action: "history", topic, vault, limit });
-  }
-
-  compileStatus(topic: string, vault = ""): Promise<CompileStatus> {
-    return this.call("compile", { action: "status", topic, vault });
-  }
-
-  compileRun(
-    topic: string,
-    vault = "",
-    useMipro = true,
-  ): Promise<CompileRunResult> {
-    return this.call(
-      "compile",
-      { action: "run", topic, vault, use_mipro: useMipro },
-      LLM_CALL_TIMEOUT_MS,
-    );
-  }
-
-  compilePromote(
-    topic: string,
-    branch: string,
-    mode: "dry-run" | "apply",
-    vault = "",
-  ): Promise<CompilePromoteResult> {
-    return this.call("compile", {
-      action: "promote",
-      topic,
-      branch,
-      mode,
-      vault,
-    });
-  }
-
-  goldenReviewLoad(topic: string, vault = ""): Promise<GoldenReview> {
-    return this.call("golden", { action: "load", topic, vault });
-  }
-
-  goldenReviewSave(
-    topic: string,
-    accepted: GoldenCandidate[],
-    vault = "",
-  ): Promise<GoldenSaveResult> {
-    return this.call("golden", {
-      action: "save",
-      topic,
-      vault,
-      accepted_json: JSON.stringify(accepted),
-    });
-  }
-
-  datasetsInventory(topic: string, vault = ""): Promise<DatasetsInventory> {
-    return this.call("datasets", { action: "inventory", topic, vault });
-  }
-
-  datasetsRecords(
-    topic: string,
-    role: string,
-    vault = "",
-    limit = 200,
-  ): Promise<DatasetRecords> {
-    return this.call("datasets", {
-      action: "records",
-      topic,
-      role,
-      vault,
-      limit,
-    });
-  }
-
-  datasetsBootstrap(
-    topic: string,
-    vault = "",
-  ): Promise<DatasetsBootstrapResult> {
-    return this.call(
-      "datasets",
-      { action: "bootstrap", topic, vault },
-      LLM_CALL_TIMEOUT_MS,
-    );
-  }
-
-  datasetsBootstrapTrain(
-    topic: string,
-    target = 30,
-    vault = "",
-  ): Promise<DatasetsBootstrapTrainResult> {
-    return this.call(
-      "datasets",
-      { action: "bootstrap_train", topic, target, vault },
-      LLM_CALL_TIMEOUT_MS,
-    );
-  }
-
-  datasetsFreeze(topic: string, vault = ""): Promise<DatasetsFreezeResult> {
-    return this.call("datasets", { action: "freeze", topic, vault });
-  }
-
-  ingestActivityRead(
-    topic: string,
-    vault = "",
-    runId = "",
-  ): Promise<IngestActivity> {
-    return this.call("ingest_activity_read", {
-      topic,
-      vault,
-      run_id: runId,
-      limit: 120,
-    });
-  }
-
-  doctorRun(vault = "", quick = false, fix = false): Promise<DoctorReport> {
-    return this.call("vault_health", { action: "doctor", vault, quick, fix });
-  }
-
-  doctorRepair(
-    mode: "dry-run" | "apply",
-    vault = "",
-    paths: string[] = [],
-    allTracked = false,
-    deleteUntracked = false,
-  ): Promise<DoctorRepairResult> {
-    return this.call("vault_health", {
-      action: "repair",
-      mode,
-      vault,
-      paths_json: JSON.stringify(paths),
-      all_tracked: allTracked,
-      delete_untracked: deleteUntracked,
-    });
-  }
-
-  vaultLint(topic = "", vault = ""): Promise<VaultLintResult> {
-    return this.call("vault_health", { action: "lint", topic, vault });
-  }
-
-  vaultMetadataTree(vault = "", topic = ""): Promise<VaultMetadataTree> {
-    return this.call("vault_health", { action: "metadata_tree", vault, topic });
-  }
-
-  okfCheck(vault = "", strict = false): Promise<OkfCheckResult> {
-    return this.call("vault_health", { action: "okf_check", vault, strict });
-  }
-
-  okfRepair(
-    mode: "dry-run" | "apply",
-    vault = "",
-    force = false,
-  ): Promise<OkfRepairResult> {
-    return this.call("vault_health", {
-      action: "okf_repair",
-      mode,
-      vault,
-      force,
-    });
-  }
-
-  /** Billed and two-phase: omit `confirm` to preview, pass the returned nonce to run. */
-  loopRunOnce(
-    topic: string,
-    confirm = "",
-    vault = "",
-  ): Promise<LoopOnceResult> {
-    return this.call(
-      "loop",
-      { action: "run_once", topic, confirm, vault },
-      LLM_CALL_TIMEOUT_MS,
-    );
-  }
-
-  loopSetBaseline(
-    topic: string,
-    scalar: number,
-    vault = "",
-  ): Promise<LoopSetBaselineResult> {
-    return this.call("loop", { action: "set_baseline", topic, scalar, vault });
-  }
-
-  loopBaselinePolicy(
-    topic: string,
-    policy: "latest" | "best",
-    vault = "",
-  ): Promise<LoopBaselinePolicyResult> {
-    return this.call("loop", {
-      action: "baseline_policy",
-      topic,
-      policy,
-      vault,
-    });
-  }
-
-  loopRebaseline(
-    topic: string,
-    mode: "best" | "latest" = "best",
-    vault = "",
-  ): Promise<LoopRebaselineResult> {
-    return this.call("loop", { action: "rebaseline", topic, mode, vault });
-  }
-
-  baselineProbe(topic: string, vault = ""): Promise<BaselineProbeResult> {
-    return this.call("baseline_probe", { topic, vault });
-  }
-
-  loopCadence(
-    topic: string,
-    overrides: {
-      evalMinIntervalHours?: number;
-      evalWindow?: string;
-      evalNumThreads?: number;
-    } = {},
-    vault = "",
-  ): Promise<LoopCadenceConfig> {
-    return this.call("loop", {
-      action: "cadence",
-      topic,
-      eval_min_interval_hours: overrides.evalMinIntervalHours,
-      eval_window: overrides.evalWindow,
-      eval_num_threads: overrides.evalNumThreads,
-      vault,
-    });
-  }
-
-  loopRunEval(
-    topic: string,
-    confirm = "",
-    numThreads?: number,
-    vault = "",
-  ): Promise<LoopRunEvalResult> {
-    return this.call(
-      "loop",
-      { action: "run_eval", topic, confirm, num_threads: numThreads, vault },
-      LLM_CALL_TIMEOUT_MS,
-    );
-  }
-
-  branchScoreboard(topic: string, vault = ""): Promise<BranchScoreboard> {
-    return this.call("branches", { action: "scoreboard", topic, vault });
-  }
-
-  branchPromote(
-    kind: "compile" | "loop",
-    topic: string,
-    branch: string,
-    mode: "dry-run" | "apply",
-    vault = "",
-  ): Promise<CompilePromoteResult> {
-    return this.call("branches", {
-      action: "promote",
-      kind,
-      topic,
-      branch,
-      mode,
-      vault,
-    });
-  }
-
-  branchDelete(
-    topic: string,
-    branch: string,
-    mode: "dry-run" | "apply",
-    vault = "",
-  ): Promise<BranchDeleteResult> {
-    return this.call("branches", {
-      action: "delete",
-      topic,
-      branch,
-      mode,
-      vault,
-    });
-  }
-
-  promptDiff(
-    topic: string,
-    branch = "",
-    vault = "",
-    baseRef = "",
-    headRef = "",
-    historyId = "",
-    mode: "git" | "compiled" = "git",
-  ): Promise<PromptDiffResult> {
-    return this.call("prompt_diff", {
-      topic,
-      branch,
-      vault,
-      base_ref: baseRef,
-      head_ref: headRef,
-      history_id: historyId,
-      mode,
-    });
-  }
-
-  suggestionsRead(
-    topic: string,
-    status: SuggestionsStatusFilter = "pending",
-    cursor = "",
-    limit = 20,
-    vault = "",
-  ): Promise<SuggestionsReadResult> {
-    return this.call("suggestions_read", {
-      topic,
-      status,
-      cursor,
-      limit,
-      vault,
-    });
-  }
-
-  gapsRead(
-    topic: string,
-    status: GapsStatusFilter = "open",
-    cursor = "",
-    limit = 20,
-    vault = "",
-  ): Promise<GapsReadResult> {
-    return this.call("gaps_read", { topic, status, cursor, limit, vault });
-  }
-
-  /** Billed and two-phase: omit `confirm` to preview, pass the returned nonce to run. */
-  gapfillDiscover(
-    topic: string,
-    maxGaps = 0,
-    confirm = "",
-    vault = "",
-  ): Promise<GapfillDiscoverResult> {
-    return this.call(
-      "gapfill_discover",
-      { topic, max_gaps: maxGaps, confirm, vault },
-      LLM_CALL_TIMEOUT_MS,
-    );
-  }
-
-  suggestionsReview(
-    topic: string,
-    suggestionId: string,
-    action: SuggestionAction,
-    mode: "dry-run" | "apply" = "dry-run",
-    reason = "",
-    vault = "",
-  ): Promise<SuggestionReviewResult> {
-    return this.call("suggestions_review", {
-      topic,
-      suggestion_id: suggestionId,
-      action,
-      mode,
-      reason,
-      vault,
-    });
-  }
-
-  notesList(
-    topic: string,
-    intent: NoteIntentFilter = "all",
-    status: AnchorStatusFilter = "all",
-    cursor = "",
-    limit = 20,
-    vault = "",
-  ): Promise<NotesListResult> {
-    return this.call("notes", {
-      action: "list",
-      topic,
-      intent,
-      status,
-      cursor,
-      limit,
-      vault,
-    });
-  }
-
-  notesRead(
-    topic: string,
-    noteId: string,
-    vault = "",
-  ): Promise<NoteReadResult> {
-    return this.call("notes", {
-      action: "read",
-      topic,
-      note_id: noteId,
-      vault,
-    });
-  }
-
-  notesDrift(
-    topic: string,
-    cursor = "",
-    limit = 20,
-    vault = "",
-  ): Promise<NotesDriftResult> {
-    return this.call("notes", { action: "drift", topic, cursor, limit, vault });
-  }
-
-  notesReanchor(
-    topic: string,
-    noteId: string,
-    anchorIndex: number,
-    mode: "dry-run" | "apply" = "dry-run",
-    page = "",
-    quote = "",
-    vault = "",
-  ): Promise<NoteDecisionEnvelope | NoteAnchorActionResult> {
-    return this.call("notes", {
-      action: "reanchor",
-      topic,
-      note_id: noteId,
-      anchor: anchorIndex,
-      mode,
-      page,
-      quote,
-      vault,
-    });
-  }
-
-  notesDetach(
-    topic: string,
-    noteId: string,
-    anchorIndex: number,
-    mode: "dry-run" | "apply" = "dry-run",
-    vault = "",
-  ): Promise<NoteDecisionEnvelope | NoteAnchorActionResult> {
-    return this.call("notes", {
-      action: "detach",
-      topic,
-      note_id: noteId,
-      anchor: anchorIndex,
-      mode,
-      vault,
-    });
-  }
-
-  notesPromote(
-    topic: string,
-    noteId: string,
-    target: PromoteTarget,
-    mode: "dry-run" | "apply" = "dry-run",
-    fields: {
-      question?: string;
-      answer?: string;
-      verdict?: "good" | "bad";
-    } = {},
-    vault = "",
-  ): Promise<NoteDecisionEnvelope | NotePromoteActionResult> {
-    return this.call("notes", {
-      action: "promote",
-      topic,
-      note_id: noteId,
-      target,
-      mode,
-      question: fields.question ?? "",
-      answer: fields.answer ?? "",
-      verdict: fields.verdict ?? "good",
-      vault,
-    });
-  }
-
-  notesArchive(
-    topic: string,
-    noteId: string,
-    mode: "dry-run" | "apply" = "dry-run",
-    vault = "",
-  ): Promise<NoteDecisionEnvelope | NoteArchiveActionResult> {
-    return this.call("notes", {
-      action: "archive",
-      topic,
-      note_id: noteId,
-      mode,
-      vault,
-    });
-  }
 
   vaultUse(name: string): Promise<Record<string, unknown>> {
     return this.call("vault", { action: "use", name });
@@ -929,22 +124,18 @@ abstract class BaseToolClient implements ToolClient {
     return this.call("create_topic", { topic, description, vault });
   }
 
-  /** The handoff stage's one read (`INTERFACE_DESIGN.md §3.3`). */
-  sessionStatus(
-    topic: string,
-    suggestionId: string,
-    vault = "",
-  ): Promise<SessionStatus> {
-    return this.call("fill", {
-      action: "session_status",
-      topic,
-      suggestion_id: suggestionId,
-      vault,
-    });
-  }
-
   abstract close(): Promise<void>;
 }
+
+installToolCallGroups(
+  BaseToolClient.prototype,
+  homeToolCalls,
+  learnToolCalls,
+  answerToolCalls,
+  improveToolCalls,
+  fillToolCalls,
+  tendToolCalls,
+);
 
 /** Standalone client for the dashboard's own stateless streamable-HTTP mount. */
 export class HttpToolClient extends BaseToolClient {
@@ -1031,7 +222,10 @@ export class BridgeToolClient extends BaseToolClient {
 
   /** Starts a turn in the host's conversation (`ui/message`, tier A). */
   async sendMessage(text: string): Promise<void> {
-    await this.app.sendMessage({ role: "user", content: [{ type: "text", text }] });
+    await this.app.sendMessage({
+      role: "user",
+      content: [{ type: "text", text }],
+    });
   }
 
   /** Queues context for the next turn, without starting one (`ui/update-model-context`, tier B). */

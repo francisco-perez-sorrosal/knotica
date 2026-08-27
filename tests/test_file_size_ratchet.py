@@ -134,21 +134,26 @@ TESTS_OVER_CEILING_BASELINE: dict[str, int] = {
 #:
 #: Raised a second time, from 1340/1150, by the Home lane: its cross-topic
 #: attention payload added a type family to `types.ts`, and `wikiStatus` grew
-#: a `view` parameter in `toolClient.ts`. Both raises are the last ones these
-#: entries should ever need -- `td-057` splits both modules by domain, after
-#: which they fall under the ceiling and `test_baseline_has_no_stale_entries`
-#: requires their removal outright.
-DASHBOARD_OVER_CEILING_BASELINE: dict[str, int] = {
-    # The shared type-definition module for every lane. Splitting it by domain
-    # (notes / suggestions / arena / loop) is the fix td-026 itself named as
-    # preferable -- not attempted here, since this guard closes the ratchet's
-    # *visibility* gap, not the underlying design.
-    "types.ts": 1399,
-    # Wraps every MCP tool call the dashboard makes; crossed the ceiling
-    # during the lane wiring. Extractable by tool-domain the same way
-    # `types.ts` is, and not attempted here for the same reason.
-    "toolClient.ts": 1155,
-}
+#: a `view` parameter in `toolClient.ts`. Both raises were the last ones these
+#: entries needed -- `td-057` splits both modules by domain, after which they
+#: fall under the ceiling and `test_baseline_has_no_stale_entries` requires
+#: their removal outright.
+#:
+#: Both entries are now gone, and the dashboard tree carries **no** exemption.
+#: td-057's types half moved 120 of ``types.ts``'s 126 declarations verbatim
+#: into six ``lanes/<lane>/types.ts`` modules (the largest, ``improve``, at 497
+#: lines) behind an erasable ``export type`` barrel, landing the root module at
+#: 295. Its client half then moved 48 of ``toolClient.ts``'s 51 methods into
+#: six ``lanes/<lane>/client.ts`` groups composed onto one prototype, landing
+#: the root module at 347 -- the three that stayed (vault/topic administration)
+#: belong to the shell, not to any lane. A paid-down exemption is removed,
+#: never kept -- the same rule that retired ``guillotine/report.py`` above.
+#:
+#: An empty mapping is the intended terminal state, not a placeholder: rules 1
+#: and 3 have nothing to bind, and rule 2 -- no non-baseline module may cross
+#: 800 -- now guards every ``.ts``/``.tsx`` module under ``dashboard/src``
+#: without exception.
+DASHBOARD_OVER_CEILING_BASELINE: dict[str, int] = {}
 
 
 def _is_test_double_or_generated(path: Path) -> bool:
