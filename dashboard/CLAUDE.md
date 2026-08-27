@@ -20,9 +20,9 @@ A `core/process_model.py` change touches two `git diff --exit-code` gates at onc
 
 ## Talking to the server
 
-`src/toolClient.ts` is the single seam for MCP calls. Add a call there rather than reaching for a transport in a component. The dashboard is a *client* of the same public tool surface everything else uses — if a pane needs data, the answer is a tool call, not a new server endpoint.
+`src/toolClient.ts` is the single seam for MCP calls. Add a call there rather than reaching for a transport in a component. The dashboard is a *client* of the same public tool surface everything else uses — if a pane or lane needs data, the answer is a tool call, not a new server endpoint.
 
-Panes live in `src/*Pane.tsx`, with supporting views alongside (`ScoreboardPanel`, `PromotePreview`, `DeletePreview`, `PromptDiff`, `MetadataTreePanel`, `NotesDriftView`, `NotePromoteDialog`, `CompilePanel`).
+**Panes** live in `src/*Pane.tsx` (`Ask`, `Sources`, `Ingest`). **Lanes** live in `src/lanes/<lane-name>/` with their stage components (e.g. `src/lanes/improve/HealStage.tsx`, `src/lanes/tend/DriftStage.tsx`). Both panes and lanes use shared supporting views: `ScoreboardPanel`, `PromotePreview`, `DeletePreview`, `PromptDiff`, `MetadataTreePanel`, `NotePromoteDialog`. The shared lane-rail infrastructure (`laneRailState.ts`, `LaneRail.tsx`, `ArmedButton.tsx`) coordinates stage state derivation and two-phase action affordances.
 
 ## Rules that keep the UI honest
 

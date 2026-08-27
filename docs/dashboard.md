@@ -1,17 +1,19 @@
 # Dashboard
 
 The dashboard is a Preact web app that drives the self-improvement loop through knotica's MCP
-tools — no parallel REST API, no separate backend. It talks to the same nine dispatchers
-(`loop`, `branches`, `compile`, `datasets`, `arena`, `golden`, `notes`, `vault`, `vault_health`)
-plus the flat tools `query`, `wiki_status`, `metrics_read`, `curate_example`, `baseline_probe`,
-`prompt_diff`, `suggestions_read`/`suggestions_review`, and `ingest_activity_read` — all of them
-callable by any MCP client.
+tools — no parallel REST API, no separate backend. It talks to the process-lane dispatchers
+(`compile`, `loop`, `arena`, `branches`, `datasets`, `notes`), flat tools (`query`, `wiki_status`,
+`metrics_read`, `curate_example`, `baseline_probe`, `prompt_diff`, `suggestions_read`,
+`suggestions_review`, `ingest_activity_read`, `gaps_read`, `gapfill_discover`), and the `vault`
+and `open_dashboard` tools — all callable by any MCP client.
 
 ## Contents
 
 - [Open it](#open-it)
 - [Query parameters](#query-parameters)
-- [Panes](#panes)
+- [Panes and lanes](#panes-and-lanes)
+- [Pane reference](#pane-reference)
+- [Lane reference](#lane-reference)
 - [Shared components](#shared-components)
 - [Obsidian links](#obsidian-links)
 - [Develop / rebuild](#develop--rebuild)
@@ -33,9 +35,9 @@ HTTP mount instead, which talks to the same tools over `StreamableHTTPClientTran
 auto-detects which transport to use; `?mount=bridge`/`?mount=http` forces one.
 
 > [!NOTE]
-> End-user Desktop install lives in [`CLAUDE_DESKTOP.md`](CLAUDE_DESKTOP.md). The Ask, Loop and
-> Compile panes call headless MCP tools and need LLM credentials in Desktop's MCP `env` block —
-> see that guide's headless-credentials section. The Arena pane is read-only and needs none.
+> End-user Desktop install lives in [`CLAUDE_DESKTOP.md`](CLAUDE_DESKTOP.md). The `Ask` pane and
+> the process lanes call headless MCP tools and need LLM credentials in Desktop's MCP `env` block —
+> see that guide's headless-credentials section.
 
 ## Query parameters
 
@@ -44,77 +46,38 @@ navigate, so a reload preserves your view.
 
 | Param | Default | Effect |
 |-------|---------|--------|
-| `?topic=` | (vault-wide) | Initial topic. Reconciled against the vault's real topic list on load; falls back to the first real topic if the requested one doesn't exist. When opening a lane pane, topic narrows the data to that topic only. |
+| `?topic=` | (vault-wide) | Initial topic. Reconciled against the vault's real topic list on load; falls back to the first real topic if the requested one doesn't exist. When opening a lane, topic narrows the data to that topic only. |
 | `?vault=` | (none) | Initial vault name. It wins on load but does not pin the selection: once the active vault changes from another client (e.g. `/knotica:use`), the picker follows it. |
-| `?pane=` | `vault` | Initial pane. Accepts `vault`, `ask`, `loop`, `sources`, `notes`, `arena`, `ingest`, `datasets`; `golden` is a legacy alias that normalizes to `datasets`. Anything else falls back to `vault`. **Deprecated by `lane`** — use `lane=` instead. |
-| `?lane=` | (none) | Initial process lane. Accepts `home`, `learn`, `answer`, `improve`, `fill`, `tend`. An unrecognized lane degrades to the default vault view. Use with `focus=` to anchor a stage or object within the lane. |
-| `?focus=` | (none) | Stage or object ID within the active lane. An unrecognized `focus` degrades to the lane's own landing view. Requires `lane=` to be meaningful. |
+| `?pane=` | `tend` | Initial pane. Legacy routing for bookmarks and old links — maps to the pane or lane that absorbed its content. Accepts: `ask`, `sources`, `ingest`, `improve`, `tend`, and deprecated aliases (`home`→`tend`, `learn`→`ingest`, `answer`→`ask`, `fill`→`sources`, `loop`/`arena`/`datasets`/`golden`→`improve`, `vault`/`notes`→`tend`). Anything unrecognized falls back to `tend`. **Deprecated by `lane=`** — use `lane=` instead. |
+| `?lane=` | (none) | Initial process lane. Accepts `home`, `learn`, `answer`, `improve`, `fill`, `tend`. Unrecognized values fall back to `tend`. Each lane is a process surface with an ordered rail of stages. Use with `focus=` to anchor a stage within the lane. |
+| `?focus=` | (none) | Stage or object ID within the active lane. Unrecognized values degrade to the lane's default view. Requires `?lane=` to be meaningful. |
 | `?mcp=` | `http://127.0.0.1:8765/mcp` | HTTP-mount MCP endpoint override — point the client at a different streamable-HTTP server. |
 | `?mount=` | (auto) | `bridge` or `http` forces the transport, overriding the framed-window auto-detect. |
 
-## Panes
+## Panes and lanes
 
-Tab order: **Vault → Ask → Loop → Sources → Notes → Arena → Ingest → Datasets**. Sources and
-Notes carry a numeric badge (pending suggestions; drifted-anchor count).
+Navigation top-level surfaces: **Ask → Sources → Ingest → Improve → Tend**. The first three are
+panes (single view each); the last two are process lanes (multi-stage rails).
 
-### Vault — default pane
+### Pane reference
 
-- Vault-wide stat tiles: Topics, Pages, Curated, Lint hits, Unpushed, Last lint.
-- **+ New KB** opens a form (path / name / optional topic) to create and switch to a new vault.
-  A picker `<select>` appears as soon as at least one vault is configured.
-- **Topics** list, one card per topic, health glyph from lint hits / curated-vs-threshold /
-  last eval. Click a card to select it. The active topic's card shows **Bootstrap trainset**
-  (only before it's compile-ready), with a live "synthesizing page k/n" progress label while the
-  loop's bootstrap phase runs.
-- Embeds the metadata tree, the compile panel, and the scoreboard (see
-  [Shared components](#shared-components)).
-- **Checks** — four tabs, each with a health chip and a remediation column:
+#### Ask
 
-  | Tab | What it does |
-  |-----|--------------|
-  | Doctor | Run/refresh; "Show fix guidance" (CLI commands only, not an automatic restore); "Repair dry-run" lists tracked/untracked paths with checkboxes, then **Apply selected** or **Apply all tracked** (both confirm before running). |
-  | Lint | Scope picker (topic / whole vault); inspect-only, no auto-repair — fix flagged pages via Claude or Obsidian. |
-  | OKF | Check, then dry-run / apply repair (apply confirms; it writes files and creates one git commit). |
-  | Loop | **Process one candidate** gates the next pending `loop/c/*` branch; may run a full LLM eval. Requires a frozen baseline and a pending candidate. |
+Query the vault with grounded questions. See [self-improvement.md](self-improvement.md) for how
+the query engine compiles and serves answers.
 
-### Ask
-
-- Textarea + **Ask** queries the vault. **Pin as Before** freezes the current answer as a
-  baseline card; asking the same question again renders an **After** card once the text differs.
+- Textarea + **Ask** queries the vault against the live compiled `query_engine`. **Pin as Before**
+  freezes the current answer as a baseline card; asking the same question again renders an
+  **After** card once the text differs.
 - Each answer card offers **Save as good** / **Save as bad**, which curates the question into
   the trainset. Citations render as clickable Obsidian links.
 - Contextual banners: "Flywheel ready" (compile-ready, not yet compiled), "Compiled engine is
-  live" (re-ask hint), "Gate is red" (links to Arena).
+  live" (re-ask hint), "Gate is red" (links to `improve` lane's Gate stage).
 
-### Loop
+#### Sources
 
-Mirrors `knotica improve loop --topic <t>` — see [self-improvement.md](self-improvement.md) for what the
-watcher does. A gate chip (pass/fail/unknown) and baseline scalar sit above an interactive
-Observe → Gate → Heal → Merged stepper.
-
-- **Observe** — before any score exists: **Set cold start (0)**, a naive zero-floor baseline
-  with no LLM call. Once a score exists: **Freeze at current score** / **Re-freeze at current
-  score** / **Raise bar to current score**, plus an advanced override field for a custom scalar.
-  A **defend policy** toggle switches the gate between `latest` (tracks reality) and `best`
-  (ratchets a high-water mark) — **Re-freeze at best (X)** appears only when metrics history
-  shows a scalar more than `1e-6` above the current baseline. Cadence fields (min interval
-  hours / window / threads) write on blur. **Run eval now** is a two-step billed action: the
-  first click previews worker/judge/thread count and cost without billing; a second, explicit
-  **Confirm — run and bill** click executes it (**Cancel** discards the preview).
-- **Gate** — lists pending `loop/c/*` candidates with a diff link per row; **Gate next
-  candidate now** runs the same action as the Vault pane's Loop check.
-- **Heal** — shows the live arena stage/race when one is running; **Open Arena** enables once a
-  race is live, racing, or healed.
-- **Merged** — **Prove in Ask** jumps to the Ask pane so you can re-ask your question against the
-  now-merged prompt (disabled until something has merged).
-
-A runner-liveness chip shows "runner: watching · pid N" or "runner: off". Below the stepper, a
-chart plots the gate scalar over generations.
-
-### Sources — open gaps and the gap-fill suggestion queue
-
-See [gap-fill.md](gap-fill.md) for the diagnose → discover → approve pipeline this pane sits in
-(stages P1 and P3).
+Diagnose and approve knowledge gaps. See [gap-fill.md](gap-fill.md) for the diagnose → discover →
+approve pipeline this pane sits in (stages P1 and P3).
 
 - **Open gaps** lists diagnosed gaps that discovery has not drained yet — the P1 queue, read via
   `gaps_read`. Each card carries the fault class, the filed date, a gap-origin badge, the
@@ -140,38 +103,7 @@ See [gap-fill.md](gap-fill.md) for the diagnose → discover → approve pipelin
   the score delta and reason, with an expandable diff of the worst-regressed golden questions.
 - The list paginates with a **Load more** cursor.
 
-### Notes — personal marginalia
-
-Browse your own [notes](notes.md) and resolve anchor drift. Two views:
-
-- **Browse** — filter by intent (all / reflection / dispute / gap / question) and anchor status
-  (all / exact / unanchored / shifted / fuzzy / orphaned). The header shows a total count and a
-  "drifted" badge (fuzzy + orphaned). Each card shows intent, date, tags, an overall
-  anchor-status badge, the note text, and one row per anchor (page/heading, status glyph, quoted
-  passage, pin timestamp). Per-anchor: **Re-anchor** (shifted/fuzzy only), **Review drift →**
-  (fuzzy/orphaned/anchor-invalid only), **Detach** (always). Card-level: **recheck anchors**
-  (re-resolves live), **Promote…**, **Archive** (hidden once already archived).
-- **Review drift** (via "Review drift →") — one item per anchor needing attention: a
-  pinned-quote-vs-live-quote diff, "superseded" vs "rewritten" framing, alternative-placement
-  candidates when no confident match exists, and an overlap percentage. Actions: **Re-anchor
-  here**, **Re-anchor to selected**, **Keep the old pin** (dismisses locally only — nothing is
-  written, the item resurfaces next fetch), **Detach**.
-
-Every mutating action here (archive / detach / re-anchor) previews on the first click and applies
-only on the second. **Promote…** offers **Training example** always and **Knowledge gap** only
-for dispute/gap/question notes — the golden set is never offered, because the underlying tool
-always rejects it.
-
-### Arena
-
-- Leaderboard: variants ranked by scalar, each a horizontal bar with a baseline marker, rank,
-  delta vs baseline, and a status badge (pending / scored / winner / lost).
-- History: the last 12 races, newest first.
-- **Refresh** re-polls on demand; the pane also auto-polls every 2.5 seconds.
-- Contextual banners: "Winner promoted" → **Prove in Ask** on a completed race; "No winner" →
-  **Back to Loop** on a reverted one.
-
-### Ingest
+#### Ingest
 
 Watch an ingest or curate run live. See [gap-fill.md](gap-fill.md) and
 [tutorial.md](tutorial.md) for what triggers a run.
@@ -184,41 +116,87 @@ Watch an ingest or curate run live. See [gap-fill.md](gap-fill.md) and
   up. Bursty stages collapse into a **Show each checkpoint** expandable group. Events reported
   out of order get a "· late" badge but stay in time order.
 
-### Datasets
+### Lane reference
 
-Manage the [trainset and golden set](self-improvement.md) for a topic — `?pane=datasets`
-(`?pane=golden` is a legacy alias for the same pane).
+Process lanes are multi-stage workflows anchored in the `core/process_model.py` declaration. Each
+lane stages its work as an ordered rail where you progress through numbered stages; a stage is
+complete when its work finishes, blocked when it requires human input or external action, or
+pending when waiting for a prior stage. The rail renders stage glyphs (✓ / ! / 1-N) and accepts
+clicks to expand a stage and trigger its actions.
 
-- Two tables: **Loop corpora** (`trainset` / `held_out` / `seal` — read-only expand) and
-  **Golden pipeline** (`candidates` / `reviewed` — editable expand).
-- A Bootstrap → Review → Freeze breadcrumb lights up each step once its precondition is met.
-- **Bootstrap** synthesizes golden candidates from entity pages, then auto-expands Candidates.
-- Expanding `candidates`/`reviewed` loads editable cards: question/answer text, a
-  duplicate-of-trainset flag, and a Discard/Restore toggle.
-- **Save reviewed** (enabled once you've made changes) writes the staged reviewed set.
-- **Freeze** (confirms before running) writes the sealed golden set and its manifest. It is
-  disabled only for the one condition that genuinely blocks it — a reviewed set overlapping the
-  trainset — and when there is nothing reviewed to freeze. Below the recommended floor it stays
-  **enabled** and warns instead, inline and in the confirm: the floor governs how noisy the eval
-  scalar will be, not whether the set is valid, and `evals/golden.py::freeze` freezes under it by
-  design ("the human is the gate"). Disabling it there stranded a small vault with no way to
-  establish a first baseline, and so no way to run the gated ingest that requires one. Note this
-  floor is separate from compile's hard **≥ 20 frozen records** precondition
-  ([self-improvement](self-improvement.md)) — freezing 9 is allowed; compiling on 9 is not.
-- A contamination banner surfaces train∩held-out / train∩reviewed / train∩candidates overlap
-  counts whenever nonzero — freezing refuses any overlap between the reviewed set it freezes and
-  the trainset.
+#### Improve
+
+Improve is the topic-scoped iterative loop: design → implement → test → promote. It merges the
+observability and healing workflows, replacing the old tabbed Loop/Arena/Heal surface.
+
+**Six stages, in order:**
+
+1. **Observe** — baseline and eval cadence. Set a cold-start baseline (score 0) or freeze at the
+   current score. Adjust defend policy (`latest` tracks reality; `best` ratchets a high-water
+   mark). Configure eval cadence (min interval, window, threads). **Run eval now** is a
+   two-phase billed action: first click previews cost; second click executes (**Cancel** discards).
+2. **Heal** — live arena variant race. The dashboard renders the active stage/race in real time when
+   one is running. **Open Arena** enables once a race is live, racing, or healed.
+3. **Instrument** — build the golden set. Two tables: **Loop corpora** (`trainset` / `held_out` /
+   `seal` — read-only expand) and **Golden pipeline** (`candidates` / `reviewed` — editable expand).
+   A Bootstrap → Review → Freeze breadcrumb lights up each step once its precondition is met.
+   **Bootstrap** synthesizes golden candidates from entity pages; expanding `candidates`/`reviewed`
+   loads editable cards with question/answer text and a discard/restore toggle. **Save reviewed**
+   writes changes; **Freeze** (confirms before running) writes the sealed golden set and manifest.
+   Freezing is disabled only when the reviewed set overlaps the trainset; below the recommended floor
+   it stays enabled but warns instead. A contamination banner surfaces train∩held-out /
+   train∩reviewed / train∩candidates overlap counts whenever nonzero.
+4. **Prove** — compile and validate the new prompt. Trainset-vs-threshold meter, **Compile**
+   (disabled once already compiled or not ready), a live trial/trial-total poll while compiling,
+   and **Preview merge** → **Apply merge to main** once done. Shows which optimizer ran (MIPRO or
+   bootstrap, with a fallback-reason tooltip when MIPRO was unavailable).
+5. **Promote** — move the merged prompt to production. **Prove in Ask** jumps to the Ask pane so
+   you can re-ask your question against the now-merged prompt (disabled until something has merged).
+6. **Gate** — review pending `loop/c/*` candidate branches. Lists pending candidates with a diff
+   link per row; **Gate next candidate now** runs the full LLM eval. Requires a frozen baseline and
+   a pending candidate.
+
+A runner-liveness chip shows "runner: watching · pid N" or "runner: off". A chart plots the gate
+scalar over generations.
+
+#### Tend
+
+Tend is the per-vault mechanical checklist: health checks, repairs, and notes. It merges the old
+VaultPane Checks surface with personal marginalia.
+
+**Five stages, in order:**
+
+1. **Doctor** — vault mutation consistency check. Run/refresh; "Show fix guidance" (CLI commands
+   only, not automatic restore); "Repair dry-run" lists tracked/untracked paths with checkboxes,
+   then **Apply selected** or **Apply all tracked** (both confirm before running). Health chip:
+   green (no warnings), yellow (warnings present), red (failures present).
+2. **Lint** — schema and markup validation. Scope picker (topic / whole vault); inspect-only, no
+   auto-repair — fix flagged pages via Claude or Obsidian. Health chip: green (no violations),
+   yellow (<10 violations), red (10+).
+3. **OKF** — consistency of owned-knowledge fields (OKF). Check, then dry-run / apply repair
+   (apply confirms; it writes files and creates one git commit). Health chip: green (no issues),
+   yellow (warnings), red (failures).
+4. **Migrate** — schema evolution. When the vault's top-level `SCHEMA.md` changes, this stage
+   signals that pages need refresh. No automated action — the stage remains pending, signalling
+   that human review is warranted before running `knotica tend migrate --dry-run` to preview and
+   `--apply` to execute.
+5. **Drift** — personal notes anchor resolution. Browse your own [notes](notes.md) and resolve
+   anchor drift. Two views: **Browse** (filter by intent and anchor status; recheck/promote/archive
+   actions) and **Review drift** (one item per anchor needing attention; re-anchor/detach actions).
+   Every mutating action previews on the first click and applies only on the second. **Promote…**
+   offers **Training example** always and **Knowledge gap** only for dispute/gap/question notes.
 
 ## Shared components
 
-Embedded inside other panes, not top-level tabs:
+Embedded inside other panes or lanes, not top-level:
 
 | Component | Lives in | What it does |
 |-----------|----------|--------------|
-| Compile panel | Vault | Trainset-vs-threshold meter, **Compile** (disabled once already compiled or not ready), a live trial/trial-total poll while compiling, and **Preview merge** → **Apply merge to main** once done. Shows which optimizer ran (MIPRO or bootstrap, with a fallback-reason tooltip when MIPRO was unavailable). |
-| Scoreboard | Vault, Loop | Per-topic baseline summary (frozen state, gate state, source path); sections for open compile candidates (promote/delete), compile history (delete-only), loop candidates (promote + diff-on-select), observation history (merged `loop/r/*` pointers, delete-only, auto-pruned beyond the newest 5), and read-only arena variants. Promote/delete both preview before applying. |
-| Metadata tree | Vault | Collapsible tree of the vault's metadata substrate — root `SCHEMA.md`/`log.md`, the vault-root `.knotica/` tree, then the selected topic's `SCHEMA.md` and `.knotica/` — one level deep by default, with a hover tooltip explaining each file's purpose; links open in Obsidian. |
-| Prompt diff | Loop, Compile, Scoreboard rows | Collapsible unified diff — either across git refs of `query.md`, or between the vault's `query.md` and the full compiled runtime program (with demo count and artifact filename). |
+| Vault stat tiles | Tend lane (Migrate stage) | Vault-wide counts: Topics, Pages, Curated, Lint hits, Unpushed, Last lint. **+ New KB** opens a form (path / name / optional topic) to create and switch to a new vault. Topics picker list shows one card per topic with health glyph; click to select. Active topic shows **Bootstrap trainset** (before compile-ready) with "synthesizing page k/n" label. |
+| Scoreboard | Ask pane, Improve lane (Observe/Prove/Gate stages) | Per-topic baseline summary (frozen state, gate state, source path); sections for open compile candidates (promote/delete), compile history (delete-only), loop candidates (promote + diff-on-select), observation history (merged `loop/r/*` pointers, delete-only, auto-pruned beyond 5), and read-only arena variants. Promote/delete both preview before applying. |
+| Metadata tree | Tend lane (Doctor stage) | Collapsible tree of the vault's metadata substrate — root `SCHEMA.md`/`log.md`, the vault-root `.knotica/` tree, then the selected topic's `SCHEMA.md` and `.knotica/` — one level deep by default, with a hover tooltip explaining each file's purpose; links open in Obsidian. |
+| Prompt diff | Ask pane, Improve lane (Prove/Gate stages), Scoreboard rows | Collapsible unified diff — either across git refs of `query.md`, or between the vault's `query.md` and the full compiled runtime program (with demo count and artifact filename). |
+| LaneRail | Improve, Tend lanes | Shared infrastructure for rendering the stage rail, deriving stage states from MCP tool outputs, and coordinating armed-confirm affordances for two-phase actions (billed eval, repairs, promotions). Defined in `dashboard/src/lanes/laneRailState.ts` and `LaneRail.tsx`. |
 
 ## Obsidian links
 
@@ -239,6 +217,7 @@ The dashboard is a single Preact app (Vite, inlined into one self-contained
 ```sh
 cd dashboard
 npm install
+npm test
 npm run build
 ```
 
@@ -246,12 +225,12 @@ This regenerates `dist/index.html` and copies it into `src/knotica/dashboard/app
 the server reads at runtime (falling back to `dashboard/dist/index.html` for a source checkout
 without a packaged build).
 
-Local HTTP preview, with the loop watcher running alongside so the Loop pane has live data:
+Local HTTP preview, with the loop watcher running alongside so the Improve lane has live data:
 
 ```sh
 knotica mcp --http --port 8765 &
 knotica improve loop --topic agentic-systems &
-open 'http://127.0.0.1:8765/?topic=agentic-systems'
+open 'http://127.0.0.1:8765/?lane=improve&topic=agentic-systems'
 ```
 
 See [architecture.md](architecture.md) for how the dashboard's two mounts fit into the MCP

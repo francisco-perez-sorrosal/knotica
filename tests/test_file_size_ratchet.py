@@ -33,8 +33,20 @@ only applies where someone remembered to look is not a ceiling. The same three
 rules now govern both roots; test modules are held to the identical standard as
 the code they exercise, because a 2500-line test file is exactly as hard to
 navigate as a 2500-line module.
+
+**``dashboard/src`` is scanned for the same reason (td-026): TypeScript shipped
+alongside the Python tree was invisible to a gate that only ever walked
+``*.py``.** The scan covers ``*.ts``/``*.tsx`` and excludes two things the
+ceiling does not bind: files under any ``__tests__/`` directory (test doubles
+colocated with their source, unlike Python's separate ``tests/`` tree) and
+``processModel.ts``, mechanically generated from
+``src/knotica/core/process_model.py`` and never hand-edited. ``.css`` stays
+explicitly out of scope -- whether a stylesheet is bound by a per-module code
+ceiling is a judgment call this step does not make; ``app.css``'s 3 098 lines
+are a deliberate, recorded scope line, not an oversight.
 """
 
+from collections.abc import Callable
 from pathlib import Path
 
 import pytest
@@ -42,6 +54,7 @@ import pytest
 REPO_ROOT = Path(__file__).resolve().parent.parent
 SRC_ROOT = REPO_ROOT / "src" / "knotica"
 TESTS_ROOT = REPO_ROOT / "tests"
+DASHBOARD_SRC_ROOT = REPO_ROOT / "dashboard" / "src"
 
 #: The project's hard per-module line ceiling.
 LINE_CEILING = 800
@@ -107,28 +120,78 @@ TESTS_OVER_CEILING_BASELINE: dict[str, int] = {
     "test_cli_eval.py": 809,
 }
 
-#: The scanned trees, each with its own baseline. Parametrising the rules over
-#: this rather than duplicating them is what keeps the two roots from drifting
-#: apart -- a rule added for one is a rule added for both.
+#: TypeScript/TSX modules under ``dashboard/src`` already over the ceiling, at
+#: their measured high-water mark, taken **after** the M3 lane dissolution
+#: landed -- not before, so this baseline reflects the tree the ratchet
+#: actually starts guarding rather than a doomed intermediate shape.
+DASHBOARD_OVER_CEILING_BASELINE: dict[str, int] = {
+    # The shared type-definition module for every lane and the panes that
+    # remain. Splitting it by domain (notes / sources / arena / loop) is the
+    # fix td-026 itself named as preferable -- not attempted here, since this
+    # step closes the ratchet's *visibility* gap, not the underlying design.
+    "types.ts": 1251,
+    # Wraps every MCP tool call the dashboard makes; crossed the ceiling
+    # during M3's lane wiring. Extractable by tool-domain the same way
+    # `types.ts` is, and not attempted here for the same reason.
+    "toolClient.ts": 875,
+}
+
+
+def _is_test_double_or_generated(path: Path) -> bool:
+    """True for files the dashboard ceiling does not bind.
+
+    ``__tests__/`` directories hold test doubles colocated with their source
+    (the dashboard has no separate ``tests/`` tree to scan instead).
+    ``processModel.ts`` is mechanically generated from
+    ``src/knotica/core/process_model.py`` and never hand-edited.
+    """
+    return "__tests__" in path.parts or path.name == "processModel.ts"
+
+
+#: The scanned trees, each with its own baseline, glob patterns, and exclusion
+#: rule. Parametrising over this rather than duplicating the rules per root is
+#: what keeps them from drifting apart -- a rule added for one is a rule added
+#: for all.
 SCANNED_TREES = (
-    pytest.param(SRC_ROOT, OVER_CEILING_BASELINE, id="src"),
-    pytest.param(TESTS_ROOT, TESTS_OVER_CEILING_BASELINE, id="tests"),
+    pytest.param(SRC_ROOT, OVER_CEILING_BASELINE, ("*.py",), None, id="src"),
+    pytest.param(TESTS_ROOT, TESTS_OVER_CEILING_BASELINE, ("*.py",), None, id="tests"),
+    pytest.param(
+        DASHBOARD_SRC_ROOT,
+        DASHBOARD_OVER_CEILING_BASELINE,
+        ("*.ts", "*.tsx"),
+        _is_test_double_or_generated,
+        id="dashboard",
+    ),
 )
 
 
-def _line_counts(root: Path) -> dict[str, int]:
-    """Every module under ``root`` by POSIX-relative path, with its line count."""
+def _line_counts(
+    root: Path,
+    patterns: tuple[str, ...],
+    exclude: Callable[[Path], bool] | None,
+) -> dict[str, int]:
+    """Every module under ``root`` matching ``patterns``, by POSIX-relative path.
+
+    ``exclude`` (when given) drops paths the ceiling does not bind -- test
+    doubles, generated files -- before line counts are computed.
+    """
+    paths = (path for pattern in patterns for path in root.rglob(pattern))
+    if exclude is not None:
+        paths = (path for path in paths if not exclude(path))
     return {
         path.relative_to(root).as_posix(): len(path.read_text(encoding="utf-8").splitlines())
-        for path in sorted(root.rglob("*.py"))
+        for path in sorted(paths)
     }
 
 
-@pytest.mark.parametrize(("root", "baseline"), SCANNED_TREES)
+@pytest.mark.parametrize(("root", "baseline", "patterns", "exclude"), SCANNED_TREES)
 def test_no_baseline_module_grows_beyond_its_recorded_high_water_mark(
-    root: Path, baseline: dict[str, int]
+    root: Path,
+    baseline: dict[str, int],
+    patterns: tuple[str, ...],
+    exclude: Callable[[Path], bool] | None,
 ) -> None:
-    counts = _line_counts(root)
+    counts = _line_counts(root, patterns, exclude)
     grown = {
         module: (counts[module], recorded)
         for module, recorded in baseline.items()
@@ -142,11 +205,14 @@ def test_no_baseline_module_grows_beyond_its_recorded_high_water_mark(
     )
 
 
-@pytest.mark.parametrize(("root", "baseline"), SCANNED_TREES)
+@pytest.mark.parametrize(("root", "baseline", "patterns", "exclude"), SCANNED_TREES)
 def test_no_module_outside_the_baseline_exceeds_the_ceiling(
-    root: Path, baseline: dict[str, int]
+    root: Path,
+    baseline: dict[str, int],
+    patterns: tuple[str, ...],
+    exclude: Callable[[Path], bool] | None,
 ) -> None:
-    counts = _line_counts(root)
+    counts = _line_counts(root, patterns, exclude)
     offenders = {
         module: lines
         for module, lines in counts.items()
@@ -159,9 +225,14 @@ def test_no_module_outside_the_baseline_exceeds_the_ceiling(
     )
 
 
-@pytest.mark.parametrize(("root", "baseline"), SCANNED_TREES)
-def test_baseline_has_no_stale_entries(root: Path, baseline: dict[str, int]) -> None:
-    counts = _line_counts(root)
+@pytest.mark.parametrize(("root", "baseline", "patterns", "exclude"), SCANNED_TREES)
+def test_baseline_has_no_stale_entries(
+    root: Path,
+    baseline: dict[str, int],
+    patterns: tuple[str, ...],
+    exclude: Callable[[Path], bool] | None,
+) -> None:
+    counts = _line_counts(root, patterns, exclude)
     missing = sorted(module for module in baseline if module not in counts)
     assert not missing, f"Baseline names modules that no longer exist; drop them: {missing}"
     paid_down = {module: counts[module] for module in baseline if counts[module] <= LINE_CEILING}
