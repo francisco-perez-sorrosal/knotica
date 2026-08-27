@@ -345,6 +345,7 @@ selectors:
       - tests/test_records.py
       - tests/test_schema.py
       - tests/test_scrub.py
+      - tests/test_status_attention_budget.py
       - tests/test_status_attention_view.py
       - tests/test_status_lanes_block.py
       - tests/test_text_reflow.py

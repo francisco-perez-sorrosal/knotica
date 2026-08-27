@@ -16,13 +16,16 @@ export type LoopStage =
 export type ArenaStage =
   "idle" | "racing" | "promoting" | "completed" | "reverted" | "aborted";
 /**
- * The panes the dashboard can show — five process lanes and nothing else.
+ * The panes the dashboard can show — six process lanes and nothing else.
  * Every tool-shaped pane this set once carried (`vault`, `loop`, `arena`,
  * `datasets`, `golden`, `notes`, then `ask`, `ingest`, `sources`) dissolved
  * into the lane that owns its work; their `?pane=` keys live on as inbound
  * aliases in `paneRouting.ts` but are no longer destinations.
+ *
+ * `home` is listed first because it is the pane a bare URL opens
+ * (`paneRouting.ts`'s `DEFAULT_PANE`) and the first tab in the nav.
  */
-export type PaneId = "improve" | "tend" | "learn" | "answer" | "fill";
+export type PaneId = "home" | "improve" | "tend" | "learn" | "answer" | "fill";
 
 export type DatasetRole =
   "trainset" | "held_out" | "seal" | "candidates" | "reviewed";
@@ -1321,6 +1324,62 @@ export interface SessionGateOutcome {
   baseline_scalar: number;
   /** Present on ``refused`` only. */
   reason?: string;
+}
+
+// ---------------------------------------------------------------------------
+// Home's cross-topic attention inbox (`INTERFACE_DESIGN.md §2.1`, `dec-092`) --
+// `wiki_status(view="attention")`'s wire contract.
+// ---------------------------------------------------------------------------
+
+/** Recognized `wiki_status` `view` values the dashboard calls today -- mirrors
+ * `core/status.py::VALID_STATUS_VIEWS`, minus the two views (`scope`,
+ * `process_model`) no client surface calls yet. */
+export type StatusView = "summary" | "attention";
+
+export interface AttentionSuggestions {
+  pending: number;
+  refused_awaiting_rework: number;
+}
+
+export interface AttentionTopicRow {
+  topic: string;
+  suggestions: AttentionSuggestions;
+  compile_ready: boolean;
+  runner: { alive: boolean };
+}
+
+/** The `view="attention"` payload -- every topic's actionable signals plus
+ * vault-level `last_lint` staleness and a drift marker (never a count; see
+ * `AttentionRow`'s own docblock for why). */
+export interface AttentionStatus {
+  schema_version: number;
+  vault_name: string;
+  topics: AttentionTopicRow[];
+  totals: {
+    topics: number;
+    pending: number;
+    refused_awaiting_rework: number;
+    compile_ready: number;
+    runners_alive: number;
+  };
+  last_lint: { date: string | null; age_days: number | null; stale: boolean };
+  /** Marker, never a count -- resolving drift means resolving every note's
+   * anchor, the exact cost the `attention` view exists to avoid paying
+   * unconditionally (`INTERFACE_DESIGN.md §4.2` rule 2). */
+  drift: { default_collapsed: boolean; count: number | null };
+}
+
+export type AttentionUrgency = "blocked" | "waiting" | "running";
+
+/** One actionable row `deriveAttentionRows` emits -- one per independent
+ * signal, not one per topic. `lane` routes the row's `[Open]`/`[Watch]`
+ * button to the pane that owns the underlying object. */
+export interface AttentionRow {
+  topic: string;
+  lane: PaneId;
+  urgency: AttentionUrgency;
+  narration: string;
+  action: "Open" | "Watch";
 }
 
 /** ``fill(action="session_status")``'s wire contract -- the handoff stage's one read. */

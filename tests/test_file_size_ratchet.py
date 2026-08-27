@@ -131,16 +131,23 @@ TESTS_OVER_CEILING_BASELINE: dict[str, int] = {
 #: on the branch before it was reconciled here. Raising a baseline is the
 #: ratchet's documented escape hatch, not a silent one -- and both entries
 #: still want the domain split below, which is the actual fix.
+#:
+#: Raised a second time, from 1340/1150, by the Home lane: its cross-topic
+#: attention payload added a type family to `types.ts`, and `wikiStatus` grew
+#: a `view` parameter in `toolClient.ts`. Both raises are the last ones these
+#: entries should ever need -- `td-057` splits both modules by domain, after
+#: which they fall under the ceiling and `test_baseline_has_no_stale_entries`
+#: requires their removal outright.
 DASHBOARD_OVER_CEILING_BASELINE: dict[str, int] = {
     # The shared type-definition module for every lane. Splitting it by domain
     # (notes / suggestions / arena / loop) is the fix td-026 itself named as
     # preferable -- not attempted here, since this guard closes the ratchet's
     # *visibility* gap, not the underlying design.
-    "types.ts": 1340,
+    "types.ts": 1399,
     # Wraps every MCP tool call the dashboard makes; crossed the ceiling
     # during the lane wiring. Extractable by tool-domain the same way
     # `types.ts` is, and not attempted here for the same reason.
-    "toolClient.ts": 1150,
+    "toolClient.ts": 1155,
 }
 
 

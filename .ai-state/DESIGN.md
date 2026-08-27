@@ -179,14 +179,22 @@ under the `dashboard/` leaf above. Shared at the tree root: `laneRailState.ts`, 
 framework-free derivation module (no Preact, no DOM, no fetch) turning a lane's process position
 into the four-state rail vocabulary (`pending`/`active`/`complete`/`blocked`) every rendered rail
 reads from; `LaneRail.tsx` and `ArmedButton.tsx`, its render and armed-confirm counterparts;
-`hostCapabilities.ts`, which decides what the embedding host can dispatch; and `HandoffStage.tsx`,
+`hostCapabilities.ts`, which decides what the embedding host can dispatch; `HandoffStage.tsx`,
 the stage that makes client-as-brain visible by handing a billed cognitive step back to the client's
-own LLM as a slash command rather than calling one server-side. Below it, one directory per lane —
-`learn/`, `answer/`, `fill/`, `improve/`, `tend/` — each holding that lane's rail component and its
-stage components. Five lanes are the whole navigable surface: no standalone `*Pane.tsx` module
-remains, and every legacy `?pane=` key degrades to the lane that absorbed its work
-(`paneRouting.ts`). Presentation shared by two lanes lives beside the tree rather than inside either
-one (`answerPresentation.tsx`, `notePresentation.tsx`).
+own LLM as a slash command rather than calling one server-side; and `visibilityPausedPoll.ts`, a
+framework-free polling primitive that skips ticks while the tab is hidden, for a lane that owns a
+read the app-wide 2 s poll does not make. Below it, one directory per lane — `home/`, `learn/`,
+`answer/`, `fill/`, `improve/`, `tend/` — each holding that lane's rail component and its
+stage components, except `home/`, which has neither: Home is a flat cross-topic attention inbox
+(`HomeLane.tsx` over the pure `attentionRows.ts`), reading `wiki_status(view="attention")` on its
+own 10 s visibility-paused cadence, so it has no rail and no stage state to derive. Six lanes are
+the whole navigable surface: no standalone `*Pane.tsx` module remains, and every legacy `?pane=` key
+degrades to the lane that absorbed its work (`paneRouting.ts`). Home is the default landing — a bare
+URL, an omitted `?pane=`, an MCP-App mount with no `lane` argument, and any unrecognised value all
+resolve there — and it is the one lane permitted an outbound navigation prop (`onOpenLane`), which
+`App.tsx` binds to its own pane switch: Home routes, every other lane only narrates. Presentation
+shared by two lanes lives beside the tree rather than inside either one (`answerPresentation.tsx`,
+`notePresentation.tsx`).
 
 ## 4. Interfaces
 

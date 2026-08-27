@@ -129,7 +129,7 @@ describe("the surviving panes' own ?pane= resolutions are untouched by the lane 
   });
 
   it("falls back to the default pane for an unrecognised value", () => {
-    expect(resolvePane("not-a-real-pane")).toBe("tend" as PaneId);
+    expect(resolvePane("not-a-real-pane")).toBe("home" as PaneId);
   });
 });
 

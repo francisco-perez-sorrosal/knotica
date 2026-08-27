@@ -144,7 +144,7 @@ describe("the legacy ingest/ask/sources keys degrade to the lanes that absorbed 
   );
 
   it("falls back to the default pane for an unrecognised value", () => {
-    expect(resolvePane("not-a-real-pane")).toBe("tend");
+    expect(resolvePane("not-a-real-pane")).toBe("home");
   });
 });
 

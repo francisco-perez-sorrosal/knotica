@@ -41,7 +41,7 @@ describe("paneFromToolInput reads lane/focus from a synthetic ontoolinput payloa
     // degrades to the routing default, distinct from whatever pane the app was
     // already showing when the host sent the (bad) lane value.
     const input = { arguments: { lane: "not-a-real-lane" } };
-    expect(paneFromToolInput(input, "learn")).toBe("tend");
+    expect(paneFromToolInput(input, "learn")).toBe("home");
   });
 
   it("falls through to the lane's own mapping when the lane is known but the focus is not", () => {

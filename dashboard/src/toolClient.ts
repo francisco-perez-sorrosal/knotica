@@ -53,6 +53,7 @@ import type {
   PromptDiffResult,
   PromoteTarget,
   SessionStatus,
+  StatusView,
   SuggestionAction,
   SuggestionsReadResult,
   SuggestionsStatusFilter,
@@ -63,7 +64,7 @@ import type {
 } from "./types";
 
 export interface ToolClient {
-  wikiStatus(topic: string, vault?: string): Promise<WikiStatus>;
+  wikiStatus(topic: string, vault?: string, view?: StatusView): Promise<WikiStatus>;
   metricsRead(topic: string, vault?: string): Promise<MetricsWindow>;
   query(topic: string, question: string, vault?: string): Promise<QueryAnswer>;
   curateExample(
@@ -351,8 +352,12 @@ abstract class BaseToolClient implements ToolClient {
   abstract sendMessage(text: string): Promise<void>;
   abstract updateModelContext(text: string): Promise<void>;
 
-  wikiStatus(topic: string, vault = ""): Promise<WikiStatus> {
-    return this.call("wiki_status", { topic, vault });
+  wikiStatus(
+    topic: string,
+    vault = "",
+    view: StatusView = "summary",
+  ): Promise<WikiStatus> {
+    return this.call("wiki_status", { topic, vault, view });
   }
 
   metricsRead(topic: string, vault = ""): Promise<MetricsWindow> {

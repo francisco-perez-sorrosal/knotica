@@ -32,7 +32,7 @@ import type { PaneId } from "../types";
  */
 
 const LANE_TARGET_PANE: Readonly<Record<string, PaneId>> = {
-  home: "tend",
+  home: "home",
   learn: "learn",
   answer: "answer",
   improve: "improve",
@@ -67,14 +67,14 @@ describe("case and whitespace are exact-match, uniformly for legacy and lane key
   it.each(["LOOP", "Loop", " loop", "loop "])(
     "does not resolve a mistyped legacy key like %j",
     (mistyped) => {
-      expect(resolvePane(mistyped)).toBe("tend");
+      expect(resolvePane(mistyped)).toBe("home");
     },
   );
 
   it.each(["IMPROVE", "Improve", " improve", "improve "])(
     "does not resolve a mistyped lane key like %j",
     (mistyped) => {
-      expect(resolvePane(mistyped)).toBe("tend");
+      expect(resolvePane(mistyped)).toBe("home");
     },
   );
 
@@ -82,7 +82,7 @@ describe("case and whitespace are exact-match, uniformly for legacy and lane key
     // `answer` and `ask` are distinct concepts on two different surfaces;
     // this case guards against a lane key being accidentally case-insensitive
     // while the legacy allowlist stays case-sensitive.
-    expect(resolvePane("ANSWER")).toBe("tend");
+    expect(resolvePane("ANSWER")).toBe("home");
   });
 });
 
@@ -134,7 +134,7 @@ describe("focus-qualified lane resolution (resolveLaneFocus)", () => {
   });
 
   it("degrades an unrecognised lane to the default pane regardless of focus", () => {
-    expect(resolveLaneFocus("not-a-real-lane", "")).toBe("tend");
-    expect(resolveLaneFocus("not-a-real-lane", "heal")).toBe("tend");
+    expect(resolveLaneFocus("not-a-real-lane", "")).toBe("home");
+    expect(resolveLaneFocus("not-a-real-lane", "heal")).toBe("home");
   });
 });

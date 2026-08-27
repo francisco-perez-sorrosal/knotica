@@ -231,7 +231,7 @@ functionality. The mapping is:
 | `vault`, `notes` | `Tend` | `tend` | Doctor |
 | `home`, `learn`, `answer`, `fill` | corresponding lane | — | default stage |
 
-Any unrecognized `?pane=` value defaults to `tend`.
+Any unrecognized `?pane=` value defaults to `home` — the same landing a bare URL gets.
 
 ## Shared components
 
