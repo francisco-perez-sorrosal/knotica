@@ -730,8 +730,6 @@ export function App() {
           vault={resolvedVaultName}
           obsidianCtx={obsidianCtx}
           status={status.value}
-          onOpenLoop={() => selectPane("loop")}
-          onOpenArena={() => selectPane("arena")}
         />
       ) : null}
       {pane === "loop" ? (

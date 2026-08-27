@@ -3018,6 +3018,52 @@ button.danger:hover:not(:disabled) {
   color: var(--accent);
 }
 
+/* ——— Tend lane (M3) ——— */
+.tend-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: .45rem .65rem;
+  margin-top: .6rem;
+}
+.tend-actions button {
+  appearance: none;
+  border: 1px solid var(--line);
+  background: var(--surface-raised);
+  color: var(--heading);
+  padding: .4rem .7rem;
+  font: 600 .78rem var(--display);
+  cursor: pointer;
+}
+.tend-actions button:disabled { opacity: .55; cursor: wait; }
+.tend-actions button.danger:hover:not(:disabled) {
+  border-color: var(--bad);
+  color: var(--bad);
+}
+.tend-actions button.ghost { background: transparent; font-weight: 500; }
+.tend-cli {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: .5rem;
+  margin-top: .5rem;
+}
+.tend-cli code {
+  padding: .3rem .5rem;
+  background: var(--surface-raised);
+  border: 1px solid var(--line);
+  font: .78rem var(--mono);
+}
+.tend-cli button {
+  appearance: none;
+  border: 1px solid var(--line);
+  background: transparent;
+  color: var(--heading);
+  padding: .3rem .55rem;
+  font: 600 .74rem var(--display);
+  cursor: pointer;
+}
+
 @media (max-width: 720px) {
   .stages, .story-stages { grid-template-columns: repeat(2, 1fr); }
   .story-stages { grid-template-columns: repeat(2, minmax(0, 1fr)); }

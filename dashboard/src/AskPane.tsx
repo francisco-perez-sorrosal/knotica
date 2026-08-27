@@ -11,7 +11,7 @@ import {
   type ObsidianContext,
 } from "./obsidianLinks";
 import type { ToolClient } from "./toolClient";
-import { findTopicRow, queryTrainCount } from "./topicHelpers";
+import { findTopicRow } from "./topicHelpers";
 import type { QueryAnswer, WikiStatus } from "./types";
 
 marked.setOptions({ gfm: true, breaks: true });
@@ -41,16 +41,12 @@ export function AskPane({
   vault,
   obsidianCtx,
   status,
-  onOpenLoop,
-  onOpenArena,
 }: {
   client: ToolClient | null;
   topic: string;
   vault: string;
   obsidianCtx: ObsidianContext;
   status: WikiStatus | null;
-  onOpenLoop?: () => void;
-  onOpenArena?: () => void;
 }) {
   const [question, setQuestion] = useState("");
   const [busy, setBusy] = useState(false);
@@ -60,13 +56,15 @@ export function AskPane({
   const [curateNote, setCurateNote] = useState<string | null>(null);
 
   const after =
-    pinned && result && result.question === pinned.question && result.answer !== pinned.answer
+    pinned &&
+    result &&
+    result.question === pinned.question &&
+    result.answer !== pinned.answer
       ? result
       : null;
 
   const topicRow = findTopicRow(status, topic);
   const compiled = Boolean(topicRow?.compiled?.present);
-  const compileReady = Boolean(topicRow?.compile_ready);
   const compileStage = status?.compile?.stage ?? "idle";
   const compiling = isCompileActive(compileStage);
 
@@ -118,19 +116,25 @@ export function AskPane({
 
   return (
     <main class="pane-main ask">
-
       <section class="ingest-hero">
         <div>
           <p class="eyebrow">Ask the wiki</p>
           <h2 class="ingest-heading">Prove the improvement on {topic}</h2>
           <p class="muted">
-            Pin <strong>Before</strong>, then either let Arena heal a red gate or Compile when ready
-            — re-ask the same question. Engines stay invisible; the answer delta is the proof.
+            Pin <strong>Before</strong>, then either let Arena heal a red gate
+            or Compile when ready — re-ask the same question. Engines stay
+            invisible; the answer delta is the proof.
           </p>
         </div>
         <div
           class={`ingest-pulse ${
-            after ? "health-ok idle" : compiling ? "health-warn live" : pinned ? "idle" : "empty"
+            after
+              ? "health-ok idle"
+              : compiling
+                ? "health-warn live"
+                : pinned
+                  ? "idle"
+                  : "empty"
           }`}
         >
           <span class="pulse-dot" aria-hidden="true" />
@@ -155,35 +159,6 @@ export function AskPane({
         </div>
       </section>
 
-      {compileReady && !compiled && !compiling ? (
-        <aside class="loop-banner tone-ready">
-          <strong>Flywheel ready</strong>
-          <span>
-            Trainset has {queryTrainCount(topicRow)} query-style examples (compile
-            floor met) — compile from Vault, merge the branch, then Ask again.
-          </span>
-        </aside>
-      ) : null}
-
-      {compiled && pinned && !after ? (
-        <aside class="loop-banner tone-heal">
-          <strong>Compiled engine is live</strong>
-          <span>Re-ask the pinned question — After should match or beat Before on grounding.</span>
-        </aside>
-      ) : null}
-
-      {status?.gate.state === "fail" && !compiling ? (
-        <aside class="loop-banner tone-regression">
-          <strong>Gate is red</strong>
-          <span>Arena can race prompt variants while you keep curating toward compile.</span>
-          {onOpenArena ? (
-            <button type="button" onClick={onOpenArena}>
-              Open Arena
-            </button>
-          ) : null}
-        </aside>
-      ) : null}
-
       <section class="ask-form panel">
         <label class="ask-label">
           <span>Question</span>
@@ -192,7 +167,9 @@ export function AskPane({
             value={question}
             placeholder="Ask the wiki…"
             disabled={busy || !client}
-            onInput={(event) => setQuestion((event.target as HTMLTextAreaElement).value)}
+            onInput={(event) =>
+              setQuestion((event.target as HTMLTextAreaElement).value)
+            }
           />
         </label>
         <div class="ask-actions">
@@ -206,11 +183,6 @@ export function AskPane({
           {result ? (
             <button type="button" disabled={busy} onClick={pinAsBefore}>
               Pin as Before
-            </button>
-          ) : null}
-          {pinned && onOpenLoop ? (
-            <button type="button" class="ghost" onClick={onOpenLoop}>
-              Watch Loop
             </button>
           ) : null}
         </div>
@@ -243,10 +215,18 @@ export function AskPane({
               obsidianCtx={obsidianCtx}
               actions={
                 <div class="ask-curate">
-                  <button type="button" disabled={busy} onClick={() => void curate("good")}>
+                  <button
+                    type="button"
+                    disabled={busy}
+                    onClick={() => void curate("good")}
+                  >
                     Save as good
                   </button>
-                  <button type="button" disabled={busy} onClick={() => void curate("bad")}>
+                  <button
+                    type="button"
+                    disabled={busy}
+                    onClick={() => void curate("bad")}
+                  >
                     Save as bad
                   </button>
                   {curateNote ? <span class="muted">{curateNote}</span> : null}
@@ -257,22 +237,29 @@ export function AskPane({
         </section>
       ) : (
         <p class="muted empty-check">
-          Ask once and pin it as Before — that is the baseline both heal paths must beat.
+          Ask once and pin it as Before — that is the baseline both heal paths
+          must beat.
         </p>
       )}
 
       {after ? (
         <p class="ask-delta" role="status">
           Same question, new answer
-          {compiled ? " · served after compile/merge" : ""} — compare citations and grounding
-          above.
+          {compiled ? " · served after compile/merge" : ""} — compare citations
+          and grounding above.
         </p>
       ) : null}
     </main>
   );
 }
 
-function AnswerCard({
+/**
+ * Renders one Before/After/Latest answer card — exported so `ProveStage`
+ * (Improve's in-lane probe, `INTERFACE_DESIGN.md §2.0` clause 2) reuses the
+ * exact same markdown-rendering and citation-linking behavior rather than
+ * reimplementing it for the same `QueryAnswer` shape.
+ */
+export function AnswerCard({
   title,
   tone,
   answer,
