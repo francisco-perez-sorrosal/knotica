@@ -112,6 +112,25 @@ def map_write_exception(exc: Exception) -> CallToolResult:
     raise exc
 
 
+def with_deprecation_note(result: CallToolResult, replacement_action: str) -> CallToolResult:
+    """Attach a ``deprecation`` note to a success envelope; leave a failure untouched.
+
+    Used by a lane dispatcher when a caller's action string has been
+    superseded by ``replacement_action``: the caller still gets the
+    replacement's correct payload, plus a note naming what to pass next time.
+    A failure envelope is returned unchanged -- its own ``fix=`` is already
+    the actionable next step, and a deprecation note would only compete with it.
+    """
+    if result.isError or result.structuredContent is None:
+        return result
+    payload = dict(result.structuredContent)
+    payload["deprecation"] = (
+        f"This action has been superseded by {replacement_action!r}; call it with "
+        f"action={replacement_action!r} instead."
+    )
+    return success_result(payload)
+
+
 def _error_result(envelope: dict[str, Any]) -> CallToolResult:
     """Wrap a ``{"error": {...}}`` envelope as an ``isError=True`` tool result.
 

@@ -17,53 +17,66 @@ race. Every command module exports the same two callables:
 
 * ``configure(subparsers) -> ArgumentParser`` -- add the subcommand's parser.
 * ``run(args) -> int`` -- execute and return the process exit code.
+
+**Two levels, six lanes.** The top-level set is the six process lanes plus the
+six commands that belong to no lane. A lane module owns no behavior: it
+re-parents its member command modules one level deeper via the same
+``configure(subparsers)`` contract, which is depth-agnostic. Lane names come
+from ``core.process_model``, so the CLI is a projection of the one declaration
+the MCP dispatchers and the dashboard rails also project from.
 """
 
 from __future__ import annotations
 
 import argparse
 import sys
+from collections.abc import Sequence
 from importlib import import_module
 from importlib.metadata import version
-from typing import Protocol, cast
+from typing import cast
 
-from knotica.cli.common import EXIT_ERROR, EXIT_MISUSE
+from knotica.cli.common import EXIT_ERROR, EXIT_MISUSE, CommandModule
+from knotica.core import process_model
 
-#: Registered command names, in help-listing order. Each maps to a
-#: ``knotica.cli.<name>`` module exporting ``configure`` and ``run``.
+#: Registered top-level command names, in help-listing order. Each maps to a
+#: ``knotica.cli.<name>`` module exporting ``configure`` and ``run``. The six
+#: lane names are read from the process model rather than restated, so a lane
+#: renamed there is renamed here.
 COMMAND_NAMES: tuple[str, ...] = (
     "init",
     "desktop",
     "mcp",
-    "doctor",
     "status",
-    "migrate",
     "prompt",
-    "guillotine",
-    "okf",
-    "eval",
-    "datasets",
-    "compile",
-    "loop",
-    "gapfill",
+    *process_model.LANES,
     "service",
 )
 
+#: Old top-level invocations, mapped to where they now live. Purely a
+#: deprecation shim: ``main`` rewrites a matching argv prefix, warns on stderr,
+#: and then parses the *new* invocation, so an old name behaves exactly like
+#: the command it forwards to. Keys may be compound (``"compile promote"``)
+#: because three moves flatten a group level away, which no same-level
+#: ``aliases=`` and no shim *parser* can express; the longest matching prefix
+#: wins. Nothing here is registered as a parser, so the help surface is clean
+#: from day one and the whole table is deletable in one commit.
+DEPRECATED_TOP_LEVEL: dict[str, tuple[str, ...]] = {
+    "compile promote": ("improve", "promote"),
+    "datasets bootstrap-train": ("improve", "bootstrap-train"),
+    "datasets freeze": ("improve", "freeze"),
+    "gapfill discover": ("fill", "discover"),
+    "eval": ("improve", "eval"),
+    "loop": ("improve", "loop"),
+    "compile": ("improve", "compile"),
+    "datasets": ("improve",),
+    "gapfill": ("fill",),
+    "doctor": ("tend", "doctor"),
+    "okf": ("tend", "okf"),
+    "migrate": ("tend", "migrate"),
+    "guillotine": ("tend", "guillotine"),
+}
 
-class _CommandModule(Protocol):
-    """The ``configure``/``run`` shape every ``knotica.cli.<name>`` module exports.
-
-    ``import_module`` returns a plain ``ModuleType`` (attribute access is
-    untyped), so this Protocol is the one place that names the self-
-    registration contract precisely enough for the dispatch in :func:`main`
-    to type-check without widening to ``Any``.
-    """
-
-    def configure(
-        self, subparsers: argparse._SubParsersAction[argparse.ArgumentParser]
-    ) -> argparse.ArgumentParser: ...
-
-    def run(self, args: argparse.Namespace) -> int: ...
+_LONGEST_DEPRECATED_KEY = max(len(key.split()) for key in DEPRECATED_TOP_LEVEL)
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -81,7 +94,8 @@ def main(argv: list[str] | None = None) -> int:
     subparsers = parser.add_subparsers(dest="command", metavar="<command>")
 
     modules = _register_commands(subparsers)
-    args = parser.parse_args(argv)
+    parser.format_help = lambda: _format_top_level_help(subparsers)  # type: ignore[method-assign]
+    args = parser.parse_args(_resolve_deprecated(sys.argv[1:] if argv is None else list(argv)))
 
     if args.command is None:
         parser.print_help(sys.stderr)
@@ -94,9 +108,110 @@ def main(argv: list[str] | None = None) -> int:
         return EXIT_ERROR
 
 
+def _resolve_deprecated(argv: list[str]) -> list[str]:
+    """Rewrite a deprecated invocation to its new location, warning on stderr.
+
+    The warning goes to stderr and *only* stderr: a ``--json`` consumer piping
+    the command, and the SessionStart hook that captures a command's output
+    with ``2>&1``, must both keep seeing exactly what the target command
+    prints. Returns ``argv`` unchanged when nothing matches.
+    """
+    if not argv or argv[0].startswith("-"):
+        return argv
+    for length in range(min(len(argv), _LONGEST_DEPRECATED_KEY), 0, -1):
+        old = " ".join(argv[:length])
+        target = DEPRECATED_TOP_LEVEL.get(old)
+        if target is None:
+            continue
+        new = " ".join(target)
+        print(
+            f"knotica: '{old}' has moved. Run: knotica {new}. "
+            "The old name still works and will be removed in a future release.",
+            file=sys.stderr,
+        )
+        if length == 1:
+            _hint_compound_form(old, argv[length:])
+        return [*target, *argv[length:]]
+    return argv
+
+
+def _hint_compound_form(matched: str, rest: list[str]) -> None:
+    """Point at the compound rewrite when a flag hid it from prefix matching.
+
+    ``knotica compile --quiet promote ...`` matches only the single-token key
+    ``compile`` (the flag breaks the two-word prefix), rewrites to a form with
+    no ``promote`` beneath it, and argparse then rejects the leftover token.
+    The matcher cannot skip flags safely -- a token after ``--topic`` is a
+    value, not a subcommand -- so instead of guessing, name the command the
+    user probably meant. stderr only, like every other message here.
+    """
+    for key, target in DEPRECATED_TOP_LEVEL.items():
+        first, _, second = key.partition(" ")
+        if first == matched and second and second in rest:
+            print(
+                f"knotica: if you meant '{key}', its new home is: knotica {' '.join(target)}",
+                file=sys.stderr,
+            )
+
+
+#: A handful of real, current-form invocations shown before the two groups
+#: (clig.dev: users read examples before prose). Each must resolve through the
+#: live registry -- there is no hand-invented syntax here. Deliberately picked
+#: to avoid every ``DEPRECATED_TOP_LEVEL`` first token (``doctor``, ``loop``,
+#: ``compile``, ...): those verbs kept their name when they moved under a
+#: lane, so a `--help`-scan for a leaked shim cannot tell a legitimate nested
+#: example (``knotica tend doctor``) apart from the deprecated bare form
+#: (``knotica doctor``) by substring alone.
+_HELP_EXAMPLES: tuple[tuple[str, str], ...] = (
+    ("knotica home", "what needs you, across every topic"),
+    ("knotica fill discover --topic <t>", "turn a diagnosed gap into fetched sources"),
+    ("knotica status --nudge", "the session-start inbox, on demand"),
+)
+
+
+def _format_top_level_help(
+    subparsers: argparse._SubParsersAction[argparse.ArgumentParser],
+) -> str:
+    """Render ``knotica --help``: an EXAMPLES block, then two labelled groups.
+
+    Hick's Law asks for chunking, not a flat 12-item list. The two groups --
+    the six process lanes and the six setup/primitive commands -- are derived
+    from ``process_model.LANES`` and ``COMMAND_NAMES``, never hand-listed, so a
+    lane renamed at the declaration is renamed here with no edit. Per-command
+    one-liners are pulled from each subparser's own ``help=`` text (the same
+    string argparse would otherwise print), not duplicated by hand.
+    """
+    summaries = {action.dest: action.help or "" for action in subparsers._choices_actions}  # noqa: SLF001 -- argparse exposes no public per-choice accessor
+    setup_names = [name for name in COMMAND_NAMES if name not in process_model.LANES]
+
+    lines = [
+        "knotica -- a compounding, AI-maintained knowledge wiki",
+        "",
+        "EXAMPLES",
+    ]
+    example_width = max(len(invocation) for invocation, _ in _HELP_EXAMPLES)
+    for invocation, description in _HELP_EXAMPLES:
+        lines.append(f"  {invocation.ljust(example_width)}   {description}")
+
+    lines += ["", "LANES"]
+    lines += _format_help_group(process_model.LANES, summaries)
+
+    lines += ["", "SETUP / PRIMITIVES"]
+    lines += _format_help_group(setup_names, summaries)
+
+    lines += ["", "Run `knotica <command> --help` for details."]
+    return "\n".join(lines) + "\n"
+
+
+def _format_help_group(names: Sequence[str], summaries: dict[str, str]) -> list[str]:
+    """Render one indented ``name  summary`` block, names aligned to the widest."""
+    name_width = max(len(name) for name in names)
+    return [f"  {name.ljust(name_width)}   {summaries.get(name, '')}" for name in names]
+
+
 def _register_commands(
     subparsers: argparse._SubParsersAction[argparse.ArgumentParser],
-) -> dict[str, _CommandModule]:
+) -> dict[str, CommandModule]:
     """Import each command module and let it register its own subparser.
 
     ``import_module`` returns an untyped ``ModuleType``; the ``cast`` here is
@@ -105,9 +220,9 @@ def _register_commands(
     self-registration convention) -- callers downstream then get a properly
     typed ``run(args) -> int`` instead of ``Any``.
     """
-    modules: dict[str, _CommandModule] = {}
+    modules: dict[str, CommandModule] = {}
     for name in COMMAND_NAMES:
-        module = cast(_CommandModule, import_module(f"knotica.cli.{name}"))
+        module = cast(CommandModule, import_module(f"knotica.cli.{name}"))
         module.configure(subparsers)
         modules[name] = module
     return modules

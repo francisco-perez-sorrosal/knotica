@@ -339,6 +339,8 @@ selectors:
       - tests/test_op_store_source.py
       - tests/test_op_write_page.py
       - tests/test_page.py
+      - tests/test_process_model.py
+      - tests/test_process_model_predicates.py
       - tests/test_prompts.py
       - tests/test_records.py
       - tests/test_schema.py
@@ -365,6 +367,7 @@ file_dependencies:
   - "src/knotica/core/lock.py"
   - "src/knotica/core/metrics.py"
   - "src/knotica/core/page.py"
+  - "src/knotica/core/process_model.py"
   - "src/knotica/core/prompts.py"
   - "src/knotica/core/records.py"
   - "src/knotica/core/schema.py"
@@ -456,7 +459,11 @@ selectors:
       - tests/test_dispatch_vault.py
       - tests/test_dispatch_vault_health.py
       - tests/test_file_size_ratchet.py
+      - tests/test_fill_review_gap.py
       - tests/test_http_dashboard.py
+      - tests/test_lane_action_deprecation.py
+      - tests/test_lane_dispatchers.py
+      - tests/test_lane_rename_invariants.py
       - tests/test_loop_dispatch_cadence_run_eval.py
       - tests/test_loop_dispatch_run_once.py
       - tests/test_mcp_app_ui.py
@@ -476,6 +483,7 @@ selectors:
       - tests/test_mcp_status.py
       - tests/test_mcp_vault.py
       - tests/test_mcp_write.py
+      - tests/test_process_model.py
       - tests/test_referential_integrity_gate.py
       - tests/test_server_instructions.py
       - tests/test_server_tool_surface.py
@@ -522,7 +530,9 @@ selectors:
       - tests/test_cli_desktop.py
       - tests/test_cli_doctor.py
       - tests/test_cli_eval.py
+      - tests/test_cli_help_grouping.py
       - tests/test_cli_init.py
+      - tests/test_cli_lanes.py
       - tests/test_cli_loop.py
       - tests/test_cli_mcp.py
       - tests/test_cli_migrate.py
@@ -731,6 +741,7 @@ selectors:
     arg:
       - tests/test_cli_gapfill.py
       - tests/test_file_size_ratchet.py
+      - tests/test_fill_review_gap.py
       - tests/test_gap_classifier.py
       - tests/test_gap_lifecycle.py
       - tests/test_gapfill.py
@@ -887,6 +898,7 @@ selectors:
     arg:
       - tests/test_file_size_ratchet.py
       - tests/test_hooks_session_start.py
+      - tests/test_lane_rename_invariants.py
       - tests/test_packaging_evals_extra.py
       - tests/test_plugin_manifest.py
       - tests/test_referential_integrity_gate.py

@@ -188,7 +188,7 @@ def _read_payload(topic: str, listing: NotesListing, note_id: str) -> dict[str, 
         raise KnoticaError(
             ErrorCode.INVALID_ARGUMENT,
             "notes action=read failed because no note_id was given.",
-            fix="Pass the note_id from `notes action=list`.",
+            fix="Pass the note_id from `tend action=notes notes_action=list`.",
         )
     for note in listing.notes:
         if note.document.id == cleaned_id:

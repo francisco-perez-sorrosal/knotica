@@ -14,7 +14,8 @@ _DESCRIPTION = (
     "`mode=git` (default): diff `query.md` between compile/loop branch and default branch, "
     "or HEAD vs the previous commit touching the file. "
     "`mode=compiled`: diff vault `query.md` against `optimized_instructions` in "
-    "`.knotica/compiled/query_v1.json` — use this when compile updates the artifact, not query.md. "
+    "`.knotica/compiled/query_v1.json` — use this when `improve action=compile compile_action=run` "
+    "updates the artifact, not query.md. "
     "Pass `branch` with `mode=compiled` to preview an open compile branch before promote. "
     "Read-only."
 )

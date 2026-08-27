@@ -46,7 +46,7 @@ def configure(
     parser = subparsers.add_parser(
         "service",
         parents=[common_parent()],
-        help="install/uninstall/status of the OS-managed loop daemon",
+        help="install/uninstall/status of the OS-managed watcher daemon",
         description=(
             "Manage the lifecycle-managed loop service (launchd on macOS, "
             "systemd on Linux -- code-complete but untested): one supervised "

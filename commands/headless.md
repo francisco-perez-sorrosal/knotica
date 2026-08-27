@@ -1,5 +1,5 @@
 ---
-description: Enable, disable, or check headless (server-side LLM) mode for knotica in Claude Code.
+description: "[Setup] Enable, disable, or check headless (server-side LLM) mode for knotica in Claude Code."
 argument-hint: "[on|off|status]"
 allowed-tools:
   - mcp__plugin_knotica_knotica__*

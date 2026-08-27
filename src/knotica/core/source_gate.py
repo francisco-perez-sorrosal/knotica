@@ -367,7 +367,8 @@ def _resolve_suggestion_id(runner: "LoopRunner", topic: str, id8: str) -> str:
             ErrorCode.SUGGESTION_NOT_FOUND,
             f"the source candidate infix {id8!r} matches {len(matches)} suggestions in "
             f"topic {topic!r}; a candidate must map to exactly one approved suggestion.",
-            fix="Re-open the ingest for a single approved suggestion via source_ingest_open.",
+            fix="Re-open the ingest for a single approved suggestion via "
+            "`fill action=source_ingest_open`.",
         )
     return matches[0]
 

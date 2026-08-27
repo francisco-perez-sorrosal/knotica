@@ -34,13 +34,14 @@ _WRITE_PAGE_DESCRIPTION = (
     "single git commit (the audit unit), an append to log.md, and — when index_entry is "
     "supplied — an upsert of this page's line in the root index.md catalog. Idempotent: if the "
     "resulting vault state is identical (page content AND index line unchanged), no commit is "
-    "made and changed=false is returned. Does NOT create topics (use create_topic). NEVER "
+    "made and changed=false is returned. Does NOT create topics (use `learn "
+    "action=create_topic`). NEVER "
     "target index.md, log.md, or SCHEMA.md as the 'page' — those reserved files are maintained "
     "only as side effects here (pass index_entry to update the catalog); a reserved 'page' fails "
     "fast with RESERVED_NAME. Also fails fast on invalid frontmatter. "
-    "When candidate is set to a handle from source_ingest_open, this write lands on that "
-    "suggestion's candidate context instead of the default branch; leave it empty for a normal "
-    "ingest. Idempotency and the one-commit-per-write contract are unchanged. Never call this "
+    "When candidate is set to a handle from `fill action=source_ingest_open`, this write lands "
+    "on that suggestion's candidate context instead of the default branch; leave it empty for a "
+    "normal ingest. Idempotency and the one-commit-per-write contract are unchanged. Never call this "
     "from detection alone -- only after the user has explicitly confirmed the write; an "
     "unconfirmed detection routes to query or an offer instead."
 )
@@ -52,9 +53,9 @@ _STORE_SOURCE_DESCRIPTION = (
     "citation_key already exists with identical content the call is a no-op success; if it exists "
     "with DIFFERENT content the call FAILS (SOURCE_EXISTS) — pick a new citation_key. Use the "
     "paper's citation key as the filename (e.g. 'wang2024awm'). "
-    "When candidate is set to a handle from source_ingest_open, this write lands on that "
-    "suggestion's candidate context instead of the default branch; leave it empty for a normal "
-    "ingest. Idempotency and the one-commit-per-write contract are unchanged. Never call this "
+    "When candidate is set to a handle from `fill action=source_ingest_open`, this write lands "
+    "on that suggestion's candidate context instead of the default branch; leave it empty for a "
+    "normal ingest. Idempotency and the one-commit-per-write contract are unchanged. Never call this "
     "from detection alone -- only after the user has explicitly confirmed the write; an "
     "unconfirmed detection routes to query or an offer instead."
 )
@@ -84,7 +85,7 @@ ToolResult = CallToolResult
 
 
 def register_write_tools(mcp: FastMCP) -> None:
-    """Register the four mutating tools on ``mcp``."""
+    """Register the three published mutating tools on ``mcp``."""
 
     @mcp.tool(name="write_page", description=_WRITE_PAGE_DESCRIPTION)
     def write_page(
@@ -157,26 +158,6 @@ def register_write_tools(mcp: FastMCP) -> None:
             },
         )
 
-    @mcp.tool(name="create_topic", description=_CREATE_TOPIC_DESCRIPTION)
-    def create_topic(topic: str, description: str = "", vault: str = "") -> ToolResult:
-        return _write(
-            lambda store, root: operations.create_topic(
-                store, root, topic, description=description or None
-            ),
-            vault=vault,
-            activity=lambda result: {
-                "topic": topic,
-                "stage": "resolve_topic",
-                "title": (
-                    f"Topic {topic} ready" if result.get("existed") else f"Created topic {topic}"
-                ),
-                "status": "ok",
-                "detail": description,
-                "path": str(result.get("path") or ""),
-                "commit_sha": str(result.get("commit_sha") or ""),
-            },
-        )
-
     @mcp.tool(name="curate_example", description=_CURATE_EXAMPLE_DESCRIPTION)
     def curate_example(
         topic: str,
@@ -210,6 +191,37 @@ def register_write_tools(mcp: FastMCP) -> None:
                 "commit_sha": str(result.get("commit_sha") or ""),
                 # Finish the curate workflow so the rail does not stay "live".
                 "complete": True,
+            },
+        )
+
+
+def register_write_lane_tools(mcp: FastMCP) -> None:
+    """Register ``create_topic``, which is reachable only through a lane.
+
+    Split from :func:`register_write_tools` because the published surface no
+    longer carries it: ``learn action=create_topic`` is the one way in. The
+    registration still exists because that is the seam the lane dispatchers
+    collect their handlers through -- a lane routes to *this* function object,
+    not to a copy of it. See ``tools_dispatch_lane_common.py``.
+    """
+
+    @mcp.tool(name="create_topic", description=_CREATE_TOPIC_DESCRIPTION)
+    def create_topic(topic: str, description: str = "", vault: str = "") -> ToolResult:
+        return _write(
+            lambda store, root: operations.create_topic(
+                store, root, topic, description=description or None
+            ),
+            vault=vault,
+            activity=lambda result: {
+                "topic": topic,
+                "stage": "resolve_topic",
+                "title": (
+                    f"Topic {topic} ready" if result.get("existed") else f"Created topic {topic}"
+                ),
+                "status": "ok",
+                "detail": description,
+                "path": str(result.get("path") or ""),
+                "commit_sha": str(result.get("commit_sha") or ""),
             },
         )
 

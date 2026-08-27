@@ -52,7 +52,7 @@ from pathlib import Path
 
 import pytest
 
-from knotica.cli import COMMAND_NAMES
+from knotica.cli import COMMAND_NAMES, DEPRECATED_TOP_LEVEL
 from knotica.cli.common import (
     EXIT_ERROR,
     EXIT_NOT_CONFIGURED,
@@ -326,7 +326,7 @@ _PARSE_ERRORS = [
 
 
 def test_eval_is_a_registered_command():
-    assert "eval" in COMMAND_NAMES, "eval must be dispatchable through the CLI registry"
+    assert "improve" in COMMAND_NAMES and DEPRECATED_TOP_LEVEL["eval"] == ("improve", "eval")
 
 
 def test_eval_help_lists_its_flags(invoke):

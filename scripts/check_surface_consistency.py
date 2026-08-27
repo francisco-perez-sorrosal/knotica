@@ -47,8 +47,12 @@ tool"; it is three shapes that can only be tool references:
     is `compile` + action `run`, `loop_run_once` is `loop` + `run_once`). No
     parameter or config key has this shape, because it requires the suffix to be
     one of that specific dispatcher's own actions.
-  * `<tool> action=<x>` -- the dispatcher must be live and `<x>` must be one of
-    *its* actions, read from the module's own `_ACTIONS`.
+  * `<tool> action=<x>` -- the dispatcher must still be registered and `<x>`
+    must be one of *its* actions, read from the module's own `_ACTIONS` or, for
+    a lane, generated from the process model. Both halves are checked: a
+    dispatcher whose tool the lanes absorbed fails even when the action is
+    still valid, because prose telling a model to call a name that no longer
+    resolves is the same defect as naming an action that never existed.
   * `knotica <cmd>` and `/knotica:<alias>` -- resolved against `COMMAND_NAMES`
     and `commands/`.
 
@@ -77,8 +81,12 @@ SRC_DIR = REPO_ROOT / "src"
 SESSION_HOOK = REPO_ROOT / "hooks" / "session_start.sh"
 SKILL = REPO_ROOT / "skills" / "wiki-maintenance" / "SKILL.md"
 
-#: The nine dispatchers, each of which declares its own action tuple.
-DISPATCHERS = (
+#: The nine topical dispatchers, each of which declares its own `_ACTIONS`.
+#: Eight of them no longer register a tool -- the lanes absorbed them -- but
+#: their action tuples are still the vocabulary published prose is resolved
+#: against, which is what lets check 3 catch a reference to a name that is now
+#: gone. `_actions()` reads them from the module either way.
+TOPICAL_DISPATCHERS = (
     "arena",
     "branches",
     "compile",
@@ -89,6 +97,16 @@ DISPATCHERS = (
     "vault",
     "vault_health",
 )
+
+#: The six process lanes. Their action tables are generated from the process
+#: model rather than declared as an `_ACTIONS` tuple, so they resolve through
+#: `lane_actions()`. Without them, `learn action=create_topic` in a description
+#: is unresolvable and check 3 silently stops covering the surface prose that
+#: replaced the topical dispatchers'.
+LANE_DISPATCHERS = ("home", "learn", "answer", "improve", "fill", "tend")
+
+#: Every name a `<tool> action=<x>` reference may resolve against.
+DISPATCHERS = TOPICAL_DISPATCHERS + LANE_DISPATCHERS
 
 #: The four `### ` sections whose tables together enumerate every registered tool.
 TOOL_SECTIONS = ("Read tools", "Write tools", "Other flat tools", "Action dispatchers")
@@ -224,13 +242,24 @@ _SH_COMMENT = re.compile(r"^\s*#.*$", re.M)
 
 
 def _actions() -> dict[str, tuple[str, ...]]:
-    """Each dispatcher's own `_ACTIONS`, read from the module that declares it."""
+    """Each dispatcher's action table, read from whatever declares it.
+
+    A topical dispatcher declares an `_ACTIONS` tuple in its own module; a lane
+    generates one from the process model. Both are read live, so neither can be
+    restated here and drift.
+    """
+    from knotica.mcp_server.tools_dispatch_lane_common import lane_actions
+
     resolved: dict[str, tuple[str, ...]] = {}
-    for name in DISPATCHERS:
+    for name in TOPICAL_DISPATCHERS:
         module = importlib.import_module(f"knotica.mcp_server.tools_dispatch_{name}")
         actions = getattr(module, "_ACTIONS", None)
         if actions:
             resolved[name] = tuple(actions)
+    for lane in LANE_DISPATCHERS:
+        actions = lane_actions(lane)
+        if actions:
+            resolved[lane] = actions
     return resolved
 
 
@@ -296,7 +325,14 @@ def _scan(where: str, text: str, live: _Surface, *, shell: bool = False) -> list
     for fragment in code:
         for match in _DISPATCH_CALL.finditer(fragment):
             tool, action = match.group("tool"), match.group("action")
-            if tool in live.actions and action not in live.actions[tool]:
+            if tool not in live.actions:
+                continue
+            if tool not in live.tools:
+                failures.append(
+                    f"{where}: `{tool} action={action}` — {tool!r} is no longer registered; "
+                    f"its actions were absorbed into a lane"
+                )
+            elif action not in live.actions[tool]:
                 failures.append(
                     f"{where}: `{tool} action={action}` — {tool!r} has no such action "
                     f"(valid: {'|'.join(live.actions[tool])})"

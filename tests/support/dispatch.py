@@ -44,6 +44,45 @@ def build_full_server() -> Any:
     return server_mod.build_server()
 
 
+class _AbsentOnly:
+    """A ``FastMCP`` stand-in that forwards a registration only if the name is free."""
+
+    def __init__(self, mcp: Any, taken: set[str]) -> None:
+        self._mcp = mcp
+        self._taken = taken
+
+    def tool(self, *, name: str, **kwargs: Any) -> Any:
+        if name in self._taken:
+            return lambda function: function
+        return self._mcp.tool(name=name, **kwargs)
+
+
+def build_verb_server() -> Any:
+    """The published server **plus** every verb the lanes absorbed, by its own name.
+
+    **This is deliberately not the published surface** -- `build_full_server()`
+    is, and `test_server_tool_surface.py` / `test_lane_rename_invariants.py`
+    are what assert its shape. Use this one to exercise a *verb's behaviour*
+    without restating the lane's argument-forwarding in every payload
+    assertion: an absorbed verb is reachable in production only as
+    ``<lane> action=<verb>``, and `test_lane_dispatchers.py` proves the two
+    paths return the same payload, so a behaviour test that calls the verb
+    directly is testing the same code the lane runs.
+
+    Registration is name-guarded, so the seven verbs that are *both* published
+    Tier-1 tools and lane actions are registered once, not twice.
+    """
+    from knotica.mcp_server.tools_dispatch_lane_common import register_verb_handlers
+
+    mcp = build_full_server()
+    # `_tool_manager` rather than `list_tool_names`: the latter opens a client
+    # session, and this helper is called from inside `anyio.run` in several
+    # suites -- a nested event loop is a RuntimeError, not a slow path.
+    taken = {tool.name for tool in mcp._tool_manager.list_tools()}  # noqa: SLF001
+    register_verb_handlers(_AbsentOnly(mcp, taken))
+    return mcp
+
+
 def build_dispatch_server(register_fn: Any) -> Any:
     """A bare ``FastMCP()`` instance carrying only the dispatcher under test."""
     from mcp.server.fastmcp import FastMCP

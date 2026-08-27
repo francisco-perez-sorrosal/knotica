@@ -1,5 +1,5 @@
 ---
-description: Curate a knotica example into compile-ready training signal with a verdict.
+description: "[Improve] Curate a knotica example into compile-ready training signal with a verdict."
 argument-hint: "[topic] [verdict]"
 allowed-tools:
   - mcp__plugin_knotica_knotica__*

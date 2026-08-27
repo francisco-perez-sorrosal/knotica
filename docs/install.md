@@ -131,7 +131,7 @@ Configs written before the extra migration carry `--group evals`, which no longe
 | Arena races | No — deterministic mutator, keyword scorer, no model call |
 | MCP `query` tool | Yes |
 | `compile action=run` | Yes |
-| `knotica eval` | Yes |
+| `knotica improve eval` | Yes |
 | The loop's evals | Yes |
 | Gap-fill candidate gating | Yes |
 | `datasets` bootstrap | Yes |
@@ -226,7 +226,7 @@ Three targets cover a first run — `make start` (code), `make init` (a knowledg
 | `make verify` | The canonical gate, in order: topology check, ADR health, architecture coverage, mypy, pytest, `ruff check`, `ruff format --check` |
 | `make test-groups` | List the test groups |
 | `make test-group GROUP=<id>` | Run one group; accepts `ARGS="-x -q"` |
-| `make doctor` | `knotica doctor --quick` against the active knowledge base |
+| `make doctor` | `knotica tend doctor --quick` against the active knowledge base |
 | `make desktop` | `knotica desktop install` — no vault or config changes |
 | `make daemon-install` | Register the loop service |
 | `make daemon-restart` | Restart it so it runs freshly installed code (launchd only) |

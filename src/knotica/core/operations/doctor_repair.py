@@ -1,4 +1,4 @@
-"""Path-scoped worktree repair — the mutating half of ``knotica doctor repair``.
+"""Path-scoped worktree repair — the mutating half of ``knotica tend doctor repair``.
 
 Dry-run lists dirty porcelain entries. Apply restores explicitly selected paths
 to ``HEAD`` through :func:`~knotica.core.transaction.restore_worktree_paths`
@@ -131,8 +131,8 @@ def _resolve_apply_paths(
             ErrorCode.INVALID_ARGUMENT,
             "doctor repair --apply requires --paths PATH... or --all-tracked",
             fix=(
-                "Run `knotica doctor repair --dry-run`, then "
-                "`knotica doctor repair --apply --paths <file>...` "
+                "Run `knotica tend doctor repair --dry-run`, then "
+                "`knotica tend doctor repair --apply --paths <file>...` "
                 "or `--all-tracked` for every tracked dirty path."
             ),
         )

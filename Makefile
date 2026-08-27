@@ -16,7 +16,7 @@ LOG_DIR := $(HOME)/Library/Logs/knotica
 
 .PHONY: help start install verify doctor desktop clean-tool \
         init dashboard dashboard-stop dashboard-restart ps creds \
-        test-group test-groups \
+        test-group test-groups process-model-ts dashboard-rebuild \
         daemon-install daemon-restart daemon-status daemon-uninstall daemon-logs
 
 help:  ## Show available targets
@@ -63,6 +63,8 @@ verify:  ## Run the canonical checks: topology, ADRs, architecture, surface, typ
 	$(UV) run --extra evals python scripts/check_adr_health.py
 	$(UV) run --extra evals python scripts/check_architecture_coverage.py
 	$(UV) run --extra evals python scripts/check_surface_consistency.py
+	$(UV) run --extra evals python scripts/generate_process_model_ts.py
+	git diff --exit-code -- dashboard/src/processModel.ts
 	$(UV) run --extra evals mypy src/knotica
 	$(UV) run --extra evals pytest
 	$(UV) run --extra evals ruff check .
@@ -115,6 +117,17 @@ dashboard-stop:  ## Stop whatever is serving the dashboard port
 	fi
 
 dashboard-restart: dashboard-stop dashboard  ## Restart the dashboard on the freshly built code
+
+process-model-ts:  ## Regenerate dashboard/src/processModel.ts from core/process_model.py
+	$(UV) run --extra evals python scripts/generate_process_model_ts.py
+
+# Two independent `git diff --exit-code` gates touch this one source change:
+# the mirror (verify, above) and the built artifact (dashboard.yml CI). Editing
+# `core/process_model.py` and running only `npm run build` regenerates the
+# artifact but leaves the mirror stale -- and the reverse leaves the artifact
+# stale. This is the one command that pays both in the right order.
+dashboard-rebuild: process-model-ts  ## Regenerate the TS mirror, then rebuild the dashboard artifact
+	cd dashboard && npm run build
 
 # A stale component is the failure this answers: the dashboard and the daemon
 # both hold code in memory, so an edit reaches neither until its process is

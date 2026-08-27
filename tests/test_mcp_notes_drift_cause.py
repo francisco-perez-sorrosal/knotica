@@ -25,7 +25,7 @@ from pathlib import Path
 from typing import Any
 
 from knotica.core.notes.anchor import AnchorRecord, NoteDocument, serialize_note
-from support.dispatch import TOPIC, build_full_server, call_tool, payload_of
+from support.dispatch import TOPIC, build_verb_server, call_tool, payload_of
 from support.vault import git_head_sha, run_git
 
 #: Shared preface and closing lines, so an *ordinary rewrite* keeps a high page
@@ -107,7 +107,7 @@ def test_a_page_replaced_wholesale_reports_cause_superseded(
         "Relevance is graded by pooled human judgement over the top k returned results.\n",
     )
 
-    drift = _drift_item(build_full_server(), note_id)["drift"]
+    drift = _drift_item(build_verb_server(), note_id)["drift"]
 
     assert drift["cause"] == "superseded"
     assert drift["alternatives"] == [], (
@@ -133,7 +133,7 @@ def test_an_ordinary_reword_reports_cause_rewritten(
         f"{_CLOSING}\n",
     )
 
-    drift = _drift_item(build_full_server(), note_id)["drift"]
+    drift = _drift_item(build_verb_server(), note_id)["drift"]
 
     assert drift["cause"] == "rewritten"
 
@@ -148,7 +148,7 @@ def test_every_drift_item_carries_a_cause(vault_config: Path, template_vault: Pa
     note_id = "20260101-090200-cause-present-note"
     _seed(template_vault, note_id, "# Wholly different\n\n## New section\n\nUnrelated prose.\n")
 
-    body = payload_of(call_tool(build_full_server(), "notes", {"action": "drift", "topic": TOPIC}))
+    body = payload_of(call_tool(build_verb_server(), "notes", {"action": "drift", "topic": TOPIC}))
 
     assert body["items"], "the fixture must put at least one anchor in the queue"
     for item in body["items"]:

@@ -11,10 +11,16 @@ Config is never resolved here and never cached -- adapters resolve it fresh per
 invocation (the stateless-server contract); this module only shapes output.
 """
 
+from __future__ import annotations
+
 import argparse
 import sys
+from collections.abc import Sequence
 from dataclasses import dataclass
-from typing import TextIO
+from importlib import import_module
+from typing import Protocol, TextIO, cast
+
+from knotica.core import process_model
 
 __all__ = [
     "EXIT_ERROR",
@@ -24,10 +30,13 @@ __all__ = [
     "EXIT_NOT_CONFIGURED",
     "EXIT_SUCCESS",
     "UNCONFIGURED_MESSAGE",
+    "CommandModule",
     "Console",
+    "LaneCommand",
     "Status",
     "common_parent",
     "console_from_args",
+    "lane_rail",
     "unconfigured",
 ]
 
@@ -217,3 +226,135 @@ def unconfigured(console: Console) -> int:
     """Emit the shared unconfigured message to stderr and return exit code 3."""
     console.error(UNCONFIGURED_MESSAGE)
     return EXIT_NOT_CONFIGURED
+
+
+class CommandModule(Protocol):
+    """The ``configure``/``run`` shape every ``knotica.cli.<name>`` module exports.
+
+    ``import_module`` returns a plain ``ModuleType`` (attribute access is
+    untyped), so this Protocol is the one place that names the self-
+    registration contract precisely enough for the dispatch in
+    :func:`knotica.cli.main` -- and in :class:`LaneCommand` -- to type-check
+    without widening to ``Any``.
+    """
+
+    def configure(
+        self, subparsers: argparse._SubParsersAction[argparse.ArgumentParser]
+    ) -> argparse.ArgumentParser: ...
+
+    def run(self, args: argparse.Namespace) -> int: ...
+
+
+#: The four namespace destinations :func:`common_parent` owns. Named once so
+#: :func:`_suppress_common_defaults` and ``common_parent`` cannot drift apart.
+_COMMON_DESTS = frozenset({"quiet", "verbose", "no_color", "no_input"})
+
+#: How a lane's rail reads in help text. A ``sequence`` lane advances through
+#: its stages in order; the ``checklist`` lane's stages are independent peers,
+#: so an arrow between them would assert an ordering the model denies.
+_RAIL_JOIN = {"sequence": " → ", "checklist": ", "}
+
+
+def lane_rail(lane: str) -> str:
+    """Render ``lane``'s rail from the process model, or ``""`` when it has none.
+
+    The rail is read from ``core.process_model`` on every call -- the CLI is a
+    projection of that one declaration, never a second copy of it, so a stage
+    renamed there is renamed in ``knotica <lane> --help`` with no edit here.
+    """
+    stages = process_model.LANE_STAGES[lane]
+    if not stages:
+        return ""
+    return _RAIL_JOIN[process_model.LANE_KIND[lane]].join(stage.title for stage in stages)
+
+
+def _suppress_common_defaults(parser: argparse.ArgumentParser) -> None:
+    """Re-parent a command parser one level deeper without losing pre-name flags.
+
+    ``common_parent(nested=True)`` exists because ``_SubParsersAction.__call__``
+    parses a nested subparser into a *fresh* namespace -- applying every default
+    it declares -- and then copies every key onto the parent's, so a nested
+    ``--quiet`` defaulting to ``False`` silently discards the ``True`` the user
+    typed *before* the subcommand name. A lane moves nine command parsers from
+    depth 1 to depth 2, which puts every one of them in exactly that position.
+
+    Rather than edit nine modules to pass ``nested=True`` (they are re-parented
+    unchanged, by design), the lane applies the same suppression mechanically
+    after registration. ``parser._actions`` is argparse's only handle on a
+    registered action's default; there is no public accessor.
+    """
+    for action in parser._actions:  # noqa: SLF001 -- argparse exposes no public equivalent
+        if action.dest in _COMMON_DESTS:
+            action.default = argparse.SUPPRESS
+
+
+class LaneCommand:
+    """One process lane's ``configure``/``run`` pair over its member commands.
+
+    A lane is a parser that owns no behavior of its own: it names a lane of the
+    process model, renders that lane's rail in its help, and re-parents the
+    command modules that act in it one level deeper. Lanes with no members
+    (``home``, ``learn``, ``answer``) register the parser only and let their
+    module supply its own ``run``.
+
+    Membership is resolved by *observing* which parsers each member module
+    registers, so a module that contributes two leaves (``compile`` also
+    registers ``promote``) needs no declaration here and no edit there.
+    """
+
+    def __init__(self, *, lane: str, summary: str, members: Sequence[str] = ()) -> None:
+        if lane not in process_model.LANES:
+            raise ValueError(f"{lane!r} is not a declared process lane")
+        self.lane = lane
+        self.summary = summary
+        self.members = tuple(members)
+        self._parser: argparse.ArgumentParser | None = None
+        self._modules: dict[str, CommandModule] = {}
+
+    @property
+    def dest(self) -> str:
+        """The namespace attribute carrying the chosen member command."""
+        return f"{self.lane}_command"
+
+    def configure(
+        self, subparsers: argparse._SubParsersAction[argparse.ArgumentParser]
+    ) -> argparse.ArgumentParser:
+        """Register the lane parser and every member command beneath it."""
+        parser = subparsers.add_parser(
+            self.lane,
+            parents=[common_parent()],
+            help=self.summary,
+            description=self._description(),
+        )
+        self._parser = parser
+        self._modules = {}
+        if not self.members:
+            return parser
+
+        lane_sub = parser.add_subparsers(dest=self.dest, metavar="<command>")
+        for module_name in self.members:
+            module = cast(CommandModule, import_module(f"knotica.cli.{module_name}"))
+            registered_before = set(lane_sub.choices)
+            module.configure(lane_sub)
+            for name in set(lane_sub.choices) - registered_before:
+                _suppress_common_defaults(lane_sub.choices[name])
+                self._modules[name] = module
+        return parser
+
+    def run(self, args: argparse.Namespace) -> int:
+        """Dispatch to the selected member command, or print the lane's help."""
+        chosen = getattr(args, self.dest, None)
+        if chosen is None or chosen not in self._modules:
+            return self.print_usage()
+        return self._modules[chosen].run(args)
+
+    def print_usage(self) -> int:
+        """Print the lane's own help to stderr and report misuse."""
+        if self._parser is not None:
+            self._parser.print_help(sys.stderr)
+        return EXIT_MISUSE
+
+    def _description(self) -> str:
+        """The lane's help description, with its rail when the lane has one."""
+        rail = lane_rail(self.lane)
+        return f"{self.summary}. Rail: {rail}." if rail else f"{self.summary}."

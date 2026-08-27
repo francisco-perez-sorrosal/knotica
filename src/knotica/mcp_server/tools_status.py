@@ -15,6 +15,10 @@ Result shapes (the observable contract; feed TS type generation in M3):
   "summary"`` (default) shape. ``view="scope"`` returns the cheapest
   progressive view instead: ``{schema_version, vault_name, topics, totals}``
   -- topic enumeration only, for the conversational routing scope-check.
+  ``view="process_model"`` returns the served process-model declaration:
+  ``{schema_version, lanes, lane_stages}`` where ``lane_stages`` maps each
+  lane to its ordered ``{id, title, handoff}`` stages -- structure only, no
+  predicates, vault- and topic-independent.
 * ``metrics_read`` -> ``{topic, records, has_more, next_before_generation,
   skipped_malformed}``
 * ``baseline_probe`` -> ``{topic, scalar, harness_version, runner_mode, …}``
@@ -49,8 +53,10 @@ _WIKI_STATUS_DESCRIPTION = (
     "Pass vault to select a configured vault name (default: config default_vault). "
     'Pass view="scope" for the cheapest read (topic names only, no stats) -- use '
     "it to check which topics this vault covers before routing a conversation "
-    'turn. Omit view or pass "summary" for the full payload above. Read-only — '
-    "no commits, no lock."
+    'turn. Pass view="process_model" to read the six process lanes and their '
+    "ordered stages (id, title, handoff) directly from the server -- vault- and "
+    'topic-independent. Omit view or pass "summary" for the full payload above. '
+    "Read-only — no commits, no lock."
 )
 
 _METRICS_READ_DESCRIPTION = (
@@ -75,7 +81,7 @@ ToolResult = CallToolResult
 
 
 def register_status_tools(mcp: FastMCP) -> None:
-    """Register ``wiki_status``, ``metrics_read``, and ``baseline_probe`` on ``mcp``."""
+    """Register ``wiki_status`` on ``mcp``."""
 
     @mcp.tool(name="wiki_status", description=_WIKI_STATUS_DESCRIPTION)
     def wiki_status(topic: str = "", vault: str = "", view: str = "summary") -> ToolResult:
@@ -85,6 +91,18 @@ def register_status_tools(mcp: FastMCP) -> None:
                 _wiki_payload(store, resolved.path, resolved.name, topic=topic, view=view)
             ),
         )
+
+
+def register_status_lane_tools(mcp: FastMCP) -> None:
+    """Register ``metrics_read`` and ``baseline_probe``, reachable only through a lane.
+
+    Split from :func:`register_status_tools` because the published surface no
+    longer carries them: ``improve action=metrics_read`` and
+    ``improve action=baseline_probe`` are the ways in. The registrations still
+    exist because that is the seam the lane dispatchers collect their handlers
+    through -- a lane routes to *these* function objects, not to copies of
+    them. See ``tools_dispatch_lane_common.py``.
+    """
 
     @mcp.tool(name="metrics_read", description=_METRICS_READ_DESCRIPTION)
     def metrics_read(
@@ -108,12 +126,15 @@ def register_status_tools(mcp: FastMCP) -> None:
         )
 
 
+#: Views that never read the vault catalog -- ``scope`` is config + topic
+#: enumeration only, ``process_model`` reads no vault state at all.
+_CATALOG_FREE_VIEWS = frozenset({"scope", "process_model"})
+
+
 def _wiki_payload(
     store: VaultStore, vault_path: Path, vault_name: str, *, topic: str, view: str = "summary"
 ) -> dict[str, Any]:
-    if view == "scope":
-        # Cheapest view: skip the vault-catalog config re-read (unused in the
-        # scope payload) -- only config + topic enumeration, per its contract.
+    if view in _CATALOG_FREE_VIEWS:
         return gather_wiki_status(store, vault_path, topic=topic, vault_name=vault_name, view=view)
     catalog = list_vaults()
     return gather_wiki_status(

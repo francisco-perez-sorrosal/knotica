@@ -491,7 +491,9 @@ def _required_argv(parser: argparse.ArgumentParser) -> list[str]:
 
     Several nested subcommands demand `--topic`/`--output`/`--branch` or a
     required mutually-exclusive branch; without them argparse exits 2 before it
-    can tell us anything about flag placement.
+    can tell us anything about flag placement. Required *positionals* count too
+    -- `tend guillotine <claim>` reaches this walk as a nested site, and a
+    positional is required unless its `nargs` makes it optional.
     """
     argv: list[str] = []
     actions = [a for a in parser._actions if a.option_strings and a.required]
@@ -501,8 +503,19 @@ def _required_argv(parser: argparse.ArgumentParser) -> list[str]:
     for action in actions:
         argv.append(action.option_strings[0])
         if action.nargs != 0:
-            argv.append(str(next(iter(action.choices))) if action.choices else "1")
+            argv.append(_placeholder(action))
+    for action in parser._actions:
+        if action.option_strings or isinstance(action, argparse._SubParsersAction):
+            continue
+        if action.nargs in ("?", "*"):
+            continue
+        argv.append(_placeholder(action))
     return argv
+
+
+def _placeholder(action: argparse.Action) -> str:
+    """One argv value that satisfies `action`, honoring its `choices` if any."""
+    return str(next(iter(action.choices))) if action.choices else "1"
 
 
 _ROOT = _root_parser()
@@ -573,6 +586,6 @@ def test_omitting_the_common_flags_leaves_them_false_at_every_nested_subcommand(
 def test_doctor_repair_still_requires_a_dry_run_or_apply_branch() -> None:
     """The flag surface may not weaken the gate on a vault-mutating subcommand."""
     with pytest.raises(SystemExit) as exit_info:
-        _ROOT.parse_args(["doctor", "repair"])
+        _ROOT.parse_args(["tend", "doctor", "repair"])
 
     assert exit_info.value.code == 2

@@ -40,7 +40,13 @@ from knotica.core.status import (
 )
 from knotica.store import LocalFSStore
 
-__all__ = ["COMPILE_READY_MIN_EXAMPLES", "STATUS_JSON_SCHEMA_VERSION", "configure", "run"]
+__all__ = [
+    "COMPILE_READY_MIN_EXAMPLES",
+    "STATUS_JSON_SCHEMA_VERSION",
+    "configure",
+    "render_nudge",
+    "run",
+]
 
 #: Alias kept for CLI tests / external consumers of the previous name.
 STATUS_JSON_SCHEMA_VERSION = STATUS_SCHEMA_VERSION
@@ -88,7 +94,7 @@ def run(args: argparse.Namespace) -> int:
         return EXIT_ERROR
 
     if args.nudge:
-        _render_nudge(console, payload, vault)
+        render_nudge(console, payload, vault)
     elif args.json:
         console.data(_cli_json(payload))
     else:
@@ -134,7 +140,7 @@ def _cli_json(payload: dict[str, Any]) -> str:
     return json.dumps(cli_payload, ensure_ascii=False, indent=2)
 
 
-def _render_nudge(console: Console, payload: dict[str, Any], vault: ResolvedVault) -> None:
+def render_nudge(console: Console, payload: dict[str, Any], vault: ResolvedVault) -> None:
     """Print the SessionStart nudge: active KB, topic list, then attention items.
 
     Leads with the active knowledge base (name + path) so every session states

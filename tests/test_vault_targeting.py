@@ -12,7 +12,7 @@ from pathlib import Path
 
 import pytest
 
-from support.dispatch import build_full_server, call_tool, payload_of
+from support.dispatch import build_verb_server, call_tool, payload_of
 
 _CORE_TOOL_CALLS: list[tuple[str, dict[str, object]]] = [
     ("list_topics", {}),
@@ -41,7 +41,7 @@ def test_core_tool_rejects_an_unknown_vault_name(
 ) -> None:
     del vault_config, template_vault
 
-    payload = payload_of(call_tool(build_full_server(), tool, {**args, "vault": "ghost"}))
+    payload = payload_of(call_tool(build_verb_server(), tool, {**args, "vault": "ghost"}))
 
     assert payload["error"]["code"] == "NOT_CONFIGURED", payload
 
@@ -51,8 +51,8 @@ def test_naming_the_configured_default_resolves_the_same_vault(
 ) -> None:
     del vault_config, template_vault
 
-    default = payload_of(call_tool(build_full_server(), "list_topics", {}))
-    named = payload_of(call_tool(build_full_server(), "list_topics", {"vault": "main"}))
+    default = payload_of(call_tool(build_verb_server(), "list_topics", {}))
+    named = payload_of(call_tool(build_verb_server(), "list_topics", {"vault": "main"}))
 
     assert "error" not in default, default
     assert named == default, "explicitly naming the default vault resolves the same vault"

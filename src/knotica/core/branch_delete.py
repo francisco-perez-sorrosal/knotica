@@ -59,7 +59,8 @@ def branch_delete(
                 f"{required_prefix!r} and include a commit suffix"
             ),
             fix=(
-                "Pass a compile result branch from branch_scoreboard "
+                "Pass a compile result branch from `improve action=branches "
+                "branches_action=scoreboard` "
                 f"(e.g. {required_prefix}<shortsha>)."
             ),
         )
@@ -93,7 +94,8 @@ def branch_delete(
         return err(
             ErrorCode.GIT_ERROR,
             f"branch delete failed because branch {cleaned_branch!r} does not exist locally",
-            fix="Refresh branch_scoreboard — the branch may already have been deleted.",
+            fix="Refresh `improve action=branches branches_action=scoreboard` — the branch "
+            "may already have been deleted.",
         )
 
     cleaned_topic = topic.strip().strip("/")

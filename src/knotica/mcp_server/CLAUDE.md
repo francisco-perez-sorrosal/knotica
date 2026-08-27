@@ -4,7 +4,11 @@ The package is named `mcp_server`, not `mcp`, to avoid shadowing the `mcp` SDK (
 
 ## The surface
 
-25 flat conversational tools, 9 action dispatchers, and `open_dashboard` — 35 registrations. The dispatchers are `loop`, `branches`, `compile`, `datasets`, `arena`, `golden`, `notes`, `vault`, `vault_health`. Full action lists: [`docs/reference.md`](../../../docs/reference.md).
+13 Tier-1 conversational tools, the two unlaned Tier-2 tools (`vault`, `open_dashboard`), and the 6 process-lane dispatchers — 21 registrations. Full action lists: [`docs/reference.md`](../../../docs/reference.md).
+
+**The lane dispatchers are generated.** `home`, `learn`, `answer`, `improve`, `fill`, `tend` are projections of `core/process_model.py`: `tools_dispatch_lane_common.py` builds each one's action table, call shape and description action list from `LANE_MEMBERSHIP`, and routes every action to the same function object the verb's own `@mcp.tool` defines — so a lane call and a direct call on the verb are equal by construction, not by convention. Nothing about a lane dispatcher is hand-maintained; to change a lane's actions, change the declaration.
+
+**A `tools_*.py` module `server.py` does not import is not on the surface — and that is deliberate.** The ~20 operator-tier verbs the lanes absorbed keep their `@mcp.tool` registration, because that registration *is* the seam `tools_dispatch_lane_common.register_verb_handlers` collects handlers through; it simply runs against a capture stand-in rather than the real server. Five modules whose verbs split across the two tiers carry a second registrar for the lane-only half (`register_read_lane_tools`, `register_write_lane_tools`, `register_status_lane_tools`, `register_gaps_lane_tools`, `register_ingest_lane_tools`). **There is no alias layer**: a removed flat name returns an unknown-tool error, loudly (`dec-050`).
 
 ## Rules for every tool
 

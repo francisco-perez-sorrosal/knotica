@@ -77,18 +77,21 @@ fi
 
 # Warm path (each call is sub-second): the richer nudges.
 
-# (d) Plugin-vs-vault schema mismatch: `migrate --check` exits 4 when available.
-if uvx --from "$ROOT" knotica migrate --check >/dev/null 2>&1; then
+# (d) Plugin-vs-vault schema mismatch: `tend migrate --check` exits 4 when available.
+if uvx --from "$ROOT" knotica tend migrate --check >/dev/null 2>&1; then
 	: # exit 0 -> up to date, nothing to nudge.
 elif [ "$?" -eq 4 ]; then
 	echo "Knotica's vault schema is behind the plugin. Run /knotica:migrate to update it."
 fi
 
 # (e) Dirty work-tree: surface doctor's WARN with the scoped-rollback offer.
-doctor_out="$(uvx --from "$ROOT" knotica doctor 2>&1)"
+# Both call sites use the lane-nested form on purpose: this one captures with
+# `2>&1`, so a deprecation warning would land inside the string matched below,
+# and the instruction printed next must never tell a user to type a moved name.
+doctor_out="$(uvx --from "$ROOT" knotica tend doctor 2>&1)"
 case "$doctor_out" in
 *"uncommitted changes"*)
-	echo "Knotica vault has uncommitted changes. Review and roll back scoped with: knotica doctor --fix"
+	echo "Knotica vault has uncommitted changes. Review and roll back scoped with: knotica tend doctor --fix"
 	;;
 esac
 

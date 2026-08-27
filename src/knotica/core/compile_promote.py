@@ -68,7 +68,9 @@ def compile_promote(
                 f"{required_prefix!r} and include a commit suffix"
             ),
             fix=(
-                "Pass the branch name from compile_run / compile_status "
+                "Pass the branch name from `improve action=compile "
+                "compile_action=run` or `improve action=compile "
+                "compile_action=status` "
                 f"(e.g. {required_prefix}<shortsha>)."
             ),
         )
@@ -89,14 +91,15 @@ def compile_promote(
         return err(
             ErrorCode.GIT_ERROR,
             f"compile promote failed because branch {cleaned_branch!r} does not exist locally",
-            fix="Re-run compile_run or fetch the branch onto this vault before promoting.",
+            fix="Re-run `improve action=compile compile_action=run` or fetch the branch onto this "
+            "vault before promoting.",
         )
 
     if dirty:
         return err(
             ErrorCode.GIT_ERROR,
             "compile promote failed because the vault worktree is dirty",
-            fix="Commit changes or run `knotica doctor repair` on scoped dirty paths, then retry.",
+            fix="Commit changes or run `knotica tend doctor repair` on scoped dirty paths, then retry.",
         )
 
     if not apply:
@@ -133,8 +136,8 @@ def compile_promote(
                 ErrorCode.GIT_ERROR,
                 f"compile promote failed because git merge reported: {error}",
                 fix=(
-                    "Resolve merge conflicts manually in the vault, or delete the branch and "
-                    "re-run compile_run."
+                    "Resolve merge conflicts manually in the vault, or delete the branch "
+                    "and re-run `improve action=compile compile_action=run`."
                 ),
             )
     finally:

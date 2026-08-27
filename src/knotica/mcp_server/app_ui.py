@@ -26,11 +26,15 @@ DASHBOARD_URI = "ui://knotica/dashboard"
 MCP_APP_MIME = "text/html;profile=mcp-app"
 
 _OPEN_DASHBOARD_DESCRIPTION = (
-    "Open the knotica dashboard for a topic (Vault, Ask, Loop, Arena, Ingest, Golden). "
-    "On hosts that support MCP Apps (Claude Desktop Chat, claude.ai), renders the "
-    "interactive UI inline. On hosts without Apps support, returns text with the "
-    "standalone URL (`knotica mcp --http`). Pass topic (default agentic-systems) and "
-    "optional vault name. Panes call wiki_status, query, compile_*, arena_*, etc."
+    "Open the knotica dashboard for a topic (Vault, Ask, Loop, Arena, Ingest, Sources, "
+    "Datasets, Notes). On hosts that support MCP Apps (Claude Desktop Chat, claude.ai), "
+    "renders the interactive UI inline. On hosts without Apps support, returns text with "
+    "the standalone URL (`knotica mcp --http`). "
+    "Does NOT: read or write the vault itself — it only hands back a view; the panes make "
+    "their own tool calls once open. "
+    "Requires: nothing beyond a configured vault. Pass topic (default agentic-systems) and "
+    "an optional vault name; a `?pane=` deep link accepts any of the six lane names. "
+    "Returns: the inline UI on an Apps host, or the standalone URL to open otherwise."
 )
 
 
@@ -75,8 +79,8 @@ def register_dashboard_app(mcp: FastMCP) -> None:
         mime_type=MCP_APP_MIME,
         description=(
             "Interactive knotica loop dashboard (MCP App). Same single-file artifact "
-            "as the standalone HTTP mount; data flows through wiki_status / metrics_read "
-            "via the host bridge."
+            "as the standalone HTTP mount; data flows through `wiki_status` and "
+            "`improve action=metrics_read` via the host bridge."
         ),
     )
     def dashboard_view() -> str:

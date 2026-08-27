@@ -41,7 +41,7 @@ from typing import Any
 
 import pytest
 
-from support.dispatch import TOPIC, build_full_server, call_tool, payload_of
+from support.dispatch import TOPIC, build_verb_server, call_tool, payload_of
 
 pytestmark = pytest.mark.usefixtures("vault_config")
 
@@ -59,7 +59,7 @@ def call(tool: str, args: dict[str, Any]) -> Any:
     Asserts success first: a two-phase assertion made against an error envelope
     would pass for all the wrong reasons (no nonce minted, nothing billed).
     """
-    result = call_tool(build_full_server(), tool, args)
+    result = call_tool(build_verb_server(), tool, args)
     body = payload_of(result)
     assert getattr(result, "isError", False) is False, f"expected success, got {body!r}"
     assert not (isinstance(body, dict) and "error" in body), f"expected success, got {body!r}"

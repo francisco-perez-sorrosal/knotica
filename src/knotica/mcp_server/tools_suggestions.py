@@ -96,7 +96,7 @@ _REVIEW_DESCRIPTION = (
     "be deferred; only approved can be marked ingested or withdrawn. "
     "mode=apply never fires from detection alone -- only after "
     "the user has explicitly confirmed the decision; an unconfirmed detection "
-    "routes to suggestions_read or an offer instead."
+    "routes to `fill action=suggestions_read` or an offer instead."
 )
 
 

@@ -30,6 +30,7 @@ from knotica.core.notes_config import resolve_notes_config
 from knotica.core.page import TopicNotFoundError
 from knotica.core.gap_classifier import gaps_path
 from knotica.core.gapfill import suggestions_path
+from knotica.core import process_model
 from knotica.core.records import (
     GAP_ORIGIN_MEASURED,
     GAP_ORIGIN_REPORTED,
@@ -61,7 +62,11 @@ STATUS_SCHEMA_VERSION = 1
 #: byte-identical to the pre-``view``-param payload. ``scope`` is the
 #: cheapest view -- topic enumeration only, no per-topic stats, no lint, no
 #: loop/runner reads -- for the client-side conversational routing scope-check.
-VALID_STATUS_VIEWS = frozenset({"summary", "scope"})
+#: ``process_model`` is the served process-model declaration -- lanes, stage
+#: ids, titles, order and handoff flags, structure only -- vault- and
+#: topic-independent, so the dashboard can prefer the connected server's live
+#: declaration over its bundled fallback.
+VALID_STATUS_VIEWS = frozenset({"summary", "scope", "process_model"})
 
 #: Query-style curated examples required before a topic can run DSPy compile
 #: (PRE_PLAN Phase 3a floor ~30–50; ingest-style qa lines do not count).
@@ -136,6 +141,9 @@ def gather_wiki_status(
     ``view="summary"`` (default) is today's full payload, unchanged.
     ``view="scope"`` is the cheapest view -- topic enumeration only, no
     per-topic stats -- for the client-side conversational routing check.
+    ``view="process_model"`` serves the live process-model declaration
+    (lanes, stage ids, titles, order, handoff flags) -- vault- and
+    topic-independent, so ``topic``/``vault_name`` are accepted but ignored.
     """
     if view not in VALID_STATUS_VIEWS:
         raise KnoticaError(
@@ -148,6 +156,8 @@ def gather_wiki_status(
         )
     scope = topic.strip()
     name = vault_name or vault_path.name
+    if view == "process_model":
+        return _process_model_status()
     if view == "scope":
         return _scope_status(store, name, scope=scope)
 
@@ -184,6 +194,31 @@ def gather_wiki_status(
         "loop": loop,
         "compile": compile_info,
         "llm": _llm_availability(),
+    }
+
+
+def _process_model_status() -> dict[str, Any]:
+    """The ``view="process_model"`` payload: the live process-model declaration.
+
+    Structure only -- lane order, stage ids, titles, handoff flags -- mirroring
+    exactly what :mod:`scripts.generate_process_model_ts` projects into the
+    dashboard's bundled fallback, so the two payloads are directly comparable.
+    No predicates, no per-stage state: dynamic rail state is served on the
+    per-topic ``summary`` payload, not here (``derive_stages`` is a separate
+    concern from this static structure). Vault- and topic-independent -- the
+    declaration is the same regardless of which vault or topic was asked
+    about, so no store read and no vault path are needed.
+    """
+    return {
+        "schema_version": STATUS_SCHEMA_VERSION,
+        "lanes": list(process_model.LANES),
+        "lane_stages": {
+            lane: [
+                {"id": stage.id, "title": stage.title, "handoff": stage.handoff}
+                for stage in process_model.LANE_STAGES[lane]
+            ]
+            for lane in process_model.LANES
+        },
     }
 
 

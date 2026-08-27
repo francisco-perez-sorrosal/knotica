@@ -156,6 +156,10 @@ _GATE_VERDICTS: frozenset[str] = frozenset({GATE_VERDICT_MERGED, GATE_VERDICT_RE
 _GAP_ALLOWED_FROM: Mapping[str, str] = {"dismiss": "open", "reopen": "dismissed"}
 #: The status each gap decision moves the record to (the mapping's mirror image).
 _GAP_TARGET_STATUS: Mapping[str, str] = {"dismiss": "dismissed", "reopen": "open"}
+#: Which gap decisions require a non-empty reason. ``dismiss`` must say why the
+#: gap is not worth sourcing; ``reopen``'s reason is advisory, mirroring
+#: ``plan_decision``'s ``reject``-only requirement on the suggestion lifecycle.
+_GAP_REASON_REQUIRED: frozenset[str] = frozenset({"dismiss"})
 
 
 @dataclass(frozen=True)
@@ -209,10 +213,12 @@ class DecisionResult:
 class GapDecisionResult:
     """The outcome of a committed gap transition, for the tool envelope to render.
 
-    ``reason`` is echoed back cleaned but is **not** persisted -- not on the
-    ``GapRecord`` (a constitution-frozen shape), and not in the commit subject or
-    ``log.md``, since ``format_commit_subject`` takes only ``(op, topic, title)``.
-    The sibling ``apply_decision`` does persist its ``decided_reason``; this does not.
+    ``reason`` is echoed back cleaned and is also persisted as ``decided_reason``
+    on the ``GapRecord`` itself, mirroring the sibling ``apply_decision``'s
+    treatment of a suggestion's ``decided_reason`` -- a dismissed (or reopened)
+    gap's reason survives a re-read rather than existing only in this one-shot
+    result. The commit subject and ``log.md`` still carry no reason, since
+    ``format_commit_subject`` takes only ``(op, topic, title)``.
     """
 
     gap_id: str
@@ -604,11 +610,12 @@ def apply_gap_decision(
     the suggestions are derived from. Validates the transition against
     :data:`_GAP_ALLOWED_FROM` -- ``dismiss`` legal only from ``open``, ``reopen``
     only from ``dismissed``, anything else a typed ``INVALID_ARGUMENT`` raised
-    before any write -- then rewrites that one record's ``status`` and commits the
-    whole queue once in its own :class:`VaultTransaction`. ``reason`` is advisory
-    (see :class:`GapDecisionResult`); ``clock`` injects the reported
-    ``decided_at`` stamp for deterministic tests. Raises ``ValueError`` when no
-    record has ``gap_id``.
+    before any write -- then rewrites that one record's ``status`` and
+    ``decided_reason`` and commits the whole queue once in its own
+    :class:`VaultTransaction`. ``dismiss`` requires a non-empty ``reason``;
+    ``reopen``'s is optional (see :class:`GapDecisionResult`). ``clock`` injects
+    the reported ``decided_at`` stamp for deterministic tests. Raises
+    ``ValueError`` when no record has ``gap_id``.
     """
     stamp = clock or _utc_now_iso
     gaps = _read_gaps(store, topic)
@@ -617,8 +624,10 @@ def apply_gap_decision(
         raise ValueError(f"no gap {gap_id!r} in topic {topic!r}")
 
     gap = gaps[index]
-    to_status = _plan_gap_decision(gap, decision=decision)
-    body = _gaps_body_with(gaps, index, replace(gap, status=to_status))
+    to_status, decided_reason = _plan_gap_decision(gap, decision=decision, reason=reason)
+    body = _gaps_body_with(
+        gaps, index, replace(gap, status=to_status, decided_reason=decided_reason)
+    )
     title = f"{decision} gap {gap_id[:8]}"
     with VaultTransaction(store, Path(root), _GAP_REVIEW_OP, topic, title) as txn:
         txn.write(gaps_path(topic), body)
@@ -628,7 +637,7 @@ def apply_gap_decision(
         decision=decision,
         from_status=gap.status,
         to_status=to_status,
-        reason=(reason or "").strip() or None,
+        reason=decided_reason,
         decided_at=stamp(),
         question=gap.question,
         changed=txn.result.changed,
@@ -636,8 +645,16 @@ def apply_gap_decision(
     )
 
 
-def _plan_gap_decision(gap: GapRecord, *, decision: str) -> str:
-    """The status ``decision`` moves ``gap`` to; raises on an illegal transition (pure)."""
+def _plan_gap_decision(
+    gap: GapRecord, *, decision: str, reason: str | None
+) -> tuple[str, str | None]:
+    """The ``(to_status, decided_reason)`` ``decision`` moves ``gap`` to (pure).
+
+    Raises a typed ``INVALID_ARGUMENT`` for an unknown decision, an illegal
+    transition, or a ``dismiss`` with an empty/blank reason -- checked in that
+    order, matching :func:`plan_decision`'s illegal-transition-before-reason
+    sequencing for the sibling suggestion lifecycle.
+    """
     allowed_from = _GAP_ALLOWED_FROM.get(decision)
     if allowed_from is None:
         raise _invalid(
@@ -649,7 +666,13 @@ def _plan_gap_decision(gap: GapRecord, *, decision: str) -> str:
             f"gap {gap.gap_id!r} is {gap.status!r}; cannot {decision}",
             f"Only an {allowed_from} gap can be {decision}ed.",
         )
-    return _GAP_TARGET_STATUS[decision]
+    cleaned = (reason or "").strip()
+    if decision in _GAP_REASON_REQUIRED and not cleaned:
+        raise _invalid(
+            f"{decision} requires a non-empty reason",
+            f'Pass reason="…" explaining why this gap is being {decision}ed.',
+        )
+    return _GAP_TARGET_STATUS[decision], cleaned or None
 
 
 def _close_gap_body(store: VaultStore, topic: str, gap_id: str) -> str | None:

@@ -370,6 +370,12 @@ class GapRecord:
     #: Additive-only optional field (schema stays v1); kept on the gap only —
     #: never threaded onto the derived suggestion.
     reported_reason: str | None = None
+    #: The reason a human gave for the most recent ``dismiss``/``reopen``
+    #: decision (``core.gapfill.apply_gap_decision``) -- the gap lifecycle's
+    #: mirror of ``SuggestionRecord.decided_reason``. ``None`` on a gap that has
+    #: never been through a human decision, and on pre-feature records.
+    #: Additive-only optional field (schema stays v1).
+    decided_reason: str | None = None
 
     def __post_init__(self) -> None:
         _validate_schema_version(self.schema_version)
@@ -406,6 +412,7 @@ class GapRecord:
             "manifest_ref": self.manifest_ref,
             "origin": self.origin,
             "reported_reason": self.reported_reason,
+            "decided_reason": self.decided_reason,
         }
         return json.dumps(payload, ensure_ascii=False)
 
@@ -455,6 +462,7 @@ class GapRecord:
                 data, "origin", GAP_ORIGIN_MEASURED, record="gaps.jsonl"
             ),
             reported_reason=_optional_str_absent(data, "reported_reason", record="gaps.jsonl"),
+            decided_reason=_optional_str_absent(data, "decided_reason", record="gaps.jsonl"),
         )
 
 

@@ -61,8 +61,9 @@ _CAPTURE_DESCRIPTION = (
     "defaults to `reflection` (private, stays here); `dispute`/`gap`/`question` "
     "only *mark* a note as promotable -- crossing into the KB is a separate "
     "human-gated act. One commit; requires the lock. Idempotent by content: "
-    "re-sending the same note for the same quote is a no-op. Call `notes "
-    "action=list` (or `action=read` with the returned note_id) to review what "
+    "re-sending the same note for the same quote is a no-op. Call `tend "
+    "action=notes notes_action=list` (or notes_action=read with the returned "
+    "note_id) to review what "
     "was saved -- notes live outside the wiki corpus, so `search` will never "
     "find them. Call this when the user's message **is** the note -- an "
     'addressed remark ("note this", "worth remembering:", "I\'ve never '

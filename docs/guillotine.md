@@ -40,13 +40,13 @@ a JSON sidecar, written into the vault for a human to read.
 
 ```bash
 # Dry run (default): report + diff + JSON sidecar only, nothing filed
-knotica guillotine "reasoning-only systems hallucinate more" --topic agentic-systems
+knotica tend guillotine "reasoning-only systems hallucinate more" --topic agentic-systems
 
 # Force a verdict instead of the recommendation
-knotica guillotine "<claim>" --topic <topic> --verdict retract --dry-run
+knotica tend guillotine "<claim>" --topic <topic> --verdict retract --dry-run
 
 # Commit the verdict and open the re-grounding loop
-knotica guillotine "<claim>" --topic <topic> --apply
+knotica tend guillotine "<claim>" --topic <topic> --apply
 ```
 
 `--topic` is required and scopes the search to one topic. The guillotine is a

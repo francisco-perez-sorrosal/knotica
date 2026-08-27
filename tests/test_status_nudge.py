@@ -6,7 +6,7 @@ import io
 from pathlib import Path
 
 from knotica.cli.common import Console
-from knotica.cli.status import _render_nudge
+from knotica.cli.status import render_nudge
 from knotica.core.config import ResolvedVault
 
 
@@ -28,7 +28,7 @@ def test_nudge_leads_with_the_active_kb_line() -> None:
         "totals": {"notes": {"total": 0, "drifted": 0}},
     }
 
-    _render_nudge(console, payload, ResolvedVault(name="main", path=Path("/data/knotica")))
+    render_nudge(console, payload, ResolvedVault(name="main", path=Path("/data/knotica")))
 
     lines = out.getvalue().splitlines()
     assert lines[0] == "Active KB: main (/data/knotica)"
@@ -38,7 +38,7 @@ def test_nudge_leads_with_the_active_kb_line() -> None:
 def test_nudge_states_the_active_kb_even_with_no_topics() -> None:
     console, out = _console()
 
-    _render_nudge(
+    render_nudge(
         console,
         {"topics": [], "totals": {"notes": {"total": 0, "drifted": 0}}},
         ResolvedVault(name="research", path=Path("/kb/research")),
@@ -68,7 +68,7 @@ def _payload_with(*, drifted: int) -> dict[str, object]:
 def test_nudge_appends_a_drifted_notes_clause_when_notes_have_drifted() -> None:
     console, out = _console()
 
-    _render_nudge(
+    render_nudge(
         console, _payload_with(drifted=2), ResolvedVault(name="main", path=Path("/data/knotica"))
     )
 
@@ -79,7 +79,7 @@ def test_nudge_says_nothing_about_notes_when_none_have_drifted() -> None:
     """The nudge's contract: it prints nothing when there is nothing to say."""
     console, out = _console()
 
-    _render_nudge(
+    render_nudge(
         console, _payload_with(drifted=0), ResolvedVault(name="main", path=Path("/data/knotica"))
     )
 

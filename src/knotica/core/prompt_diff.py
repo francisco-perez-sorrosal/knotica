@@ -98,7 +98,8 @@ def prompt_diff(
                 code=ErrorCode.INVALID_ARGUMENT,
                 message=("No preserved SHAs for this compile run — can't rebuild diff."),
                 fix=(
-                    "Re-run compile, or recover parents from a merge commit on the "
+                    "Re-run `improve action=compile compile_action=run`, or recover parents "
+                    "from a merge commit on the "
                     "default branch (`git log --merges --grep='Merge branch'`)."
                 ),
             )
@@ -217,7 +218,8 @@ def compiled_prompt_diff(
                 code=ErrorCode.INVALID_ARGUMENT,
                 message="No preserved SHAs for this compile run — can't rebuild diff.",
                 fix=(
-                    "Re-run compile, or recover parents from a merge commit on the "
+                    "Re-run `improve action=compile compile_action=run`, or recover parents "
+                    "from a merge commit on the "
                     "default branch (`git log --merges --grep='Merge branch'`)."
                 ),
             )
@@ -227,7 +229,8 @@ def compiled_prompt_diff(
             raise KnoticaError(
                 code=ErrorCode.INVALID_ARGUMENT,
                 message=f"Compile branch {cleaned_branch!r} does not exist locally.",
-                fix="Re-run compile or fetch the branch before comparing prompts.",
+                fix="Re-run `improve action=compile compile_action=run` or fetch the branch before "
+                "comparing prompts.",
             )
         query_ref = vcs.default_branch()
         compiled_ref = cleaned_branch
@@ -262,7 +265,8 @@ def compiled_prompt_diff(
         raise KnoticaError(
             code=ErrorCode.PAGE_NOT_FOUND,
             message=(f"No compiled query artifact for topic {cleaned_topic!r} at {artifact_rel}."),
-            fix="Run compile and promote, or pass an open compile branch name.",
+            fix="Run `improve action=compile compile_action=run` and promote the result, or pass an open "
+            "compile branch name.",
         )
 
     compiled_body = format_compiled_program(artifact)

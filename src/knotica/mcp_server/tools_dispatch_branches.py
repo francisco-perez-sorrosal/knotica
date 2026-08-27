@@ -35,18 +35,26 @@ _ACTIONS = ("scoreboard", "promote_loop", "promote", "delete")
 _PROMOTE_KINDS = ("compile", "loop")
 
 _BRANCHES_DISPATCH_DESCRIPTION = (
-    "Operator branch control (rarely conversational; the dashboard/CLI reach "
-    "this directly). action=scoreboard returns the deterministic per-topic "
-    "scoreboard (same as branch_scoreboard, read-only). action=promote_loop "
-    "merges a loop/r/<shortsha> or loop/c/* branch after human review (same as "
-    "the old loop_promote tool). action=promote is the unified gate: pass "
-    "kind=compile to merge compile/<topic>/… branches or kind=loop to merge "
-    "loop/r branches (same as branch_promote). action=delete removes a local "
-    "compile/<topic>/… branch (same as branch_delete). mode=dry-run previews, "
-    "mode=apply commits, for every mutating action. Pass vault to select a "
-    "configured vault. mode=apply never fires from detection alone -- only "
-    "after the user has explicitly confirmed the promotion/deletion; an "
-    "unconfirmed detection routes to mode=dry-run or an offer instead."
+    "Score the candidate branches a compile or eval produced, then promote or "
+    "delete one. Operator-tier and rarely conversational; on the published "
+    "surface this is reached as `improve action=branches` with "
+    "`branches_action` selecting the operation. `branches_action=scoreboard` "
+    "returns the deterministic per-topic scoreboard (read-only). "
+    "`branches_action=promote_loop` merges a loop/r/<shortsha> or loop/c/* "
+    "branch after human review. `branches_action=promote` is the unified gate: "
+    "pass kind=compile to merge compile/<topic>/… branches or kind=loop to "
+    "merge loop/r branches. `branches_action=delete` removes a local "
+    "compile/<topic>/… branch. "
+    "Does NOT: produce the branches it scores — a compile or an eval cycle "
+    "does that (`improve action=compile`). "
+    "Requires: an explicit topic, and a branch name from the scoreboard for "
+    "every mutating action. mode=dry-run previews, mode=apply commits. Pass "
+    "vault to select a configured vault. mode=apply never fires from detection "
+    "alone -- only after the user has explicitly confirmed the "
+    "promotion/deletion; an unconfirmed detection routes to mode=dry-run or an "
+    "offer instead. "
+    "Returns: the scoreboard as data, or the transition a mutating action "
+    "would make (dry-run) or made (apply)."
 )
 
 

@@ -32,17 +32,25 @@ _DISPATCHER = "compile"
 _ACTIONS = ("run", "status", "promote")
 
 _COMPILE_DISPATCH_DESCRIPTION = (
-    "Operator compile control (rarely conversational; the dashboard/CLI reach "
-    "this directly). action=run compiles the query program for a topic (doctor "
-    "gate -> clone -> MIPROv2/bootstrap -> branch; same as compile_run; may take "
-    "a long time). action=status polls compile progress (same as compile_status, "
-    "read-only). action=promote merges a reviewed compile/<topic>/… branch into "
-    "the vault default branch (same as compile_promote); mode=dry-run previews, "
-    "mode=apply performs the merge after review. Pass vault to select a "
-    "configured vault. action=run and mode=apply never fire from detection "
-    "alone -- only after the user has explicitly confirmed the compile/merge; "
-    "an unconfirmed detection routes to action=status, mode=dry-run, or an "
-    "offer instead."
+    "Compile a new query program for a topic from its trainset, then promote "
+    "the reviewed result. Operator-tier and rarely conversational; on the "
+    "published surface this is reached as `improve action=compile` with "
+    "`compile_action` selecting the operation. `compile_action=run` compiles "
+    "(doctor gate -> clone -> MIPROv2/bootstrap -> branch) and MAY TAKE A LONG "
+    "TIME. `compile_action=status` polls progress (read-only). "
+    "`compile_action=promote` merges a reviewed compile/<topic>/… branch into "
+    "the vault default branch; mode=dry-run previews, mode=apply performs the "
+    "merge after review. "
+    "Does NOT: score the branch it produced (`improve action=branches` does), "
+    "and does NOT touch the vault default branch until promote. "
+    "Requires: an explicit topic, a trainset above the compile-ready floor, and "
+    "a clean vault. `compile_action=run` SPENDS MONEY. Pass vault to select a "
+    "configured vault. Running and mode=apply never fire from detection alone "
+    "-- only after the user has explicitly confirmed the compile/merge; an "
+    "unconfirmed detection routes to `compile_action=status`, mode=dry-run, or "
+    "an offer instead. "
+    "Returns: the branch name the compile landed on — pass it to promote, or "
+    "to the scoreboard to compare it against its siblings."
 )
 
 
@@ -108,6 +116,9 @@ def _require_branch(branch: str) -> str:
         raise KnoticaError(
             ErrorCode.INVALID_ARGUMENT,
             "compile action=promote requires `branch`",
-            fix="Pass branch=compile/<topic>/… (see compile_run's returned branch name).",
+            fix=(
+                "Pass branch=compile/<topic>/… — the branch name `improve "
+                "action=compile compile_action=run` returned."
+            ),
         )
     return cleaned
