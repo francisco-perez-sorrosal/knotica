@@ -22,6 +22,7 @@ import type { PaneId } from "../types";
 
 /** Values a caller may pass that name the pane they resolve to. */
 const SELF_RESOLVING: readonly PaneId[] = [
+  "home",
   "learn",
   "answer",
   "fill",
@@ -29,7 +30,7 @@ const SELF_RESOLVING: readonly PaneId[] = [
   "tend",
 ];
 
-const FALLBACK_PANE: PaneId = "tend";
+const FALLBACK_PANE: PaneId = "home";
 
 describe("resolving the pane named by the ?pane= query param", () => {
   it.each(SELF_RESOLVING)(

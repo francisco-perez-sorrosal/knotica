@@ -92,7 +92,7 @@ knotica mcp --http --port 8765
 ```
 
 Then browse `http://127.0.0.1:8765/?topic=agentic-systems&lane=answer`. The dashboard is structured
-as five process lanes: `Learn`, `Answer`, `Fill`, `Improve`, and `Tend`. Use `?lane=answer` to open
+as six process lanes: `Home` (cross-topic inbox), `Learn`, `Answer`, `Fill`, `Improve`, and `Tend`. Use `?lane=answer` to open
 the question-answering lane. Details in [dashboard](dashboard.md).
 
 ## Step 5. Ask the prove question

@@ -20,15 +20,22 @@ A `core/process_model.py` change touches two `git diff --exit-code` gates at onc
 
 ## Lanes and components
 
-The dashboard is structured as **five process lanes**, each a complete workflow declared once in
+The dashboard is structured as **six process lanes**, each declared once in
 `src/knotica/core/process_model.py` and projected here.
 
-**Lanes** live in `src/lanes/<lane-name>/` with their stage components. The five lanes are:
+**Lanes** live in `src/lanes/<lane-name>/` with their stage components and per-lane types/client split. The six lanes are:
+- `home/` — cross-topic attention inbox (rail-less)
 - `learn/` — read-only topic exploration
 - `answer/` — question-answering and trainset curation
 - `fill/` — gap-fill workflow (diagnose → discover → approve → ingest)
 - `improve/` — topic-scoped iterative loop (observe → heal → instrument → prove → promote → gate)
 - `tend/` — per-vault maintenance (doctor → lint → okf → migrate → drift)
+
+Each lane carries its own type and client definitions:
+- `lanes/<lane>/types.ts` — type definitions for that lane's MCP responses and UI state
+- `lanes/<lane>/client.ts` — client methods (`ToolClient` prototype extensions) for that lane's tool calls
+
+This split from the earlier monolithic `types.ts` and `toolClient.ts` (both over 800 lines) allows the client and types to grow with each lane independently, kept under the ratchet ceiling by construction. Home's types and client live in `lanes/home/{types.ts,client.ts}` alongside its `HomeLane.tsx` and `attentionRows.ts`.
 
 Shared infrastructure lives in the lanes root:
 - `laneRailState.ts` — pure state derivation for stage rail (no Preact, no DOM, no fetch)
@@ -37,6 +44,7 @@ Shared infrastructure lives in the lanes root:
 - `HandoffStage.tsx` — pauses a lane and dispatches a slash command to the client's own LLM
 - `hostCapabilities.ts` — detects host capabilities (ext-apps bridge support) to decide whether to
   show the dispatch button or only the copyable command
+- `visibilityPausedPoll.ts` — pause polling when the browser tab is hidden, resume on return
 
 Shared supporting views used across lanes:
 - `ScoreboardPanel`, `PromotePreview`, `DeletePreview`, `PromptDiff`, `MetadataTreePanel`,

@@ -159,19 +159,25 @@ describe("every legacy ?pane= value degrades to the lane that absorbed it (REQ-1
     ["datasets", "improve"],
     ["golden", "improve"],
     ["notes", "tend"],
-    ["home", "tend"],
   ];
 
   it.each(REPOINTED)("?pane=%s now resolves to %s", (param, pane) => {
     expect(resolvePane(param)).toBe(pane);
   });
 
-  it("the bare deep link (no ?pane=) also lands on tend, mirroring ?pane=home", () => {
-    expect(resolvePane(null)).toBe("tend" as PaneId);
+  it("?pane=home self-maps now that Home is a lane, no longer parked on tend", () => {
+    // `home` was the one lane key this table used to carry: with no Home lane
+    // to open, it was parked on the interim default. It is a destination now,
+    // not a repoint.
+    expect(resolvePane("home")).toBe("home" as PaneId);
   });
 
-  it("an unrecognised value degrades to the new default (tend), not the retired vault default", () => {
-    expect(resolvePane("not-a-real-pane")).toBe("tend" as PaneId);
+  it("the bare deep link (no ?pane=) lands on home, mirroring ?pane=home", () => {
+    expect(resolvePane(null)).toBe("home" as PaneId);
+  });
+
+  it("an unrecognised value degrades to the current default (home), not the retired vault default", () => {
+    expect(resolvePane("not-a-real-pane")).toBe("home" as PaneId);
   });
 });
 

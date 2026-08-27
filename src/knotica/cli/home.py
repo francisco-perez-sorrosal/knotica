@@ -49,7 +49,9 @@ def run(args: argparse.Namespace) -> int:
 
     vault = diagnosis.vault
     try:
-        payload = gather_wiki_status(LocalFSStore(vault.path), vault.path, topic="")
+        payload = gather_wiki_status(
+            LocalFSStore(vault.path), vault.path, topic="", view="attention"
+        )
     except TopicNotFoundError as error:  # pragma: no cover -- whole-vault read, no topic filter
         console.error(str(error))
         return EXIT_SUCCESS

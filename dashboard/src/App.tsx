@@ -5,6 +5,7 @@ import { applyDocumentTheme } from "@modelcontextprotocol/ext-apps";
 
 import { AnswerLane } from "./lanes/answer/AnswerLane";
 import { FillLane } from "./lanes/fill/FillLane";
+import { HomeLane } from "./lanes/home/HomeLane";
 import { ImproveLane } from "./lanes/improve/ImproveLane";
 import { LearnLane } from "./lanes/learn/LearnLane";
 import { TendLane } from "./lanes/tend/TendLane";
@@ -605,6 +606,13 @@ export function App() {
             <nav class="pane-tabs" aria-label="Dashboard panes">
               <button
                 type="button"
+                class={pane === "home" ? "active" : ""}
+                onClick={() => selectPane("home")}
+              >
+                Home
+              </button>
+              <button
+                type="button"
                 class={pane === "improve" ? "active" : ""}
                 onClick={() => selectPane("improve")}
               >
@@ -726,6 +734,17 @@ export function App() {
         </aside>
       ) : null}
 
+      {pane === "home" ? (
+        // Home owns its own cross-topic `view="attention"` read, so it takes
+        // no `status`/`topic` from the app poll — only the client, the vault
+        // it reads across, and the router callback every other lane is
+        // forbidden to have.
+        <HomeLane
+          client={client}
+          vault={resolvedVaultName}
+          onOpenLane={selectPane}
+        />
+      ) : null}
       {pane === "improve" ? (
         <ImproveLane
           client={client}

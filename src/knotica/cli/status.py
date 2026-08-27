@@ -87,8 +87,11 @@ def run(args: argparse.Namespace) -> int:
 
     vault = diagnosis.vault
     store = LocalFSStore(vault.path)
+    # `--nudge` reads the cheap cross-topic inbox projection; the table/`--json`
+    # views keep the full `summary` payload they have always rendered from.
+    view = "attention" if args.nudge else "summary"
     try:
-        payload = gather_wiki_status(store, vault.path, topic=args.topic or "")
+        payload = gather_wiki_status(store, vault.path, topic=args.topic or "", view=view)
     except TopicNotFoundError as error:
         console.error(str(error))
         return EXIT_ERROR
@@ -145,11 +148,22 @@ def render_nudge(console: Console, payload: dict[str, Any], vault: ResolvedVault
 
     Leads with the active knowledge base (name + path) so every session states
     which vault is live -- the honest, ground-truth answer to "which KB am I on?"
-    (the nudge only runs once a vault has resolved READY). Then reuses the
-    already-assembled ``topics[].suggestions``/``compile_ready`` and
-    ``totals.notes.drifted`` fields from ``payload`` (the default ``summary``
-    view) -- no new aggregation, just a plain-text rendering for the hook to
-    echo verbatim.
+    (the nudge only runs once a vault has resolved READY). Both callers
+    (``home`` and ``status --nudge``) now request ``view="attention"``, so this
+    reads the per-topic ``suggestions.pending`` / ``suggestions.refused_awaiting_rework``
+    / ``compile_ready`` / ``runner.alive`` fields -- unchanged field names,
+    computed identically in the ``summary`` view too, which is why a
+    ``summary``-shaped payload still renders correctly here.
+
+    Two ``attention``-only fields are read defensively via ``.get`` so a
+    ``summary`` payload (which never computes them) renders without them
+    rather than raising: ``last_lint.stale`` (a staleness line only -- never a
+    re-walked count) and ``drift`` (one unconditional line stating drift is
+    not checked from the CLI -- there is no expand affordance here, so an
+    anchor is never resolved). ``totals.notes.drifted`` -- a ``summary``-only
+    key the ``attention`` payload does not compute -- is likewise read
+    defensively so it silently contributes nothing once both callers have
+    switched over, rather than reading a stale value or raising.
     """
     console.data(f"Active KB: {vault.name} ({vault.path})")
     topics = payload["topics"]
@@ -160,7 +174,8 @@ def render_nudge(console: Console, payload: dict[str, Any], vault: ResolvedVault
     pending = sum(t["suggestions"]["pending"] for t in topics)
     refused = sum(t["suggestions"]["refused_awaiting_rework"] for t in topics)
     compile_ready = sum(1 for t in topics if t["compile_ready"])
-    drifted = payload["totals"]["notes"]["drifted"]
+    running = sum(1 for t in topics if t.get("runner", {}).get("alive"))
+    drifted = payload["totals"].get("notes", {}).get("drifted", 0)
     items = []
     if pending:
         items.append(f"{pending} pending suggestion(s)")
@@ -168,10 +183,21 @@ def render_nudge(console: Console, payload: dict[str, Any], vault: ResolvedVault
         items.append(f"{refused} refused-awaiting-rework")
     if compile_ready:
         items.append(f"{compile_ready} topic(s) compile-ready")
+    if running:
+        items.append(f"{running} runner(s) running")
     if drifted:
         items.append(f"{drifted} notes drifted")
     if items:
         console.data("Needs attention: " + ", ".join(items))
+
+    last_lint = payload.get("last_lint")
+    if isinstance(last_lint, dict) and last_lint.get("stale"):
+        console.data(
+            f"Last lint recorded {last_lint['date']} is stale ({last_lint['age_days']} day(s) old)."
+        )
+
+    if payload.get("drift") is not None:
+        console.data("Drift: not checked from the CLI -- expand it in the dashboard.")
 
 
 def _render_table(console: Console, payload: dict[str, Any], wide: bool) -> None:
