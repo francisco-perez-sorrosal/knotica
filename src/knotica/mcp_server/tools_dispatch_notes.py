@@ -99,8 +99,8 @@ _NOTES_DISPATCH_DESCRIPTION = (
     "points anywhere; the note itself is kept. Both act only on a *live* anchor "
     "-- one not already superseded or detached -- and reject an out-of-range or "
     "dead index with INVALID_ARGUMENT before any write; reanchor further rejects "
-    "a deleted target page with PAGE_NOT_FOUND, whose fix names `notes "
-    "action=detach` as the fallback. `action=promote` is the only action here "
+    "a deleted target page with PAGE_NOT_FOUND, whose fix names "
+    "`action=detach` as the fallback. `action=promote` is the only action here "
     "that can write outside the notes layer: it grounds a caller-supplied "
     "`question` in the note's currently-live anchored pages (there is no "
     "`pages_used` argument -- grounding is always derived server-side, never "
@@ -119,7 +119,8 @@ _NOTES_DISPATCH_DESCRIPTION = (
     "`mode=apply` performs exactly one commit. `mode=apply` never fires from "
     "detection alone -- only the dashboard operator invokes it, or the user "
     "has explicitly confirmed the change; an unconfirmed detection routes to "
-    "`notes action=list` or an offer instead. `list`/`read`/`drift` are "
+    "`tend action=notes notes_action=list` or an offer instead. "
+    "`list`/`read`/`drift` are "
     "read-only: no commits, no lock. Pass vault to select a configured vault."
 )
 

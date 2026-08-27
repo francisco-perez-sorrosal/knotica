@@ -30,7 +30,8 @@ so gather the choices here, then drive the deterministic `knotica init` CLI.
      (topic `agentic-systems`) or `query` with the AWM prove question — see
      `docs/CLAUDE_DESKTOP.md` in the repo.
    - **Optional (headless `query` / compile):** Desktop does not inherit shell env.
-     To use MCP `query`, `compile action=run`, or `datasets action=bootstrap` from
+     To use MCP `query`, `improve action=compile compile_action=run`, or
+     `improve action=datasets datasets_action=bootstrap` from
      Chat, add `CLAUDE_CODE_OAUTH_TOKEN` (preferred; run `claude setup-token` from
      Claude Code) or `ANTHROPIC_API_KEY` to `mcpServers.knotica.env` in Desktop
      config — see `docs/CLAUDE_DESKTOP.md` § Headless LLM credentials. Ingest and

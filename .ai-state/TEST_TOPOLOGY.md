@@ -461,6 +461,7 @@ selectors:
       - tests/test_file_size_ratchet.py
       - tests/test_http_dashboard.py
       - tests/test_lane_dispatchers.py
+      - tests/test_lane_rename_invariants.py
       - tests/test_loop_dispatch_cadence_run_eval.py
       - tests/test_loop_dispatch_run_once.py
       - tests/test_mcp_app_ui.py
@@ -892,6 +893,7 @@ selectors:
     arg:
       - tests/test_file_size_ratchet.py
       - tests/test_hooks_session_start.py
+      - tests/test_lane_rename_invariants.py
       - tests/test_packaging_evals_extra.py
       - tests/test_plugin_manifest.py
       - tests/test_referential_integrity_gate.py

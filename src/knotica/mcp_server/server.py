@@ -7,10 +7,17 @@ tool resolves config lazily per call and returns ``NOT_CONFIGURED`` when the
 vault is absent. The CLI (`knotica mcp`) imports :data:`mcp` (or calls
 :func:`build_server`) to run the stdio transport.
 
-The full surface is wired here: read tools, write tools, dashboard status
-tools, the MCP-App ``ui://`` dashboard mount, the operation-guide tool,
-resources, and prompts all register onto the one instance through
-:func:`build_server`, each a pure registration that touches no vault at startup.
+The full surface is wired here: the Tier-1 conversational tools, the two
+unlaned Tier-2 tools, the six process-lane dispatchers, the MCP-App ``ui://``
+dashboard mount, resources, and prompts all register onto the one instance
+through :func:`build_server`, each a pure registration that touches no vault at
+startup.
+
+**A tool module registered here is a tool module the surface publishes.** The
+operator-tier verbs are not: their modules register onto the lane dispatchers'
+handler capture instead (see ``tools_dispatch_lane_common.py``), which is why
+they are absent from the imports below despite still being callable as
+``<lane> action=<verb>``.
 
 Server ``instructions`` are the only router on skill-less clients (e.g. Claude
 Desktop, which surfaces neither skills nor MCP prompts). They carry a detection
@@ -26,30 +33,19 @@ from knotica.mcp_server.prompts import register_prompts
 from knotica.mcp_server.recording_server import RecordingServer
 from knotica.mcp_server.resources import register_resources
 from knotica.mcp_server.tools_dispatch_answer import register_dispatch_answer_tools
-from knotica.mcp_server.tools_dispatch_arena import register_dispatch_arena_tools
-from knotica.mcp_server.tools_dispatch_branches import register_dispatch_branches_tools
-from knotica.mcp_server.tools_dispatch_compile import register_dispatch_compile_tools
-from knotica.mcp_server.tools_dispatch_datasets import register_dispatch_datasets_tools
 from knotica.mcp_server.tools_dispatch_fill import register_dispatch_fill_tools
-from knotica.mcp_server.tools_dispatch_golden import register_dispatch_golden_tools
 from knotica.mcp_server.tools_dispatch_home import register_dispatch_home_tools
 from knotica.mcp_server.tools_dispatch_improve import register_dispatch_improve_tools
 from knotica.mcp_server.tools_dispatch_learn import register_dispatch_learn_tools
-from knotica.mcp_server.tools_dispatch_loop import register_dispatch_loop_tools
-from knotica.mcp_server.tools_dispatch_notes import register_dispatch_notes_tools
 from knotica.mcp_server.tools_dispatch_tend import register_dispatch_tend_tools
 from knotica.mcp_server.tools_dispatch_vault import register_dispatch_vault_tools
-from knotica.mcp_server.tools_dispatch_vault_health import register_dispatch_vault_health_tools
 from knotica.mcp_server.tools_gaps import register_gaps_tools
 from knotica.mcp_server.tools_guide import register_guide_tools
 from knotica.mcp_server.tools_ingest import register_ingest_tools
 from knotica.mcp_server.tools_notes import register_notes_tools
-from knotica.mcp_server.tools_prompt_diff import register_prompt_diff_tools
 from knotica.mcp_server.tools_query import register_query_tools
 from knotica.mcp_server.tools_read import register_read_tools
-from knotica.mcp_server.tools_source_ingest import register_source_ingest_tools
 from knotica.mcp_server.tools_status import register_status_tools
-from knotica.mcp_server.tools_suggestions import register_suggestions_tools
 from knotica.mcp_server.tools_write import register_write_tools
 
 #: Server display name (the client sees this in ``initialize``).
@@ -107,37 +103,29 @@ def _build_server(*, stateless_http: bool = False) -> FastMCP:
         instructions=_INSTRUCTIONS,
         stateless_http=stateless_http,
     )
+    # Tier 1 -- the thirteen conversational tools the client-as-brain calls
+    # mid-turn. They keep their flat names and flat shape; a lane prefix on a
+    # multi-lane verb would state something false.
     register_read_tools(mcp)
     register_write_tools(mcp)
     register_query_tools(mcp)
-    register_prompt_diff_tools(mcp)
     register_status_tools(mcp)
-    register_suggestions_tools(mcp)
     register_gaps_tools(mcp)
-    register_source_ingest_tools(mcp)
     register_ingest_tools(mcp)
     register_notes_tools(mcp)
-    # Operator long-tail two-tier surface: action-parameterized dispatchers.
-    register_dispatch_loop_tools(mcp)
-    register_dispatch_branches_tools(mcp)
-    register_dispatch_compile_tools(mcp)
-    register_dispatch_datasets_tools(mcp)
-    register_dispatch_arena_tools(mcp)
-    register_dispatch_notes_tools(mcp)
-    register_dispatch_golden_tools(mcp)
+    register_guide_tools(mcp)
+    # Tier 2, unlaned: neither advances a lane stage.
     register_dispatch_vault_tools(mcp)
-    register_dispatch_vault_health_tools(mcp)
-    # The six process lanes, registered ALONGSIDE the flat surface above rather
-    # than in place of it: the lane rename adds before it removes, so no
-    # intermediate state of this branch has a half-renamed surface.
+    register_dashboard_app(mcp)
+    # The six process lanes. Every operator-tier verb reaches the surface
+    # through one of these and nowhere else -- the modules that own those verbs
+    # are registered onto the lane dispatchers' handler capture, not here.
     register_dispatch_home_tools(mcp)
     register_dispatch_learn_tools(mcp)
     register_dispatch_answer_tools(mcp)
     register_dispatch_improve_tools(mcp)
     register_dispatch_fill_tools(mcp)
     register_dispatch_tend_tools(mcp)
-    register_dashboard_app(mcp)
-    register_guide_tools(mcp)
     register_resources(mcp)
     register_prompts(mcp)
     return mcp

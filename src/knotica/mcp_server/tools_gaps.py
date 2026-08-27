@@ -53,7 +53,7 @@ from knotica.mcp_server.vault_ctx import with_resolved_vault
 from knotica.search.cursor import Cursor, InvalidCursorError, decode_cursor, encode_cursor
 from knotica.store import VaultStore
 
-__all__ = ["register_gaps_tools"]
+__all__ = ["register_gaps_lane_tools", "register_gaps_tools"]
 
 ToolResult = CallToolResult
 
@@ -126,7 +126,7 @@ _DISCOVER_DESCRIPTION = (
 
 
 def register_gaps_tools(mcp: FastMCP) -> None:
-    """Register ``gap_report``, ``gaps_read`` and ``gapfill_discover`` on ``mcp``."""
+    """Register ``gap_report`` on ``mcp``."""
 
     @mcp.tool(name="gap_report", description=_REPORT_DESCRIPTION)
     def gap_report(
@@ -147,6 +147,18 @@ def register_gaps_tools(mcp: FastMCP) -> None:
                 reference_pages=reference_pages,
             ),
         )
+
+
+def register_gaps_lane_tools(mcp: FastMCP) -> None:
+    """Register ``gaps_read`` and ``gapfill_discover``, reachable only through a lane.
+
+    Split from :func:`register_gaps_tools` because the published surface no
+    longer carries them: ``fill action=gaps_read`` and
+    ``fill action=gapfill_discover`` are the ways in. The registrations still
+    exist because that is the seam the lane dispatchers collect their handlers
+    through -- a lane routes to *these* function objects, not to copies of
+    them. See ``tools_dispatch_lane_common.py``.
+    """
 
     @mcp.tool(name="gaps_read", description=_GAPS_READ_DESCRIPTION)
     def gaps_read(

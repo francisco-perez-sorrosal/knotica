@@ -43,6 +43,7 @@ from support.dispatch import (
     TOPIC,
     build_dispatch_server,
     build_full_server,
+    build_verb_server,
     call_tool,
     configure_default_vault,
     fresh_vault,
@@ -361,7 +362,7 @@ def test_lane_dispatcher_action_matches_the_flat_tool_it_will_replace(
     if not spec.mutating:
         if spec.seed is not None:
             spec.seed(template_vault)
-        old = payload_of(call_tool(build_full_server(), verb, dict(spec.kwargs)))
+        old = payload_of(call_tool(build_verb_server(), verb, dict(spec.kwargs)))
         new = payload_of(
             call_tool(_lane_dispatch_server(lane), lane, _lane_call_kwargs(verb, spec.kwargs))
         )
@@ -377,7 +378,7 @@ def test_lane_dispatcher_action_matches_the_flat_tool_it_will_replace(
         spec.seed(vault_b)
 
     configure_default_vault(monkeypatch, tmp_path, f"{lane}-{verb}-a", vault_a)
-    old = payload_of(call_tool(build_full_server(), verb, dict(spec.kwargs)))
+    old = payload_of(call_tool(build_verb_server(), verb, dict(spec.kwargs)))
 
     configure_default_vault(monkeypatch, tmp_path, f"{lane}-{verb}-b", vault_b)
     new = payload_of(
@@ -449,16 +450,27 @@ def test_tend_action_table_is_derived_from_lane_membership_not_hand_maintained(
 
 
 # ---------------------------------------------------------------------------
-# Registration shape: additive, alongside the still-live flat surface.
+# Registration shape: six lanes, and nothing they absorbed.
 # ---------------------------------------------------------------------------
 
 
-def test_server_registers_all_six_lane_dispatchers_additively_at_41_tools() -> None:
-    names = list_tool_names(build_full_server())
+def test_server_registers_all_six_lane_dispatchers_and_none_of_the_verbs_they_absorbed() -> None:
+    """The lanes are registered, and the verbs they wrap are not.
+
+    The additive phase (lanes alongside the flat surface, 41 registrations) is
+    over: the operator-tier verbs are reachable only as lane actions now, so
+    the same assertion that pinned the additive count pins the removal instead.
+    `test_server_tool_surface.py` carries the ceiling; this one carries the
+    membership half — every absorbed verb gone, every lane present.
+    """
+    names = set(list_tool_names(build_full_server()))
     for lane in ("home", "learn", "answer", "improve", "fill", "tend"):
         assert lane in names, f"lane dispatcher {lane!r} not registered"
-    assert len(names) == 41, (
-        "the six lane dispatchers register on top of the 35 flat/topical "
-        "registrations without removing any (the flat-tool removal lands "
-        f"separately); got {len(names)}"
+    absorbed = {verb for verb, _discriminator, _lane in _ABSORBED_LANE_PAIRS}
+    assert not (names & absorbed), (
+        f"verb(s) a lane absorbed are still registered flat: {sorted(names & absorbed)}"
+    )
+    assert len(names) == 21, (
+        "the published surface is the 13 Tier-1 conversational tools, the two "
+        f"unlaned Tier-2 tools and the six lanes; got {len(names)}: {sorted(names)}"
     )

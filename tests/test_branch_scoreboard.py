@@ -322,15 +322,12 @@ def test_loop_promote_resolves_loop_candidate(template_vault: Path) -> None:
     assert dry["branch"] == result_branch
 
 
-def test_mcp_branch_scoreboard_registered() -> None:
-    """`branch_scoreboard`/`loop_promote`/`branch_promote`/`branch_delete` were
-    fully retired, not deprecated; the `branches` dispatcher is the sole
-    registration to check for now."""
-    from knotica.mcp_server.server import build_server
-
-    mcp = build_server()
-    names = {tool.name for tool in mcp._tool_manager.list_tools()}  # noqa: SLF001
-    assert "branches" in names
+# Registration-existence assertions for the verbs the lanes absorbed were
+# removed with the flat registrations themselves. What replaced them is
+# stronger and lives in one place: `test_lane_rename_invariants.py` proves
+# no absorbed name is registered under any alias, `test_lane_dispatchers.py`
+# proves every declared verb is reachable as a lane action with an identical
+# payload, and `test_server_tool_surface.py` pins the surface ceiling.
 
 
 def test_branch_delete_dry_run_and_apply(template_vault: Path) -> None:

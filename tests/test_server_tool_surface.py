@@ -39,6 +39,10 @@ from support.dispatch import TOPIC, build_full_server, call_tool, list_tools, pa
 
 SRC_ROOT = Path(__file__).resolve().parent.parent / "src" / "knotica" / "mcp_server"
 
+#: Every action dispatcher whose reachability this module proves end-to-end.
+#: Eight of the nine topical dispatchers are no longer registered — the lanes
+#: absorbed them — so the proof routes through the lane that now carries each
+#: verb. `vault` is unlaned and still flat, so it is called directly.
 DISPATCHER_NAMES = (
     "arena",
     "branches",
@@ -51,23 +55,17 @@ DISPATCHER_NAMES = (
     "vault_health",
 )
 
-#: The 22 conversational-core tools + `open_dashboard` -- neither a
-#: dispatcher nor a standalone diagnostic. Derived by elimination from the
-#: pre-lane surface: 35 tools, minus the 9 topical dispatchers, minus 4
-#: standalone diagnostics not
-#: wrapped by any dispatcher (`baseline_probe`, `ingest_activity_read`,
-#: `metrics_read`, `prompt_diff`), leaves these 22. `note_capture` joins this
-#: set -- per INTERFACE_DESIGN.md §1, it is deliberately a flat conversational
-#: tool (capture friction is fatal to the feature), not a `notes` action.
+#: The thirteen Tier-1 conversational tools plus `open_dashboard` — the whole
+#: flat surface that survives the lane re-cut. Tier 1 keeps its exact names
+#: because each of these is called mid-turn by the client-as-brain and most are
+#: multi-lane, so a lane prefix would state something false; `open_dashboard` is
+#: unlaned Tier 2. `note_capture` is here rather than a `notes` action because
+#: capture friction is fatal to the feature (INTERFACE_DESIGN.md §1).
 CORE_AND_DASHBOARD = frozenset(
     {
-        "create_topic",
         "curate_example",
         "gap_report",
-        "gapfill_discover",
-        "gaps_read",
         "ingest_progress",
-        "lint_check",
         "list_links",
         "list_topics",
         "note_capture",
@@ -76,54 +74,93 @@ CORE_AND_DASHBOARD = frozenset(
         "read_page",
         "read_protocol",
         "search",
-        "source_ingest_open",
-        "source_ingest_submit",
         "store_source",
-        "suggestions_read",
-        "suggestions_review",
         "wiki_status",
         "write_page",
     }
 )
 
-#: One representative action per dispatcher (args, expected `error.code` or
-#: `None` for a plain success). Read-only where the domain has one; `loop`
-#: has no `mode=dry-run` gate on any action, so `baseline_policy` set to its
-#: already-idempotent value is the lightest available mutation. `compile`
-#: deliberately calls `action=run`, not `action=status` -- `status` crashes
-#: identically on an idle topic (a pre-existing bug in
-#: `compile_status_payload`, already characterized in
-#: `test_dispatch_compile.py`); `run` on a fresh vault hits the
-#: deterministic, side-effect-free "no trainset" `NOT_CONFIGURED` floor
-#: instead, which is a clean reachability proof rather than a
-#: bug-reproduction one. `golden` load on a fresh vault (no golden set
+#: One representative call per dispatcher: the tool to call, its arguments, and
+#: the expected `error.code` (or `None` for a plain success). Read-only where
+#: the domain has one; `loop` has no `mode=dry-run` gate on any action, so
+#: `baseline_policy` set to its already-idempotent value is the lightest
+#: available mutation. `compile` deliberately calls `run`, not `status` --
+#: `status` crashes identically on an idle topic (a pre-existing bug in
+#: `compile_status_payload`, already characterized in `test_dispatch_compile.py`);
+#: `run` on a fresh vault hits the deterministic, side-effect-free "no trainset"
+#: `NOT_CONFIGURED` floor instead, which is a clean reachability proof rather
+#: than a bug-reproduction one. `golden` load on a fresh vault (no golden set
 #: bootstrapped yet) deterministically returns `PAGE_NOT_FOUND` -- still a
-#: well-formed structured envelope, so still a clean reachability proof.
-REPRESENTATIVE_CALLS: dict[str, tuple[dict[str, Any], str | None]] = {
-    "arena": ({"action": "status", "topic": TOPIC}, None),
-    "branches": ({"action": "scoreboard", "topic": TOPIC}, None),
-    "compile": ({"action": "run", "topic": TOPIC}, "NOT_CONFIGURED"),
-    "datasets": ({"action": "inventory", "topic": TOPIC}, None),
-    "golden": ({"action": "load", "topic": TOPIC}, "PAGE_NOT_FOUND"),
-    "loop": ({"action": "baseline_policy", "topic": TOPIC, "policy": "latest"}, None),
-    "notes": ({"action": "list", "topic": TOPIC}, None),
-    "vault": ({"action": "status"}, None),
-    "vault_health": ({"action": "doctor", "topic": TOPIC}, None),
+#: well-formed structured envelope, so still a clean reachability proof. A verb
+#: that owns its own `action` parameter takes it as `<verb>_action` inside a
+#: lane, because the lane's own selector is already called `action`.
+REPRESENTATIVE_CALLS: dict[str, tuple[str, dict[str, Any], str | None]] = {
+    "arena": ("improve", {"action": "arena", "arena_action": "status", "topic": TOPIC}, None),
+    "branches": (
+        "improve",
+        {"action": "branches", "branches_action": "scoreboard", "topic": TOPIC},
+        None,
+    ),
+    "compile": (
+        "improve",
+        {"action": "compile", "compile_action": "run", "topic": TOPIC},
+        "NOT_CONFIGURED",
+    ),
+    "datasets": (
+        "improve",
+        {"action": "datasets", "datasets_action": "inventory", "topic": TOPIC},
+        None,
+    ),
+    "golden": (
+        "improve",
+        {"action": "golden", "golden_action": "load", "topic": TOPIC},
+        "PAGE_NOT_FOUND",
+    ),
+    "loop": (
+        "improve",
+        {
+            "action": "loop",
+            "loop_action": "baseline_policy",
+            "topic": TOPIC,
+            "policy": "latest",
+        },
+        None,
+    ),
+    "notes": ("tend", {"action": "notes", "notes_action": "list", "topic": TOPIC}, None),
+    "vault": ("vault", {"action": "status"}, None),
+    "vault_health": (
+        "tend",
+        {"action": "vault_health", "vault_health_action": "doctor", "topic": TOPIC},
+        None,
+    ),
 }
 
 
-#: The surface is deliberately, temporarily larger than its target while the
-#: lane rename lands: the six lane dispatchers are registered ALONGSIDE the flat
-#: surface they will absorb, so no intermediate commit is half-renamed. The
-#: removal step drops this back to at most 22 and moves this integer with it.
-EXPECTED_TOOL_COUNT = 41
+#: The ceiling the published surface must not exceed once the operator-tier
+#: flat tools are removed: the Tier-1 conversational core, the two unlaned
+#: Tier-2 tools, and the six lane dispatchers (see
+#: `tests/test_lane_rename_invariants.py` for the by-name preservation
+#: proofs this ceiling summarizes). RED until that removal lands: today's
+#: surface additively carries the six lane dispatchers ALONGSIDE the flat
+#: tools they will absorb, so no intermediate commit is half-renamed.
+MAX_TOOL_COUNT_AFTER_LANE_RENAME = 22
 
 
 def test_tool_surface_has_no_duplicate_names(vault_config: Path, template_vault: Path) -> None:
     del vault_config, template_vault
     names = [tool.name for tool in list_tools(build_full_server())]
-    assert len(names) == EXPECTED_TOOL_COUNT
-    assert len(set(names)) == EXPECTED_TOOL_COUNT
+    assert len(names) == len(set(names)), f"duplicate tool name(s) registered: {names}"
+
+
+def test_tool_surface_shrinks_to_the_tiered_ceiling_once_operator_tools_are_removed(
+    vault_config: Path, template_vault: Path
+) -> None:
+    del vault_config, template_vault
+    names = [tool.name for tool in list_tools(build_full_server())]
+    assert len(names) <= MAX_TOOL_COUNT_AFTER_LANE_RENAME, (
+        f"expected at most {MAX_TOOL_COUNT_AFTER_LANE_RENAME} registrations after the "
+        f"operator-tool removal, got {len(names)}: {sorted(names)}"
+    )
 
 
 def test_no_tool_carries_a_deprecation_suffix(vault_config: Path, template_vault: Path) -> None:
@@ -139,8 +176,8 @@ def test_dispatcher_reachable_end_to_end(
     dispatcher: str, vault_config: Path, template_vault: Path
 ) -> None:
     del vault_config, template_vault
-    args, expected_error_code = REPRESENTATIVE_CALLS[dispatcher]
-    result = call_tool(build_full_server(), dispatcher, args)
+    tool, args, expected_error_code = REPRESENTATIVE_CALLS[dispatcher]
+    result = call_tool(build_full_server(), tool, args)
     payload = payload_of(result)
     if expected_error_code is None:
         assert "error" not in payload, payload

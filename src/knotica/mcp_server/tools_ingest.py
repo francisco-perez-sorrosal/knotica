@@ -17,7 +17,7 @@ from knotica.core.ingest_activity import append_ingest_event, read_ingest_activi
 from knotica.mcp_server.vault_ctx import with_resolved_vault
 from knotica.store import VaultStore
 
-__all__ = ["register_ingest_tools"]
+__all__ = ["register_ingest_lane_tools", "register_ingest_tools"]
 
 ToolResult = CallToolResult
 
@@ -40,7 +40,7 @@ _READ_DESCRIPTION = (
 
 
 def register_ingest_tools(mcp: FastMCP) -> None:
-    """Register ingest activity tools on ``mcp``."""
+    """Register ``ingest_progress`` on ``mcp``."""
 
     @mcp.tool(name="ingest_progress", description=_PROGRESS_DESCRIPTION)
     def ingest_progress(
@@ -67,6 +67,18 @@ def register_ingest_tools(mcp: FastMCP) -> None:
                 citation_key=citation_key,
             ),
         )
+
+
+def register_ingest_lane_tools(mcp: FastMCP) -> None:
+    """Register ``ingest_activity_read``, which is reachable only through a lane.
+
+    Split from :func:`register_ingest_tools` because the published surface no
+    longer carries it: ``learn action=ingest_activity_read`` and
+    ``fill action=ingest_activity_read`` are the ways in. The registration
+    still exists because that is the seam the lane dispatchers collect their
+    handlers through -- a lane routes to *this* function object, not to a copy
+    of it. See ``tools_dispatch_lane_common.py``.
+    """
 
     @mcp.tool(name="ingest_activity_read", description=_READ_DESCRIPTION)
     def ingest_activity_read(

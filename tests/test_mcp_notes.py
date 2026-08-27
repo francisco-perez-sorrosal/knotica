@@ -59,7 +59,7 @@ from knotica.search.cursor import decode_cursor
 from knotica.store import LocalFSStore
 from support.dispatch import (
     TOPIC,
-    build_full_server,
+    build_verb_server,
     call_tool,
     list_tools,
     payload_of,
@@ -143,7 +143,7 @@ def test_note_capture_schema_requires_only_topic_and_note() -> None:
     """A capture must be callable with the user's words and nothing else --
     every other field defaults so the one-shot handshake never blocks on a
     missing argument."""
-    schema = tool_schema(build_full_server(), "note_capture")
+    schema = tool_schema(build_verb_server(), "note_capture")
     assert set(schema.get("required", [])) == {"topic", "note"}
     props = schema["properties"]
     assert props["intent"]["default"] == "reflection"
@@ -164,7 +164,7 @@ def test_note_capture_happy_path_applies_defaults_and_returns_the_wire_envelope(
     §2 describes -- crucially a pre-composed `placement` sentence, not raw
     data the caller must assemble."""
     del template_vault
-    server = build_full_server()
+    server = build_verb_server()
     body = assert_success(capture(server, TOPIC, "just Goodhart with extra steps."))
 
     assert body["topic"] == TOPIC
@@ -202,7 +202,7 @@ def test_note_capture_degraded_anchor_is_a_success_envelope_with_a_warning(
     (and, through it, the user) that a note it actually saved was lost --
     the feature's worst failure mode dressed as a warning."""
     del template_vault
-    server = build_full_server()
+    server = build_verb_server()
     result = capture(
         server,
         TOPIC,
@@ -252,7 +252,7 @@ def test_note_capture_alternatives_carry_page_and_heading_for_each_matched_page(
     page_b = f"{TOPIC}/wire-multi-match-b.md"
     _seed_capture_page(template_vault, page_a, f"# Reward Divergence\n\n{quote}.\n", "test: seed A")
     _seed_capture_page(template_vault, page_b, f"# Goal Misalignment\n\n{quote}.\n", "test: seed B")
-    server = build_full_server()
+    server = build_verb_server()
 
     result = capture(
         server,
@@ -289,7 +289,7 @@ def test_note_capture_alternatives_entries_never_carry_an_overlap_key(
     page_b = f"{TOPIC}/overlap-guard-b.md"
     _seed_capture_page(template_vault, page_a, f"# Gaming\n\n{quote}.\n", "test: seed A")
     _seed_capture_page(template_vault, page_b, f"# Proxy Goals\n\n{quote}.\n", "test: seed B")
-    server = build_full_server()
+    server = build_verb_server()
 
     body = assert_success(
         capture(
@@ -320,7 +320,7 @@ def test_note_capture_alternatives_is_empty_when_exactly_one_claimed_page_matche
     _seed_capture_page(
         template_vault, page_b, "# Unrelated\n\nNothing here matches.\n", "test: seed B"
     )
-    server = build_full_server()
+    server = build_verb_server()
 
     body = assert_success(
         capture(
@@ -339,7 +339,7 @@ def test_note_capture_alternatives_is_empty_when_no_quote_is_supplied(
     vault_config: Path, template_vault: Path
 ) -> None:
     del template_vault
-    server = build_full_server()
+    server = build_verb_server()
 
     body = assert_success(capture(server, TOPIC, "a purely topical reflection"))
 
@@ -355,7 +355,7 @@ def test_notes_list_succeeds_as_a_phase_one_action(
     vault_config: Path, template_vault: Path
 ) -> None:
     del template_vault
-    server = build_full_server()
+    server = build_verb_server()
     assert_success(notes_call(server, "list", topic=TOPIC))
 
 
@@ -372,7 +372,7 @@ def test_notes_dispatcher_accepts_exactly_the_seven_designed_actions(
     del template_vault
     assert _ACTIONS == ALL_NOTES_ACTIONS
 
-    server = build_full_server()
+    server = build_verb_server()
     err = error_of(notes_call(server, "not-a-real-action", topic=TOPIC, note_id="anything"))
     assert_error_shape(err, "INVALID_ARGUMENT")
 
@@ -386,7 +386,7 @@ def test_notes_list_defaults_to_empty_with_status_counts_including_fuzzy_key(
     vault_config: Path, template_vault: Path
 ) -> None:
     del template_vault
-    server = build_full_server()
+    server = build_verb_server()
     body = assert_success(notes_call(server, "list", topic=TOPIC))
 
     assert body["notes"] == []
@@ -404,7 +404,7 @@ def test_notes_list_status_filter_accepts_fuzzy(vault_config: Path, template_vau
     """The wire-level `status` filter must accept `fuzzy` -- Phase 1's argument
     validation rejected it as an unrecognized value, which is now wrong."""
     del template_vault
-    server = build_full_server()
+    server = build_verb_server()
     body = assert_success(notes_call(server, "list", topic=TOPIC, status="fuzzy"))
     assert body["status_filter"] == "fuzzy"
 
@@ -415,7 +415,7 @@ def test_notes_list_status_filter_rejects_an_unknown_value(
     """A status the resolver has never produced must still fail loudly, with
     the same typed shape `fuzzy`'s addition did not disturb."""
     del template_vault
-    server = build_full_server()
+    server = build_verb_server()
     err = error_of(notes_call(server, "list", topic=TOPIC, status="bogus"))
     assert_error_shape(err, "INVALID_ARGUMENT")
 
@@ -426,7 +426,7 @@ def test_notes_list_status_filter_accepts_unanchored_and_counts_a_quote_less_cap
     """A quote-less, page-less capture never pointed at anything, so it must
     bucket -- and be filterable and countable -- as `unanchored`, never
     `orphaned` (which would claim something was lost)."""
-    server = build_full_server()
+    server = build_verb_server()
     captured = assert_success(capture(server, TOPIC, "a purely topical reflection"))
 
     unanchored_only = assert_success(notes_call(server, "list", topic=TOPIC, status="unanchored"))
@@ -442,7 +442,7 @@ def test_notes_list_status_filter_accepts_unanchored_and_counts_a_quote_less_cap
 def test_notes_list_intent_filter_excludes_notes_of_a_different_intent(
     vault_config: Path, template_vault: Path
 ) -> None:
-    server = build_full_server()
+    server = build_verb_server()
     captured = assert_success(
         capture(server, TOPIC, "a reflection worth keeping", intent="reflection")
     )
@@ -463,7 +463,7 @@ def test_notes_list_intent_filter_excludes_notes_of_a_different_intent(
 def test_notes_read_returns_the_note_just_captured(
     vault_config: Path, template_vault: Path
 ) -> None:
-    server = build_full_server()
+    server = build_verb_server()
     captured = assert_success(capture(server, TOPIC, "a note worth reading back"))
 
     body = assert_success(notes_call(server, "read", topic=TOPIC, note_id=captured["note_id"]))
@@ -475,7 +475,7 @@ def test_notes_read_unknown_note_id_is_note_not_found(
     vault_config: Path, template_vault: Path
 ) -> None:
     del template_vault
-    server = build_full_server()
+    server = build_verb_server()
     err = error_of(
         notes_call(server, "read", topic=TOPIC, note_id="20260101-000000-does-not-exist")
     )
@@ -590,7 +590,7 @@ def test_dispatcher_drifted_count_agrees_with_wiki_status_across_a_mixed_bucket(
         ),
     )
 
-    server = build_full_server()
+    server = build_verb_server()
     dispatcher_body = assert_success(notes_call(server, "list", topic=TOPIC))
     status_payload = gather_wiki_status(LocalFSStore(template_vault), template_vault, topic=TOPIC)
 
@@ -615,7 +615,7 @@ def test_notes_list_rejects_a_nonexistent_topic_as_topic_not_found(
     """A mistyped topic must fail loudly, never return a confident empty
     listing -- `note_capture` already rejects the identical input this way."""
     del template_vault
-    server = build_full_server()
+    server = build_verb_server()
     err = error_of(notes_call(server, "list", topic="no-such-topic"))
     assert_error_shape(err, "TOPIC_NOT_FOUND")
 
@@ -625,7 +625,7 @@ def test_notes_list_rejects_a_dot_segment_topic_as_topic_not_found(
 ) -> None:
     """`..` must never resolve to the vault root and walk every page in it."""
     del template_vault
-    server = build_full_server()
+    server = build_verb_server()
     err = error_of(notes_call(server, "list", topic=".."))
     assert_error_shape(err, "TOPIC_NOT_FOUND")
 
@@ -653,7 +653,7 @@ def test_notes_list_intent_counts_carries_an_other_bucket_for_an_unknown_intent(
 ) -> None:
     """A hand-typed note with an out-of-enum intent must stay counted and
     filterable -- never silently dropped from `intent_counts`."""
-    server = build_full_server()
+    server = build_verb_server()
     captured = assert_success(capture(server, TOPIC, "a note with a known intent"))
     hand_authored = _forged_note("20260101-080000-musing", intent="musing", anchors=())
     _write_forged_note(template_vault, "20260101-080000-musing", hand_authored)
@@ -685,7 +685,7 @@ def test_notes_read_surfaces_skipped_anchor_count_for_a_malformed_bullet(
     that their bullet did not parse."""
     note_id = "20260705-133045-half-good-half-broken"
     _seed_fixture_note(template_vault, note_id, "broken_anchor.md")
-    server = build_full_server()
+    server = build_verb_server()
 
     body = assert_success(notes_call(server, "read", topic=TOPIC, note_id=note_id))
 
@@ -997,7 +997,7 @@ def test_drift_queue_holds_only_fuzzy_orphaned_and_anchor_invalid_notes(
     orphaned ∪ anchor-invalid`. `exact` and `shifted` self-healed and
     `unanchored` never pointed at anything -- none of the three belong in a
     human's review queue."""
-    server = build_full_server()
+    server = build_verb_server()
     exact_id = "20260101-090000-drift-exact-note"
     shifted_id = "20260101-090100-drift-shifted-note"
     fuzzy_id = "20260101-090200-drift-fuzzy-note"
@@ -1039,7 +1039,7 @@ def test_drift_total_count_includes_anchor_invalid_while_wiki_status_drifted_exc
     invalid_id = "20260101-090100-count-invalid-note"
     _seed_total_orphan_note(template_vault, orphan_id)
     _seed_anchor_invalid_note(template_vault, invalid_id)
-    server = build_full_server()
+    server = build_verb_server()
 
     body = assert_success(notes_call(server, "drift", topic=TOPIC))
     status_payload = gather_wiki_status(LocalFSStore(template_vault), template_vault, topic=TOPIC)
@@ -1061,7 +1061,7 @@ def test_drift_item_pinned_quote_is_always_populated_even_for_a_total_orphan(
     human reviewing the queue always has something to compare against."""
     orphan_id = "20260101-090000-quote-orphan-note"
     quote = _seed_total_orphan_note(template_vault, orphan_id)
-    server = build_full_server()
+    server = build_verb_server()
 
     body = assert_success(notes_call(server, "drift", topic=TOPIC))
 
@@ -1083,7 +1083,7 @@ def test_drift_alternatives_carries_at_least_one_entry_when_overlap_clears_the_f
     strongest case."""
     fuzzy_id = "20260101-090000-alt-fuzzy-note"
     _quote, page, _message = _seed_fuzzy_note(template_vault, fuzzy_id)
-    server = build_full_server()
+    server = build_verb_server()
 
     body = assert_success(notes_call(server, "drift", topic=TOPIC))
 
@@ -1106,7 +1106,7 @@ def test_drift_alternatives_is_empty_when_overlap_falls_below_the_floor(
     padded-out low-confidence guess."""
     orphan_id = "20260101-090000-alt-orphan-note"
     _seed_total_orphan_note(template_vault, orphan_id)
-    server = build_full_server()
+    server = build_verb_server()
 
     body = assert_success(notes_call(server, "drift", topic=TOPIC))
 
@@ -1128,7 +1128,7 @@ def test_drift_reports_no_overlap_when_only_the_heading_survived(
     """
     orphan_id = "20260101-090000-heading-survived-note"
     _seed_surviving_heading_orphan_note(template_vault, orphan_id)
-    server = build_full_server()
+    server = build_verb_server()
 
     body = assert_success(notes_call(server, "drift", topic=TOPIC))
 
@@ -1155,7 +1155,7 @@ def test_drift_anchor_invalid_item_carries_the_raw_quote_and_no_candidate_search
     nothing about the page caused this record's corruption."""
     invalid_id = "20260101-090000-shape-invalid-note"
     quote = _seed_anchor_invalid_note(template_vault, invalid_id)
-    server = build_full_server()
+    server = build_verb_server()
 
     body = assert_success(notes_call(server, "drift", topic=TOPIC))
 
@@ -1189,7 +1189,7 @@ def test_drift_item_carries_rewrite_attribution_for_a_genuinely_reconciled_page(
     pass -- the audit trail a human needs to trust the queue entry."""
     fuzzy_id = "20260101-090000-rewrite-fuzzy-note"
     _quote, _page, reword_message = _seed_fuzzy_note(template_vault, fuzzy_id)
-    server = build_full_server()
+    server = build_verb_server()
 
     body = assert_success(notes_call(server, "drift", topic=TOPIC))
 
@@ -1213,7 +1213,7 @@ def test_drift_pagination_splits_queue_members_across_pages_using_the_shared_cur
     _seed_total_orphan_note(template_vault, orphan_id)
     _seed_fuzzy_note(template_vault, fuzzy_id)
     _seed_anchor_invalid_note(template_vault, invalid_id)
-    server = build_full_server()
+    server = build_verb_server()
 
     first_page = assert_success(notes_call(server, "drift", topic=TOPIC, limit=2))
     assert len(first_page["items"]) == 2
@@ -1244,7 +1244,7 @@ def test_drift_queue_is_empty_when_the_topic_has_no_queue_member_notes(
     vault_config: Path, template_vault: Path
 ) -> None:
     _seed_exact_note(template_vault, "20260101-090000-only-exact-note")
-    server = build_full_server()
+    server = build_verb_server()
 
     body = assert_success(notes_call(server, "drift", topic=TOPIC))
 
@@ -1263,7 +1263,7 @@ def test_drift_never_writes_or_commits(vault_config: Path, template_vault: Path)
     _seed_anchor_invalid_note(template_vault, "20260101-090100-readonly-invalid-note")
     before_sha = git_head_sha(template_vault)
     before_count = git_commit_count(template_vault)
-    server = build_full_server()
+    server = build_verb_server()
 
     assert_success(notes_call(server, "drift", topic=TOPIC))
     assert_success(notes_call(server, "drift", topic=TOPIC, limit=1))
@@ -1334,7 +1334,7 @@ def test_notes_reanchor_dry_run_previews_without_writing(
 ) -> None:
     page = f"{TOPIC}/reanchor-dry-run-original.md"
     quote = "the passage this reanchor dry-run targets"
-    server = build_full_server()
+    server = build_verb_server()
     note_id = _seed_anchored_note(server, template_vault, page, quote)
     new_page = f"{TOPIC}/reanchor-dry-run-new.md"
     _seed_capture_page(
@@ -1366,7 +1366,7 @@ def test_notes_reanchor_dry_run_returns_a_decision_envelope(
 ) -> None:
     page = f"{TOPIC}/reanchor-envelope-original.md"
     quote = "a passage worth confirming through the decision envelope"
-    server = build_full_server()
+    server = build_verb_server()
     note_id = _seed_anchored_note(server, template_vault, page, quote)
     new_page = f"{TOPIC}/reanchor-envelope-new.md"
     _seed_capture_page(
@@ -1394,7 +1394,7 @@ def test_notes_reanchor_apply_makes_exactly_one_commit_and_appends_the_new_ancho
 ) -> None:
     page = f"{TOPIC}/reanchor-apply-original.md"
     quote = "the passage this apply-mode reanchor targets"
-    server = build_full_server()
+    server = build_verb_server()
     note_id = _seed_anchored_note(server, template_vault, page, quote)
     new_page = f"{TOPIC}/reanchor-apply-new.md"
     _seed_capture_page(
@@ -1439,7 +1439,7 @@ def test_notes_reanchor_apply_with_no_page_or_quote_accepts_the_projected_match(
     code path from the explicit-arguments case above."""
     page = f"{TOPIC}/reanchor-accept-projection.md"
     quote = "a passage that has not drifted at all"
-    server = build_full_server()
+    server = build_verb_server()
     note_id = _seed_anchored_note(server, template_vault, page, quote)
     before_commits = git_commit_count(template_vault)
 
@@ -1479,7 +1479,7 @@ def test_notes_reanchor_targeting_one_anchor_leaves_a_different_pages_anchor_unt
         "# Corrected\n\nthe corrected passage on page A.\n",
         "test: seed corrected page",
     )
-    server = build_full_server()
+    server = build_verb_server()
 
     assert_success(
         notes_call(
@@ -1512,7 +1512,7 @@ def test_notes_detach_dry_run_previews_without_writing(
 ) -> None:
     page = f"{TOPIC}/detach-dry-run-target.md"
     quote = "a passage this detach dry-run targets"
-    server = build_full_server()
+    server = build_verb_server()
     note_id = _seed_anchored_note(server, template_vault, page, quote)
     before_sha = git_head_sha(template_vault)
     before_commits = git_commit_count(template_vault)
@@ -1531,7 +1531,7 @@ def test_notes_detach_dry_run_returns_a_decision_envelope(
 ) -> None:
     page = f"{TOPIC}/detach-envelope-target.md"
     quote = "a passage worth confirming a detach through the decision envelope"
-    server = build_full_server()
+    server = build_verb_server()
     note_id = _seed_anchored_note(server, template_vault, page, quote)
 
     body = assert_success(
@@ -1546,7 +1546,7 @@ def test_notes_detach_apply_makes_exactly_one_commit_and_appends_a_terminal_reco
 ) -> None:
     page = f"{TOPIC}/detach-apply-target.md"
     quote = "a passage this apply-mode detach targets"
-    server = build_full_server()
+    server = build_verb_server()
     note_id = _seed_anchored_note(server, template_vault, page, quote)
     before_commits = git_commit_count(template_vault)
 
@@ -1575,7 +1575,7 @@ def test_notes_detach_apply_makes_exactly_one_commit_and_appends_a_terminal_reco
 
 
 def test_notes_dispatcher_schema_mode_defaults_to_dry_run() -> None:
-    schema = tool_schema(build_full_server(), "notes")
+    schema = tool_schema(build_verb_server(), "notes")
     assert schema["properties"]["mode"]["default"] == "dry-run"
 
 
@@ -1592,7 +1592,7 @@ def test_notes_dispatcher_description_states_the_read_offer_guard_once_mutating(
     `_MUTATING_DISPATCHERS` -- that file is out of this step's declared
     scope, so the move is left for whoever wires the actions.)
     """
-    descriptions = {tool.name: (tool.description or "") for tool in list_tools(build_full_server())}
+    descriptions = {tool.name: (tool.description or "") for tool in list_tools(build_verb_server())}
     assert "notes" in descriptions
     description = descriptions["notes"].lower()
     assert "never fires from detection alone" in description, (
@@ -1625,7 +1625,7 @@ def test_notes_reanchor_out_of_range_anchor_index_is_rejected_before_any_write(
 ) -> None:
     page = f"{TOPIC}/reanchor-out-of-range.md"
     quote = "the only passage this note has"
-    server = build_full_server()
+    server = build_verb_server()
     note_id = _seed_anchored_note(server, template_vault, page, quote)
     before_commits = git_commit_count(template_vault)
 
@@ -1657,7 +1657,7 @@ def test_notes_detach_out_of_range_anchor_index_is_rejected_before_any_write(
 ) -> None:
     page = f"{TOPIC}/detach-out-of-range.md"
     quote = "the only passage this note has"
-    server = build_full_server()
+    server = build_verb_server()
     note_id = _seed_anchored_note(server, template_vault, page, quote)
     before_commits = git_commit_count(template_vault)
 
@@ -1681,7 +1681,7 @@ def test_notes_reanchor_an_already_detached_anchor_is_rejected_with_invalid_argu
     re-anchoring it must be rejected before any write."""
     page = f"{TOPIC}/reanchor-after-detach.md"
     quote = "a passage detached before a correction is attempted through the wire"
-    server = build_full_server()
+    server = build_verb_server()
     note_id = _seed_anchored_note(server, template_vault, page, quote)
     detach_result = core_detach(
         LocalFSStore(template_vault), template_vault, VaultVcs(template_vault), TOPIC, note_id, 0
@@ -1721,7 +1721,7 @@ def test_notes_detach_an_already_detached_anchor_is_rejected_with_invalid_argume
 ) -> None:
     page = f"{TOPIC}/detach-twice-through-wire.md"
     quote = "a passage detached, then detached again through the wire"
-    server = build_full_server()
+    server = build_verb_server()
     note_id = _seed_anchored_note(server, template_vault, page, quote)
     detach_result = core_detach(
         LocalFSStore(template_vault), template_vault, VaultVcs(template_vault), TOPIC, note_id, 0
@@ -1745,7 +1745,7 @@ def test_notes_reanchor_unknown_note_id_is_note_not_found(
     vault_config: Path, template_vault: Path
 ) -> None:
     del template_vault
-    server = build_full_server()
+    server = build_verb_server()
     err = error_of(
         notes_call(
             server,
@@ -1765,7 +1765,7 @@ def test_notes_detach_unknown_note_id_is_note_not_found(
     vault_config: Path, template_vault: Path
 ) -> None:
     del template_vault
-    server = build_full_server()
+    server = build_verb_server()
     err = error_of(
         notes_call(
             server,
@@ -1784,7 +1784,7 @@ def test_notes_reanchor_targeting_a_page_that_no_longer_exists_fails_with_page_n
 ) -> None:
     page = f"{TOPIC}/reanchor-page-gone-original.md"
     quote = "the passage before the page vanished"
-    server = build_full_server()
+    server = build_verb_server()
     note_id = _seed_anchored_note(server, template_vault, page, quote)
     missing_page = f"{TOPIC}/reanchor-page-gone-target.md"
     before_commits = git_commit_count(template_vault)
@@ -1816,7 +1816,7 @@ def test_notes_reanchor_page_not_found_fix_text_names_detach_as_the_fallback(
     deleted page can keep the note without an anchor by detaching instead."""
     page = f"{TOPIC}/reanchor-fix-text-original.md"
     quote = "a passage before the page vanishes"
-    server = build_full_server()
+    server = build_verb_server()
     note_id = _seed_anchored_note(server, template_vault, page, quote)
     missing_page = f"{TOPIC}/reanchor-fix-text-missing.md"
 
@@ -1904,7 +1904,7 @@ def test_notes_promote_dry_run_previews_without_writing(
     _write_forged_note(
         template_vault, note_id, _forged_note(note_id, intent="question", anchors=(anchor,))
     )
-    server = build_full_server()
+    server = build_verb_server()
     before_sha = git_head_sha(template_vault)
     before_commits = git_commit_count(template_vault)
 
@@ -1935,7 +1935,7 @@ def test_notes_promote_dry_run_returns_a_decision_envelope(
     _write_forged_note(
         template_vault, note_id, _forged_note(note_id, intent="question", anchors=(anchor,))
     )
-    server = build_full_server()
+    server = build_verb_server()
 
     body = assert_success(
         notes_call(
@@ -1962,7 +1962,7 @@ def test_notes_promote_apply_to_trainset_appends_exactly_one_curated_example(
     _write_forged_note(
         template_vault, note_id, _forged_note(note_id, intent="reflection", anchors=(anchor,))
     )
-    server = build_full_server()
+    server = build_verb_server()
     before_commits = git_commit_count(template_vault)
     question = "Does the grounded claim answer this question?"
 
@@ -2005,7 +2005,7 @@ def test_notes_promote_apply_to_gap_on_an_opted_in_intent_files_a_reported_gap(
     _write_forged_note(
         template_vault, note_id, _forged_note(note_id, intent="dispute", anchors=(anchor,))
     )
-    server = build_full_server()
+    server = build_verb_server()
     before_commits = git_commit_count(template_vault)
     question = "Is the wiki wrong about this passage?"
 
@@ -2051,7 +2051,7 @@ def test_notes_promote_target_golden_always_rejects_with_invalid_argument(
     _write_forged_note(
         template_vault, note_id, _forged_note(note_id, intent="question", anchors=(anchor,))
     )
-    server = build_full_server()
+    server = build_verb_server()
     before_commits = git_commit_count(template_vault)
 
     err = error_of(
@@ -2083,7 +2083,7 @@ def test_notes_promote_target_gap_on_a_reflection_note_is_rejected(
     _write_forged_note(
         template_vault, note_id, _forged_note(note_id, intent="reflection", anchors=(anchor,))
     )
-    server = build_full_server()
+    server = build_verb_server()
     before_commits = git_commit_count(template_vault)
 
     err = error_of(
@@ -2129,7 +2129,7 @@ def test_notes_promote_with_an_explicit_question_uses_it_verbatim(
             anchors=(anchor,),
         ),
     )
-    server = build_full_server()
+    server = build_verb_server()
     explicit_question = "Does explicit `question` win over the note's own body?"
 
     assert_success(
@@ -2173,7 +2173,7 @@ def test_notes_promote_defaults_the_question_from_the_notes_own_text_when_it_alr
         note_id,
         _forged_note(note_id, intent="question", body=note_text, anchors=(anchor,)),
     )
-    server = build_full_server()
+    server = build_verb_server()
 
     assert_success(
         notes_call(
@@ -2206,7 +2206,7 @@ def test_notes_dispatcher_schema_has_no_pages_used_property() -> None:
     live anchors (`core.operations.promote_note._grounding_pages`) -- there
     must be no `pages_used`-shaped parameter a caller could use to inject an
     arbitrary path. A structural guarantee, not merely a validated-away one."""
-    schema = tool_schema(build_full_server(), "notes")
+    schema = tool_schema(build_verb_server(), "notes")
     assert "pages_used" not in schema["properties"]
 
 
@@ -2224,7 +2224,7 @@ def test_notes_promote_a_note_with_no_live_pages_is_rejected(
         note_id,
         _forged_note(note_id, intent="question", anchors=(detached_anchor,)),
     )
-    server = build_full_server()
+    server = build_verb_server()
     before_commits = git_commit_count(template_vault)
 
     err = error_of(
@@ -2257,7 +2257,7 @@ def test_notes_promote_unknown_note_id_is_note_not_found(
     vault_config: Path, template_vault: Path
 ) -> None:
     del template_vault
-    server = build_full_server()
+    server = build_verb_server()
 
     err = error_of(
         notes_call(
@@ -2289,7 +2289,7 @@ def test_notes_promote_bad_target_is_rejected_with_invalid_argument(
     _write_forged_note(
         template_vault, note_id, _forged_note(note_id, intent="question", anchors=(anchor,))
     )
-    server = build_full_server()
+    server = build_verb_server()
     before_commits = git_commit_count(template_vault)
 
     err = error_of(
@@ -2327,7 +2327,7 @@ def test_notes_promote_bad_verdict_is_rejected_with_invalid_argument(
     _write_forged_note(
         template_vault, note_id, _forged_note(note_id, intent="question", anchors=(anchor,))
     )
-    server = build_full_server()
+    server = build_verb_server()
     before_commits = git_commit_count(template_vault)
 
     err = error_of(
@@ -2354,7 +2354,7 @@ def test_notes_promote_bad_verdict_is_rejected_with_invalid_argument(
 
 
 def test_notes_dispatcher_schema_target_defaults_to_trainset() -> None:
-    schema = tool_schema(build_full_server(), "notes")
+    schema = tool_schema(build_verb_server(), "notes")
     assert schema["properties"]["target"]["default"] == "trainset"
 
 
@@ -2370,7 +2370,7 @@ def test_notes_archive_dry_run_previews_without_writing(
 ) -> None:
     note_id = "20260101-101200-archive-dry-run-preview"
     _write_forged_note(template_vault, note_id, _forged_note(note_id))
-    server = build_full_server()
+    server = build_verb_server()
     before_sha = git_head_sha(template_vault)
     before_commits = git_commit_count(template_vault)
 
@@ -2391,7 +2391,7 @@ def test_notes_archive_dry_run_returns_a_decision_envelope(
 ) -> None:
     note_id = "20260101-101300-archive-dry-run-envelope"
     _write_forged_note(template_vault, note_id, _forged_note(note_id))
-    server = build_full_server()
+    server = build_verb_server()
 
     body = assert_success(
         notes_call(server, "archive", topic=TOPIC, note_id=note_id, mode="dry-run")
@@ -2406,7 +2406,7 @@ def test_notes_archive_apply_makes_exactly_one_commit_and_sets_status_to_archive
     note_id = "20260101-101400-archive-apply"
     original = _forged_note(note_id)
     _write_forged_note(template_vault, note_id, original)
-    server = build_full_server()
+    server = build_verb_server()
     before_commits = git_commit_count(template_vault)
 
     body = assert_success(notes_call(server, "archive", topic=TOPIC, note_id=note_id, mode="apply"))
@@ -2429,7 +2429,7 @@ def test_notes_archive_apply_twice_is_idempotent_and_makes_no_second_commit(
 ) -> None:
     note_id = "20260101-101500-archive-twice"
     _write_forged_note(template_vault, note_id, _forged_note(note_id))
-    server = build_full_server()
+    server = build_verb_server()
     assert_success(notes_call(server, "archive", topic=TOPIC, note_id=note_id, mode="apply"))
     before_second_commits = git_commit_count(template_vault)
 
@@ -2452,7 +2452,7 @@ def test_notes_archive_never_deletes_the_note_file(
 ) -> None:
     note_id = "20260101-101600-archive-never-deletes"
     _write_forged_note(template_vault, note_id, _forged_note(note_id))
-    server = build_full_server()
+    server = build_verb_server()
 
     assert_success(notes_call(server, "archive", topic=TOPIC, note_id=note_id, mode="apply"))
 
@@ -2465,7 +2465,7 @@ def test_notes_archive_unknown_note_id_is_note_not_found(
     vault_config: Path, template_vault: Path
 ) -> None:
     del template_vault
-    server = build_full_server()
+    server = build_verb_server()
 
     err = error_of(
         notes_call(
@@ -2490,7 +2490,7 @@ def test_notes_promote_or_archive_bad_mode_is_rejected_with_invalid_argument(
     _write_forged_note(
         template_vault, note_id, _forged_note(note_id, intent="question", anchors=(anchor,))
     )
-    server = build_full_server()
+    server = build_verb_server()
     before_commits = git_commit_count(template_vault)
     kwargs: dict[str, Any] = {"topic": TOPIC, "note_id": note_id, "mode": "sideways"}
     if action == "promote":

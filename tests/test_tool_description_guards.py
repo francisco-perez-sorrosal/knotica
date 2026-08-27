@@ -28,7 +28,7 @@ from pathlib import Path
 
 import pytest
 
-from support.dispatch import build_full_server, list_tools
+from support.dispatch import build_verb_server, list_tools
 from support.vault import git_head_sha, git_status_porcelain
 
 TOPIC = "agentic-systems"
@@ -75,7 +75,7 @@ _READ_ONLY_CONTROLS = ("query", "wiki_status", "suggestions_read", "arena")
 @pytest.fixture(scope="module")
 def tool_descriptions() -> dict[str, str]:
     """``{tool_name: description}`` for every tool on the fully-wired server."""
-    server = build_full_server()
+    server = build_verb_server()
     return {tool.name: (tool.description or "") for tool in list_tools(server)}
 
 
@@ -170,7 +170,7 @@ def test_scope_check_read_path_performs_no_git_mutation(
     before_sha = git_head_sha(template_vault)
     before_status = git_status_porcelain(template_vault)
 
-    server = build_full_server()
+    server = build_verb_server()
     result = call_tool(server, "wiki_status", {"view": "scope"})
     body = payload_of(result)
 
@@ -191,7 +191,7 @@ def test_suggestions_read_path_performs_no_git_mutation(
     before_sha = git_head_sha(template_vault)
     before_status = git_status_porcelain(template_vault)
 
-    server = build_full_server()
+    server = build_verb_server()
     result = call_tool(server, "suggestions_read", {"topic": TOPIC})
     body = payload_of(result)
 

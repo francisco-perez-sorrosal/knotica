@@ -63,7 +63,7 @@ def build_eval_scorer(
         raise KnoticaError(
             ErrorCode.NOT_CONFIGURED,
             f"the eval-backed arena scorer needs a frozen golden set for topic {topic!r}.",
-            fix="Freeze one with `datasets action=freeze`, or set "
+            fix="Freeze one with `improve action=datasets datasets_action=freeze`, or set "
             '`[loop] arena_scorer = "heuristic"` to race without eval scoring.',
         )
 

@@ -82,7 +82,8 @@ _GOLDEN_DEFERRED_MESSAGE = (
     "stay disjoint, so the choice is one-way and needs its own review gate"
 )
 _GOLDEN_DEFERRED_FIX = (
-    "Promote to the training set instead: `notes action=promote target=trainset`. "
+    "Promote to the training set instead: "
+    "`improve action=notes notes_action=promote target=trainset`. "
     "Golden promotion runs through `golden_review`, not this action."
 )
 
@@ -94,7 +95,7 @@ _GOLDEN_DEFERRED_FIX = (
 _NO_QUESTION_MESSAGE = "this note records a reflection, not a question the wiki should answer"
 _NO_QUESTION_FIX = (
     "Ask the user for the question the wiki should answer, then call "
-    "`notes action=promote` again with it."
+    "`improve action=notes notes_action=promote` again with it."
 )
 
 
@@ -214,14 +215,15 @@ def _promote_to_trainset(
             "was a good answer, which silently degrades the training substrate.",
             fix=(
                 "Ask the user for the answer the wiki gave, cited from the anchored pages, "
-                "then call `notes action=promote` again with it."
+                "then call `improve action=notes notes_action=promote` again with it."
             ),
         )
     if not pages_used:
         return err(
             ErrorCode.INVALID_ARGUMENT,
             no_live_pages_message(note_id),
-            fix="Anchor the note to a live KB page first (`notes action=reanchor`), then promote again.",
+            fix="Anchor the note to a live KB page first "
+            "(`tend action=notes notes_action=reanchor`), then promote again.",
         )
 
     def stamp_note(record_id: str) -> dict[str, str]:

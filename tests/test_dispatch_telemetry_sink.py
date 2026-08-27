@@ -62,7 +62,7 @@ from knotica.mcp_server.dispatch_telemetry import (
     record_two_phase,
     sink_path,
 )
-from support.dispatch import TOPIC, build_full_server, call_tool, payload_of
+from support.dispatch import TOPIC, build_verb_server, call_tool, payload_of
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 TELEMETRY_LOGGER = "knotica.mcp_server.dispatch_telemetry"
@@ -540,7 +540,7 @@ def test_a_free_text_tool_argument_and_vault_page_content_never_reach_the_sink(
     page.write_text(page.read_text(encoding="utf-8") + f"\n{PAGE_CANARY}\n", encoding="utf-8")
 
     result = call_tool(
-        build_full_server(),
+        build_verb_server(),
         "notes",
         {"action": "list", "topic": TOPIC, "question": ARG_CANARY},
     )
@@ -606,7 +606,7 @@ def test_a_tool_call_still_succeeds_when_the_sink_cannot_be_written(
     """Telemetry must never take down the surface it observes."""
     monkeypatch.setenv(SINK_DIR_ENV_VAR, str(_file_at(tmp_path / "occupied")))
 
-    result = call_tool(build_full_server(), "notes", {"action": "list", "topic": TOPIC})
+    result = call_tool(build_verb_server(), "notes", {"action": "list", "topic": TOPIC})
 
     body = payload_of(result)
     assert getattr(result, "isError", False) is False, body

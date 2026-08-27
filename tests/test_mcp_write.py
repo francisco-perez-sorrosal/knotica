@@ -117,12 +117,15 @@ SECRET_PAGE = VALID_PAGE.replace(
 
 
 def _build_server() -> Any:
-    """Construct a fresh server instance (factory preferred, singleton fallback)."""
-    from knotica.mcp_server import server as server_mod
+    """The verb surface: the published server plus the verbs the lanes absorbed.
 
-    if hasattr(server_mod, "build_server"):
-        return server_mod.build_server()
-    return server_mod.mcp
+    See ``support.dispatch.build_verb_server`` -- this is not the published
+    surface, and the tests in this module assert verb *behaviour*, not
+    registration.
+    """
+    from support.dispatch import build_verb_server
+
+    return build_verb_server()
 
 
 async def _call(server: Any, tool: str, args: dict[str, Any]) -> Any:

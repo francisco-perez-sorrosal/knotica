@@ -181,7 +181,11 @@ def test_the_verb_census_and_the_declaration_are_both_genuinely_populated(
     # been swept into one bucket while the other stayed empty.
     del vault_config, template_vault
     verbs = {tool.name for tool in list_tools(build_full_server())}
-    assert len(verbs) > 30, "expected the full registered tool surface, not a stub"
+    # Floor recalibrated with the lane re-cut: the published surface is 21
+    # registrations (13 Tier-1 + 2 unlaned Tier-2 + 6 lanes), down from 35 flat
+    # + 6 lanes. The guard's job is unchanged -- catch a stubbed-out registry --
+    # so it sits just under the real count rather than at the old one.
+    assert len(verbs) > 15, "expected the full registered tool surface, not a stub"
     assert process_model.LANE_MEMBERSHIP, "LANE_MEMBERSHIP must not be empty"
     assert process_model.VERB_CLASSIFICATION, "VERB_CLASSIFICATION must not be empty"
 

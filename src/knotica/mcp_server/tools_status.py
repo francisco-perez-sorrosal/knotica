@@ -81,7 +81,7 @@ ToolResult = CallToolResult
 
 
 def register_status_tools(mcp: FastMCP) -> None:
-    """Register ``wiki_status``, ``metrics_read``, and ``baseline_probe`` on ``mcp``."""
+    """Register ``wiki_status`` on ``mcp``."""
 
     @mcp.tool(name="wiki_status", description=_WIKI_STATUS_DESCRIPTION)
     def wiki_status(topic: str = "", vault: str = "", view: str = "summary") -> ToolResult:
@@ -91,6 +91,18 @@ def register_status_tools(mcp: FastMCP) -> None:
                 _wiki_payload(store, resolved.path, resolved.name, topic=topic, view=view)
             ),
         )
+
+
+def register_status_lane_tools(mcp: FastMCP) -> None:
+    """Register ``metrics_read`` and ``baseline_probe``, reachable only through a lane.
+
+    Split from :func:`register_status_tools` because the published surface no
+    longer carries them: ``improve action=metrics_read`` and
+    ``improve action=baseline_probe`` are the ways in. The registrations still
+    exist because that is the seam the lane dispatchers collect their handlers
+    through -- a lane routes to *these* function objects, not to copies of
+    them. See ``tools_dispatch_lane_common.py``.
+    """
 
     @mcp.tool(name="metrics_read", description=_METRICS_READ_DESCRIPTION)
     def metrics_read(

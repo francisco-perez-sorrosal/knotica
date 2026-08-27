@@ -12,13 +12,19 @@ it. Three things are generated here rather than hand-written six times over:
 * **the description's action list** -- rendered from the same declaration, with
   each verb's narration, so a verb added to a lane cannot go unmentioned.
 
-Routing delegates to **the same function object** the flat tool registers. That
-is the point: payload equality between ``learn(action="create_topic", ...)`` and
-``create_topic(...)`` is structural, not a claim to be re-verified per verb. The
+Routing delegates to **the same function object** the verb's own ``@mcp.tool``
+registers. That is the point: payload equality between the lane call and the
+verb's own handler is structural, not a claim to be re-verified per verb. The
 handlers are collected by running each ``register_*_tools`` function against a
 capture stand-in (:class:`_HandlerCapture`) that keeps the function and discards
-the schema -- the same registration seam ``server.py`` uses, so a tool cannot be
-reachable flat and unreachable by lane.
+the schema.
+
+Most of those registration functions are **not** called by ``server.py`` any
+more: the operator-tier verbs they own were absorbed into the lanes and removed
+from the published surface, so this capture is the only place they run. The
+seven verbs that remain published flat -- the conversational core the
+client-as-brain calls mid-turn -- run in both, which is exactly why the same
+function object has to serve both paths.
 
 Two shape rules a caller has to know, both forced by wrapping one dispatcher in
 another:
@@ -56,18 +62,18 @@ from knotica.mcp_server.tools_dispatch_golden import register_dispatch_golden_to
 from knotica.mcp_server.tools_dispatch_loop import register_dispatch_loop_tools
 from knotica.mcp_server.tools_dispatch_notes import register_dispatch_notes_tools
 from knotica.mcp_server.tools_dispatch_vault_health import register_dispatch_vault_health_tools
-from knotica.mcp_server.tools_gaps import register_gaps_tools
-from knotica.mcp_server.tools_ingest import register_ingest_tools
+from knotica.mcp_server.tools_gaps import register_gaps_lane_tools, register_gaps_tools
+from knotica.mcp_server.tools_ingest import register_ingest_lane_tools, register_ingest_tools
 from knotica.mcp_server.tools_notes import register_notes_tools
 from knotica.mcp_server.tools_prompt_diff import register_prompt_diff_tools
 from knotica.mcp_server.tools_query import register_query_tools
-from knotica.mcp_server.tools_read import register_read_tools
+from knotica.mcp_server.tools_read import register_read_lane_tools, register_read_tools
 from knotica.mcp_server.tools_source_ingest import register_source_ingest_tools
-from knotica.mcp_server.tools_status import register_status_tools
+from knotica.mcp_server.tools_status import register_status_lane_tools, register_status_tools
 from knotica.mcp_server.tools_suggestions import register_suggestions_tools
-from knotica.mcp_server.tools_write import register_write_tools
+from knotica.mcp_server.tools_write import register_write_lane_tools, register_write_tools
 
-__all__ = ["lane_actions", "register_lane_dispatcher"]
+__all__ = ["lane_actions", "register_lane_dispatcher", "register_verb_handlers"]
 
 ToolResult = CallToolResult
 
@@ -82,14 +88,19 @@ _OWN_ACTION_SUFFIX = "_action"
 #: action with no implementation, never as a silently absent action.
 _FLAT_REGISTRARS: tuple[Callable[[FastMCP], None], ...] = (
     register_read_tools,
+    register_read_lane_tools,
     register_write_tools,
+    register_write_lane_tools,
     register_query_tools,
     register_prompt_diff_tools,
     register_status_tools,
+    register_status_lane_tools,
     register_suggestions_tools,
     register_gaps_tools,
+    register_gaps_lane_tools,
     register_source_ingest_tools,
     register_ingest_tools,
+    register_ingest_lane_tools,
     register_notes_tools,
     register_dispatch_loop_tools,
     register_dispatch_branches_tools,
@@ -126,13 +137,24 @@ class _HandlerCapture:
 _HANDLERS: Mapping[str, Callable[..., ToolResult]] | None = None
 
 
+def register_verb_handlers(mcp: FastMCP) -> None:
+    """Register every verb a lane routes to onto ``mcp``.
+
+    Used here against :class:`_HandlerCapture` to collect the handler functions.
+    Registered onto a real server instead, it reconstitutes the verb surface as
+    it stood before the lanes absorbed it -- which is what makes a lane call
+    comparable to a direct call on the verb it wraps.
+    """
+    for register in _FLAT_REGISTRARS:
+        register(mcp)
+
+
 def _flat_handlers() -> Mapping[str, Callable[..., ToolResult]]:
-    """Every flat/topical tool function, by the name it registers under."""
+    """Every verb handler a lane can route to, by the name it registers under."""
     global _HANDLERS
     if _HANDLERS is None:
         capture = _HandlerCapture()
-        for register in _FLAT_REGISTRARS:
-            register(cast(FastMCP, capture))
+        register_verb_handlers(cast(FastMCP, capture))
         _HANDLERS = MappingProxyType(dict(capture.handlers))
     return _HANDLERS
 

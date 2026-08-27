@@ -15,9 +15,15 @@ TOPIC = "agentic-systems"
 
 
 def _build_server() -> Any:
-    from knotica.mcp_server import server as server_mod
+    """The verb surface: the published server plus the verbs the lanes absorbed.
 
-    return server_mod.build_server()
+    See ``support.dispatch.build_verb_server`` -- this is not the published
+    surface, and the tests in this module assert verb *behaviour*, not
+    registration.
+    """
+    from support.dispatch import build_verb_server
+
+    return build_verb_server()
 
 
 async def _call(server: Any, tool: str, args: dict[str, Any]) -> Any:
@@ -87,8 +93,17 @@ def test_ingest_tools_registered_and_round_trip(vault_config: Path) -> None:
             return sorted(t.name for t in listed.tools)
 
     names = anyio.run(_list)
+    # `ingest_progress` is Tier 1 and stays flat; `ingest_activity_read` was
+    # absorbed and is reachable only as `learn`/`fill action=ingest_activity_read`.
+    # `_build_server()` here is the verb surface, so both resolve -- the
+    # published-surface claim is asserted once, in the census suite.
     assert "ingest_progress" in names
     assert "ingest_activity_read" in names
+    from support.dispatch import build_full_server
+
+    published = {tool.name for tool in build_full_server()._tool_manager.list_tools()}  # noqa: SLF001
+    assert "ingest_progress" in published
+    assert "ingest_activity_read" not in published
 
     progress = payload_of(
         call_tool(

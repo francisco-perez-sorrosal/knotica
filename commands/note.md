@@ -19,4 +19,4 @@ Save the user's note. Their words are `$ARGUMENTS`. Do not paraphrase, tidy, or 
    unless the user's words are plainly a disagreement -> `dispute`, or a question -> `question`).
 4. Report the returned `placement` line verbatim — one line, nothing added.
 
-To browse existing notes, use the dashboard's Notes pane or `notes action=list`.
+To browse existing notes, use the dashboard's Notes pane or `tend action=notes notes_action=list`.

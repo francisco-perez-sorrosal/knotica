@@ -74,7 +74,9 @@ def test_a_command_body_naming_a_consolidated_away_tool_is_rejected(tree: Path) 
     _edit(
         tree,
         "commands/setup.md",
-        lambda text: text.replace("`compile action=run`", "`compile_run`", 1),
+        lambda text: text.replace(
+            "`improve action=compile compile_action=run`", "`compile_run`", 1
+        ),
     )
 
     result = _run(tree)
@@ -113,18 +115,25 @@ def test_a_dead_tool_name_in_a_description_string_is_rejected(tree: Path) -> Non
 
 
 def test_a_fix_string_naming_a_nonexistent_action_is_rejected(tree: Path) -> None:
-    """The live defect this gate found: `golden action=freeze` (golden has load|save)."""
+    """The live-defect class this gate found, re-aimed at a lane.
+
+    The original injection named `golden action=freeze`; `golden` stopped being
+    a registered tool when the lanes absorbed it, so that string now trips the
+    *absorbed-dispatcher* arm instead and would no longer exercise this rule.
+    A lane selector is the live equivalent: `improve` is registered and
+    `freeze` is a `datasets` sub-action, not one of `improve`'s own.
+    """
     _edit(
         tree,
         "src/knotica/core/arena_eval.py",
-        lambda text: text.replace("`datasets action=freeze`", "`golden action=freeze`", 1),
+        lambda text: text.replace("`improve action=datasets", "`improve action=freeze", 1),
     )
 
     result = _run(tree)
 
     assert result.returncode == 1
-    assert "'golden' has no such action" in result.stderr
-    assert "load|save" in result.stderr, "the finding must name the valid actions"
+    assert "'improve' has no such action" in result.stderr
+    assert "datasets" in result.stderr, "the finding must name the valid actions"
 
 
 def test_a_dead_cli_invocation_in_the_session_hook_is_rejected(tree: Path) -> None:
@@ -160,13 +169,15 @@ def test_a_tool_named_in_the_skill_but_not_in_the_server_instructions_is_rejecte
     _edit(
         tree,
         "skills/wiki-maintenance/SKILL.md",
-        lambda text: text.replace("load via read_protocol", "load via read_protocol, gaps_read", 1),
+        lambda text: text.replace(
+            "load via read_protocol", "load via read_protocol, note_capture", 1
+        ),
     )
 
     result = _run(tree)
 
     assert result.returncode == 1
-    assert "'gaps_read'" in result.stderr
+    assert "'note_capture'" in result.stderr
     assert "_INSTRUCTIONS" in result.stderr
 
 

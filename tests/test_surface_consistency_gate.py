@@ -174,10 +174,10 @@ def test_an_alias_table_row_with_no_command_file_is_rejected(tree: Path) -> None
 @pytest.mark.parametrize(
     ("original", "corrupted", "expected"),
     [
-        ("41 tools are registered", "40 tools are registered", "says total=40, tables say 41"),
-        ("and 26 flat,", "and 25 flat,", "says flat=25, tables say 26"),
-        ("(5 read + 4 write + 17", "(6 read + 4 write + 17", "says read=6, tables say 5"),
-        ("(5 read + 4 write + 17", "(5 read + 4 write + 16", "says other=16, tables say 17"),
+        ("21 tools are registered", "20 tools are registered", "says total=20, tables say 21"),
+        ("and 14 flat,", "and 13 flat,", "says flat=13, tables say 14"),
+        ("(4 read + 3 write + 7", "(5 read + 3 write + 7", "says read=5, tables say 4"),
+        ("(4 read + 3 write + 7", "(4 read + 3 write + 6", "says other=6, tables say 7"),
     ],
 )
 def test_each_summary_integer_is_checked_against_the_tables(
@@ -193,17 +193,17 @@ def test_each_summary_integer_is_checked_against_the_tables(
 
 
 def test_a_section_heading_that_miscounts_its_own_table_is_rejected(tree: Path) -> None:
-    """The heading the live tree got wrong: '### Other flat tools — 15' over 17 rows."""
+    """The heading class of defect the live tree once carried: a miscounted section."""
     _edit(
         tree,
         "docs/reference.md",
-        lambda text: text.replace("### Other flat tools — 17", "### Other flat tools — 15", 1),
+        lambda text: text.replace("### Other flat tools — 7", "### Other flat tools — 5", 1),
     )
 
     result = _run(tree)
 
     assert result.returncode == 1
-    assert "'### Other flat tools — 15' heading disagrees with its own table (17 rows)" in (
+    assert "'### Other flat tools — 5' heading disagrees with its own table (7 rows)" in (
         result.stderr
     )
 

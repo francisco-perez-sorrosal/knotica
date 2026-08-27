@@ -26,9 +26,15 @@ _DISPATCHER_ACTIONS = {
 
 
 def _build_server() -> Any:
-    from knotica.mcp_server import server as server_mod
+    """The verb surface: the published server plus the verbs the lanes absorbed.
 
-    return server_mod.build_server()
+    See ``support.dispatch.build_verb_server`` -- this is not the published
+    surface, and the tests in this module assert verb *behaviour*, not
+    registration.
+    """
+    from support.dispatch import build_verb_server
+
+    return build_verb_server()
 
 
 async def _call(server: Any, tool: str, args: dict[str, Any]) -> Any:
@@ -56,12 +62,12 @@ def payload_of(result: Any) -> Any:
     raise AssertionError(f"no payload: {result!r}")
 
 
-def test_compile_promote_is_registered() -> None:
-    from knotica.mcp_server.server import build_server
-
-    mcp = build_server()
-    names = {tool.name for tool in mcp._tool_manager.list_tools()}  # noqa: SLF001
-    assert "compile" in names
+# Registration-existence assertions for the verbs the lanes absorbed were
+# removed with the flat registrations themselves. What replaced them is
+# stronger and lives in one place: `test_lane_rename_invariants.py` proves
+# no absorbed name is registered under any alias, `test_lane_dispatchers.py`
+# proves every declared verb is reachable as a lane action with an identical
+# payload, and `test_server_tool_surface.py` pins the surface ceiling.
 
 
 def test_compile_promote_mcp_dry_run(vault_config: Path, template_vault: Path) -> None:

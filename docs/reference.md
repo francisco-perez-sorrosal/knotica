@@ -97,18 +97,18 @@ All 15 top-level parsers take these four, and so does every nested subcommand, i
 
 ## MCP tools
 
-41 tools are registered on the server: 15 action-parameterized **dispatchers** and 26 flat,
-fixed-behavior tools (5 read + 4 write + 17 grouped by purpose below). Every tool accepts a
+21 tools are registered on the server: 7 action-parameterized **dispatchers** and 14 flat,
+fixed-behavior tools (4 read + 3 write + 7 grouped by purpose below). Every tool accepts a
 `vault: str = ""` parameter (targets a configured vault by name; empty = the active one) — the two
 exceptions are the `vault` dispatcher itself (no vault to target before one resolves) and
 `read_protocol`, whose prompt body resolves from the active vault only.
 
 > [!NOTE]
-> All four write tools (`write_page`, `store_source`, `create_topic`, `curate_example`) and every
-> mutating dispatcher action carry the same instruction: never call from detection alone — only
-> after the user has explicitly confirmed the write.
+> All three write tools (`write_page`, `store_source`, `curate_example`) and every mutating
+> dispatcher action carry the same instruction: never call from detection alone — only after the
+> user has explicitly confirmed the write.
 
-### Read tools — 5, zero commits
+### Read tools — 4, zero commits
 
 | Tool | Params | Returns |
 |---|---|---|
@@ -116,59 +116,39 @@ exceptions are the `vault` dispatcher itself (no vault to target before one reso
 | `read_page` | `topic` (req), `page` (req), `vault=""` | `{topic, path, frontmatter, frontmatter_error, body, content}` |
 | `search` | `query` (req), `topic=""`, `cursor=""`, `limit=10`, `families=[]`, `vault=""` | `{results, next_cursor, has_more, total_count}` |
 | `list_links` | `topic` (req), `page` (req), `direction="both"`, `vault=""` | `{page, direction, out?, in?}` |
-| `lint_check` | `topic=""`, `vault=""` | `{violations: [...]}` — empty list is clean, not an error |
 
 `search`'s `families` values: `page`, `source`, `note`. Empty defaults to `page`+`source` (never
 `note` — notes are private marginalia). `limit` caps at `50`; default `10`. `families` must stay
 identical across a paginated walk or the cursor is invalidated.
 
-### Write tools — 4, one git commit each
+### Write tools — 3, one git commit each
 
 | Tool | Params | Semantics |
 |---|---|---|
 | `write_page` | `topic`, `page`, `content`, `summary` (req); `index_entry=""`, `candidate=""`, `vault=""` | Create/replace atomically. Idempotent (`changed=false`, no commit, on identical content). `RESERVED_NAME` when the page's basename is any of the eight [reserved top-level names](#reserved-top-level-names). |
 | `store_source` | `topic`, `citation_key`, `title`, `content`, `source_url` (req); `source_type="markdown"`, `candidate=""`, `vault=""` | Persists under `sources/<topic>/`. Immutable: same content re-submit is a no-op; different content, same key → `SOURCE_EXISTS`. |
-| `create_topic` | `topic` (req); `description=""`, `vault=""` | Creates topic dir, empty `SCHEMA.md` overlay, `.knotica/` state. Idempotent (`existed=true`, no commit). |
 | `curate_example` | `topic`, `query`, `answer`, `verdict` (req); `pages_used=None`, `notes=""`, `vault=""` | Appends one example to `qa.jsonl`. Idempotent by content hash. |
 
-### Other flat tools — 17, grouped by purpose
+### Other flat tools — 7, grouped by purpose
 
 | Tool | Params | Notes |
 |---|---|---|
 | `query` | `question`, `topic` (req), `vault=""` | The one wiki-answer tool; grounded pages + citations. Read-only. |
 | `wiki_status` | `topic=""`, `vault=""`, `view="summary"` | `view="scope"` is the cheapest read (topic names + totals) for conversational routing. |
-| `metrics_read` | `topic` (req), `limit=100`, `before_generation=None`, `vault=""` | Ascending-generation window of `metrics.jsonl`. `limit` capped at `1000`. |
-| `baseline_probe` | `topic` (req), `vault=""` | Persists a naive cold-start anchor (scalar `0.0`) — chart-floor only, not gate-quality. |
-| `prompt_diff` | `topic` (req); `branch=""`, `base_ref=""`, `head_ref=""`, `history_id=""`, `mode="git"`, `vault=""` | `mode=git` diffs `query.md` across a branch or commit; `mode=compiled` diffs vault `query.md` vs the compiled artifact. |
-| `suggestions_read` | `topic` (req); `status="pending"`, `cursor=""`, `limit=20`, `vault=""` | Paginated gap-fill queue. `status` ∈ `pending`\|`approved`\|`rejected`\|`deferred`\|`ingested`\|`all`. `limit` max `50`. |
-| `suggestions_review` | `topic`, `suggestion_id`, `action` (req); `mode="dry-run"`, `reason=""`, `vault=""` | `action` ∈ `approve`\|`reject`\|`defer`\|`mark_ingested`\|`withdraw`. `reject` requires a non-empty `reason`. `withdraw` returns an `approved` suggestion to `pending` without asserting an ingest. |
 | `gap_report` | `topic`, `question` (req); `reason=""`, `reference_pages=None`, `vault=""` | Files a conversationally-reported gap (`origin=reported`). Dedups on repeat identical question. |
-| `gaps_read` | `topic` (req); `status="open"`, `cursor=""`, `limit=20`, `vault=""` | Paginated P1 gap queue — the stage *before* sources exist. `status` ∈ `open`\|`resolved`\|`dismissed`\|`all` (here `all` means all three, unlike `suggestions_read`). `limit` max `50`. Returns `origin_counts` alongside `status_counts`. |
-| `gapfill_discover` | `topic` (req); `max_gaps=0`, `confirm=""`, `vault=""` | **Billed, two-phase.** A bare call previews (`open_gaps`, `would_drain`, `provider_configured`, `estimated_cost`) and returns a single-use `confirm_nonce` with a 300 s `ttl`, spending nothing; only a call passing that nonce as `confirm` runs the search. `max_gaps=0` drains every open gap. No provider key → clean no-op, `provider_configured=false`. |
-| `source_ingest_open` | `topic`, `suggestion_id` (req), `vault=""` | Opens/resumes a private candidate context for one approved suggestion. Idempotent (same handle on reopen). |
-| `source_ingest_submit` | `topic`, `suggestion_id` (req); `mode="dry-run"`, `vault=""` | Finalizes candidate ingest, drives the loop gate synchronously. `mode=apply` returns `merged`\|`refused`\|`blocked`. |
 | `note_capture` | `topic`, `note` (req); `quote=""`, `pages=[]`, `intent="reflection"`, `tags=[]`, `vault=""` | Writes under `notes/<topic>/`, never a wiki page. A weak/unprovable anchor degrades to `ANCHOR_DEGRADED`, never fails. |
 | `ingest_progress` | `topic`, `stage`, `title` (req); `status="info"`, `detail=""`, `run_id=""`, `citation_key=""`, `vault=""` | Best-effort journal append (**not** a git commit) for the dashboard Ingest pane. |
-| `ingest_activity_read` | `topic=""`, `run_id=""`, `limit=120`, `vault=""` | Reads recent ingest-activity events for the dashboard. Read-only. |
 | `read_protocol` | `operation` (req, `ingest`\|`query`\|`lint`\|`curate`), `topic=""` | Returns the operation prompt body as a tool result — closes the gap for hosts without MCP-prompt support. |
 | `open_dashboard` | `topic="agentic-systems"`, `vault=""` | See [dashboard](dashboard.md). Falls back to a `TextContent` URL on hosts without MCP Apps support. |
 
-### Action dispatchers — 15
+### Action dispatchers — 7
 
 Every dispatcher validates `action` against a fixed tuple; an unrecognized action raises
 `INVALID_ARGUMENT` and is recorded as mis-selection telemetry.
 
 | Dispatcher | Actions | `mode=` dry-run/apply? | Params beyond `action`/`topic`/`vault` |
 |---|---|---|---|
-| `arena` | `status`, `history` | No — all read-only | `limit=20` |
-| `branches` | `scoreboard`, `promote_loop`, `promote`, `delete` | Yes, on all but `scoreboard` | `branch=""`, `kind=""` |
-| `compile` | `run`, `status`, `promote` | Yes, on `promote` | `branch=""`, `use_mipro=True` |
-| `datasets` | `inventory`, `records`, `bootstrap`, `bootstrap_train`, `freeze` | No | `role=""`, `limit=200`, `target=30` |
-| `golden` | `load`, `save` | No | `accepted_json=""` |
-| `loop` | `run_once`, `set_baseline`, `baseline_policy`, `rebaseline`, `cadence`, `run_eval` | No (nonce-confirmed instead — see below) | `scalar`, `policy=""`, `mode="best"`, `eval_min_interval_hours`, `eval_window`, `eval_num_threads`, `confirm=""`, `num_threads` |
-| `notes` | `list`, `read`, `drift`, `reanchor`, `detach`, `promote`, `archive` | Yes, on the 4 mutating actions | `note_id=""`, `intent="all"`, `status="all"`, `cursor=""`, `limit=20`, `anchor=0`, `page=""`, `quote=""`, `target="trainset"`, `question=""`, `answer=""`, `verdict="good"` |
 | `vault` | `list`, `status`, `use`, `add`, `create` | No | `name=""` (letters, digits, `-`, `_` only), `path=""`, `make_default=False` — **no `vault` param**; this dispatcher IS the vault-selection surface |
-| `vault_health` | `doctor`, `repair`, `okf_check`, `okf_repair`, `lint`, `metadata_tree` | Yes, on `repair`/`okf_repair` | `quick=False`, `fix=False`, `paths_json="[]"`, `all_tracked=False`, `delete_untracked=False`, `strict=False`, `force=False` |
 | `home` | none — the router takes no arguments | No — read-only | none; returns every lane's rail and action table |
 | `learn` | generated from the process model: `create_topic`, `store_source`, `ingest_progress`, `write_page`, `ingest_activity_read`, `curate_example` | Per wrapped verb | the union of its verbs' own params |
 | `answer` | generated: `query`, `curate_example`, `note_capture`, `gap_report`, `notes` | Per wrapped verb | the union of its verbs' own params |
@@ -176,25 +156,54 @@ Every dispatcher validates `action` against a fixed tuple; an unrecognized actio
 | `fill` | generated: `gap_report`, `gaps_read`, `notes`, `gapfill_discover`, `suggestions_read`, `suggestions_review`, `store_source`, `ingest_progress`, `write_page`, `ingest_activity_read`, `source_ingest_open`, `source_ingest_submit`, `loop` | Per wrapped verb | the union of its verbs' own params |
 | `tend` | generated: `vault_health`, `lint_check`, `notes`, `note_capture` | Per wrapped verb | the union of its verbs' own params |
 
-**The six lane dispatchers are generated, and currently additive.** Their action tables, call
-shapes and description action lists are all projections of `LANE_MEMBERSHIP` in
-`src/knotica/core/process_model.py`, and each action routes to the same implementation the flat
-tool of that name registers — so a lane call and its flat equivalent return the same payload by
-construction. They are registered *alongside* the flat surface while the rename lands; a later
-step removes the flat registrations the lanes absorb. A verb that carries its own `action`
-parameter takes it here as `<verb>_action`, because the lane's own selector is already `action`.
+**The six lane dispatchers are generated.** Their action tables, call shapes and description
+action lists are all projections of `LANE_MEMBERSHIP` in `src/knotica/core/process_model.py`, and
+each action routes to the same implementation object the verb's own handler defines — so a lane
+call and the verb it wraps return the same payload by construction. A verb that carries its own
+`action` parameter takes it here as `<verb>_action`, because the lane's own selector is already
+`action`; `improve action=datasets datasets_action=freeze` is the shape.
 
-**`loop`'s `run_once` and `run_eval` are two-phase billed.** Call once with no `confirm` to
+### Operator verbs (lane actions only)
+
+These are **not registered tools**. Each was a flat tool or a topical dispatcher before the lane
+re-cut absorbed it; the behaviour is unchanged and reachable as `<lane> action=<verb>`, with the
+lane's own `action` selector taking the verb name and any `<verb>_action` naming the verb's own
+sub-action. There is no alias layer — the old flat names return an unknown-tool error, loudly.
+
+| Verb | Reachable as | Params | Notes |
+|---|---|---|---|
+| `create_topic` | `learn action=create_topic` | `topic` (req); `description=""`, `vault=""` | Creates topic dir, empty `SCHEMA.md` overlay, `.knotica/` state. Idempotent (`existed=true`, no commit). |
+| `lint_check` | `tend action=lint_check` | `topic=""`, `vault=""` | `{violations: [...]}` — empty list is clean, not an error. |
+| `metrics_read` | `improve action=metrics_read` | `topic` (req), `limit=100`, `before_generation=None`, `vault=""` | Ascending-generation window of `metrics.jsonl`. `limit` capped at `1000`. |
+| `baseline_probe` | `improve action=baseline_probe` | `topic` (req), `vault=""` | Persists a naive cold-start anchor (scalar `0.0`) — chart-floor only, not gate-quality. |
+| `prompt_diff` | `improve action=prompt_diff` | `topic` (req); `branch=""`, `base_ref=""`, `head_ref=""`, `history_id=""`, `mode="git"`, `vault=""` | `mode=git` diffs `query.md` across a branch or commit; `mode=compiled` diffs vault `query.md` vs the compiled artifact. |
+| `suggestions_read` | `fill action=suggestions_read` | `topic` (req); `status="pending"`, `cursor=""`, `limit=20`, `vault=""` | Paginated gap-fill queue. `status` ∈ `pending`\|`approved`\|`rejected`\|`deferred`\|`ingested`\|`all`. `limit` max `50`. |
+| `suggestions_review` | `fill action=suggestions_review` | `topic`, `suggestion_id`, `action` (req); `mode="dry-run"`, `reason=""`, `vault=""` | `action` ∈ `approve`\|`reject`\|`defer`\|`mark_ingested`\|`withdraw`. `reject` requires a non-empty `reason`. `withdraw` returns an `approved` suggestion to `pending` without asserting an ingest. |
+| `gaps_read` | `fill action=gaps_read` | `topic` (req); `status="open"`, `cursor=""`, `limit=20`, `vault=""` | Paginated P1 gap queue — the stage *before* sources exist. `status` ∈ `open`\|`resolved`\|`dismissed`\|`all` (here `all` means all three, unlike `suggestions_read`). `limit` max `50`. Returns `origin_counts` alongside `status_counts`. |
+| `gapfill_discover` | `fill action=gapfill_discover` | `topic` (req); `max_gaps=0`, `confirm=""`, `vault=""` | **Billed, two-phase.** A bare call previews (`open_gaps`, `would_drain`, `provider_configured`, `estimated_cost`) and returns a single-use `confirm_nonce` with a 300 s `ttl`, spending nothing; only a call passing that nonce as `confirm` runs the search. `max_gaps=0` drains every open gap. No provider key → clean no-op, `provider_configured=false`. |
+| `source_ingest_open` | `fill action=source_ingest_open` | `topic`, `suggestion_id` (req), `vault=""` | Opens/resumes a private candidate context for one approved suggestion. Idempotent (same handle on reopen). |
+| `source_ingest_submit` | `fill action=source_ingest_submit` | `topic`, `suggestion_id` (req); `mode="dry-run"`, `vault=""` | Finalizes candidate ingest, drives the loop gate synchronously. `mode=apply` returns `merged`\|`refused`\|`blocked`. |
+| `ingest_activity_read` | `learn action=ingest_activity_read` | `topic=""`, `run_id=""`, `limit=120`, `vault=""` | Reads recent ingest-activity events for the dashboard. Read-only. |
+| `arena` | `improve action=arena` + `arena_action=` | `limit=20` | Actions: `status`, `history`. No — all read-only. |
+| `branches` | `improve action=branches` + `branches_action=` | `branch=""`, `kind=""` | Actions: `scoreboard`, `promote_loop`, `promote`, `delete`. Yes, on all but `scoreboard`. |
+| `compile` | `improve action=compile` + `compile_action=` | `branch=""`, `use_mipro=True` | Actions: `run`, `status`, `promote`. Yes, on `promote`. |
+| `datasets` | `improve action=datasets` + `datasets_action=` | `role=""`, `limit=200`, `target=30` | Actions: `inventory`, `records`, `bootstrap`, `bootstrap_train`, `freeze`. No. |
+| `golden` | `improve action=golden` + `golden_action=` | `accepted_json=""` | Actions: `load`, `save`. No. |
+| `loop` | `improve action=loop` + `loop_action=` | `scalar`, `policy=""`, `mode="best"`, `eval_min_interval_hours`, `eval_window`, `eval_num_threads`, `confirm=""`, `num_threads` | Actions: `run_once`, `set_baseline`, `baseline_policy`, `rebaseline`, `cadence`, `run_eval`. No (nonce-confirmed instead — see below). |
+| `notes` | `tend action=notes` + `notes_action=` | `note_id=""`, `intent="all"`, `status="all"`, `cursor=""`, `limit=20`, `anchor=0`, `page=""`, `quote=""`, `target="trainset"`, `question=""`, `answer=""`, `verdict="good"` | Actions: `list`, `read`, `drift`, `reanchor`, `detach`, `promote`, `archive`. Yes, on the 4 mutating actions. |
+| `vault_health` | `tend action=vault_health` + `vault_health_action=` | `quick=False`, `fix=False`, `paths_json="[]"`, `all_tracked=False`, `delete_untracked=False`, `strict=False`, `force=False` | Actions: `doctor`, `repair`, `okf_check`, `okf_repair`, `lint`, `metadata_tree`. Yes, on `repair`/`okf_repair`. |
+
+**`loop`'s `run_once` and `run_eval` are two-phase billed** (as `improve action=loop loop_action=run_once`). Call once with no `confirm` to
 mint a single-use nonce and see a cost preview (`ttl=300` seconds) — nothing is billed. Call again
 passing that nonce as `confirm` to execute and bill. Nonces are keyed by `(kind, topic)` — a
 `run_eval` nonce cannot confirm a `run_once` call, or vice versa. No other dispatcher or tool uses
 this mechanism.
 
-**`notes`** is the most complex dispatcher. `list`/`read`/`drift` are always read-only regardless
+**`notes`** is the most complex verb. `list`/`read`/`drift` are always read-only regardless
 of `mode`. `promote` is the only action writing outside the notes layer: `target=trainset`
 (curated example, needs ≥1 live grounding page), `target=gap` (note's `intent` must be
-`dispute`/`gap`/`question`), or `target=golden` — **always rejected**, deferred to the `golden`
-dispatcher's own `save` action.
+`dispute`/`gap`/`question`), or `target=golden` — **always rejected**, deferred to `golden`'s
+own `save` action.
 
 ## MCP resources and prompts
 

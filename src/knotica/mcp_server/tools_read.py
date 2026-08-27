@@ -115,7 +115,7 @@ _READ_EXCEPTIONS = (
 
 
 def register_read_tools(mcp: FastMCP) -> None:
-    """Register the five read tools on ``mcp``.
+    """Register the four cross-lane read primitives on ``mcp``.
 
     Called once at server construction. Purely registration -- no vault access
     happens here; every tool resolves config lazily when the model invokes it.
@@ -161,6 +161,17 @@ def register_read_tools(mcp: FastMCP) -> None:
         return _read(
             lambda store, _root: _collect_links(store, topic, page, direction), vault_name=vault
         )
+
+
+def register_read_lane_tools(mcp: FastMCP) -> None:
+    """Register ``lint_check``, which is reachable only through a lane.
+
+    Split from :func:`register_read_tools` because the published surface no
+    longer carries it: ``tend action=lint_check`` is the one way in. The
+    registration still exists because that is the seam the lane dispatchers
+    collect their handlers through -- a lane routes to *this* function object,
+    not to a copy of it. See ``tools_dispatch_lane_common.py``.
+    """
 
     @mcp.tool(name="lint_check", description=_LINT_CHECK_DESCRIPTION)
     def lint_check(topic: str = "", vault: str = "") -> ToolResult:
