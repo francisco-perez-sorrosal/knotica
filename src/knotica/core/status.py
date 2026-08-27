@@ -10,6 +10,7 @@ from __future__ import annotations
 import os
 from collections import Counter
 from dataclasses import dataclass
+from datetime import UTC, date, datetime
 from functools import lru_cache
 from pathlib import Path
 from typing import Any
@@ -29,7 +30,6 @@ from knotica.core.notes.store import ResolvedNote, list_notes
 from knotica.core.notes_config import resolve_notes_config
 from knotica.core.page import TopicNotFoundError
 from knotica.core.gap_classifier import gaps_path
-from knotica.core.gapfill import suggestions_path
 from knotica.core import process_model
 from knotica.core.records import (
     GAP_ORIGIN_MEASURED,
@@ -37,10 +37,10 @@ from knotica.core.records import (
     GAP_ORIGIN_RETRACTED,
     GapRecord,
     RecordParseError,
-    SuggestionRecord,
     parse_log_entries,
 )
 from knotica.core.schema import overlay_path
+from knotica.core.status_lanes import is_refused, lanes_block, read_suggestion_records
 from knotica.core.topics import is_topic, topic_directories
 from knotica.core.trainset import count_query_train_examples
 from knotica.core.vcs import GitError, VaultVcs
@@ -49,6 +49,7 @@ from knotica.store import VaultStore
 
 __all__ = [
     "COMPILE_READY_MIN_EXAMPLES",
+    "LINT_STALE_AFTER_DAYS",
     "STATUS_SCHEMA_VERSION",
     "VALID_STATUS_VIEWS",
     "TopicStatus",
@@ -65,12 +66,23 @@ STATUS_SCHEMA_VERSION = 1
 #: ``process_model`` is the served process-model declaration -- lanes, stage
 #: ids, titles, order and handoff flags, structure only -- vault- and
 #: topic-independent, so the dashboard can prefer the connected server's live
-#: declaration over its bundled fallback.
-VALID_STATUS_VIEWS = frozenset({"summary", "scope", "process_model"})
+#: declaration over its bundled fallback. ``attention`` is the cross-topic
+#: inbox projection -- every topic's actionable counts plus runner liveness,
+#: under a hard budget (no lint walk, no note-anchor resolution).
+VALID_STATUS_VIEWS = frozenset({"summary", "scope", "process_model", "attention"})
 
 #: Query-style curated examples required before a topic can run DSPy compile
 #: (PRE_PLAN Phase 3a floor ~30–50; ingest-style qa lines do not count).
 COMPILE_READY_MIN_EXAMPLES = 30
+
+#: Days after which the last recorded mechanical lint counts as stale. The
+#: attention view reports staleness against this instead of re-walking the
+#: vault, so the threshold is a server-side policy the client only renders.
+#: 7 is a policy default, not a measurement: one human working week -- a vault
+#: whose last lint predates the week you are working in has plausibly drifted.
+#: Tune it when real usage shows the attention row nagging too early or too
+#: late; it gates a *hint*, never an action.
+LINT_STALE_AFTER_DAYS = 7
 
 #: Log ops that count as a lint run for the "last lint" readout.
 _LINT_OPS = frozenset({"lint", "lint_check"})
@@ -92,6 +104,7 @@ class TopicStatus:
     suggestions: dict[str, Any]
     gaps: dict[str, Any]
     notes: dict[str, int]
+    lanes: dict[str, tuple[dict[str, Any], ...]]
 
     @property
     def to_compile_ready(self) -> int:
@@ -114,6 +127,7 @@ class TopicStatus:
             "suggestions": self.suggestions,
             "gaps": self.gaps,
             "notes": self.notes,
+            "lanes": self.lanes,
         }
 
 
@@ -144,6 +158,8 @@ def gather_wiki_status(
     ``view="process_model"`` serves the live process-model declaration
     (lanes, stage ids, titles, order, handoff flags) -- vault- and
     topic-independent, so ``topic``/``vault_name`` are accepted but ignored.
+    ``view="attention"`` is the cross-topic inbox projection -- every topic in
+    the vault, always, so ``topic`` is accepted but ignored there too.
     """
     if view not in VALID_STATUS_VIEWS:
         raise KnoticaError(
@@ -160,9 +176,11 @@ def gather_wiki_status(
         return _process_model_status()
     if view == "scope":
         return _scope_status(store, name, scope=scope)
+    if view == "attention":
+        return _attention_status(store, vault_path, name)
 
     vcs = VaultVcs(vault_path)
-    topics = _topic_statuses(store, vcs, scope=scope or None)
+    topics = _topic_statuses(store, vcs, vault_path, scope=scope or None)
     last_lint = _last_lint(store)
     unpushed = _unpushed(vault_path)
     gate, loop = _gate_and_loop(store, vault_path, topics)
@@ -247,7 +265,92 @@ def _scope_status(store: VaultStore, vault_name: str, *, scope: str) -> dict[str
     }
 
 
-def _topic_statuses(store: VaultStore, vcs: VaultVcs, *, scope: str | None) -> list[TopicStatus]:
+def _attention_status(store: VaultStore, vault_path: Path, vault_name: str) -> dict[str, Any]:
+    """The ``view="attention"`` payload: the cross-topic inbox, on a hard budget.
+
+    Reports, for every topic in the vault, the items a person can act on --
+    the same set ``knotica status --nudge`` renders (pending suggestions,
+    refused-awaiting-rework, compile-readiness) -- plus per-topic runner
+    liveness, so a cross-topic surface never has to ask "is anything running?"
+    one topic at a time.
+
+    Three costs ``view="summary"`` pays are deliberately *not* paid here
+    (dec-092), because a projection that costs what summary costs is not a
+    projection:
+
+    * **No mechanical lint walk.** ``last_lint`` reports the newest recorded
+      lint date and whether it has gone stale; no ``lint_vault`` pass runs.
+    * **No note-anchor resolution.** The drift row is a marker only, with no
+      computed count -- it pays for itself on expansion, not on every poll.
+    * **No git subprocess at all**, and nothing that scales with topic count:
+      every field is a small file read, so the whole-vault cost grows only in
+      the number of topics, never in git process spawns.
+
+    Runner liveness reads :func:`~knotica.core.loop_heartbeat.read_runner_liveness`
+    per topic -- the same producer ``service.manager.status()`` uses -- rather
+    than :func:`_gate_and_loop`, whose multi-topic branch reports every topic
+    dead unconditionally. A wrong answer is worse than an absent one.
+
+    The ``topic`` argument the other views scope by is ignored: "which topics
+    need me?" has no single-topic reading.
+    """
+    rows = [_attention_row(store, vault_path, name) for name in topic_directories(store)]
+    return {
+        "schema_version": STATUS_SCHEMA_VERSION,
+        "vault_name": vault_name,
+        "topics": rows,
+        "totals": {
+            "topics": len(rows),
+            "pending": sum(row["suggestions"]["pending"] for row in rows),
+            "refused_awaiting_rework": sum(
+                row["suggestions"]["refused_awaiting_rework"] for row in rows
+            ),
+            "compile_ready": sum(1 for row in rows if row["compile_ready"]),
+            "runners_alive": sum(1 for row in rows if row["runner"]["alive"]),
+        },
+        "last_lint": _last_lint_status(store),
+        # Marker, never a count: resolving drift means resolving every note's
+        # anchor, which is exactly the cost this view exists to avoid.
+        "drift": {"default_collapsed": True, "count": None},
+    }
+
+
+def _attention_row(store: VaultStore, vault_path: Path, topic: str) -> dict[str, Any]:
+    """One topic's attention row -- small file reads only, no git, no lint."""
+    trainset_n = count_query_train_examples(store, topic)
+    return {
+        "topic": topic,
+        "suggestions": _suggestion_block(store, topic),
+        "compile_ready": _is_compile_ready(trainset_n, _golden_count(store, topic)),
+        "runner": read_runner_liveness(vault_path, topic),
+    }
+
+
+def _last_lint_status(store: VaultStore, *, today: date | None = None) -> dict[str, Any]:
+    """Last recorded lint date and its staleness -- read from the log, not re-walked.
+
+    A vault that has never been linted, and one whose recorded date cannot be
+    parsed, are both reported stale with a null age: "unknown" would invite a
+    surface to render nothing, and never-linted is precisely the case that
+    warrants attention.
+    """
+    recorded = _last_lint(store)
+    reference = today if today is not None else datetime.now(UTC).date()
+    try:
+        age_days = (reference - date.fromisoformat(recorded or "")).days
+    except ValueError:
+        return {"date": recorded, "age_days": None, "stale": True}
+    return {"date": recorded, "age_days": age_days, "stale": age_days >= LINT_STALE_AFTER_DAYS}
+
+
+def _is_compile_ready(trainset_n: int, golden_n: int) -> bool:
+    """Whether a topic clears both floors DSPy compile is gated on."""
+    return trainset_n >= COMPILE_READY_MIN_EXAMPLES and golden_n >= EVAL_MIN_GOLDEN
+
+
+def _topic_statuses(
+    store: VaultStore, vcs: VaultVcs, vault_path: Path, *, scope: str | None
+) -> list[TopicStatus]:
     """Gather per-topic status rows (optionally one topic)."""
     if scope:
         if not is_topic(store, scope):
@@ -258,12 +361,13 @@ def _topic_statuses(store: VaultStore, vcs: VaultVcs, *, scope: str | None) -> l
 
     lint_counts = _lint_counts_by_topic(store, scope=scope)
     return [
-        _topic_status(store, vcs, name, lint_violations=lint_counts.get(name, 0)) for name in names
+        _topic_status(store, vcs, vault_path, name, lint_violations=lint_counts.get(name, 0))
+        for name in names
     ]
 
 
 def _topic_status(
-    store: VaultStore, vcs: VaultVcs, name: str, *, lint_violations: int
+    store: VaultStore, vcs: VaultVcs, vault_path: Path, name: str, *, lint_violations: int
 ) -> TopicStatus:
     trainset_n = count_query_train_examples(store, name)
     golden_n = _golden_count(store, name)
@@ -278,7 +382,8 @@ def _topic_status(
             "optimizer": artifact.optimizer or None,
             "fallback_reason": artifact.fallback_reason or None,
         }
-    compile_ready = trainset_n >= COMPILE_READY_MIN_EXAMPLES and golden_n >= EVAL_MIN_GOLDEN
+    compile_ready = _is_compile_ready(trainset_n, golden_n)
+    notes = _notes_summary(store, vcs, name)
     return TopicStatus(
         topic=name,
         pages=_page_count(store, name),
@@ -293,7 +398,10 @@ def _topic_status(
         last_eval=last_eval_summary(read_last_metrics(store, name)),
         suggestions=_suggestion_block(store, name),
         gaps=_gap_block(store, name),
-        notes=_notes_summary(store, vcs, name),
+        notes=notes,
+        lanes=lanes_block(
+            store, vault_path, name, lint_violations=lint_violations, notes_drifted=notes["drifted"]
+        ),
     )
 
 
@@ -337,27 +445,18 @@ def _suggestion_block(store: VaultStore, topic: str) -> dict[str, Any]:
     approved-but-not-yet-ingested backlog that matters for the interactive
     ingest handoff), ``refused_awaiting_rework`` (approved records whose most
     recent gate pass was refused -- still re-workable, not yet re-submitted),
-    plus the newest ``proposed_at``. Reads ``suggestions.jsonl`` line-by-line
-    and skips a malformed line rather than raising, so a single corrupt record
-    never breaks the status readout (mirrors ``_golden_count``).
+    plus the newest ``proposed_at``. A single corrupt record never breaks the
+    status readout (mirrors ``_golden_count``).
     """
     counts = Counter[str]()
     refused_awaiting_rework = 0
     newest: str | None = None
-    path = suggestions_path(topic)
-    if store.exists(path):
-        for line in store.read_text(path).splitlines():
-            if not line.strip():
-                continue
-            try:
-                record = SuggestionRecord.from_json_line(line)
-            except (ValueError, RecordParseError):
-                continue
-            counts[record.status] += 1
-            if newest is None or record.proposed_at > newest:
-                newest = record.proposed_at
-            if record.status == "approved" and _is_refused(record):
-                refused_awaiting_rework += 1
+    for record in read_suggestion_records(store, topic):
+        counts[record.status] += 1
+        if newest is None or record.proposed_at > newest:
+            newest = record.proposed_at
+        if record.status == "approved" and is_refused(record):
+            refused_awaiting_rework += 1
     return {
         "pending": counts.get("pending", 0),
         "approved_awaiting_ingest": counts.get("approved", 0),
@@ -367,12 +466,6 @@ def _suggestion_block(store: VaultStore, topic: str) -> dict[str, Any]:
         "newest_proposed_at": newest,
         "refused_awaiting_rework": refused_awaiting_rework,
     }
-
-
-def _is_refused(record: SuggestionRecord) -> bool:
-    """Whether ``record``'s ``gate_outcome`` (if any) carries a refused verdict."""
-    outcome = record.gate_outcome
-    return outcome is not None and outcome.get("verdict") == "refused"
 
 
 def _gap_block(store: VaultStore, topic: str) -> dict[str, Any]:

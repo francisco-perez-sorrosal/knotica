@@ -37,6 +37,7 @@ from knotica.core.best_effort import best_effort
 from knotica.core.branch_namespaces import quarantine_branch_name
 from knotica.core.errors import ErrorCode, KnoticaError
 from knotica.core.gapfill import GATE_VERDICT_MERGED, GATE_VERDICT_REFUSED, suggestions_path
+from knotica.core.gapfill_session import SessionStatus, session_status
 from knotica.core.lint import lint_vault
 from knotica.core.loop import LoopRunner, build_loop_runner, harness_evaluate
 from knotica.core.loop_state import read_loop_state
@@ -94,9 +95,21 @@ _SUBMIT_DESCRIPTION = (
     "instead."
 )
 
+_SESSION_STATUS_DESCRIPTION = (
+    "Read ONE approved suggestion's ingest session, classified into exactly one of nine "
+    "named states (not_started, waiting_on_client, client_wrote, rework_in_flight, "
+    "submitted, merged, refused, blocked, swept) plus who acts next (`next.actor`: you, "
+    "claude, system, or none). Read-only and free -- no side effects, no billing, no wiki "
+    "commit. Does NOT ingest, submit, or gate anything -- call `source_ingest_open`/ "
+    "`source_ingest_submit` to act. Poll this only for the item you are actively watching, "
+    "not the whole queue -- `fill action=suggestions_read` already carries the free fields "
+    "a queue view needs."
+)
+
 
 def register_source_ingest_tools(mcp: FastMCP) -> None:
-    """Register ``source_ingest_open`` and ``source_ingest_submit`` on ``mcp``."""
+    """Register ``source_ingest_open``, ``source_ingest_submit`` and
+    ``session_status`` on ``mcp``."""
 
     @mcp.tool(name="source_ingest_open", description=_OPEN_DESCRIPTION)
     def source_ingest_open(topic: str, suggestion_id: str, vault: str = "") -> ToolResult:
@@ -116,6 +129,15 @@ def register_source_ingest_tools(mcp: FastMCP) -> None:
             vault,
             lambda store, resolved: _submit_payload(
                 store, resolved.path, topic, suggestion_id, mode=mode
+            ),
+        )
+
+    @mcp.tool(name="session_status", description=_SESSION_STATUS_DESCRIPTION)
+    def session_status_tool(topic: str, suggestion_id: str, vault: str = "") -> ToolResult:
+        return with_resolved_vault(
+            vault,
+            lambda store, resolved: _session_status_payload(
+                store, resolved.path, topic, suggestion_id
             ),
         )
 
@@ -402,6 +424,39 @@ def _verdict_envelope(
             "regressed_questions": regressed_questions,
         }
     return payload
+
+
+# ---------------------------------------------------------------------------
+# session_status
+# ---------------------------------------------------------------------------
+
+
+def _session_status_payload(
+    store: VaultStore, vault_path: Path, topic: str, suggestion_id: str
+) -> dict[str, Any]:
+    cleaned_topic = _validate_topic(topic)
+    status = session_status(store, vault_path, cleaned_topic, suggestion_id)
+    return _session_status_envelope(status, cleaned_topic)
+
+
+def _session_status_envelope(status: SessionStatus, topic: str) -> dict[str, Any]:
+    """Translate :class:`~knotica.core.gapfill_session.SessionStatus` to the
+    §3.3 wire shape."""
+    return {
+        "topic": topic,
+        "suggestion_id": status.suggestion_id,
+        "stage": status.stage,
+        "stage_index": status.stage_index,
+        "state": status.state,
+        "source_present": status.source_present,
+        "pages_present": list(status.pages_present),
+        "index_synced": status.index_synced,
+        "gate_eligible": status.gate_eligible,
+        "gate_eligible_reason": status.gate_eligible_reason,
+        "restored_from": status.restored_from,
+        "gate_outcome": status.gate_outcome,
+        "next": {"actor": status.next.actor, "do": status.next.do},
+    }
 
 
 # ---------------------------------------------------------------------------

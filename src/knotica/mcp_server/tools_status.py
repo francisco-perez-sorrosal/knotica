@@ -18,7 +18,11 @@ Result shapes (the observable contract; feed TS type generation in M3):
   ``view="process_model"`` returns the served process-model declaration:
   ``{schema_version, lanes, lane_stages}`` where ``lane_stages`` maps each
   lane to its ordered ``{id, title, handoff}`` stages -- structure only, no
-  predicates, vault- and topic-independent.
+  predicates, vault- and topic-independent. ``view="attention"`` returns the
+  cross-topic inbox: ``{schema_version, vault_name, topics, totals,
+  last_lint, drift}`` where each ``topics`` row is ``{topic, suggestions,
+  compile_ready, runner}`` -- every topic in the vault, no lint walk, no
+  note-anchor resolution.
 * ``metrics_read`` -> ``{topic, records, has_more, next_before_generation,
   skipped_malformed}``
 * ``baseline_probe`` -> ``{topic, scalar, harness_version, runner_mode, …}``
@@ -55,7 +59,13 @@ _WIKI_STATUS_DESCRIPTION = (
     "it to check which topics this vault covers before routing a conversation "
     'turn. Pass view="process_model" to read the six process lanes and their '
     "ordered stages (id, title, handoff) directly from the server -- vault- and "
-    'topic-independent. Omit view or pass "summary" for the full payload above. '
+    'topic-independent. Pass view="attention" for the cross-topic inbox: every '
+    "topic's pending suggestions, refused-awaiting-rework backlog, "
+    "compile-readiness and loop-runner liveness, plus the last-lint date and "
+    "its staleness -- deliberately cheaper than summary (it runs no lint pass "
+    "and resolves no note anchors, so its drift row is a marker carrying no "
+    "count) and it covers every topic, ignoring topic. "
+    'Omit view or pass "summary" for the full payload above. '
     "Read-only — no commits, no lock."
 )
 
@@ -127,8 +137,10 @@ def register_status_lane_tools(mcp: FastMCP) -> None:
 
 
 #: Views that never read the vault catalog -- ``scope`` is config + topic
-#: enumeration only, ``process_model`` reads no vault state at all.
-_CATALOG_FREE_VIEWS = frozenset({"scope", "process_model"})
+#: enumeration only, ``process_model`` reads no vault state at all, and
+#: ``attention`` reports on the active vault alone (its budget rules out the
+#: extra ``list_vaults`` config read on every poll).
+_CATALOG_FREE_VIEWS = frozenset({"scope", "process_model", "attention"})
 
 
 def _wiki_payload(
