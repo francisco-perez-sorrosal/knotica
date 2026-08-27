@@ -15,12 +15,13 @@ import {
   BridgeToolClient,
   HttpToolClient,
   preferBridgeMount,
+  paneFromToolInput,
   topicFromToolInput,
   vaultFromToolInput,
   type ToolClient,
 } from "./toolClient";
 import { flywheelLabel, flywheelTone } from "./compileStages";
-import { resolvePane } from "./paneRouting";
+import { resolveLaneFocus, resolvePane } from "./paneRouting";
 import {
   ObsidianLink,
   obsidianOpenVaultFromContext,
@@ -39,7 +40,15 @@ import "./app.css";
 const query = new URLSearchParams(window.location.search);
 const initialTopic = query.get("topic") || "agentic-systems";
 const initialVault = query.get("vault") || "";
-const initialPane = resolvePane(query.get("pane"));
+/**
+ * `?lane=`/`?focus=` are the deep link `open_dashboard` hands out; `?pane=`
+ * stays a bookmark alias for links minted before the lanes existed. A `?lane=`
+ * wins when both are present — it is the newer, explicit form.
+ */
+const initialLane = query.get("lane") || "";
+const initialPane = initialLane
+  ? resolveLaneFocus(initialLane, query.get("focus") || "")
+  : resolvePane(query.get("pane"));
 const mcpUrl = query.get("mcp") || "http://127.0.0.1:8765/mcp";
 
 const catalog = signal<WikiStatus | null>(null);
@@ -88,11 +97,13 @@ export function App() {
   const [client, setClient] = useState<ToolClient | null>(null);
   const topicRef = useRef(topic);
   const vaultRef = useRef(vault);
+  const paneRef = useRef(pane);
   const clientRef = useRef<ToolClient | null>(null);
   /** Last-observed ``default_vault``; undefined until the first ``wiki_status`` lands. */
   const lastDefaultRef = useRef<string | undefined>(undefined);
   topicRef.current = topic;
   vaultRef.current = vault;
+  paneRef.current = pane;
   clientRef.current = client;
 
   const resolvedVaultArg = useCallback(
@@ -191,7 +202,14 @@ export function App() {
           app.ontoolinput = (input) => {
             const nextTopic = topicFromToolInput(input, topicRef.current);
             const nextVault = vaultFromToolInput(input, vaultRef.current);
+            // The bridge mount has no URL, so `lane`/`focus` arrive here —
+            // this is the only channel a host has to deep-link a pane.
+            const nextPane = paneFromToolInput(input, paneRef.current);
             let changed = false;
+            if (nextPane !== paneRef.current) {
+              paneRef.current = nextPane;
+              setPane(nextPane);
+            }
             if (nextTopic !== topicRef.current) {
               topicRef.current = nextTopic;
               setTopic(nextTopic);

@@ -387,6 +387,9 @@ LANE_MEMBERSHIP: Mapping[tuple[str, str | None], frozenset[tuple[str, str, str]]
                     ("fill", "gate", "the submitted candidate reaches the gate"),
                 }
             ),
+            ("session_status", None): frozenset(
+                {("fill", "ingest", "read a candidate session's live state without billing")}
+            ),
             # -- Tend ----------------------------------------------------------
             ("vault_health", None): frozenset(
                 {

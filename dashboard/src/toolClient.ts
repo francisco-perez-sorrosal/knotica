@@ -2,6 +2,7 @@ import { App } from "@modelcontextprotocol/ext-apps";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
 
+import { resolveLaneFocus } from "./paneRouting";
 import type {
   ArenaHistory,
   ArenaStatus,
@@ -43,6 +44,7 @@ import type {
   AnchorStatusFilter,
   OkfCheckResult,
   OkfRepairResult,
+  PaneId,
   QueryAnswer,
   PromptDiffResult,
   PromoteTarget,
@@ -832,6 +834,26 @@ export function vaultFromToolInput(input: unknown, fallback: string): string {
   const vault = args.vault;
   if (typeof vault !== "string") return fallback;
   return vault.trim();
+}
+
+/**
+ * Read `lane`/`focus` from an ``open_dashboard`` tool-input payload and resolve
+ * the pane to open.
+ *
+ * Mirrors `topicFromToolInput`/`vaultFromToolInput` for the reading half: no
+ * `lane` in the payload (absent, non-string, or blank) keeps the caller's
+ * fallback — a stray `focus` alone is not enough to navigate. It deliberately
+ * breaks the mirror for the resolution half: a `lane` that *is* present but
+ * unrecognised degrades through `resolveLaneFocus` to home's own pane
+ * (`dec-092`), never to whatever pane the app happened to be showing.
+ */
+export function paneFromToolInput(input: unknown, fallback: PaneId): PaneId {
+  if (!isRecord(input)) return fallback;
+  const args = isRecord(input.arguments) ? input.arguments : input;
+  const lane = args.lane;
+  if (typeof lane !== "string" || !lane.trim()) return fallback;
+  const focus = typeof args.focus === "string" ? args.focus : "";
+  return resolveLaneFocus(lane, focus);
 }
 
 function readResultText(result: unknown): unknown {

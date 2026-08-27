@@ -345,6 +345,8 @@ selectors:
       - tests/test_records.py
       - tests/test_schema.py
       - tests/test_scrub.py
+      - tests/test_status_attention_view.py
+      - tests/test_status_lanes_block.py
       - tests/test_text_reflow.py
       - tests/test_transaction.py
       - tests/test_vault_metadata_tree.py
@@ -373,6 +375,7 @@ file_dependencies:
   - "src/knotica/core/schema.py"
   - "src/knotica/core/scrub.py"
   - "src/knotica/core/status.py"
+  - "src/knotica/core/status_lanes.py"
   - "src/knotica/core/template.py"
   - "src/knotica/core/text_reflow.py"
   - "src/knotica/core/topics.py"
@@ -388,7 +391,7 @@ file_dependencies:
   - "src/knotica/core/operations/reflow_sources.py"
   - "src/knotica/core/operations/store_source.py"
   - "src/knotica/core/operations/write_page.py"
-integration_boundaries: ["mcp-surface", "cli-surface"]   # planner-owned; core/process_model.py is projected by the lane dispatchers (mcp-surface) and by `knotica lane` (cli-surface) — process-swimlanes M1/M2
+integration_boundaries: ["mcp-surface", "cli-surface", "service-lifecycle", "loop-runtime"]   # planner-owned; core/process_model.py is projected by the lane dispatchers (mcp-surface) and by `knotica lane` (cli-surface) — process-swimlanes M1/M2; wiki_status view="attention" reads service.manager.status()/resolve_watched_topics() (service-lifecycle) and read_runner_liveness (loop-runtime) for cross-topic runner liveness — process-swimlanes M2/2.1
 parallel_safe: true
 shared_fixture_scope: per-suite
 shared_state: tmp_path
@@ -417,6 +420,7 @@ selectors:
       - tests/test_file_size_ratchet.py
       - tests/test_notes_config.py
       - tests/test_score_isolation_characterization.py
+      - tests/test_status_attention_view.py
 file_dependencies:
   - "src/knotica/core/notes/**"
   - "src/knotica/core/notes_config.py"
@@ -431,7 +435,10 @@ notes: >-
   Also homes the two notes-isolation standing guards
   (`test_score_isolation_characterization.py`, `tests/core/notes/test_contamination.py`) even
   though they execute `core/lint.py` and `evals/harness.py` — the invariant they defend is the
-  overlay's, so a `notes/` change is what must re-run them.
+  overlay's, so a `notes/` change is what must re-run them. `test_status_attention_view.py`
+  cross-lists here too (process-swimlanes M2/2.1t) — its `view="attention"` fitness tests
+  seed a real anchored note via `capture_note` to prove the anchor-resolution ban is
+  non-vacuous, so a `notes/` change that alters resolution cost must re-run it.
 ```
 
 ### `mcp-surface`
@@ -532,6 +539,7 @@ selectors:
       - tests/test_cli_eval.py
       - tests/test_cli_help_grouping.py
       - tests/test_cli_init.py
+      - tests/test_cli_lane_rail.py
       - tests/test_cli_lanes.py
       - tests/test_cli_loop.py
       - tests/test_cli_mcp.py
@@ -669,6 +677,7 @@ selectors:
       - tests/test_loop_progress.py
       - tests/test_loop_runner.py
       - tests/test_loop_runner_factory_characterization.py
+      - tests/test_gapfill_session_status.py
       - tests/test_loop_state.py
       - tests/test_loop_state_additive_fields.py
       - tests/test_status_baseline_unreachable.py
@@ -691,7 +700,7 @@ file_dependencies:
   - "src/knotica/core/branch_scoreboard.py"
   - "src/knotica/core/branch_delete.py"
   - "src/knotica/core/best_effort.py"
-integration_boundaries: ["gapfill-spine"]   # planner-owned; the candidate gate path drives gap closure — process-swimlanes M0/P3
+integration_boundaries: ["gapfill-spine", "vault-semantics"]   # planner-owned; the candidate gate path drives gap closure — process-swimlanes M0/P3; wiki_status view="attention" reads read_runner_liveness for cross-topic liveness — process-swimlanes M2/2.1
 parallel_safe: true
 shared_fixture_scope: per-suite
 shared_state: tmp_path
@@ -747,6 +756,7 @@ selectors:
       - tests/test_gapfill.py
       - tests/test_gapfill_discovery_default.py
       - tests/test_gapfill_integration.py
+      - tests/test_gapfill_session_status.py
       - tests/test_loop_gapfill_hook.py
       - tests/test_mcp_gaps_read.py
       - tests/test_mcp_source_ingest.py
@@ -761,6 +771,7 @@ file_dependencies:
   - "src/knotica/core/gap_classifier.py"
   - "src/knotica/core/gapfill.py"
   - "src/knotica/core/gapfill_config.py"
+  - "src/knotica/core/gapfill_session.py"
   - "src/knotica/core/gate_inputs.py"
   - "src/knotica/core/source_gate.py"
   - "src/knotica/core/source_ingest.py"
@@ -868,7 +879,7 @@ selectors:
       - tests/test_service_manager.py
 file_dependencies:
   - "src/knotica/service/**"
-integration_boundaries: []   # planner-owned; populates lazily in later pipelines
+integration_boundaries: ["vault-semantics"]   # planner-owned; wiki_status view="attention" (core/status.py) calls service.manager.status()/resolve_watched_topics() for cross-topic runner liveness — process-swimlanes M2/2.1
 parallel_safe: true
 shared_fixture_scope: per-suite
 shared_state: tmp_path

@@ -44,9 +44,11 @@ navigate, so a reload preserves your view.
 
 | Param | Default | Effect |
 |-------|---------|--------|
-| `?topic=` | `agentic-systems` | Initial topic. Reconciled against the vault's real topic list on load; falls back to the first real topic if the requested one doesn't exist. |
+| `?topic=` | (vault-wide) | Initial topic. Reconciled against the vault's real topic list on load; falls back to the first real topic if the requested one doesn't exist. When opening a lane pane, topic narrows the data to that topic only. |
 | `?vault=` | (none) | Initial vault name. It wins on load but does not pin the selection: once the active vault changes from another client (e.g. `/knotica:use`), the picker follows it. |
-| `?pane=` | `vault` | Initial pane. Accepts `vault`, `ask`, `loop`, `sources`, `notes`, `arena`, `ingest`, `datasets`; `golden` is a legacy alias that normalizes to `datasets`. Anything else falls back to `vault`. |
+| `?pane=` | `vault` | Initial pane. Accepts `vault`, `ask`, `loop`, `sources`, `notes`, `arena`, `ingest`, `datasets`; `golden` is a legacy alias that normalizes to `datasets`. Anything else falls back to `vault`. **Deprecated by `lane`** — use `lane=` instead. |
+| `?lane=` | (none) | Initial process lane. Accepts `home`, `learn`, `answer`, `improve`, `fill`, `tend`. An unrecognized lane degrades to the default vault view. Use with `focus=` to anchor a stage or object within the lane. |
+| `?focus=` | (none) | Stage or object ID within the active lane. An unrecognized `focus` degrades to the lane's own landing view. Requires `lane=` to be meaningful. |
 | `?mcp=` | `http://127.0.0.1:8765/mcp` | HTTP-mount MCP endpoint override — point the client at a different streamable-HTTP server. |
 | `?mount=` | (auto) | `bridge` or `http` forces the transport, overriding the framed-window auto-detect. |
 

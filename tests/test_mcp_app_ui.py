@@ -105,3 +105,75 @@ def test_open_dashboard_returns_graceful_fallback_text() -> None:
     assert "MCP Apps" in body
     assert "knotica mcp --http" in body
     assert f"topic={TOPIC}" in body
+
+
+def _response_text(result: Any) -> str:
+    texts = [
+        block.text
+        for block in (getattr(result, "content", []) or [])
+        if isinstance(block, TextContent) or getattr(block, "type", None) == "text"
+    ]
+    return "\n".join(texts)
+
+
+def test_open_dashboard_topic_omitted_does_not_silently_retarget_to_a_hardcoded_topic() -> None:
+    """dec-092: `topic` defaults to vault-wide (`""`), not the old hardcoded
+    `"agentic-systems"` literal -- a vault that never had that topic must not
+    be silently retargeted to it."""
+    result = anyio.run(_call_tool, _build_server(), "open_dashboard", {})
+    assert getattr(result, "isError", False) is False
+    assert "agentic-systems" not in _response_text(result)
+
+
+def test_open_dashboard_unknown_lane_degrades_without_error() -> None:
+    """An unrecognised `lane` must not be rejected server-side (dec-092): the
+    value is still accepted and threaded through to the fallback URL, where
+    the *dashboard's* own resolution degrades it -- proven here by requiring
+    the raw value to actually reach the URL, not merely that the call didn't
+    raise (a param the server silently dropped would pass a bare
+    no-exception check just as easily)."""
+    result = anyio.run(_call_tool, _build_server(), "open_dashboard", {"lane": "not-a-real-lane"})
+    assert getattr(result, "isError", False) is False
+    assert "lane=not-a-real-lane" in _response_text(result)
+
+
+def test_open_dashboard_unknown_focus_degrades_without_error() -> None:
+    result = anyio.run(
+        _call_tool,
+        _build_server(),
+        "open_dashboard",
+        {"lane": "improve", "focus": "not-a-real-focus"},
+    )
+    assert getattr(result, "isError", False) is False
+    assert "focus=not-a-real-focus" in _response_text(result)
+
+
+def test_open_dashboard_stale_lane_value_degrades_without_error() -> None:
+    """dec-092 draws no line between "unknown" and "stale" -- a lane value
+    from a since-retired vocabulary (here, `vault`, the pane name
+    `open_dashboard` itself used to default to) must degrade exactly like any
+    other value the tool has never heard of, never raise."""
+    result = anyio.run(_call_tool, _build_server(), "open_dashboard", {"lane": "vault"})
+    assert getattr(result, "isError", False) is False
+    assert "lane=vault" in _response_text(result)
+
+
+def test_open_dashboard_url_carries_lane_and_focus_for_the_http_mount() -> None:
+    result = anyio.run(
+        _call_tool,
+        _build_server(),
+        "open_dashboard",
+        {"lane": "improve", "focus": "heal"},
+    )
+    body = _response_text(result)
+    assert "lane=improve" in body
+    assert "focus=heal" in body
+
+
+def test_open_dashboard_description_documents_lane_and_focus_params() -> None:
+    listed = anyio.run(_list_tools, _build_server())
+    tool = next((t for t in listed.tools if t.name == "open_dashboard"), None)
+    assert tool is not None, "open_dashboard tool not registered"
+    description = (tool.description or "").lower()
+    assert "lane" in description
+    assert "focus" in description

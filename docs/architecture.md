@@ -55,7 +55,7 @@ Two scoped views project narrower slices of the same model:
 |---|---|---|
 | `store/` | `VaultStore` protocol + `LocalFSStore` — atomic temp+rename primitives and the path-escape boundary (`PathOutsideVaultError`). No git, log, or schema knowledge | `src/knotica/store/` |
 | `search/` | `SearchBackend` protocol + `RipgrepBackend`, ranking with live Okapi BM25 (k1=1.2, b=0.75, no index, byte-size length proxy). Falls back to a pure-Python markdown walk when `rg` is absent — both engines only choose candidate files; counting, snippets, and scoring run in one shared pass, so results match either way. `cursor.py` is the opaque pagination token (query + sort + offset + families, fail-closed); `retrieval.py` is the headless key-term retrieval both answer paths share | `src/knotica/search/` |
-| `core/` | Vault semantics and the sole mutation path: `transaction`, `lock`, `vcs`, `scrub`, the vault vocabulary (`config`, `config_write`, `schema`, `page`, `links`, `lint`, `records`, `errors`, `template`, `vault_layout`, `topics`, `jsonl`), and the shared read/aggregate substrate both CLI and MCP render from (`status`, `doctor`, `metrics`, `prompts`, `datasets_inventory`, `golden_review`, `index_catalog`, `vault_metadata_tree`, `vault_scaffold`, `ingest_activity`, `text_reflow`, `baseline_probe`). `process_model.py` declares the six process lanes (`home`, `learn`, `answer`, `improve`, `fill`, `tend`), each non-Home lane's ordered stage rail, which verb acts at which stage, and how every lane-less verb is classified — the one declaration each lane surface projects from. Also holds the loop, compile, and gap-fill clusters — see § 3b | `src/knotica/core/` |
+| `core/` | Vault semantics and the sole mutation path: `transaction`, `lock`, `vcs`, `scrub`, the vault vocabulary (`config`, `config_write`, `schema`, `page`, `links`, `lint`, `records`, `errors`, `template`, `vault_layout`, `topics`, `jsonl`), and the shared read/aggregate substrate both CLI and MCP render from (`status`, `status_lanes`, `doctor`, `metrics`, `prompts`, `datasets_inventory`, `golden_review`, `index_catalog`, `vault_metadata_tree`, `vault_scaffold`, `ingest_activity`, `text_reflow`, `baseline_probe`). `process_model.py` declares the six process lanes (`home`, `learn`, `answer`, `improve`, `fill`, `tend`), each non-Home lane's ordered stage rail, which verb acts at which stage, and how every lane-less verb is classified — the one declaration each lane surface projects from. Also holds the loop, compile, and gap-fill clusters — see § 3b | `src/knotica/core/` |
 | `core/operations/` | The mutating operations. Nine open a `VaultTransaction`, exactly one each: `write_page`, `store_source`, `create_topic`, `curate_example`, `migrate`, `guillotine`, `capture_note`, `reanchor_note` (`reanchor`/`detach`/`archive`), `reflow_sources`. Two carry none of their own — `doctor_repair`, and `promote_note`, which delegates to `curate_example` or `gapfill.report_gap`. `candidate_scope.py` is a routing helper that sends a write onto a candidate worktree | `src/knotica/core/operations/` |
 | `core/notes/` | Notes overlay model: `anchor` (document + append-only anchor history), `resolve` (the read-time resolution ladder), `candidates` + `scoring` (fuzzy candidate generation and scoring), `supersession` (page-replaced vs passage-reworded), `reconcile` (post-merge drift-queue notification), `store` (read-only enumeration) | `src/knotica/core/notes/` |
 | `mcp_server/` | FastMCP adapter: 21 registrations — 13 Tier-1 flat tools, `vault`, `open_dashboard`, and 6 process-lane dispatchers (`tools_dispatch_<lane>.py`, generated from `core/process_model.py` by `tools_dispatch_lane_common.py`) — plus resources and prompts. The operator verbs the lanes absorbed keep their `@mcp.tool` registration as the lane handler seam but are not registered on the server. `vault_ctx.py` resolves config per call and maps house errors to envelopes; `envelope.py` holds the read/write mapper split. Delegates every mutation to `core.operations.*`. Named `mcp_server` to avoid shadowing the `mcp` SDK (`dec-009`) | `src/knotica/mcp_server/` |
@@ -79,7 +79,7 @@ Cross-cutting features composed from the components above; none owns a single di
 | **Autonomous loop lifecycle** — observe → gate → heal, per topic, on a clone | `src/knotica/core/loop.py` + `loop_state.py`, `loop_heartbeat.py`, `loop_progress.py`, `loop_factory.py`, `loop_promote.py`, `loop_retry_backoff.py`, `loop_attempt.py`, `loop_cadence_config.py`, `arena.py`, `arena_resolve.py`, `candidate_gate.py`, `branch_namespaces.py`, `branch_scoreboard.py`, `branch_delete.py`, `best_effort.py`; CLI `src/knotica/cli/loop.py` |
 | **MCP tool surface** — 13 Tier-1 flat tools + `vault` + `open_dashboard` + 6 process-lane dispatchers (21 registrations) | `src/knotica/mcp_server/tools_dispatch_*.py`, `src/knotica/mcp_server/tools_dispatch_lane_common.py`, `src/knotica/mcp_server/dispatch_telemetry.py` |
 | **Query compile & promote** — trainset → MIPROv2 on a clone → `compile/*` branch → review → promote | `src/knotica/core/compile_run.py`, `compile_state.py`, `compile_promote.py`, `compiled.py`, `query_engine.py`, `trainset.py`, `models_config.py`, `prompt_diff.py`; `src/knotica/programs/` |
-| **Gap-fill spine** — diagnose → discover → approve → gated ingest | `src/knotica/core/gap_classifier.py`, `gapfill.py`, `gapfill_config.py`, `source_gate.py`, `source_ingest.py`; `src/knotica/discovery/`; `src/knotica/mcp_server/tools_suggestions.py`, `tools_source_ingest.py`; `src/knotica/cli/gapfill.py` |
+| **Gap-fill spine** — diagnose → discover → approve → gated ingest | `src/knotica/core/gap_classifier.py`, `gapfill.py`, `gapfill_config.py`, `gapfill_session.py` (the read-only nine-state session projection), `source_gate.py`, `source_ingest.py`; `src/knotica/discovery/`; `src/knotica/mcp_server/tools_suggestions.py`, `tools_source_ingest.py`; `src/knotica/cli/gapfill.py` |
 | **Notes overlay** — capture → resolve → recall → correct → promote | `src/knotica/core/notes/`, `src/knotica/core/notes_config.py`, `src/knotica/core/operations/capture_note.py`, `reanchor_note.py`, `promote_note.py`; `src/knotica/mcp_server/tools_notes.py`, `tools_dispatch_notes.py`, `tools_dispatch_notes_read.py`, `tools_dispatch_notes_mutations.py`, `tools_dispatch_notes_common.py`; `dashboard/src/NotesPane.tsx` |
 
 <!-- aac:end -->
@@ -106,9 +106,9 @@ Cross-cutting features composed from the components above; none owns a single di
 
 ## 4. Interfaces
 
-**35 MCP tools** — 25 flat conversational tools, 9 operator dispatchers, and `open_dashboard`. Every
-tool resolves config per call and returns a structured envelope rather than raising. Mutating
-dispatcher actions take `mode=dry-run|apply`.
+**21 MCP tools** — 13 Tier-1 flat tools, the `vault` dispatcher, `open_dashboard`, and 6 process-lane
+dispatchers. Every tool resolves config per call and returns a structured envelope rather than raising.
+Mutating dispatcher actions take `mode=dry-run|apply`.
 
 | Dispatcher | Actions |
 |---|---|
@@ -127,7 +127,7 @@ The flat tools, by module: `tools_read.py` — `list_topics`, `read_page`, `sear
 `tools_status.py` — `wiki_status`, `metrics_read`, `baseline_probe`; `tools_suggestions.py` —
 `suggestions_read`, `suggestions_review`; `tools_gaps.py` — `gap_report`, `gaps_read`,
 `gapfill_discover`; `tools_source_ingest.py` —
-`source_ingest_open`, `source_ingest_submit`; `tools_ingest.py` — `ingest_progress`,
+`source_ingest_open`, `source_ingest_submit`, `session_status`; `tools_ingest.py` — `ingest_progress`,
 `ingest_activity_read`; `tools_query.py` — `query`; `tools_notes.py` — `note_capture`;
 `tools_prompt_diff.py` — `prompt_diff`; `tools_guide.py` — `read_protocol`.
 
@@ -136,8 +136,11 @@ Resources: `knotica://schema/root`, `knotica://schema/topic/{topic}`, `knotica:/
 `lint`, `curate` — static names, lazily resolved bodies.
 
 Each dispatcher validates `action` against its own `_ACTIONS` tuple and returns `INVALID_ARGUMENT` for
-anything else; `INVALID_CURSOR` remains distinct. `wiki_status(view="scope")` is the cheapest
-routing check — `{schema_version, vault_name, topics[], totals}`, deterministic and read-only.
+anything else; `INVALID_CURSOR` remains distinct. Two `wiki_status` views serve routing and monitoring:
+`view="scope"` is the cheapest routing check — `{schema_version, vault_name, topics[], totals}`,
+deterministic and read-only; `view="attention"` is the cross-topic inbox projection, proven
+structurally cheaper than summary (no lint walk, no git subprocess, no note-anchor resolution) and
+safe to poll on every Human-facing screen refresh.
 `dispatch_telemetry.py` logs one line per invocation and one per rejected action. Set
 `KNOTICA_TELEMETRY_DIR` to also append each as a timestamped JSONL record carrying a routing
 `outcome` (`ok` / `INVALID_ARGUMENT` / `NOT_FOUND` / `TOPIC_NOT_FOUND` / `error`), one file per UTC

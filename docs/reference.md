@@ -150,12 +150,26 @@ identical across a paginated walk or the cursor is invalidated.
 | Tool | Params | Notes |
 |---|---|---|
 | `query` | `question`, `topic` (req), `vault=""` | The one wiki-answer tool; grounded pages + citations. Read-only. |
-| `wiki_status` | `topic=""`, `vault=""`, `view="summary"` | `view="scope"` is the cheapest read (topic names + totals) for conversational routing. |
+| `wiki_status` | `topic=""`, `vault=""`, `view="summary"` | Four views. `summary` (default) is the full per-topic payload. `scope` is the cheapest read (topic names + totals) for conversational routing. `process_model` serves the lane/stage declaration, vault- and topic-independent. `attention` is the cross-topic inbox — see below. |
+
+`wiki_status view="attention"` returns `{schema_version, vault_name, topics, totals, last_lint,
+drift}`. Each `topics` row is `{topic, suggestions, compile_ready, runner}`: `suggestions` is the
+same per-topic gap-fill queue block `summary` carries, and `runner` is the loop-runner liveness
+`{alive, pid, beat_at, interval_seconds}` read per topic — so a cross-topic surface gets a true
+per-topic answer instead of the multi-topic `summary` payload's unconditional `alive: false`.
+`totals` sums `pending`, `refused_awaiting_rework`, `compile_ready` and `runners_alive` across the
+vault. It covers **every** topic and ignores `topic`, which has no single-topic reading here.
+
+The view is deliberately cheaper than `summary` and stays that way by contract (`dec-092`): it runs
+**no** mechanical lint pass — `last_lint` is `{date, age_days, stale}` read from the log, stale after
+7 days, and never-linted counts as stale — and it resolves **no** note anchors, so `drift` is the
+marker `{default_collapsed: true, count: null}` whose count is paid only on expansion. It spawns no
+git subprocess at all, so whole-vault cost never grows in process spawns as topics are added.
 | `gap_report` | `topic`, `question` (req); `reason=""`, `reference_pages=None`, `vault=""` | Files a conversationally-reported gap (`origin=reported`). Dedups on repeat identical question. |
 | `note_capture` | `topic`, `note` (req); `quote=""`, `pages=[]`, `intent="reflection"`, `tags=[]`, `vault=""` | Writes under `notes/<topic>/`, never a wiki page. A weak/unprovable anchor degrades to `ANCHOR_DEGRADED`, never fails. |
 | `ingest_progress` | `topic`, `stage`, `title` (req); `status="info"`, `detail=""`, `run_id=""`, `citation_key=""`, `vault=""` | Best-effort journal append (**not** a git commit) for the dashboard Ingest pane. |
 | `read_protocol` | `operation` (req, `ingest`\|`query`\|`lint`\|`curate`), `topic=""` | Returns the operation prompt body as a tool result — closes the gap for hosts without MCP-prompt support. |
-| `open_dashboard` | `topic="agentic-systems"`, `vault=""` | See [dashboard](dashboard.md). Falls back to a `TextContent` URL on hosts without MCP Apps support. |
+| `open_dashboard` | `topic=""` (vault-wide), `vault=""`, `lane=""`, `focus=""` | Opens the dashboard on a process lane; `focus` names a stage or object within it. An unrecognized `lane`/`focus` degrades to the lane's own landing view rather than failing the call (`dec-092`). See [dashboard](dashboard.md). Falls back to a `TextContent` URL on hosts without MCP Apps support. |
 
 ### Action dispatchers — 7
 
@@ -200,6 +214,7 @@ sub-action. There is no alias layer — the old flat names return an unknown-too
 | `review_gap` | `fill action=review_gap` | `topic`, `gap_id`, `decision` (req); `reason=""`, `vault=""` | The human close over the gap queue. `decision=dismiss` requires a non-empty `reason` and is legal only from `open`; `decision=reopen` is legal only from `dismissed` and its `reason` is optional. Any other source status refuses with `INVALID_ARGUMENT`. The reason is persisted on the gap record (`decided_reason`) and survives a re-read. |
 | `source_ingest_open` | `fill action=source_ingest_open` | `topic`, `suggestion_id` (req), `vault=""` | Opens/resumes a private candidate context for one approved suggestion. Idempotent (same handle on reopen). |
 | `source_ingest_submit` | `fill action=source_ingest_submit` | `topic`, `suggestion_id` (req); `mode="dry-run"`, `vault=""` | Finalizes candidate ingest, drives the loop gate synchronously. `mode=apply` returns `merged`\|`refused`\|`blocked`. |
+| `session_status` | `fill action=session_status` | `topic`, `suggestion_id` (req); `vault=""` | Nine-state Fill session watch: `not_started`\|`waiting_on_client`\|`client_wrote`\|`rework_in_flight`\|`submitted`\|`merged`\|`refused`\|`blocked`\|`swept`. Returns `{state, stage_index, next.actor, gate_eligible, ...}`. Read-only, ≤3 git subprocesses worst case, called only while session is active. |
 | `ingest_activity_read` | `learn action=ingest_activity_read` | `topic=""`, `run_id=""`, `limit=120`, `vault=""` | Reads recent ingest-activity events for the dashboard. Read-only. |
 | `arena` | `improve action=arena` + `arena_action=` | `limit=20` | Actions: `status`, `history`. No — all read-only. |
 | `branches` | `improve action=branches` + `branches_action=` | `branch=""`, `kind=""`, `mode="dry-run"` | Actions: `scoreboard`, `promote_loop`, `promote`, `delete`. Yes, on all but `scoreboard`. |

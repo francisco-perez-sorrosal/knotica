@@ -36,8 +36,35 @@ export const PANE_BY_PARAM = new Map<string, PaneId>([
 
 const DEFAULT_PANE: PaneId = "vault";
 
+/**
+ * The `(lane, focus)` pairs that open a different pane than the bare lane would.
+ * Keyed on the pair — a `focus` meaningful under one lane means nothing under
+ * another. Internal on purpose: unlike `PANE_BY_PARAM` (which the `?pane=`
+ * allowlist check reads from outside), nothing outside this module needs to
+ * enumerate the qualified pairs; they are observable through `resolveLaneFocus`.
+ */
+const PANE_BY_LANE_FOCUS = new Map<string, PaneId>([
+  ["improve:heal", "arena"],
+  ["improve:instrument", "datasets"],
+  ["tend:drift", "notes"],
+]);
+
 /** Resolve a raw `?pane=` value (or `null`, when absent) to the pane to open. */
 export function resolvePane(param: string | null): PaneId {
   if (param === null) return DEFAULT_PANE;
   return PANE_BY_PARAM.get(param) ?? DEFAULT_PANE;
+}
+
+/**
+ * Resolve an `open_dashboard(lane=, focus=)` pair to the pane to open.
+ *
+ * Degrade-never-error (`dec-092`) governs every branch: an unmatched `focus`
+ * falls through to the lane's own unqualified mapping, and an unrecognised
+ * `lane` degrades to home's own pane — the same watermark `resolvePane`
+ * already defaults to. Matching is exact, with no trimming or case folding,
+ * uniformly with `resolvePane`.
+ */
+export function resolveLaneFocus(lane: string, focus: string): PaneId {
+  const qualified = focus ? PANE_BY_LANE_FOCUS.get(`${lane}:${focus}`) : undefined;
+  return qualified ?? PANE_BY_PARAM.get(lane) ?? DEFAULT_PANE;
 }

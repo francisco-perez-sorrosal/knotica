@@ -334,6 +334,12 @@ _REPRESENTATIVE: dict[tuple[str, str | None], RepresentativeCall] = {
         mutating=True,
         seed=lambda vault: _seed_suggestion(vault, suggestion_id=_SUGGESTION_ID, status="approved"),
     ),
+    # No baseline is frozen on the seeded vault, so both surfaces deterministically
+    # resolve `blocked` -- read-only, no `mutating`/`volatile` needed.
+    ("session_status", None): RepresentativeCall(
+        {"topic": TOPIC, "suggestion_id": _SUGGESTION_ID},
+        seed=lambda vault: _seed_suggestion(vault, suggestion_id=_SUGGESTION_ID, status="approved"),
+    ),
     ("source_ingest_submit", None): RepresentativeCall(
         # No open session exists for this id: both surfaces must reject it
         # identically. A not-found error is just as valid a routing-
