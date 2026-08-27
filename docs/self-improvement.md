@@ -14,19 +14,19 @@ This page covers what the loop measures, when it acts, what it changes, and what
 | Inner | operation prompts (`.knotica/prompts/query.md`) and the compiled query program | DSPy compile (proactive), the arena (reactive) |
 | Outer | topic schemas and page structure | SIA, human-reviewed, deliberately slow |
 
-This page covers the inner loop — what `knotica loop` runs. A compile produces a JSON artifact; the
+This page covers the inner loop — what `knotica improve loop` runs. A compile produces a JSON artifact; the
 arena rewrites one markdown prompt. Both land as git branches you can inspect, revert, or delete.
 Four engines share the word "loop". All four heal in the arena; what differs is what one invocation
 does:
 
 | Engine | Command | One invocation |
 |---|---|---|
-| Foreground watcher | `knotica loop --topic <t>` | observe, then gate one candidate — polling every **5.0 s**, and in watch mode behind the **20.0 s** debounce |
+| Foreground watcher | `knotica improve loop --topic <t>` | observe, then gate one candidate — polling every **5.0 s**, and in watch mode behind the **20.0 s** debounce |
 | OS-supervised daemon | `knotica service install` | observe, then gate one candidate — supervised every **30 s**, no debounce |
 | Synchronous MCP tick | `loop action=run_once` | observe, then gate one candidate — once, no debounce |
 | Forced MCP eval | `loop action=run_eval` | observe **only**, forced past the cadence hold |
 
-`--no-arena` is the one off switch, and it belongs to `knotica loop` alone; under it a regression
+`--no-arena` is the one off switch, and it belongs to `knotica improve loop` alone; under it a regression
 records `"observation regression (arena disabled)"` and stops.
 
 ## The cycle: observe, gate, heal
@@ -154,8 +154,8 @@ Three operator levers, none of which runs an eval:
 
 | Lever | CLI | MCP |
 |---|---|---|
-| Switch policy | `knotica loop --baseline-policy latest\|best` | `loop action=baseline_policy policy=…` |
-| Re-freeze from history | `knotica loop --rebaseline best\|latest` | `loop action=rebaseline mode=…` (default `best`) |
+| Switch policy | `knotica improve loop --baseline-policy latest\|best` | `loop action=baseline_policy policy=…` |
+| Re-freeze from history | `knotica improve loop --rebaseline best\|latest` | `loop action=rebaseline mode=…` (default `best`) |
 | Adopt HEAD as observed | `knotica loop --mark-observed` | — |
 
 `--rebaseline` re-freezes from `metrics.jsonl`, restricted to records sharing the *newest* record's
@@ -295,7 +295,7 @@ window** still apply: those say the vault is mid-write, which no amount of human
 to evaluate through.
 
 Every eval resolves the `[models]` table: the watcher, the daemon, `loop action=run_once`, the
-candidate gate, `loop action=run_eval`, and `knotica eval` all score with the operator's worker and
+candidate gate, `loop action=run_eval`, and `knotica improve eval` all score with the operator's worker and
 judge snapshots. The packaged defaults are `claude-haiku-4-5-20251001` (worker) and `claude-sonnet-5`
 (judge). `[models].query` is a separate key naming the model behind the compiled query engine — its
 packaged value is also `claude-sonnet-5`, not the Haiku worker — and it never folds into the harness
@@ -310,7 +310,7 @@ no `[models]` table — the default — the packaged snapshots apply and nothing
 **Bills:**
 
 - Any eval — the observation eval, a candidate-gate eval, `loop action=run_eval`,
-  `loop action=run_once` with content pending, `knotica eval`. Roughly one worker call plus up to
+  `loop action=run_once` with content pending, `knotica improve eval`. Roughly one worker call plus up to
   three judge samples **per golden question**, minus cache hits.
 - `compile action=run` — the optimization plus the baseline-vs-compiled post-eval.
 - Golden bootstrap, trainset bootstrap, and the best-effort trainset grower that runs after a source
@@ -357,8 +357,8 @@ reproduces the scalar exactly yet passes a ceiling a cold run breached.
 ## Running the loop
 
 ```bash
-knotica loop --topic quantum          # watch forever; Ctrl-C exits cleanly
-knotica loop --topic quantum --once   # one tick; exit code 1 if an acted step failed its gate
+knotica improve loop --topic quantum          # watch forever; Ctrl-C exits cleanly
+knotica improve loop --topic quantum --once   # one tick; exit code 1 if an acted step failed its gate
 ```
 
 `--topic` is required; everything else has a default. `--once`, `--set-baseline SCALAR`,

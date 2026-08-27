@@ -17,7 +17,7 @@ Jump to: [Before you start](#before-you-start) ·
 You need knotica installed and one vault registered and ready:
 
 ```bash
-knotica doctor --quick
+knotica tend doctor --quick
 ```
 
 No `FAIL` rows means you are set; an unconfigured vault means start at [install](install.md).
@@ -129,7 +129,7 @@ Compile refuses unless all three gates hold:
 
 | Gate | Requirement | How to check |
 |---|---|---|
-| Health | `doctor --quick` reports no `FAIL` **and** the vault worktree is clean | `knotica doctor --quick` — it runs only the config and schema rows; check the tree separately with `git -C <vault> status`, since a dirty tree is a `WARN`, never a `FAIL` |
+| Health | `tend doctor --quick` reports no `FAIL` **and** the vault worktree is clean | `knotica tend doctor --quick` — it runs only the config and schema rows; check the tree separately with `git -C <vault> status`, since a dirty tree is a `WARN`, never a `FAIL` |
 | Trainset | at least **30** query-style examples in `qa.jsonl` | `knotica status --topic agentic-systems` — `to_compile_ready` reaches 0 |
 | Golden set | a **frozen** held-out set of at least **20** records | the Datasets pane, or `datasets action=inventory` |
 
@@ -145,8 +145,8 @@ re-submitting an identical `(query, answer, verdict)` is a safe no-op.
 when its precondition is met. The CLI covers the two ends:
 
 ```bash
-knotica eval --bootstrap --topic agentic-systems   # synthesize candidates into staging (bills)
-knotica datasets freeze --topic agentic-systems    # commit reviewed candidates as the held-out set
+knotica improve eval --bootstrap --topic agentic-systems   # synthesize candidates into staging (bills)
+knotica improve freeze --topic agentic-systems    # commit reviewed candidates as the held-out set
 ```
 
 Review sits between them and is a human act — edit and keep candidates in the Datasets pane, then
@@ -157,7 +157,7 @@ trainset is what compile optimizes against. Conflating the two is what makes a s
 ## Step 7. Compile onto a review branch
 
 ```bash
-knotica compile --topic agentic-systems
+knotica improve compile --topic agentic-systems
 ```
 
 The dashboard's **Compile** button on the Vault pane does the same, as does asking Claude to call
@@ -183,8 +183,8 @@ lock, merges `--no-ff`, resolves conflicts on exactly two audit paths (`log.md` 
 and appends a compile metrics record so the promoted scalar shows on the loop chart.
 
 ```bash
-knotica compile promote --topic agentic-systems --branch compile/agentic-systems/<sha> --dry-run
-knotica compile promote --topic agentic-systems --branch compile/agentic-systems/<sha> --apply
+knotica improve promote --topic agentic-systems --branch compile/agentic-systems/<sha> --dry-run
+knotica improve promote --topic agentic-systems --branch compile/agentic-systems/<sha> --apply
 ```
 
 `--dry-run` and `--apply` are mutually exclusive and one is required; the dashboard's Compile panel

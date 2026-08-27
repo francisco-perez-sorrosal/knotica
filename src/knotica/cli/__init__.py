@@ -30,6 +30,7 @@ from __future__ import annotations
 
 import argparse
 import sys
+from collections.abc import Sequence
 from importlib import import_module
 from importlib.metadata import version
 from typing import cast
@@ -93,6 +94,7 @@ def main(argv: list[str] | None = None) -> int:
     subparsers = parser.add_subparsers(dest="command", metavar="<command>")
 
     modules = _register_commands(subparsers)
+    parser.format_help = lambda: _format_top_level_help(subparsers)  # type: ignore[method-assign]
     args = parser.parse_args(_resolve_deprecated(sys.argv[1:] if argv is None else list(argv)))
 
     if args.command is None:
@@ -150,6 +152,61 @@ def _hint_compound_form(matched: str, rest: list[str]) -> None:
                 f"knotica: if you meant '{key}', its new home is: knotica {' '.join(target)}",
                 file=sys.stderr,
             )
+
+
+#: A handful of real, current-form invocations shown before the two groups
+#: (clig.dev: users read examples before prose). Each must resolve through the
+#: live registry -- there is no hand-invented syntax here. Deliberately picked
+#: to avoid every ``DEPRECATED_TOP_LEVEL`` first token (``doctor``, ``loop``,
+#: ``compile``, ...): those verbs kept their name when they moved under a
+#: lane, so a `--help`-scan for a leaked shim cannot tell a legitimate nested
+#: example (``knotica tend doctor``) apart from the deprecated bare form
+#: (``knotica doctor``) by substring alone.
+_HELP_EXAMPLES: tuple[tuple[str, str], ...] = (
+    ("knotica home", "what needs you, across every topic"),
+    ("knotica fill discover --topic <t>", "turn a diagnosed gap into fetched sources"),
+    ("knotica status --nudge", "the session-start inbox, on demand"),
+)
+
+
+def _format_top_level_help(
+    subparsers: argparse._SubParsersAction[argparse.ArgumentParser],
+) -> str:
+    """Render ``knotica --help``: an EXAMPLES block, then two labelled groups.
+
+    Hick's Law asks for chunking, not a flat 12-item list. The two groups --
+    the six process lanes and the six setup/primitive commands -- are derived
+    from ``process_model.LANES`` and ``COMMAND_NAMES``, never hand-listed, so a
+    lane renamed at the declaration is renamed here with no edit. Per-command
+    one-liners are pulled from each subparser's own ``help=`` text (the same
+    string argparse would otherwise print), not duplicated by hand.
+    """
+    summaries = {action.dest: action.help or "" for action in subparsers._choices_actions}  # noqa: SLF001 -- argparse exposes no public per-choice accessor
+    setup_names = [name for name in COMMAND_NAMES if name not in process_model.LANES]
+
+    lines = [
+        "knotica -- a compounding, AI-maintained knowledge wiki",
+        "",
+        "EXAMPLES",
+    ]
+    example_width = max(len(invocation) for invocation, _ in _HELP_EXAMPLES)
+    for invocation, description in _HELP_EXAMPLES:
+        lines.append(f"  {invocation.ljust(example_width)}   {description}")
+
+    lines += ["", "LANES"]
+    lines += _format_help_group(process_model.LANES, summaries)
+
+    lines += ["", "SETUP / PRIMITIVES"]
+    lines += _format_help_group(setup_names, summaries)
+
+    lines += ["", "Run `knotica <command> --help` for details."]
+    return "\n".join(lines) + "\n"
+
+
+def _format_help_group(names: Sequence[str], summaries: dict[str, str]) -> list[str]:
+    """Render one indented ``name  summary`` block, names aligned to the widest."""
+    name_width = max(len(name) for name in names)
+    return [f"  {name.ljust(name_width)}   {summaries.get(name, '')}" for name in names]
 
 
 def _register_commands(

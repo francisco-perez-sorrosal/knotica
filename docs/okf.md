@@ -102,9 +102,9 @@ Knotica extensions (preserved in the native vault and the default export):
 ### CLI
 
 ```bash
-knotica okf check
-knotica okf export -o /tmp/knotica-okf
-knotica okf repair --dry-run   # or --apply
+knotica tend okf check
+knotica tend okf export -o /tmp/knotica-okf
+knotica tend okf repair --dry-run   # or --apply
 ```
 
 All three subcommands need a configured vault; without one they fail the same way every `knotica` command does (`NOT_CONFIGURED`, fixable with `knotica init`).
@@ -122,10 +122,10 @@ All three subcommands need a configured vault; without one they fail the same wa
 | `repair` | `--dry-run` | — | Preview the fix plan; no writes. |
 | `repair` | `--apply` | — | Write the fixes and commit. |
 | `repair` | `--force` | off | Apply even when the vault has uncommitted changes (see [What `okf repair` actually does](#what-okf-repair-actually-does)). |
-| all three | `--verbose` — must precede the subcommand: `knotica okf --verbose check` | off | Print per-warning / per-file detail. |
+| all three | `--verbose` — must precede the subcommand: `knotica tend okf --verbose check` | off | Print per-warning / per-file detail. |
 
 > [!IMPORTANT]
-> `okf repair` requires exactly one of `--dry-run` or `--apply` — a bare `knotica okf repair` errors rather than defaulting to a preview.
+> `okf repair` requires exactly one of `--dry-run` or `--apply` — a bare `knotica tend okf repair` errors rather than defaulting to a preview.
 
 ### MCP
 
@@ -133,13 +133,13 @@ All three subcommands need a configured vault; without one they fail the same wa
 
 | Action | Parameters | Equivalent to |
 |---|---|---|
-| `vault_health action=okf_check` | `strict` (bool, default `false`) | `knotica okf check [--strict]` |
-| `vault_health action=okf_repair` | `mode` (`dry-run` default \| `apply`), `force` (bool, default `false`) | `knotica okf repair --dry-run` / `--apply [--force]` |
+| `vault_health action=okf_check` | `strict` (bool, default `false`) | `knotica tend okf check [--strict]` |
+| `vault_health action=okf_repair` | `mode` (`dry-run` default \| `apply`), `force` (bool, default `false`) | `knotica tend okf repair --dry-run` / `--apply [--force]` |
 
 Both accept `vault` to target a non-default configured vault.
 
 > [!IMPORTANT]
-> OKF **export has no MCP path** — no dispatcher action calls it. A Desktop or Chat user can check and repair OKF compatibility through `vault_health`, but producing a portable bundle requires the CLI (`knotica okf export`).
+> OKF **export has no MCP path** — no dispatcher action calls it. A Desktop or Chat user can check and repair OKF compatibility through `vault_health`, but producing a portable bundle requires the CLI (`knotica tend okf export`).
 
 ## What `okf repair` actually does
 
@@ -158,10 +158,10 @@ Behavior a user will observe beyond the frontmatter fix:
 
 ## Lint vs OKF check
 
-Knotica's mechanical lint (`lint_check` MCP tool, `vault_health action=lint`, `/knotica:lint`) and `knotica okf check` are separate gates with separate link-resolution policies: lint uses conservative same-directory wikilink resolution; `okf check` resolves through the same OKF link tiers `okf export` uses. They intentionally disagree on stricter link cases — a page can pass one and fail the other.
+Knotica's mechanical lint (`lint_check` MCP tool, `vault_health action=lint`, `/knotica:lint`) and `knotica tend okf check` are separate gates with separate link-resolution policies: lint uses conservative same-directory wikilink resolution; `tend okf check` resolves through the same OKF link tiers `okf export` uses. They intentionally disagree on stricter link cases — a page can pass one and fail the other.
 
 > [!NOTE]
-> The lint engine has an internal `profile` parameter (`"knotica"` default, or `"okf"` — an OKF-shaped gate requiring only a non-empty `type`, skipping the orphan and source-citation checks). No CLI flag, MCP argument, or test anywhere in the codebase ever passes `profile="okf"` — every real entry point runs the default profile. Use `knotica okf check` for OKF-specific validation; the `okf` profile is not user-reachable.
+> The lint engine has an internal `profile` parameter (`"knotica"` default, or `"okf"` — an OKF-shaped gate requiring only a non-empty `type`, skipping the orphan and source-citation checks). No CLI flag, MCP argument, or test anywhere in the codebase ever passes `profile="okf"` — every real entry point runs the default profile. Use `knotica tend okf check` for OKF-specific validation; the `okf` profile is not user-reachable.
 
 ## Module layout
 

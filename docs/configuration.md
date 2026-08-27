@@ -110,7 +110,7 @@ Resolution order:
 
 The resolved path is expanded (`~` and `$ENV` vars) at read time, then checked: it must be a
 directory, contain a `.git` repo, and carry a root `SCHEMA.md`. A path that fails any of those
-checks resolves as configured-but-not-ready, distinct from not-configured — `knotica doctor`
+checks resolves as configured-but-not-ready, distinct from not-configured — `knotica tend doctor`
 reports which of the two you have.
 
 Switching the default, or adding a named vault, is a mutation through the `vault` MCP dispatcher
@@ -134,7 +134,7 @@ Three independent snapshot overrides, each optional:
 > the harness fingerprint by design, since it drives a different code path.
 
 **`worker` and `judge` reach every eval.** They resolve inside the one shared `harness_evaluate`
-callable, which is what `knotica eval`, the `knotica loop` watcher, the OS-managed daemon, the MCP
+callable, which is what `knotica improve eval`, the `knotica improve loop` watcher, the OS-managed daemon, the MCP
 `loop action=run_once` and `loop action=run_eval` paths, and the ingest candidate gate all evaluate
 through — so an unattended background eval scores on the same instruments as a foreground one.
 `query` is separate: it drives answer synthesis rather than eval, and reaches the MCP `query` tool
@@ -146,13 +146,13 @@ re-freezes the baseline, once. That is the designed instrument-change response t
 describes, not a regression. An install with no `[models]` table sees nothing rotate and nothing
 re-freeze.
 
-CLI override precedence for `knotica eval`: `--worker-snapshot` / `--judge-snapshot` flags >
+CLI override precedence for `knotica improve eval`: `--worker-snapshot` / `--judge-snapshot` flags >
 `[models]` > packaged default. `query` has no CLI surface at all; it is config-only and reachable
 only through the MCP `query` tool.
 
 ## `[loop]`: eval cadence and the arena scorer
 
-The first three keys govern how often the watcher (`knotica loop`, and the OS-managed daemon) is
+The first three keys govern how often the watcher (`knotica improve loop`, and the OS-managed daemon) is
 willing to spend on a fresh eval. None of those three apply to the candidate gate (`loop/c/*`
 branches) — that path is always eager, cadence never holds it. The fourth, `arena_scorer`, is a
 separate concern: what the prompt arena races with.
@@ -165,7 +165,7 @@ separate concern: what the prompt arena races with.
 | `arena_scorer` | `"heuristic"` | Which scorer the prompt arena races with. See below — the default is free and deliberately **not** comparable to the gate baseline. |
 
 > [!NOTE]
-> `eval_num_threads` does not reach the foreground watcher or the daemon. `knotica loop` uses its
+> `eval_num_threads` does not reach the foreground watcher or the daemon. `knotica improve loop` uses its
 > own `--eval-threads` flag (unset → the harness default of `4`); the daemon has no thread flag at
 > all and is pinned to the harness default of `4`. This key only sets the default thread count for
 > the MCP `loop action=run_eval` billed action.

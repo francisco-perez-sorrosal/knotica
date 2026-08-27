@@ -86,7 +86,7 @@ Notes carry a numeric badge (pending suggestions; drifted-anchor count).
 
 ### Loop
 
-Mirrors `knotica loop --topic <t>` — see [self-improvement.md](self-improvement.md) for what the
+Mirrors `knotica improve loop --topic <t>` — see [self-improvement.md](self-improvement.md) for what the
 watcher does. A gate chip (pass/fail/unknown) and baseline scalar sit above an interactive
 Observe → Gate → Heal → Merged stepper.
 
@@ -118,7 +118,7 @@ See [gap-fill.md](gap-fill.md) for the diagnose → discover → approve pipelin
   `gaps_read`. Each card carries the fault class, the filed date, a gap-origin badge, the
   unanswered question, its reference pages, and (on a `reported` gap) the reason given for filing
   it. There is nothing to approve on a gap, so the cards carry no actions; run
-  `knotica gapfill discover --topic <topic>` to search for sources. Generation and scalar are
+  `knotica fill discover --topic <topic>` to search for sources. Generation and scalar are
   deliberately not shown: both are constant zeros on a reported or retracted gap, and rendering
   `gen-0` beside a hand-filed gap presents a placeholder as a measurement.
 - Filter tabs: **pending** / **approved** / **all**, with count badges: approved, a topic-wide
@@ -248,7 +248,7 @@ Local HTTP preview, with the loop watcher running alongside so the Loop pane has
 
 ```sh
 knotica mcp --http --port 8765 &
-knotica loop --topic agentic-systems &
+knotica improve loop --topic agentic-systems &
 open 'http://127.0.0.1:8765/?topic=agentic-systems'
 ```
 

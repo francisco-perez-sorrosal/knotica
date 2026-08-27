@@ -74,7 +74,7 @@ claim, and neither fabricates content.
 Discovery turns open `genuine_gap` records into ranked source candidates.
 
 ```bash
-knotica gapfill discover --topic agentic-systems --max-gaps 3
+knotica fill discover --topic agentic-systems --max-gaps 3
 ```
 
 | Flag | Default | Meaning |
@@ -250,7 +250,7 @@ says so explicitly rather than reporting a bare "no pending loop branches".
 
 | Surface | Call | Stage |
 |---|---|---|
-| CLI | `knotica gapfill discover --topic NAME [--max-gaps N] [--vault PATH]` | P2 |
+| CLI | `knotica fill discover --topic NAME [--max-gaps N] [--vault PATH]` | P2 |
 | MCP | `gapfill_discover(topic, max_gaps=0, confirm="", vault="")` | P2 (billed, two-phase) |
 | MCP | `gap_report(topic, question, reason="", reference_pages=None, vault="")` | P1 (reported gap) |
 | MCP | `gaps_read(topic, status="open", cursor="", limit=20, vault="")` | P1 (read the queue) |
