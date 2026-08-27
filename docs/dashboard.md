@@ -1,14 +1,15 @@
 # Dashboard
 
 The dashboard is a Preact web app that drives the self-improvement loop through knotica's MCP
-tools — no parallel REST API, no separate backend. It is structured as five process lanes, each an
-ordered workflow, dispatching to lane-specific and shared tools.
+tools — no parallel REST API, no separate backend. It is structured as six process lanes: one
+cross-topic attention inbox (`home`) and five ordered workflows, each dispatching to lane-specific
+and shared tools.
 
 ## Contents
 
 - [Open it](#open-it)
 - [Query parameters](#query-parameters)
-- [The five lanes](#the-five-lanes)
+- [The six lanes](#the-six-lanes)
 - [Lane reference](#lane-reference)
 - [Handoff stages](#handoff-stages)
 - [Shared components](#shared-components)
@@ -46,25 +47,42 @@ navigate, so a reload preserves your view.
 |-------|---------|--------|
 | `?topic=` | (vault-wide) | Initial topic. Reconciled against the vault's real topic list on load; falls back to the first real topic if the requested one doesn't exist. When opening a lane, topic narrows the data to that topic only. |
 | `?vault=` | (none) | Initial vault name. It wins on load but does not pin the selection: once the active vault changes from another client (e.g. `/knotica:use`), the picker follows it. |
-| `?pane=` | `tend` | **Deprecated.** Legacy routing for bookmarks and old links — maps to the lane that absorbed the pane's content. See [Legacy `?pane=` Routing](#legacy-pane-routing) for the full table. Accepts old pane names (`ask`, `sources`, `ingest`, `improve`, `tend`) and deprecated aliases. Anything unrecognized falls back to `tend`. Use `lane=` instead. |
-| `?lane=` | (none) | Initial process lane. Accepts `learn`, `answer`, `fill`, `improve`, `tend`. Unrecognized values fall back to `tend`. Each lane is a complete workflow with an ordered rail of stages. Use with `focus=` to anchor a stage within the lane. |
+| `?pane=` | (none) | **Deprecated.** Legacy routing for bookmarks and old links — maps to the lane that absorbed the pane's content. See [Legacy `?pane=` Routing](#legacy-pane-routing) for the full table. Accepts old pane names (`ask`, `sources`, `ingest`, `improve`, `tend`) and deprecated aliases. Anything unrecognized falls back to `home` (the default landing). Use `lane=` instead. |
+| `?lane=` | (none) | Initial process lane. Accepts `home`, `learn`, `answer`, `fill`, `improve`, `tend`. Unrecognized values fall back to `home`. `home` is a flat cross-topic inbox with no stages; other lanes stage their workflows as ordered rails. Use with `focus=` to anchor a stage within a lane. |
 | `?focus=` | (none) | Stage name or object ID within the active lane. Unrecognized values degrade to the lane's default view. Requires `?lane=` to be meaningful. |
 | `?mcp=` | `http://127.0.0.1:8765/mcp` | HTTP-mount MCP endpoint override — point the client at a different streamable-HTTP server. |
 | `?mount=` | (auto) | `bridge` or `http` forces the transport, overriding the framed-window auto-detect. |
 
-## The five lanes
+## The six lanes
 
-The dashboard is structured around five process lanes, each a complete workflow from trigger to
-completion. All five are declared once in `src/knotica/core/process_model.py`; the dashboard is a
-projection of that declaration.
+The dashboard is structured around six process lanes, each declared once in `src/knotica/core/process_model.py`; the dashboard is a projection of that declaration.
 
-Each lane stages its work as an ordered rail where you progress through numbered stages; a stage
-is complete when its work finishes (✓), blocked when it requires human input or external action,
-or pending when waiting for a prior stage. The rail accepts clicks to expand a stage and trigger
-its actions. A **Handoff Stage** pauses the lane and hands the work back to your client's own LLM
-via a slash command (`/knotica:fill`, etc.) — when that work completes, you resume the lane.
+**`home`** is the cross-topic attention inbox: a flat, rail-less lane listing what needs your attention across all topics right now, without choosing a single topic first. The other five lanes (`learn`, `answer`, `fill`, `improve`, `tend`) are each a complete workflow from trigger to completion, arranged as an ordered rail of stages.
+
+Each lane stages its work where you progress through numbered stages; a stage is complete when its work finishes (✓), blocked when it requires human input or external action, or pending when waiting for a prior stage. The rail accepts clicks to expand a stage and trigger its actions. A **Handoff Stage** pauses the lane and hands the work back to your client's own LLM via a slash command (`/knotica:fill`, etc.) — when that work completes, you resume the lane.
 
 ### Lane reference
+
+#### Home
+
+**Home** is the cross-topic attention inbox — a flat landing page showing what needs your attention
+right now, across every topic in the active vault, without filtering to a single topic. It is the
+default view when opening the dashboard or navigating to an unrecognized lane.
+
+**No stages.** Home is not a rail-based workflow. It displays:
+
+1. **Attention rows** — organized by urgency class: `critical` (red), `high` (orange), `normal` (neutral).
+   Each row shows the topic, what needs attention (e.g., "3 pending gaps", "compile ready"), and an
+   action button (`[Open]` to jump to that lane in the same topic, or `[Watch]` for topic selection).
+2. **Drift row** (default-collapsed) — personal notes with anchors that have resolved stale. Expands to
+   show the count and offers a `[Check]` button to navigate to the `Tend` lane's **Drift** stage. The
+   expanded count is resolved on-demand (not pre-fetched) to keep Home's polling cheap.
+
+**Poll behavior**: Home polls for updates every 10 seconds (when the window is visible; polling pauses
+when the browser tab is hidden, resuming when you return). This is independent of the other lanes'
+2-second poll. Home's poll uses `wiki_status view="attention"`, which is faster than the full summary
+view — it includes only per-topic gap suggestions, compile-ready status, and loop-runner liveness,
+skipping the expensive lint pass and note-anchor resolution.
 
 #### Learn
 
