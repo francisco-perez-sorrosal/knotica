@@ -19,7 +19,7 @@ dissent: A single rail kind would be simpler; adding `checklist` for one lane (T
 affected_files:
   - dashboard/src/lanes/laneRailState.ts
   - dashboard/src/lanes/LaneRail.tsx
-  - dashboard/src/IngestPane.tsx
+  - dashboard/src/lanes/learn/LearnLane.tsx
   - src/knotica/core/ingest_activity.py
 ---
 

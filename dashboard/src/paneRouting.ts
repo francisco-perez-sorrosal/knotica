@@ -7,13 +7,13 @@ import type { PaneId } from "./types";
  * Keys are the allowlist; a key whose value differs from itself is a
  * bookmark minted before a dissolution, degraded to the lane that absorbed
  * the pane it named: `loop`/`arena`/`datasets`/`golden` → `improve`,
- * `notes` → `tend`. `learn`/`answer`/`fill` self-map — the M4 dissolution's
- * add phase gave each its own pane; the *legacy* `ingest`/`ask`/`sources`
- * keys still self-map too, additive-only until M4's removal phase repoints
- * them onto these three. Every legacy key keeps working and lands somewhere
- * specific rather than falling through to one generic default. Exported so a
- * caller can confirm a key is actually in the allowlist, not merely falling
- * through to the same default an unrecognised value would get.
+ * `notes` → `tend`, and — once M4's removal phase retired the last three
+ * tool-shaped panes — `ingest` → `learn`, `ask` → `answer`,
+ * `sources` → `fill`. Only the five lane names self-map; every legacy key
+ * keeps working and lands somewhere specific rather than falling through to
+ * one generic default. Exported so a caller can confirm a key is actually in
+ * the allowlist, not merely falling through to the same default an
+ * unrecognised value would get.
  *
  * Resolution is **exact-match, no trimming, no case folding** — uniformly for
  * legacy pane keys and lane keys alike. A mistyped case or stray whitespace
@@ -23,11 +23,11 @@ import type { PaneId } from "./types";
 export const PANE_BY_PARAM = new Map<string, PaneId>([
   ["datasets", "improve"],
   ["golden", "improve"],
-  ["ingest", "ingest"],
+  ["ingest", "learn"],
   ["loop", "improve"],
-  ["ask", "ask"],
+  ["ask", "answer"],
   ["arena", "improve"],
-  ["sources", "sources"],
+  ["sources", "fill"],
   ["notes", "tend"],
   ["home", "tend"],
   ["learn", "learn"],

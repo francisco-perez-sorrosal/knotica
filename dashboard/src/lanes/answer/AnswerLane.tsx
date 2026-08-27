@@ -1,7 +1,7 @@
 import type { JSX } from "preact";
 import { useState } from "preact/hooks";
 
-import { AnswerCard } from "../../AskPane";
+import { AnswerCard } from "../../answerPresentation";
 import type { ObsidianContext } from "../../obsidianLinks";
 import type { ToolClient } from "../../toolClient";
 import type { QueryAnswer, WikiStatus } from "../../types";
@@ -9,9 +9,10 @@ import { deriveSequenceStages, type StageState } from "../laneRailState";
 
 /**
  * `AnswerLane` (`INTERFACE_DESIGN.md §2.3`) -- the three-stage `ask -> cite ->
- * react` rail absorbing `AskPane.tsx`'s question box and citation rendering
- * unchanged (`AnswerCard`, imported rather than reimplemented, exactly the
- * way `ProveStage.tsx` already reuses it for Improve's own in-lane probe).
+ * react` rail that absorbed the dissolved ask pane's question box and
+ * citation rendering unchanged (`AnswerCard`, imported from
+ * `answerPresentation.tsx` rather than reimplemented, exactly the way
+ * `ProveStage.tsx` already reuses it for Improve's own in-lane probe).
  *
  * The watermark lives in **component state only** -- `§2.3`'s own decision,
  * re-affirmed here: `query` stays a non-writer, so nothing about this rail is

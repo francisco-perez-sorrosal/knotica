@@ -22,18 +22,18 @@ describe("paneFromToolInput reads lane/focus from a synthetic ontoolinput payloa
   });
 
   it("keeps the caller's fallback pane when the payload carries no lane at all", () => {
-    expect(paneFromToolInput({ arguments: {} }, "ingest")).toBe("ingest");
+    expect(paneFromToolInput({ arguments: {} }, "learn")).toBe("learn");
   });
 
   it("keeps the caller's fallback pane when a focus is present but its lane is not", () => {
     // A stray focus with no accompanying lane is not enough to navigate --
     // it must not be treated as though it qualified the fallback pane.
     const input = { arguments: { focus: "heal" } };
-    expect(paneFromToolInput(input, "ingest")).toBe("ingest");
+    expect(paneFromToolInput(input, "learn")).toBe("learn");
   });
 
   it("keeps the caller's fallback pane when the input is not a record at all", () => {
-    expect(paneFromToolInput(null, "ask")).toBe("ask");
+    expect(paneFromToolInput(null, "answer")).toBe("answer");
   });
 
   it("degrades an unrecognised lane to the default pane, not to the caller's fallback", () => {
@@ -41,7 +41,7 @@ describe("paneFromToolInput reads lane/focus from a synthetic ontoolinput payloa
     // degrades to the routing default, distinct from whatever pane the app was
     // already showing when the host sent the (bad) lane value.
     const input = { arguments: { lane: "not-a-real-lane" } };
-    expect(paneFromToolInput(input, "ingest")).toBe("tend");
+    expect(paneFromToolInput(input, "learn")).toBe("tend");
   });
 
   it("falls through to the lane's own mapping when the lane is known but the focus is not", () => {

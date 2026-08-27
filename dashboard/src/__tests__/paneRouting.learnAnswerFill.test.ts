@@ -3,27 +3,18 @@ import { describe, expect, it, beforeAll } from "vitest";
 import { PANE_BY_PARAM, resolvePane } from "../paneRouting";
 
 /**
- * The M4 dissolution's **add phase** (`IMPLEMENTATION_PLAN.md` Step 102) for
- * `learn`/`answer`/`fill` — mirrors `paneRouting.improveTend.test.ts`'s own
- * shape for M3's `improve`/`tend` add phase exactly.
+ * `learn`/`answer`/`fill` as reachable panes — mirrors
+ * `paneRouting.improveTend.test.ts`'s own shape for the earlier
+ * `improve`/`tend` pair exactly. Three things are pinned here:
  *
- * Written test-first: `LearnLane`/`AnswerLane`/`FillLane` already exist on
- * disk (Steps 92/94/100), but nothing wires them into `PaneId`,
- * `PANE_BY_PARAM`, or `App.tsx` yet — that wiring is Step 102's job, gated on
- * this file's RED. Three things are pinned here:
- *
- * 1. `?pane=learn`, `?pane=answer`, `?pane=fill` each resolve to their own new
- *    `PaneId` — self-mapped, not the legacy repoint (`learn` → `ingest`,
- *    `answer` → `ask`, `fill` → `sources`) the pre-M4 table currently carries.
- *    Repointing the *legacy* `ingest`/`ask`/`sources` keys the other way is
- *    Step 104's job, not this one — the add phase is additive-only.
- * 2. The three old panes' own resolutions, and their `App.tsx` render blocks
- *    and nav tabs, are byte-for-byte unaffected (additive-only regression,
- *    mirroring M3 Step 78).
- * 3. `App.tsx` mounts the three new lanes when selected, fed from the app's
+ * 1. `?pane=learn`, `?pane=answer`, `?pane=fill` each resolve to their own
+ *    `PaneId`, self-mapped.
+ * 2. The legacy `ingest`/`ask`/`sources` keys degrade onto those same three
+ *    lanes, so a bookmark minted before the dissolution still lands
+ *    somewhere specific rather than on the generic default.
+ * 3. `App.tsx` mounts the three lanes when selected, fed from the app's
  *    own poll state — `status.value`/`client`/the resolved topic and vault/
- *    `obsidianCtx` — not a fresh per-lane fetch, and adds their nav tabs
- *    alongside (not in place of) the three old ones.
+ *    `obsidianCtx` — not a fresh per-lane fetch, and carries their nav tabs.
  *
  * `App.tsx` renders through Preact, and this file intentionally has a `.ts`
  * (not `.tsx`) extension — `vitest.config.ts`'s "unit" project runs `.test.ts`
@@ -138,15 +129,15 @@ describe("resolvePane resolves learn/answer/fill to their own new panes, not the
   });
 });
 
-describe("the legacy ingest/ask/sources resolutions are untouched by the add phase (additive-only)", () => {
-  const UNCHANGED: ReadonlyArray<readonly [string, string]> = [
-    ["ingest", "ingest"],
-    ["ask", "ask"],
-    ["sources", "sources"],
+describe("the legacy ingest/ask/sources keys degrade to the lanes that absorbed them", () => {
+  const REPOINTED: ReadonlyArray<readonly [string, string]> = [
+    ["ingest", "learn"],
+    ["ask", "answer"],
+    ["sources", "fill"],
   ];
 
-  it.each(UNCHANGED)(
-    "still resolves ?pane=%s to %s (Step 104 repoints this later, not Step 102)",
+  it.each(REPOINTED)(
+    "resolves the legacy ?pane=%s to %s, so an old bookmark still lands somewhere specific",
     (param, pane) => {
       expect(resolvePane(param)).toBe(pane);
     },
@@ -214,20 +205,20 @@ describe("App.tsx mounts LearnLane/AnswerLane/FillLane, fed from the app's own p
     expect(block).toMatch(/status=\{status\.value\}/);
   });
 
-  it("keeps every legacy pane's render block intact (add-then-remove: nothing is removed yet)", () => {
-    for (const survivor of ["ask", "sources", "ingest", "improve", "tend"]) {
+  it("keeps the two earlier lanes' render blocks intact", () => {
+    for (const survivor of ["improve", "tend"]) {
       expect(extractPaneBlock(survivor)).not.toBeNull();
     }
   });
 });
 
-describe("nav gains the three new lane tabs alongside the legacy ones (additive-only)", () => {
+describe("nav carries the three new lane tabs alongside the two earlier ones", () => {
   it.each(["Learn", "Answer", "Fill"])("nav renders a new %s tab", (label) => {
     expect(paneTabsBlock()).toMatch(new RegExp(`>\\s*${label}\\s*[<{]`));
   });
 
-  it.each(["Ask", "Sources", "Ingest", "Improve", "Tend"])(
-    "nav still renders the legacy %s tab (Step 104 retires these later, not Step 102)",
+  it.each(["Improve", "Tend"])(
+    "nav still renders the earlier %s tab",
     (label) => {
       expect(paneTabsBlock()).toMatch(new RegExp(`>\\s*${label}\\s*[<{]`));
     },

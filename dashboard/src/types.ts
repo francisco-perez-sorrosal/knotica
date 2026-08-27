@@ -16,16 +16,13 @@ export type LoopStage =
 export type ArenaStage =
   "idle" | "racing" | "promoting" | "completed" | "reverted" | "aborted";
 /**
- * The panes the dashboard can show. The tool-shaped panes this set once
- * carried (`vault`, `loop`, `arena`, `datasets`, `golden`, `notes`) dissolved
- * into the `improve` and `tend` process lanes; their `?pane=` keys live on as
- * inbound aliases in `paneRouting.ts` but are no longer destinations.
- *
- * `learn`/`answer`/`fill` are the M4 dissolution's add phase: `ask`/`ingest`/
- * `sources` remain reachable panes until the wave's removal phase retires
- * them and repoints their `?pane=` keys onto these three.
+ * The panes the dashboard can show — five process lanes and nothing else.
+ * Every tool-shaped pane this set once carried (`vault`, `loop`, `arena`,
+ * `datasets`, `golden`, `notes`, then `ask`, `ingest`, `sources`) dissolved
+ * into the lane that owns its work; their `?pane=` keys live on as inbound
+ * aliases in `paneRouting.ts` but are no longer destinations.
  */
-export type PaneId = "ask" | "ingest" | "sources" | "improve" | "tend" | "learn" | "answer" | "fill";
+export type PaneId = "improve" | "tend" | "learn" | "answer" | "fill";
 
 export type DatasetRole =
   "trainset" | "held_out" | "seal" | "candidates" | "reviewed";
@@ -231,7 +228,7 @@ export interface WikiStatus {
     suggestions?: SuggestionStatusSummary;
     gaps?: GapStatusSummary;
     notes?: NotesStatusSummary;
-    /** Every non-Home lane's rail, server-derived and total (Step 48). Optional
+    /** Every non-Home lane's rail, server-derived and total. Optional
      *  for backward compat with a `wiki_status` payload predating the lanes
      *  block -- absent means "render every stage pending," never a crash. */
     lanes?: Record<
