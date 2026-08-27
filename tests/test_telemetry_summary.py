@@ -334,3 +334,42 @@ def test_the_report_always_prints_the_instruments_limits(
     out = capsys.readouterr().out
     assert "CANNOT" in out
     assert "inter-tool mis-selection" in out
+
+
+# ---------------------------------------------------------------------------
+# Torn lines — two clients share one sink, so concurrent appends can tear
+# ---------------------------------------------------------------------------
+
+
+def test_a_torn_line_costs_one_record_not_the_whole_window(
+    summary: ModuleType, tmp_path: Path
+) -> None:
+    """Found in review: one unparseable line used to abort the entire read.
+
+    Desktop and Claude Code are both wired to the same sink directory, so two
+    processes append to one day-file and a torn write is reachable. Losing a
+    whole baseline to one bad byte is the worse failure of the two.
+    """
+    _write(tmp_path, [_dispatch("loop")])
+    (tmp_path / "dispatch-2026-08-10.jsonl").open("a", encoding="utf-8").write(
+        '{"ts":"2026-08-10T12:00:00Z","run":"r1","event":"dis\n'
+    )
+    _write(tmp_path, [_dispatch("loop")])
+
+    window = summary.read_window(tmp_path)
+
+    assert window.records == 2
+    assert window.malformed == 1
+
+
+def test_skipped_lines_are_reported_rather_than_swallowed(
+    summary: ModuleType, tmp_path: Path, capsys: pytest.CaptureFixture[str], monkeypatch
+) -> None:
+    """Silent tolerance would hide data loss in the window that gates the rename."""
+    _write(tmp_path, [_dispatch("loop")])
+    (tmp_path / "dispatch-2026-08-10.jsonl").open("a", encoding="utf-8").write("{oops\n")
+    monkeypatch.setattr("sys.argv", ["summarize_telemetry.py", str(tmp_path)])
+
+    summary.main()
+
+    assert "unparseable line(s) skipped" in capsys.readouterr().out

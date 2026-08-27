@@ -1,7 +1,7 @@
 ---
-id: dec-draft-47e84319
+id: dec-097
 title: The dashboard gets a test runner as a prerequisite, and the pane characterizations defer to the milestone that rewrites them
-status: proposed
+status: accepted
 category: implementation
 date: 2026-08-10
 summary: "The architecture's characterization prerequisite names three TypeScript surfaces, but dashboard/ has no test runner of any kind, so that prerequisite is unwritable as stated; a vitest devDependency lands first, the two-phase client contract and the pane-routing allowlist are pinned in it, and the LoopPane stepper and IngestPane watermark characterizations move to a hard entry condition on the milestone that rewrites those files."

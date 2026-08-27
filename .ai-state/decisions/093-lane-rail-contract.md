@@ -1,7 +1,7 @@
 ---
-id: dec-draft-58b8a899
+id: dec-093
 title: One lane-rail contract with two derivations and two rail kinds
-status: proposed
+status: accepted
 category: architectural
 date: 2026-08-10
 summary: The six process swimlanes share a single LaneRail contract whose state is derived from one monotonic watermark; the existing server-side ingest stage rail is generalized into it, the LoopPane inline stepper is replaced, and a second rail kind (checklist) exists for Tend because forcing it into a sequence would assert something false.

@@ -1,7 +1,7 @@
 ---
-id: dec-draft-1d7f84bb
+id: dec-088
 title: Lane membership is a set, not a scalar — and the conversational core stays flat and lane-less
-status: proposed
+status: accepted
 category: architectural
 date: 2026-08-10
 summary: "Eleven code-grounded multi-lane verbs (one routing into four lanes by a runtime argument) make an owning-lane-per-verb partition unrepresentable, so lane membership is declared as a set of (lane, stage, narration) tuples; and dec-045's conversational core is held as a boundary the lane-dispatcher rename may not cross, widening the flat tier to every high-density conversational verb."
@@ -38,7 +38,7 @@ The redesign's own locked design rule already describes a facet: *"shared object
 never duplicated — the gate is one mechanism; Improve narrates it as 'candidate queue', Fill as 'your
 approved source is being measured'."*
 
-The sibling decision `dec-draft-36f3ddc2` (interface-designer) rules on the **shape** the rename takes:
+The sibling decision `dec-094` (interface-designer) rules on the **shape** the rename takes:
 a tiered surface of flat cross-lane primitives plus six lane dispatchers, in which a multi-lane verb
 becomes an action in each lane that serves it — one tuple entry per lane, zero added schema weight,
 because a dispatcher action is a free-form `str` and not a schema enum. That shape makes the facet free.
@@ -48,7 +48,7 @@ This record decides those two things.
 
 ## Decision
 
-**1. Lane membership is a set, declared as data.** In `core/process_model.py` (`dec-draft-2779ae2a`),
+**1. Lane membership is a set, declared as data.** In `core/process_model.py` (`dec-089`),
 each verb carries a set of `(lane, stage, narration)` memberships:
 
 - Membership is keyed on `(verb, discriminator)` where a runtime argument decides the lane, so
@@ -65,7 +65,7 @@ table, so the tool surface and the rails are projections of the same declaration
 **2. The conversational core is a boundary the rename may not cross.** `dec-041`/`dec-045` established a
 two-tier surface in which *"thin conversational tools carry the high-density verbs; dispatchers route the
 operator long tail."* That split is by **caller and call frequency**, not by topic, and a lane re-cut
-must preserve it. `dec-draft-36f3ddc2`'s Tier 1 (`search`, `read_page`, `list_topics`, `list_links`,
+must preserve it. `dec-094`'s Tier 1 (`search`, `read_page`, `list_topics`, `list_links`,
 `read_protocol`, `write_page`, `store_source`, `query`, `wiki_status`) is drawn on lane-lessness alone
 and would move genuinely conversational verbs into dispatchers.
 
@@ -75,7 +75,7 @@ model in the middle of an ingest, an answer or a curation turn — the exact tra
 and each is multi-lane, so a lane prefix would state something false. `create_topic` is a judgement call
 left to the interface layer.
 
-Everything else — the operator long tail — moves into the six lane dispatchers as `dec-draft-36f3ddc2`
+Everything else — the operator long tail — moves into the six lane dispatchers as `dec-094`
 specifies. Its rulings on deprecation (tool names removed without alias; actions aliased in `_ACTIONS`;
 `argparse` aliases; slash-command tombstones; a `?pane=` alias map) and on instrumenting before renaming
 are adopted unchanged.
@@ -93,7 +93,7 @@ tools instead of nine, which spends part of the consolidation's margin.
 Rejected: arbitrary in eleven of thirty-five cases and unrepresentable in one. Recorded here because it
 is the reading locked decision 4 invites, and because its falsification is the reason this ADR exists.
 
-### Option 3 — Facet as a set, Tier 1 exactly as `dec-draft-36f3ddc2` draws it (nine tools)
+### Option 3 — Facet as a set, Tier 1 exactly as `dec-094` draws it (nine tools)
 
 The smallest surface (~17 tools) and the strongest position against tool-count degradation. Rejected:
 it turns `curate_example`, `gap_report`, `note_capture` and `ingest_progress` — verbs the model calls
@@ -139,8 +139,8 @@ about to start collecting, and not before this boundary must be drawn.
 
 ## Relationship to sibling decisions
 
-- `dec-draft-36f3ddc2` (interface-designer) owns the **shape** of the rename — tiered surface, six lane
+- `dec-094` (interface-designer) owns the **shape** of the rename — tiered surface, six lane
   dispatchers, deprecation per surface, description standard. Adopted, with the Tier-1 widening above as
   the one amendment. Its CH-01 challenge in `INTERFACE_DESIGN.md` is accepted `adopt-with-modification`.
-- `dec-draft-2779ae2a` owns **where the declaration lives** and how each surface reads it.
-- `dec-draft-7f4535b4` owns whether an **alias layer** is restored for the removed tool names.
+- `dec-089` owns **where the declaration lives** and how each surface reads it.
+- `dec-090` owns whether an **alias layer** is restored for the removed tool names.

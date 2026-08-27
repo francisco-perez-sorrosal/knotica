@@ -1,5 +1,5 @@
 ---
-id: dec-draft-7f4535b4
+id: dec-090
 title: A marketplace channel is not a consumer — dec-050 is re-affirmed, narrowed to aliases that carry schema weight
 status: re-affirmation
 category: architectural
@@ -29,7 +29,7 @@ operated by the project's single user."* Its recorded reversal trigger reads:
 > configuration reopens this decision.
 
 The swimlane redesign now performs the rename that trigger was written to guard. Under
-`dec-draft-36f3ddc2` and `dec-draft-1d7f84bb` the surface is re-cut into roughly fourteen flat
+`dec-094` and `dec-088` the surface is re-cut into roughly fourteen flat
 conversational primitives plus six lane dispatchers, which **removes roughly 27 published flat tool
 names** and asks the same question `dec-045` asked and `dec-050` answered: does a migration window get an
 alias layer?
@@ -147,7 +147,7 @@ to shrink the surface.
 The narrowing is the only substantive addition. `dec-050` ruled on 26 flat-tool aliases; its universality
 is narrowed to aliases that add a registered schema, leaving dispatcher-action aliases, `argparse`
 aliases, slash tombstones and the `?pane=` map permitted. `dec-045`'s two-tier dispatcher topology is
-untouched — `dec-draft-36f3ddc2` re-cuts it along lanes and does not revisit it.
+untouched — `dec-094` re-cuts it along lanes and does not revisit it.
 
 > **Finalize obligation.** `scripts/check_adr_health.py` requires `re_affirms`/`re_affirmed_by`
 > reciprocity among finalized records, and separately rejects a finalized record naming a

@@ -1,7 +1,7 @@
 ---
-id: dec-draft-a2d98267
+id: dec-091
 title: The handoff stage is built on observation, with dispatch as progressive enhancement
-status: proposed
+status: accepted
 category: architectural
 date: 2026-08-10
 summary: A lane stage the dashboard structurally cannot execute renders as a first-class handoff built on a read-only session projection that is derivable from git on both mounts; the conversation-dispatch affordance is capability-tiered progressive enhancement down to copy-the-text, and the slash command is a hint rather than the mechanism.

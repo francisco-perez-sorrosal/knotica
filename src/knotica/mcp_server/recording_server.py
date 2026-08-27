@@ -99,13 +99,14 @@ def _outcome_of(result: object) -> str:
     in ``error`` rather than being silently flattened to it here.
     """
     envelope = _envelope_of(result)
-    if envelope is None:
-        return ROUTING_OK
-    error = envelope.get("error")
-    if not isinstance(error, Mapping):
-        return ROUTING_OK
-    code = error.get("code")
-    return str(code) if code else ROUTING_ERROR
+    error = envelope.get("error") if envelope is not None else None
+    if isinstance(error, Mapping) and (code := error.get("code")):
+        return str(code)
+    # No code to read. Fall back to the transport's own verdict rather than
+    # assuming success: a failure carrying no structured payload is still a
+    # failure, and recording it as `ok` would put back the exact dishonesty this
+    # class was built to remove -- silently, and only on the paths that break.
+    return ROUTING_ERROR if getattr(result, "isError", False) else ROUTING_OK
 
 
 def _envelope_of(result: object) -> Mapping[str, Any] | None:

@@ -1,7 +1,7 @@
 ---
-id: dec-draft-de35de45
+id: dec-087
 title: The Fill lane terminates on the gap record — the gate closes it, and a human can dismiss it
-status: proposed
+status: accepted
 category: architectural
 date: 2026-08-10
 summary: "GAP_STATUSES declares open/resolved/dismissed but no code path in src/knotica ever writes the two terminal values, so the Fill lane's terminal state does not exist; a merging source gate now closes its originating gap inside the existing mutation span, and a review action on the Fill lane dispatcher gives a human the dismiss transition."
@@ -57,9 +57,9 @@ the design.
    `INVALID_ARGUMENT`, matching the `_ALLOWED_FROM` / `_TARGET_STATUS` lifecycle-table discipline
    `apply_decision` already uses for suggestions.
 
-This adds **zero registrations**. Under `dec-draft-36f3ddc2` the operator surface is six lane
+This adds **zero registrations**. Under `dec-094` the operator surface is six lane
 dispatchers, and gap review is operator traffic that belongs to exactly one lane — so it is an action
-entry, not a tool. The conversational gap verb `gap_report` is unaffected: `dec-draft-1d7f84bb` keeps it
+entry, not a tool. The conversational gap verb `gap_report` is unaffected: `dec-088` keeps it
 in the flat tier because the client-as-brain calls it mid-answer.
 
 *(Earlier drafting proposed a new flat `gap_review` tool. That predated the tiered lane surface; with six
@@ -83,7 +83,7 @@ encoding the bug as the design and removing the pressure to ever fix it.
 
 Net a further −1 registration. Rejected: `gap_report` is the Answer→Fill bridge the client-as-brain
 calls mid-answer, and `dec-045`/`dec-003` keep high-density conversational verbs flat —
-`dec-draft-1d7f84bb` holds that boundary explicitly. A schema-weight win bought with routing risk on the
+`dec-088` holds that boundary explicitly. A schema-weight win bought with routing risk on the
 conversational path is a bad trade.
 
 ### Option 4 — Close the gap automatically on suggestion `reject`
