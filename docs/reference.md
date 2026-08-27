@@ -97,7 +97,7 @@ All 15 top-level parsers take these four, and so does every nested subcommand, i
 
 ## MCP tools
 
-35 tools are registered on the server: 9 action-parameterized **dispatchers** and 26 flat,
+41 tools are registered on the server: 15 action-parameterized **dispatchers** and 26 flat,
 fixed-behavior tools (5 read + 4 write + 17 grouped by purpose below). Every tool accepts a
 `vault: str = ""` parameter (targets a configured vault by name; empty = the active one) — the two
 exceptions are the `vault` dispatcher itself (no vault to target before one resolves) and
@@ -153,7 +153,7 @@ identical across a paginated walk or the cursor is invalidated.
 | `read_protocol` | `operation` (req, `ingest`\|`query`\|`lint`\|`curate`), `topic=""` | Returns the operation prompt body as a tool result — closes the gap for hosts without MCP-prompt support. |
 | `open_dashboard` | `topic="agentic-systems"`, `vault=""` | See [dashboard](dashboard.md). Falls back to a `TextContent` URL on hosts without MCP Apps support. |
 
-### Action dispatchers — 9
+### Action dispatchers — 15
 
 Every dispatcher validates `action` against a fixed tuple; an unrecognized action raises
 `INVALID_ARGUMENT` and is recorded as mis-selection telemetry.
@@ -169,6 +169,20 @@ Every dispatcher validates `action` against a fixed tuple; an unrecognized actio
 | `notes` | `list`, `read`, `drift`, `reanchor`, `detach`, `promote`, `archive` | Yes, on the 4 mutating actions | `note_id=""`, `intent="all"`, `status="all"`, `cursor=""`, `limit=20`, `anchor=0`, `page=""`, `quote=""`, `target="trainset"`, `question=""`, `answer=""`, `verdict="good"` |
 | `vault` | `list`, `status`, `use`, `add`, `create` | No | `name=""` (letters, digits, `-`, `_` only), `path=""`, `make_default=False` — **no `vault` param**; this dispatcher IS the vault-selection surface |
 | `vault_health` | `doctor`, `repair`, `okf_check`, `okf_repair`, `lint`, `metadata_tree` | Yes, on `repair`/`okf_repair` | `quick=False`, `fix=False`, `paths_json="[]"`, `all_tracked=False`, `delete_untracked=False`, `strict=False`, `force=False` |
+| `home` | none — the router takes no arguments | No — read-only | none; returns every lane's rail and action table |
+| `learn` | generated from the process model: `create_topic`, `store_source`, `ingest_progress`, `write_page`, `ingest_activity_read`, `curate_example` | Per wrapped verb | the union of its verbs' own params |
+| `answer` | generated: `query`, `curate_example`, `note_capture`, `gap_report`, `notes` | Per wrapped verb | the union of its verbs' own params |
+| `improve` | generated: `datasets`, `golden`, `baseline_probe`, `curate_example`, `notes`, `loop`, `arena`, `compile`, `branches`, `prompt_diff`, `metrics_read`, `query` | Per wrapped verb | the union of its verbs' own params |
+| `fill` | generated: `gap_report`, `gaps_read`, `notes`, `gapfill_discover`, `suggestions_read`, `suggestions_review`, `store_source`, `ingest_progress`, `write_page`, `ingest_activity_read`, `source_ingest_open`, `source_ingest_submit`, `loop` | Per wrapped verb | the union of its verbs' own params |
+| `tend` | generated: `vault_health`, `lint_check`, `notes`, `note_capture` | Per wrapped verb | the union of its verbs' own params |
+
+**The six lane dispatchers are generated, and currently additive.** Their action tables, call
+shapes and description action lists are all projections of `LANE_MEMBERSHIP` in
+`src/knotica/core/process_model.py`, and each action routes to the same implementation the flat
+tool of that name registers — so a lane call and its flat equivalent return the same payload by
+construction. They are registered *alongside* the flat surface while the rename lands; a later
+step removes the flat registrations the lanes absorb. A verb that carries its own `action`
+parameter takes it here as `<verb>_action`, because the lane's own selector is already `action`.
 
 **`loop`'s `run_once` and `run_eval` are two-phase billed.** Call once with no `confirm` to
 mint a single-use nonce and see a cost preview (`ttl=300` seconds) — nothing is billed. Call again

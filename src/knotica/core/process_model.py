@@ -41,17 +41,21 @@ from __future__ import annotations
 from collections.abc import Mapping
 from dataclasses import dataclass
 from types import MappingProxyType
-from typing import Literal
+from typing import Any, Literal
 
 from knotica.core import ingest_activity
 
 __all__ = [
     "LANES",
+    "LANE_KIND",
     "LANE_MEMBERSHIP",
     "LANE_STAGES",
     "LANE_STAGE_IDS",
     "VERB_CLASSIFICATION",
+    "LaneKind",
     "Stage",
+    "StageState",
+    "derive_stages",
 ]
 
 #: The six lanes, in the order every surface presents them. ``home`` is first
@@ -432,3 +436,123 @@ VERB_CLASSIFICATION: Mapping[str, VerbClassification] = MappingProxyType(
         "open_dashboard": "infrastructure",
     }
 )
+
+
+# ---------------------------------------------------------------------------
+# Stage-state derivation. Server-side only -- the client renders state it is
+# given, never derives it -- and pure: no vault I/O, no clock, just the
+# watermark/checklist payload a caller's own status read already produced.
+# Follows the rail contract's monotonic-watermark rules: a single integer
+# plus one optional reason is enough to render a whole rail.
+# ---------------------------------------------------------------------------
+
+#: The rendered state of one stage on a rail. Four values suffice: a lane's
+#: terminal condition (Fill's ``quarantined``, Improve's ``merged``) is a
+#: lane-level outcome, never a fifth stage state.
+StageState = Literal["pending", "active", "complete", "blocked"]
+
+#: How a lane's rail advances. A ``sequence`` lane has one monotonic
+#: watermark; the ``checklist`` lane (``tend``) is independently-evaluable
+#: peers with no watermark at all. ``home`` has no rail and so no kind --
+#: callers check :data:`LANE_STAGES` for emptiness before consulting this.
+LaneKind = Literal["sequence", "checklist"]
+
+LANE_KIND: Mapping[str, LaneKind] = MappingProxyType(
+    {
+        "learn": "sequence",
+        "answer": "sequence",
+        "improve": "sequence",
+        "fill": "sequence",
+        "tend": "checklist",
+    }
+)
+
+
+def _stage_is_complete(index: int, watermark: int) -> bool:
+    """R1: every stage before the watermark is complete. Always."""
+    return index < watermark
+
+
+def _stage_is_pending(index: int, watermark: int) -> bool:
+    """R2: every stage after the watermark is pending. Always."""
+    return index > watermark
+
+
+def _sequence_stage(
+    stage: Stage, index: int, watermark: int, blocked_reason: str | None
+) -> dict[str, Any]:
+    """One sequence stage's state, following R1-R3.
+
+    ``watermark`` is already normalized (see :func:`_derive_sequence_stages`)
+    so an idle or terminal position falls out of the same three-way
+    comparison as a mid-run position -- no special casing.
+    """
+    if _stage_is_complete(index, watermark):
+        return {"id": stage.id, "state": "complete", "reason": None}
+    if _stage_is_pending(index, watermark):
+        return {"id": stage.id, "state": "pending", "reason": None}
+    # R3: only the watermark position remains -- active, or blocked when a
+    # precondition is unmet. `blocked` is a modifier on this one position,
+    # never a separate position of its own.
+    if blocked_reason:
+        return {"id": stage.id, "state": "blocked", "reason": blocked_reason}
+    return {"id": stage.id, "state": "active", "reason": None}
+
+
+def _derive_sequence_stages(
+    stages: tuple[Stage, ...], payload: Mapping[str, Any]
+) -> tuple[dict[str, Any], ...]:
+    watermark = payload.get("watermark")
+    blocked_reason = payload.get("blocked_reason")
+    # An idle lane (`watermark is None`) is a watermark before every stage:
+    # rendering it as position -1 lets R1-R3 produce "every stage pending"
+    # with no special case. A terminal lane (`watermark == len(stages)`)
+    # needs no trick at all -- it is already past every real index.
+    position = -1 if watermark is None else watermark
+    return tuple(
+        _sequence_stage(stage, index, position, blocked_reason)
+        for index, stage in enumerate(stages)
+    )
+
+
+def _derive_checklist_stages(
+    stages: tuple[Stage, ...], payload: Mapping[str, Any]
+) -> tuple[dict[str, Any], ...]:
+    """C1-C2: each check is independently pending/blocked/complete, and the
+    server never derives ``"active"`` -- C2 defines that as UI focus, a
+    client-side concern this payload carries no key for."""
+    checks: Mapping[str, str] = payload.get("checks", {})
+    reasons: Mapping[str, str] = payload.get("reasons", {})
+    return tuple(
+        {"id": stage.id, "state": checks[stage.id], "reason": reasons.get(stage.id)}
+        for stage in stages
+    )
+
+
+def derive_stages(lane: str, payload: Mapping[str, Any]) -> tuple[dict[str, Any], ...]:
+    """The dynamic per-stage state of ``lane``'s rail, given its position payload.
+
+    Total over every declared lane: ``home`` has an empty rail and always
+    returns ``()``; the five process lanes dispatch on their declared
+    :data:`LaneKind`. The illegal combination the rail contract forbids -- a
+    later stage active while an earlier one has not completed -- cannot be
+    constructed here, because every stage's state is read off the same one
+    watermark comparison rather than assigned independently.
+
+    Args:
+        lane: One of :data:`LANES`.
+        payload: For a ``sequence`` lane, ``{"watermark": int | None,
+            "blocked_reason": str | None}``. For the ``checklist`` lane
+            (``tend``), ``{"checks": {stage_id: state}, "reasons":
+            {stage_id: reason}}``.
+
+    Returns:
+        One dict per declared stage, in rail order, each shaped
+        ``{"id": str, "state": StageState, "reason": str | None}``.
+    """
+    stages = LANE_STAGES[lane]
+    if not stages:
+        return ()
+    if LANE_KIND[lane] == "checklist":
+        return _derive_checklist_stages(stages, payload)
+    return _derive_sequence_stages(stages, payload)

@@ -16,6 +16,8 @@ npm --prefix dashboard run build     # tsc --noEmit && vite build && package-art
 
 `src/knotica/dashboard/__init__.py::dashboard_html` resolves the wheel-packaged `app.html` first and falls back to `dashboard/dist/index.html` in a checkout — which is why **an installed user never needs a Node toolchain**. Keep that fallback intact.
 
+A `core/process_model.py` change touches two `git diff --exit-code` gates at once — the generated mirror (`dashboard/src/processModel.ts`, gated by `make verify`) and the built artifact above (gated by CI) — so run `make dashboard-rebuild` from the repo root to pay both in one command rather than discovering the second gate in CI.
+
 ## Talking to the server
 
 `src/toolClient.ts` is the single seam for MCP calls. Add a call there rather than reaching for a transport in a component. The dashboard is a *client* of the same public tool surface everything else uses — if a pane needs data, the answer is a tool call, not a new server endpoint.

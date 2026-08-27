@@ -15,8 +15,8 @@ loop at the level a real client actually sees: the one, fully-wired
 Three checks, corresponding to this integration checkpoint's server-level
 proof obligations:
 
-1. tool-count/shape census -- 35 unique names, none carrying a deprecation
-   suffix;
+1. tool-count/shape census -- `EXPECTED_TOOL_COUNT` unique names, none
+   carrying a deprecation suffix;
 2. every dispatcher is reachable end-to-end through the full server with one
    representative action each (`payload_of` requires a structured JSON
    envelope, so a raw-text protocol crash would fail this even if `isError`
@@ -52,8 +52,9 @@ DISPATCHER_NAMES = (
 )
 
 #: The 22 conversational-core tools + `open_dashboard` -- neither a
-#: dispatcher nor a standalone diagnostic. Derived by elimination: 35 tools
-#: total, minus the 9 dispatchers, minus 4 standalone diagnostics not
+#: dispatcher nor a standalone diagnostic. Derived by elimination from the
+#: pre-lane surface: 35 tools, minus the 9 topical dispatchers, minus 4
+#: standalone diagnostics not
 #: wrapped by any dispatcher (`baseline_probe`, `ingest_activity_read`,
 #: `metrics_read`, `prompt_diff`), leaves these 22. `note_capture` joins this
 #: set -- per INTERFACE_DESIGN.md §1, it is deliberately a flat conversational
@@ -111,11 +112,18 @@ REPRESENTATIVE_CALLS: dict[str, tuple[dict[str, Any], str | None]] = {
 }
 
 
-def test_tool_surface_has_35_unique_names(vault_config: Path, template_vault: Path) -> None:
+#: The surface is deliberately, temporarily larger than its target while the
+#: lane rename lands: the six lane dispatchers are registered ALONGSIDE the flat
+#: surface they will absorb, so no intermediate commit is half-renamed. The
+#: removal step drops this back to at most 22 and moves this integer with it.
+EXPECTED_TOOL_COUNT = 41
+
+
+def test_tool_surface_has_no_duplicate_names(vault_config: Path, template_vault: Path) -> None:
     del vault_config, template_vault
     names = [tool.name for tool in list_tools(build_full_server())]
-    assert len(names) == 35
-    assert len(set(names)) == 35
+    assert len(names) == EXPECTED_TOOL_COUNT
+    assert len(set(names)) == EXPECTED_TOOL_COUNT
 
 
 def test_no_tool_carries_a_deprecation_suffix(vault_config: Path, template_vault: Path) -> None:

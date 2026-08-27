@@ -14,10 +14,35 @@ from typing import Any
 import anyio
 import pytest
 
+from knotica.core import process_model
 from knotica.core.records import MetricsComponents, MetricsRecord
 from support.vault import run_git
 
 TOPIC = "agentic-systems"
+
+# The full key set of today's (pre-``process_model`` view) default
+# wiki_status payload -- frozen so this step can prove the shape is
+# unchanged for every existing consumer.
+DEFAULT_PAYLOAD_KEYS = frozenset(
+    {
+        "schema_version",
+        "vault",
+        "vault_name",
+        "vault_path",
+        "default_vault",
+        "available_vaults",
+        "compile_ready_threshold",
+        "eval_min_golden",
+        "topics",
+        "totals",
+        "last_lint",
+        "unpushed",
+        "gate",
+        "loop",
+        "compile",
+        "llm",
+    }
+)
 
 ERROR_CODES = frozenset(
     {
@@ -138,7 +163,14 @@ def test_status_tools_are_registered() -> None:
     assert "metrics_read" in names
 
 
-@pytest.mark.parametrize("tool,args", [("wiki_status", {}), ("metrics_read", {"topic": TOPIC})])
+@pytest.mark.parametrize(
+    "tool,args",
+    [
+        ("wiki_status", {}),
+        ("wiki_status", {"view": "process_model"}),
+        ("metrics_read", {"topic": TOPIC}),
+    ],
+)
 def test_status_tools_return_not_configured_when_unconfigured(
     unconfigured_env: Path, tool: str, args: dict[str, Any]
 ) -> None:
@@ -211,6 +243,83 @@ def test_wiki_status_is_read_only(vault_config: Path, template_vault: Path) -> N
     before = run_git(template_vault, "rev-parse", "HEAD").strip()
     assert_success(call_tool("wiki_status", {}))
     assert_success(call_tool("metrics_read", {"topic": TOPIC}))
+    after = run_git(template_vault, "rev-parse", "HEAD").strip()
+    assert before == after
+
+
+# ---------------------------------------------------------------------------
+# wiki_status view="summary" — unchanged shape (nine existing consumers)
+# ---------------------------------------------------------------------------
+
+
+def test_wiki_status_default_call_keeps_todays_summary_shape(vault_config: Path) -> None:
+    """Adding `view="process_model"` must not touch the default payload's keys."""
+    del vault_config
+    body = assert_success(call_tool("wiki_status", {}))
+    assert set(body) == DEFAULT_PAYLOAD_KEYS
+
+
+def test_wiki_status_explicit_summary_view_matches_omitted_view(vault_config: Path) -> None:
+    del vault_config
+    implicit = assert_success(call_tool("wiki_status", {}))
+    explicit = assert_success(call_tool("wiki_status", {"view": "summary"}))
+    assert implicit == explicit
+
+
+# ---------------------------------------------------------------------------
+# wiki_status view="process_model" — the served declaration
+# ---------------------------------------------------------------------------
+
+
+def test_view_process_model_returns_exactly_the_declared_shape(vault_config: Path) -> None:
+    del vault_config
+    body = assert_success(call_tool("wiki_status", {"view": "process_model"}))
+    assert set(body) == {"schema_version", "lanes", "lane_stages"}
+    assert body["schema_version"] == 1
+
+
+def test_view_process_model_lanes_matches_the_declaration_exactly(vault_config: Path) -> None:
+    del vault_config
+    body = assert_success(call_tool("wiki_status", {"view": "process_model"}))
+    assert body["lanes"] == list(process_model.LANES)
+
+
+def test_view_process_model_lane_stages_matches_the_declaration_exactly(
+    vault_config: Path,
+) -> None:
+    """The served payload matches `process_model` structurally, for every lane."""
+    del vault_config
+    body = assert_success(call_tool("wiki_status", {"view": "process_model"}))
+    expected = {
+        lane: [
+            {"id": stage.id, "title": stage.title, "handoff": stage.handoff}
+            for stage in process_model.LANE_STAGES[lane]
+        ]
+        for lane in process_model.LANES
+    }
+    assert body["lane_stages"] == expected
+
+
+def test_view_process_model_carries_no_predicates_or_advancing_action(vault_config: Path) -> None:
+    """Structure only -- no `state`, no `action` -- matching the generated TS mirror."""
+    del vault_config
+    body = assert_success(call_tool("wiki_status", {"view": "process_model"}))
+    for stages in body["lane_stages"].values():
+        for stage in stages:
+            assert set(stage) == {"id", "title", "handoff"}
+
+
+def test_view_process_model_is_independent_of_topic_and_vault_args(vault_config: Path) -> None:
+    del vault_config
+    scoped = assert_success(call_tool("wiki_status", {"view": "process_model", "topic": TOPIC}))
+    unscoped = assert_success(call_tool("wiki_status", {"view": "process_model"}))
+    assert scoped == unscoped
+
+
+def test_view_process_model_is_read_only(vault_config: Path, template_vault: Path) -> None:
+    del vault_config
+    before = run_git(template_vault, "rev-parse", "HEAD").strip()
+    assert_success(call_tool("wiki_status", {"view": "process_model"}))
     after = run_git(template_vault, "rev-parse", "HEAD").strip()
     assert before == after
 

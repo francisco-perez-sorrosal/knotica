@@ -340,6 +340,7 @@ selectors:
       - tests/test_op_write_page.py
       - tests/test_page.py
       - tests/test_process_model.py
+      - tests/test_process_model_predicates.py
       - tests/test_prompts.py
       - tests/test_records.py
       - tests/test_schema.py
@@ -366,6 +367,7 @@ file_dependencies:
   - "src/knotica/core/lock.py"
   - "src/knotica/core/metrics.py"
   - "src/knotica/core/page.py"
+  - "src/knotica/core/process_model.py"
   - "src/knotica/core/prompts.py"
   - "src/knotica/core/records.py"
   - "src/knotica/core/schema.py"
@@ -458,6 +460,7 @@ selectors:
       - tests/test_dispatch_vault_health.py
       - tests/test_file_size_ratchet.py
       - tests/test_http_dashboard.py
+      - tests/test_lane_dispatchers.py
       - tests/test_loop_dispatch_cadence_run_eval.py
       - tests/test_loop_dispatch_run_once.py
       - tests/test_mcp_app_ui.py

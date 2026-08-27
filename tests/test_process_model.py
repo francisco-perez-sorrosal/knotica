@@ -137,7 +137,12 @@ def test_every_registered_verb_has_lane_membership_or_a_lane_less_classification
     vault_config: Any, template_vault: Any
 ) -> None:
     del vault_config, template_vault
-    verbs = {tool.name for tool in list_tools(build_full_server())}
+    # A tool named after a lane IS that lane's dispatcher -- the declaration's
+    # own projection onto the MCP surface, not a verb acting inside a lane. It
+    # is accounted for by `LANES`, so requiring it to also appear in
+    # LANE_MEMBERSHIP or VERB_CLASSIFICATION would ask a lane to be a member of
+    # itself.
+    verbs = {tool.name for tool in list_tools(build_full_server())} - set(process_model.LANES)
     membership_verbs = {verb for verb, _discriminator in process_model.LANE_MEMBERSHIP}
     classified_verbs = set(process_model.VERB_CLASSIFICATION)
     unaccounted = verbs - membership_verbs - classified_verbs

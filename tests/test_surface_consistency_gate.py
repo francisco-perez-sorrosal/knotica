@@ -18,6 +18,7 @@ and asserting on them keeps the test honest about what a developer will see.
 from __future__ import annotations
 
 import shutil
+import re
 import subprocess
 import sys
 from collections.abc import Callable
@@ -83,7 +84,11 @@ def test_the_gate_reports_what_it_checked_rather_than_only_that_it_passed() -> N
     """A green line naming three counts is auditable; a bare 'OK' is not."""
     result = _run(REPO_ROOT)
 
-    assert "35 tools" in result.stdout
+    # The integer moves with the surface (the lane rename adds six dispatchers,
+    # then removes the flat tools they absorb), so this asserts the *shape* of
+    # the report -- a count is named -- not one particular count.
+    assert re.search(r"OK — \d+ tools", result.stdout), result.stdout
+    assert "CLI subcommands" in result.stdout
     assert "slash commands" in result.stdout
 
 
@@ -169,7 +174,7 @@ def test_an_alias_table_row_with_no_command_file_is_rejected(tree: Path) -> None
 @pytest.mark.parametrize(
     ("original", "corrupted", "expected"),
     [
-        ("35 tools are registered", "34 tools are registered", "says total=34, tables say 35"),
+        ("41 tools are registered", "40 tools are registered", "says total=40, tables say 41"),
         ("and 26 flat,", "and 25 flat,", "says flat=25, tables say 26"),
         ("(5 read + 4 write + 17", "(6 read + 4 write + 17", "says read=6, tables say 5"),
         ("(5 read + 4 write + 17", "(5 read + 4 write + 16", "says other=16, tables say 17"),

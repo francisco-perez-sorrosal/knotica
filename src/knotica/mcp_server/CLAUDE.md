@@ -4,7 +4,9 @@ The package is named `mcp_server`, not `mcp`, to avoid shadowing the `mcp` SDK (
 
 ## The surface
 
-25 flat conversational tools, 9 action dispatchers, and `open_dashboard` — 35 registrations. The dispatchers are `loop`, `branches`, `compile`, `datasets`, `arena`, `golden`, `notes`, `vault`, `vault_health`. Full action lists: [`docs/reference.md`](../../../docs/reference.md).
+25 flat conversational tools, 9 topical action dispatchers, `open_dashboard`, and the 6 process-lane dispatchers — 41 registrations. The topical dispatchers are `loop`, `branches`, `compile`, `datasets`, `arena`, `golden`, `notes`, `vault`, `vault_health`. Full action lists: [`docs/reference.md`](../../../docs/reference.md).
+
+**The lane dispatchers are generated, and the surface is temporarily additive.** `home`, `learn`, `answer`, `improve`, `fill`, `tend` are projections of `core/process_model.py`: `tools_dispatch_lane_common.py` builds each one's action table, call shape and description action list from `LANE_MEMBERSHIP`, and routes every action to the same function object the flat tool of that name registers — so a lane call and its flat equivalent are equal by construction, not by convention. Nothing about a lane dispatcher is hand-maintained; to change a lane's actions, change the declaration. They register *alongside* the flat surface, which is why the count is 41 and not the target ~17; the flat registrations the lanes absorb are removed in a later step of the same branch.
 
 ## Rules for every tool
 
