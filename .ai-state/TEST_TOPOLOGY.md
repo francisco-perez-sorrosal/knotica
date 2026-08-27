@@ -339,6 +339,7 @@ selectors:
       - tests/test_op_store_source.py
       - tests/test_op_write_page.py
       - tests/test_page.py
+      - tests/test_process_model.py
       - tests/test_prompts.py
       - tests/test_records.py
       - tests/test_schema.py
@@ -476,6 +477,7 @@ selectors:
       - tests/test_mcp_status.py
       - tests/test_mcp_vault.py
       - tests/test_mcp_write.py
+      - tests/test_process_model.py
       - tests/test_referential_integrity_gate.py
       - tests/test_server_instructions.py
       - tests/test_server_tool_surface.py
