@@ -139,28 +139,53 @@ def test_an_empty_window_reports_zero_rather_than_dividing_by_zero(
 # ---------------------------------------------------------------------------
 
 
-def test_a_window_below_the_floor_says_so_on_every_axis(
+def test_a_window_below_the_floor_says_so_on_every_short_axis(
     summary: ModuleType, tmp_path: Path
 ) -> None:
-    """Silence here is the failure mode: a verdict on four records looks identical."""
+    """Silence here is the failure mode: a verdict on four records looks identical.
+
+    The session and day floors are 1 after the 2026-08-27 recalibration (one
+    long-lived Desktop server process makes higher session counts unreachable
+    at real usage rates), so a non-empty window can only fall short on the
+    record axis -- and must still say so rather than issuing a verdict.
+    """
     _write(tmp_path, [_dispatch("loop")] * 4)
 
     shortfalls = summary.read_window(tmp_path).shortfalls
 
-    assert len(shortfalls) == 3
     assert any("dispatch records" in note for note in shortfalls)
-    assert any("sessions" in note for note in shortfalls)
-    assert any("distinct days" in note for note in shortfalls)
+    expected_axes = sum(
+        1
+        for floor, met in (
+            (summary.MIN_RECORDS, 4),
+            (summary.MIN_SESSIONS, 1),
+            (summary.MIN_DAYS, 1),
+        )
+        if met < floor
+    )
+    assert len(shortfalls) == expected_axes
+
+
+def test_the_recalibrated_floor_still_requires_a_statistically_useful_record_count(
+    summary: ModuleType,
+) -> None:
+    """The record floor is the constant doing statistical work (rule of three
+    at ~1.5% on 200 records); the recalibration lowered the session and day
+    proxies, never this. A future edit weakening it must fail loudly here."""
+    assert summary.MIN_RECORDS == 200
+    assert summary.MIN_SESSIONS == 1
+    assert summary.MIN_DAYS == 1
 
 
 def test_a_window_meeting_the_floor_reports_no_shortfall(
     summary: ModuleType, tmp_path: Path
 ) -> None:
+    per_write = max(20, summary.MIN_RECORDS // (summary.MIN_DAYS * summary.MIN_SESSIONS) + 1)
     for index in range(summary.MIN_DAYS):
         for session in range(summary.MIN_SESSIONS):
             _write(
                 tmp_path,
-                [{**_dispatch("loop"), "run": f"r{session}"}] * 20,
+                [{**_dispatch("loop"), "run": f"r{session}"}] * per_write,
                 day=f"2026-08-{10 + index}",
             )
 

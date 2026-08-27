@@ -33,12 +33,22 @@ from typing import Any
 # --- Comparability floor -----------------------------------------------------
 # A window smaller than this cannot support the verdict below. 200 dispatch
 # records puts the rule-of-three upper bound on a zero-rejection rate at ~1.5%,
-# which is tight enough for the +5pt threshold to mean something; five sessions
-# stop one atypical session being the whole sample; three days stop a single
-# work-burst being it.
+# which is tight enough for the +5pt threshold to mean something.
+#
+# RECALIBRATED 2026-08-27, per the pre-capture escape hatch ("if the floors
+# prove unreachable at the real usage rate, lower them and state plainly what
+# the smaller sample can bound"). The original 5-session / 3-day floors assumed
+# a `run` approximates an independent usage burst; measured, it does not --
+# Claude Desktop keeps one MCP server process alive across days, so 13 hours of
+# varied real usage (1,111 dispatches) legitimately counted as ONE session, and
+# no realistic usage pattern moves the counter. The record floor is the one
+# doing statistical work and it stays. What the 1-session / 1-day sample CAN
+# bound: per-tool dispatch shares and rejection/error rates within a comparable
+# usage mix. What it CANNOT: cross-day and cross-session variance -- a before/
+# after delta inside the thresholds below is signal, a marginal one is not.
 MIN_RECORDS = 200
-MIN_SESSIONS = 5
-MIN_DAYS = 3
+MIN_SESSIONS = 1
+MIN_DAYS = 1
 
 # --- Degradation thresholds, fixed BEFORE capture ----------------------------
 #: Overall rejected-action rate rising this far is a regression, not noise: on a
