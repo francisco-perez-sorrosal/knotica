@@ -4,50 +4,43 @@ import type { PaneId } from "./types";
 
 /**
  * Every `?pane=` value the dashboard accepts, mapped to the pane it opens.
- * Keys are the allowlist; a key whose value differs from itself is a legacy
- * alias kept working after the pane was renamed (`golden` → `datasets`), or
- * one of the six process lanes resolving to the pane that best represents it
- * today (`learn` → `ingest`, `answer` → `ask`, `improve` → `loop`,
- * `fill` → `sources`; `home` and `tend` both land on `vault`). Exported so a
- * caller can confirm a key is actually in the allowlist, not merely falling
- * through to the same default an unrecognised value would get.
+ * Keys are the allowlist; a key whose value differs from itself is either a
+ * process lane resolving to the pane that best represents it (`learn` →
+ * `ingest`, `answer` → `ask`, `fill` → `sources`), or a bookmark minted
+ * before the dissolution, degraded to the lane that absorbed the pane it
+ * named: `loop`/`arena`/`datasets`/`golden` → `improve`, `vault`/`notes` →
+ * `tend`. Every legacy key keeps working and lands somewhere specific rather
+ * than falling through to one generic default. Exported so a caller can
+ * confirm a key is actually in the allowlist, not merely falling through to
+ * the same default an unrecognised value would get.
  *
  * Resolution is **exact-match, no trimming, no case folding** — uniformly for
  * legacy pane keys and lane keys alike. A mistyped case or stray whitespace
  * falls back to the default pane, exactly as any other unrecognised value
- * always has; this extension does not loosen that rule for the new keys.
+ * always has.
  */
 export const PANE_BY_PARAM = new Map<string, PaneId>([
-  ["datasets", "datasets"],
-  ["golden", "datasets"],
+  ["datasets", "improve"],
+  ["golden", "improve"],
   ["ingest", "ingest"],
-  ["loop", "loop"],
+  ["loop", "improve"],
   ["ask", "ask"],
-  ["arena", "arena"],
+  ["arena", "improve"],
   ["sources", "sources"],
-  ["notes", "notes"],
-  ["home", "vault"],
+  ["notes", "tend"],
+  ["home", "tend"],
   ["learn", "ingest"],
   ["answer", "ask"],
-  ["improve", "loop"],
+  ["improve", "improve"],
   ["fill", "sources"],
-  ["tend", "vault"],
+  ["tend", "tend"],
 ]);
-
-const DEFAULT_PANE: PaneId = "vault";
 
 /**
- * The `(lane, focus)` pairs that open a different pane than the bare lane would.
- * Keyed on the pair — a `focus` meaningful under one lane means nothing under
- * another. Internal on purpose: unlike `PANE_BY_PARAM` (which the `?pane=`
- * allowlist check reads from outside), nothing outside this module needs to
- * enumerate the qualified pairs; they are observable through `resolveLaneFocus`.
+ * The pane a bare URL opens, and the one `?pane=` is omitted for. Interim
+ * until Home ships as its own lane, which `home` will then name.
  */
-const PANE_BY_LANE_FOCUS = new Map<string, PaneId>([
-  ["improve:heal", "arena"],
-  ["improve:instrument", "datasets"],
-  ["tend:drift", "notes"],
-]);
+export const DEFAULT_PANE: PaneId = "tend";
 
 /** Resolve a raw `?pane=` value (or `null`, when absent) to the pane to open. */
 export function resolvePane(param: string | null): PaneId {
@@ -58,13 +51,18 @@ export function resolvePane(param: string | null): PaneId {
 /**
  * Resolve an `open_dashboard(lane=, focus=)` pair to the pane to open.
  *
- * Degrade-never-error (`dec-092`) governs every branch: an unmatched `focus`
- * falls through to the lane's own unqualified mapping, and an unrecognised
- * `lane` degrades to home's own pane — the same watermark `resolvePane`
- * already defaults to. Matching is exact, with no trimming or case folding,
- * uniformly with `resolvePane`.
+ * `focus` no longer selects a pane. It used to: three pairs
+ * (`improve:heal`, `improve:instrument`, `tend:drift`) opened a tool-shaped
+ * pane instead of the lane's own, and all three of those panes were absorbed
+ * by the lane that now owns the work. A focus is a *within-lane* coordinate
+ * now — which stage that lane expands — so it never changes which pane opens,
+ * and the parameter is accepted here only to keep the deep-link contract's
+ * shape intact for the caller.
+ *
+ * Degrade-never-error (`dec-092`) still governs: an unrecognised `lane`
+ * degrades to the default pane rather than erroring. Matching is exact, with
+ * no trimming or case folding, uniformly with `resolvePane`.
  */
-export function resolveLaneFocus(lane: string, focus: string): PaneId {
-  const qualified = focus ? PANE_BY_LANE_FOCUS.get(`${lane}:${focus}`) : undefined;
-  return qualified ?? PANE_BY_PARAM.get(lane) ?? DEFAULT_PANE;
+export function resolveLaneFocus(lane: string, _focus: string): PaneId {
+  return PANE_BY_PARAM.get(lane) ?? DEFAULT_PANE;
 }

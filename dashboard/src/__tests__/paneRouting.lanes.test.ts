@@ -32,12 +32,12 @@ import type { PaneId } from "../types";
  */
 
 const LANE_TARGET_PANE: Readonly<Record<string, PaneId>> = {
-  home: "vault",
+  home: "tend",
   learn: "ingest",
   answer: "ask",
-  improve: "loop",
+  improve: "improve",
   fill: "sources",
-  tend: "vault",
+  tend: "tend",
 };
 
 describe("the six process lanes as accepted ?pane= values", () => {
@@ -67,14 +67,14 @@ describe("case and whitespace are exact-match, uniformly for legacy and lane key
   it.each(["LOOP", "Loop", " loop", "loop "])(
     "does not resolve a mistyped legacy key like %j",
     (mistyped) => {
-      expect(resolvePane(mistyped)).toBe("vault");
+      expect(resolvePane(mistyped)).toBe("tend");
     },
   );
 
   it.each(["IMPROVE", "Improve", " improve", "improve "])(
     "does not resolve a mistyped lane key like %j",
     (mistyped) => {
-      expect(resolvePane(mistyped)).toBe("vault");
+      expect(resolvePane(mistyped)).toBe("tend");
     },
   );
 
@@ -82,28 +82,29 @@ describe("case and whitespace are exact-match, uniformly for legacy and lane key
     // `answer` and `ask` are distinct concepts on two different surfaces;
     // this case guards against a lane key being accidentally case-insensitive
     // while the legacy allowlist stays case-sensitive.
-    expect(resolvePane("ANSWER")).toBe("vault");
+    expect(resolvePane("ANSWER")).toBe("tend");
   });
 });
 
 /**
- * `open_dashboard(lane=, focus=)` needs a second axis `?pane=` never had: the
- * same lane opens a different pane depending on `focus` (dec-092, three
- * documented cases). `resolveLaneFocus` is the seam that combines both --
- * pinned separately from `resolvePane` because it takes two inputs, not one.
+ * `open_dashboard(lane=, focus=)` carries a second axis `?pane=` never had.
+ * It no longer selects a *pane*: the three pairs that used to open a
+ * tool-shaped pane instead of the lane's own (`improve:heal`,
+ * `improve:instrument`, `tend:drift`) all pointed at panes the lanes have
+ * since absorbed, so a focus is now a within-lane coordinate — which stage
+ * expands — and every lane+focus pair lands on the lane itself.
  *
- * Degrade-never-error (dec-092) governs every branch here: an unmatched
- * `focus` never surfaces as `undefined`, it falls through to the lane's own
- * plain mapping; an unrecognised `lane` never throws, it degrades to home's
- * own pane -- the exact same watermark `resolvePane` already defaults to.
+ * Degrade-never-error (dec-092) still governs every branch here: a focus
+ * never surfaces as `undefined`, and an unrecognised `lane` never throws, it
+ * degrades to the same default pane `resolvePane` already falls back to.
  */
 describe("focus-qualified lane resolution (resolveLaneFocus)", () => {
   it.each([
-    ["improve", "heal", "arena"],
-    ["improve", "instrument", "datasets"],
-    ["tend", "drift", "notes"],
+    ["improve", "heal", "improve"],
+    ["improve", "instrument", "improve"],
+    ["tend", "drift", "tend"],
   ] as const)(
-    "resolves the %s lane with %s focus to the %s pane",
+    "resolves the %s lane with %s focus to the %s lane's own pane, not a retired one",
     (lane, focus, pane) => {
       expect(resolveLaneFocus(lane, focus)).toBe(pane);
     },
@@ -111,13 +112,13 @@ describe("focus-qualified lane resolution (resolveLaneFocus)", () => {
 
   it("falls through to the lane's own plain mapping when focus is the empty string", () => {
     // No focus at all is the common case (a bare `open_dashboard(lane="improve")`).
-    expect(resolveLaneFocus("improve", "")).toBe("loop");
+    expect(resolveLaneFocus("improve", "")).toBe("improve");
   });
 
   it("falls through to the lane's own plain mapping when focus does not match any documented case", () => {
     // A focus value that simply doesn't exist for this lane must not surface
     // as undefined -- it degrades to what a bare lane, with no focus, would give.
-    expect(resolveLaneFocus("improve", "not-a-real-focus")).toBe("loop");
+    expect(resolveLaneFocus("improve", "not-a-real-focus")).toBe("improve");
   });
 
   it("falls through to the lane's own plain mapping for a lane with no documented focus case at all", () => {
@@ -127,15 +128,13 @@ describe("focus-qualified lane resolution (resolveLaneFocus)", () => {
   });
 
   it("does not let a focus value meaningful under one lane leak into another lane's resolution", () => {
-    // "heal" only means anything under "improve" (-> arena). Under "learn" it
-    // must fall through to learn's own plain mapping ("ingest"), not to
-    // "arena" -- proving the lookup is keyed on the (lane, focus) pair, not
-    // on focus alone.
+    // "heal" is an Improve stage. Under "learn" it must still land on learn's
+    // own mapping ("ingest") -- a focus never redirects across lanes.
     expect(resolveLaneFocus("learn", "heal")).toBe("ingest");
   });
 
-  it("degrades an unrecognised lane to home's own pane regardless of focus", () => {
-    expect(resolveLaneFocus("not-a-real-lane", "")).toBe("vault");
-    expect(resolveLaneFocus("not-a-real-lane", "heal")).toBe("vault");
+  it("degrades an unrecognised lane to the default pane regardless of focus", () => {
+    expect(resolveLaneFocus("not-a-real-lane", "")).toBe("tend");
+    expect(resolveLaneFocus("not-a-real-lane", "heal")).toBe("tend");
   });
 });

@@ -87,7 +87,7 @@ and the `TEST_TOPOLOGY.md` rule change it forced, are `dec-075`.
 | `src/knotica/okf/` | Native OKF conformance — one shared format model with three verbs over it: `check` (read-only findings), `export` (a bundle written outside the vault), `repair` (the only mutator, through `VaultTransaction`) | Built |
 | `src/knotica/guillotine/` | Memory Guillotine — claim-level retraction, demotion, and evidence audit. A read-only pipeline: find mentions, classify passage roles, score a verdict, localize the contested passage, render a diff. It never rewrites page prose. `dec-033` | Built |
 | `src/knotica/service/` | OS-service lifecycle for the loop watcher (+ 2 unit templates). One interface over launchd (live-verified) and systemd `--user` (code-complete, untested — `status().verified` reports which), plus the supervised daemon that iterates every configured topic in one process. `dec-044` | Built |
-| Dashboard (`dashboard/` + `src/knotica/dashboard/`) | Single-file Preact MCP client: eight tab panes plus per-pane panels, built to one self-contained HTML artifact; all dynamic data arrives over MCP. `src/knotica/dashboard/` is its packaging seam — a small loader resolving the wheel-packaged `app.html`, falling back to `dashboard/dist/index.html` in a checkout, so an installed user needs no Node toolchain. Modelled as one component rather than two: the loader's whole purpose is to serve the client to both mounts (`dec-070`). `dec-020` | Built |
+| Dashboard (`dashboard/` + `src/knotica/dashboard/`) | Single-file Preact MCP client: five navigation surfaces — three panes (`Ask`, `Sources`, `Ingest`), two process lanes (`Improve`, `Tend`), plus shared rail infrastructure — built to one self-contained HTML artifact; all dynamic data arrives over MCP. Each lane stages its workflow as an ordered rail with state derivation and armed-confirm affordances for two-phase actions. `src/knotica/dashboard/` is its packaging seam — a small loader resolving the wheel-packaged `app.html`, falling back to `dashboard/dist/index.html` in a checkout, so an installed user needs no Node toolchain. Modelled as one component rather than two: the loader's whole purpose is to serve the client to both mounts (`dec-070`). `dec-020` | Built |
 | Plugin layer (repo root) | `.claude-plugin/plugin.json`, `.mcp.json`, one `/knotica:*` alias per file under `commands/`, `hooks/` (non-blocking SessionStart pre-warm + nudges), `skills/wiki-maintenance/`. Distribution runs through the external `bit-agora` marketplace | Built |
 | `src/knotica/agent/` | SIA outer-loop runners: generations mutate overlays/prompts/structure, keep/discard on eval score, winning diffs land as vault-repo PRs (Phase 3b) | Planned |
 
@@ -173,6 +173,12 @@ acyclic. Two `mcp_server` modules carry an `mcp_server → evals` edge at import
 `evals.golden` error types). Both stay off the heavy tree: importing the server loads most of `evals/`, but no `anthropic`, `dspy`,
 or `litellm` — every one of those is behind a lazy import, which is what keeps the extra off the launch
 path.
+
+The lane-rail redesign in flight is adding a new `dashboard/src/lanes/` tree under the `dashboard/`
+leaf above: `laneRailState.ts` is a pure, framework-free derivation module (no Preact, no DOM, no
+fetch) turning a lane's process position into the shared four-state rail vocabulary
+(`pending`/`active`/`complete`/`blocked`) that every lane's rendered rail will read from. Full
+component-table treatment lands once the standalone pane surface it replaces is fully dissolved.
 
 ## 4. Interfaces
 

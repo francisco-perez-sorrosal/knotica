@@ -1,4 +1,3 @@
-import { h } from "preact";
 import { useEffect, useMemo, useState } from "preact/hooks";
 
 import { formatMetadataSize, lookupMetadataCatalog } from "./metadataCatalog";

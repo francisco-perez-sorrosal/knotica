@@ -11,7 +11,11 @@ import type {
 
 /** Mirrors `promote_note._GAP_ELIGIBLE_INTENTS` exactly -- the intents for
  * which the dispatcher's `target=gap` promotion is not rejected outright. */
-const GAP_ELIGIBLE_INTENTS = new Set<NoteIntent>(["dispute", "gap", "question"]);
+const GAP_ELIGIBLE_INTENTS = new Set<NoteIntent>([
+  "dispute",
+  "gap",
+  "question",
+]);
 
 /**
  * View 3 (promotion) from the interface design -- a card action, not a
@@ -24,7 +28,7 @@ const GAP_ELIGIBLE_INTENTS = new Set<NoteIntent>(["dispute", "gap", "question"])
  * Two phases in one dialog: fill fields, then `mode=dry-run` renders the
  * server's own resolved question/grounding pages before an explicit
  * "Promote" applies -- the same defer-to-apply shape every mutating notes
- * action uses (see `ActionConfirm` in `NotesDriftView.tsx`), just richer
+ * action uses (see `ActionConfirm` in `notePresentation.tsx`), just richer
  * because promotion collects its own fields first.
  */
 export function NotePromoteDialog({
@@ -44,7 +48,9 @@ export function NotePromoteDialog({
 }) {
   const gapEligible = GAP_ELIGIBLE_INTENTS.has(note.intent);
   const [target, setTarget] = useState<PromoteTarget>("trainset");
-  const [question, setQuestion] = useState(note.intent === "question" ? note.note : "");
+  const [question, setQuestion] = useState(
+    note.intent === "question" ? note.note : "",
+  );
   const [answer, setAnswer] = useState("");
   const [verdict, setVerdict] = useState<"good" | "bad">("good");
   const [envelope, setEnvelope] = useState<NoteDecisionEnvelope | null>(null);
@@ -86,14 +92,15 @@ export function NotePromoteDialog({
     setBusy(true);
     setError(null);
     try {
-      const result: NotePromoteActionResult | NoteDecisionEnvelope = await client.notesPromote(
-        topic,
-        note.note_id,
-        target,
-        "apply",
-        { question, answer, verdict },
-        vault,
-      );
+      const result: NotePromoteActionResult | NoteDecisionEnvelope =
+        await client.notesPromote(
+          topic,
+          note.note_id,
+          target,
+          "apply",
+          { question, answer, verdict },
+          vault,
+        );
       if (result.mode !== "apply") return;
       onPromoted();
     } catch (cause) {
@@ -144,11 +151,16 @@ export function NotePromoteDialog({
               </span>
             </p>
             <p class="muted">
-              This crosses out of your private notes. The note itself stays where it is and
-              records the promotion.
+              This crosses out of your private notes. The note itself stays
+              where it is and records the promotion.
             </p>
             <div class="notes-promote-actions">
-              <button type="button" class="primary" disabled={busy} onClick={() => void apply()}>
+              <button
+                type="button"
+                class="primary"
+                disabled={busy}
+                onClick={() => void apply()}
+              >
                 {busy ? "…" : "Promote"}
               </button>
               <button
@@ -171,8 +183,8 @@ export function NotePromoteDialog({
                   checked={target === "trainset"}
                   onChange={() => setTarget("trainset")}
                 />
-                Training example — adds a curated (question, pages, answer) example to this
-                topic&rsquo;s training set.
+                Training example — adds a curated (question, pages, answer)
+                example to this topic&rsquo;s training set.
               </label>
               {gapEligible ? (
                 <label>
@@ -185,7 +197,8 @@ export function NotePromoteDialog({
                   Knowledge gap — files it in the research queue.
                   <span class="muted notes-promote-hint">
                     {" "}
-                    available because this note&rsquo;s intent is &ldquo;{note.intent}&rdquo;
+                    available because this note&rsquo;s intent is &ldquo;
+                    {note.intent}&rdquo;
                   </span>
                 </label>
               ) : null}
@@ -196,7 +209,9 @@ export function NotePromoteDialog({
               <textarea
                 rows={2}
                 value={question}
-                onInput={(event) => setQuestion((event.target as HTMLTextAreaElement).value)}
+                onInput={(event) =>
+                  setQuestion((event.target as HTMLTextAreaElement).value)
+                }
               />
             </label>
 
@@ -207,7 +222,9 @@ export function NotePromoteDialog({
                   <textarea
                     rows={3}
                     value={answer}
-                    onInput={(event) => setAnswer((event.target as HTMLTextAreaElement).value)}
+                    onInput={(event) =>
+                      setAnswer((event.target as HTMLTextAreaElement).value)
+                    }
                   />
                 </label>
                 <fieldset class="notes-promote-verdict">
@@ -237,12 +254,21 @@ export function NotePromoteDialog({
               <button
                 type="button"
                 class="primary"
-                disabled={busy || !question.trim() || (target === "trainset" && !answer.trim())}
+                disabled={
+                  busy ||
+                  !question.trim() ||
+                  (target === "trainset" && !answer.trim())
+                }
                 onClick={() => void preview()}
               >
                 {busy ? "…" : "Continue"}
               </button>
-              <button type="button" class="ghost" disabled={busy} onClick={onClose}>
+              <button
+                type="button"
+                class="ghost"
+                disabled={busy}
+                onClick={onClose}
+              >
                 Cancel
               </button>
             </div>

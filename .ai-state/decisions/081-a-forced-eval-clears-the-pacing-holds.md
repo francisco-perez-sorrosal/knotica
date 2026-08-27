@@ -15,7 +15,7 @@ affected_files:
   - src/knotica/mcp_server/dispatch_telemetry.py
   - src/knotica/mcp_server/tools_vault.py
   - src/knotica/mcp_server/tools_gaps.py
-  - dashboard/src/LoopPane.tsx
+  - dashboard/src/lanes/improve/ObserveStage.tsx
   - tests/test_loop_blocked_failure_backoff.py
 dissent: "The 3600s floor exists because an unattended loop once wrote 14.8k commits on an unevaluable topic; any hole in it is a hole in that defence, and 'the human asked' is exactly the argument someone will later extend to the daemon."
 ---
