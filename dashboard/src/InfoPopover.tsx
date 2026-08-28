@@ -1,8 +1,9 @@
-import type { JSX, TargetedFocusEvent } from "preact";
-import { useEffect, useRef } from "preact/hooks";
+import type { JSX } from "preact";
+import { useRef } from "preact/hooks";
 
 import { Icon } from "./icons";
 import { closePopover, isPopoverOpen, togglePopover } from "./infoPopoverState";
+import { useOverlayDismiss } from "./useOverlayDismiss";
 
 export interface InfoPopoverProps {
   /** Stable identity for the module single-open signal and `aria-controls`. */
@@ -46,37 +47,11 @@ export function InfoPopover({
     triggerRef.current?.focus();
   }
 
-  useEffect(() => {
-    if (!open) {
-      return;
-    }
-    function handlePointerDown(event: PointerEvent): void {
-      const target = event.target as Node;
-      if (panelRef.current?.contains(target) || triggerRef.current?.contains(target)) {
-        return;
-      }
-      closePopover(id);
-    }
-    function handleKeyDown(event: KeyboardEvent): void {
-      if (event.key === "Escape") {
-        close();
-      }
-    }
-    document.addEventListener("pointerdown", handlePointerDown);
-    document.addEventListener("keydown", handleKeyDown);
-    return () => {
-      document.removeEventListener("pointerdown", handlePointerDown);
-      document.removeEventListener("keydown", handleKeyDown);
-    };
-  }, [open, id]);
-
-  function handlePanelFocusOut(event: TargetedFocusEvent<HTMLDivElement>): void {
-    const next = event.relatedTarget as Node | null;
-    if (next && panelRef.current?.contains(next)) {
-      return;
-    }
-    closePopover(id);
-  }
+  const handlePanelFocusOut = useOverlayDismiss(id, open, {
+    panelRef,
+    triggerRef,
+    onClose: () => closePopover(id),
+  });
 
   return (
     <span class="info-popover" data-align={align}>
