@@ -3663,7 +3663,11 @@ button.loop-node:focus-visible {
 .stat[data-tone="bad"] .stat-value { color: var(--bad); }
 .stat[data-tone="warn"] .stat-value { color: var(--warn); }
 .stat[data-tone="good"] .stat-value { color: var(--good); }
-.stat[data-tone="neutral"] .stat-value { color: var(--neutral); }
+/* Neutral TEXT uses --muted, not --neutral: the neutral ramp value is a
+   border/fill tone and sits near 3:1 on the light surfaces — below the AA
+   floor for the small sizes these render at. --muted keeps the same quiet
+   voice and clears it on both themes. */
+.stat[data-tone="neutral"] .stat-value { color: var(--muted); }
 
 /* TermHint — the inline dotted-underline explanatory overlay (design
    §2.3). Byte-identical dismissal semantics to InfoPopover; a distinct
@@ -3797,7 +3801,7 @@ button.loop-node:focus-visible {
   color: var(--good);
   border-color: color-mix(in srgb, var(--good) 45%, var(--line));
 }
-.chip[data-tone="neutral"] { color: var(--neutral); }
+.chip[data-tone="neutral"] { color: var(--muted); }
 
 /* Data table — the Instrument "Files & Overlaps" role/count/ready grid
    (design §4.2). No consumer yet. */
