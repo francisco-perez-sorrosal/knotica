@@ -59,7 +59,12 @@ const STAGE_ORDER = [
   "prove",
 ] as const;
 type StageId = (typeof STAGE_ORDER)[number];
-type StageState = "pending" | "active" | "complete" | "blocked";
+type StageState =
+  | "pending"
+  | "active"
+  | "complete"
+  | "blocked"
+  | "unknown";
 
 const mounted: Record<StageId, number> = {
   instrument: 0,
@@ -305,5 +310,48 @@ describe("the idle rail is not a dead end", () => {
 
     expect(rows(container)[1].querySelector(".lane-stage-disclosure")).toBeNull();
     expect(container.querySelector('[data-testid="stub-observe"]')).toBeTruthy();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// CH-1: the server's fifth word. `unknown` is the honest absence of a
+// position, and the rail must say so rather than render it as `pending`.
+// ---------------------------------------------------------------------------
+
+const UNRECORDED: StageState[] = Array<StageState>(6).fill("unknown");
+
+describe("an unknown rail is rendered as unknown, not as pending", () => {
+  it("shows every stage's declared state as visible text", () => {
+    const { container } = render(
+      <ImproveLane {...props({ status: statusWith(UNRECORDED) })} />,
+    );
+
+    expect(
+      rows(container).map((row) => row.dataset.state),
+    ).toEqual(UNRECORDED);
+    expect(
+      rows(container)[0].querySelector(".lane-state-label")?.textContent,
+    ).toBe("unknown");
+  });
+
+  it("leaves aria-current unset -- the process marker needs a declared position", () => {
+    const { container } = render(
+      <ImproveLane {...props({ status: statusWith(UNRECORDED) })} />,
+    );
+
+    expect(
+      container.querySelectorAll('.lane-stage[aria-current="step"]'),
+    ).toHaveLength(0);
+  });
+
+  it("stays reachable through focus, mounting the real body on disclosure", () => {
+    const { container } = render(
+      <ImproveLane {...props({ status: statusWith(UNRECORDED) })} />,
+    );
+
+    fireEvent.click(disclosureIn(rows(container)[3]));
+
+    expect(container.querySelector('[data-testid="stub-heal"]')).toBeTruthy();
+    expect(mounted.heal).toBe(1);
   });
 });

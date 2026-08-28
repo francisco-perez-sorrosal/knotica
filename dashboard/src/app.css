@@ -3020,6 +3020,10 @@ button.danger:hover:not(:disabled) {
   background: var(--surface-raised);
 }
 .lane-stage[data-state="pending"] { border-left-color: var(--lane-state-pending); }
+/* `unknown` is the honest absence of a position (design §7.3): neutral, never
+   the warn ramp. Declared rather than left to fall through, so the tone is a
+   decision a reader can find. */
+.lane-stage[data-state="unknown"] { border-left-color: var(--neutral); }
 .lane-stage[data-state="active"] {
   border-left-color: var(--lane-state-active);
   background: var(--surface-raised);
@@ -3037,7 +3041,9 @@ button.danger:hover:not(:disabled) {
   height: 26px;
   border-radius: var(--radius-pill);
   font: 600 .72rem var(--mono);
-  color: var(--lane-state-pending);
+  /* Neutral is the resting tone for every state that is not a live position
+     -- `pending` and `unknown` both land here. */
+  color: var(--neutral);
   border: var(--border) solid var(--line-strong);
 }
 .lane-stage[data-state="active"] .lane-stage-index {
@@ -3068,7 +3074,7 @@ button.danger:hover:not(:disabled) {
   font: var(--fs-xs) var(--mono);
   letter-spacing: var(--tracking-label);
   text-transform: uppercase;
-  color: var(--lane-state-pending);
+  color: var(--neutral);
 }
 .lane-stage[data-state="active"] .lane-state-label { color: var(--lane-state-active); }
 .lane-stage[data-state="complete"] .lane-state-label { color: var(--lane-state-complete); }

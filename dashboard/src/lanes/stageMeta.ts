@@ -25,9 +25,14 @@ export interface StageMeta {
 
 /**
  * The *What the states mean* slot -- identical for every rail stage, since
- * the four-state vocabulary is the rail's, not any one stage's
+ * the state vocabulary is the rail's, not any one stage's
  * (`laneRailState.ts::StageState`). Data, not JSX, so this module stays a
  * plain `.ts` the census test can import without a DOM.
+ *
+ * `unknown` is listed last and reads as an absence rather than a position:
+ * it is what the server declares when it found no evidence either way, and
+ * spelling out the difference from `pending` here is the whole point of
+ * having declared a fifth word instead of reusing the fourth.
  */
 export const STAGE_STATE_LEGEND: ReadonlyArray<{
   readonly state: LaneRailStageState;
@@ -38,6 +43,11 @@ export const STAGE_STATE_LEGEND: ReadonlyArray<{
   { state: "active", icon: "state:active", meaning: "running or awaiting you" },
   { state: "complete", icon: "state:complete", meaning: "this stage finished" },
   { state: "blocked", icon: "state:blocked", meaning: "a precondition failed" },
+  {
+    state: "unknown",
+    icon: "state:unknown",
+    meaning: "nothing recorded either way",
+  },
 ];
 
 /** The state glyph a node falls back to when its stage declares no icon. */
@@ -46,6 +56,7 @@ export const STATE_ICON: Record<LaneRailStageState, IconName> = {
   active: "state:active",
   complete: "state:complete",
   blocked: "state:blocked",
+  unknown: "state:unknown",
 };
 
 const LEARN: Record<string, StageMeta> = {

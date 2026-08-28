@@ -66,6 +66,13 @@ export function loopHeadline(
   if (settled) {
     return `${prefix}${noun} COMPLETE — nothing left to run`;
   }
+  // An unknown rail is not an idle one: idle says the process has not started,
+  // unknown says the server found nothing to say either way.
+  const unrecorded =
+    stages.length > 0 && stages.every((stage) => stage.state === "unknown");
+  if (unrecorded) {
+    return `${prefix}${noun} UNKNOWN — nothing recorded yet`;
+  }
   return `${prefix}${noun} IDLE — nothing running`;
 }
 

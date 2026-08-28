@@ -39,7 +39,12 @@ import { afterEach, beforeAll, describe, expect, it } from "vitest";
  * property of the contract, not an extra assumption on top of it.
  */
 
-type StageState = "pending" | "active" | "complete" | "blocked";
+type StageState =
+  | "pending"
+  | "active"
+  | "complete"
+  | "blocked"
+  | "unknown";
 type LaneKind = "sequence" | "checklist";
 type LaneCardinality = "singleton" | "aggregate";
 type Actor = "you" | "claude" | "system" | null;
@@ -357,6 +362,52 @@ describe("disclosure controls on interactive stages", () => {
 
     const completeNode = stageNodes(container)[0];
     expect(completeNode.querySelector("button[aria-expanded]")).toBeTruthy();
+  });
+});
+
+describe("an unknown stage claims nothing -- no position, no control", () => {
+  const unknownRail = (): LaneRailFixture => ({
+    ...sequenceRail(),
+    watermark: null,
+    stages: [
+      stage({
+        id: "source",
+        title: "Source",
+        state: "unknown",
+        fact: "nothing recorded either way",
+      }),
+      stage({ id: "pages", title: "Pages", state: "unknown", fact: "" }),
+    ],
+  });
+
+  it("shows the state word as text so it is never signalled by colour alone", () => {
+    const container = renderRail(unknownRail());
+
+    const node = stageNodes(container)[0];
+    expect(node.dataset.state).toBe("unknown");
+    expect(within(node).getByText("unknown", { exact: false })).toBeTruthy();
+  });
+
+  it("never takes aria-current -- that marker belongs to the declared watermark", () => {
+    const container = renderRail(unknownRail());
+
+    expect(currentStageCount(container)).toBe(0);
+  });
+
+  it("offers no disclosure, because there is nothing behind it to disclose", () => {
+    const container = renderRail(unknownRail());
+
+    // Scoped to the disclosure class: the `InfoPopover` triggers also carry
+    // `aria-expanded`, and explaining a stage is not the same affordance as
+    // opening one.
+    expect(container.querySelectorAll(".lane-stage-disclosure")).toHaveLength(
+      0,
+    );
+    // Non-vacuity: the same shell does render disclosures for a real position.
+    expect(
+      renderRail(sequenceRail()).querySelectorAll(".lane-stage-disclosure")
+        .length,
+    ).toBeGreaterThan(0);
   });
 });
 

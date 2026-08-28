@@ -147,4 +147,30 @@ describe("the headline narrates declared state, never focus", () => {
       "TEND · CHECKS COMPLETE — nothing left to run",
     );
   });
+
+  it("reads unknown, not idle, when the server recorded nothing either way", () => {
+    expect(loopHeadline("improve", "cycle", stages("unknown", "unknown"))).toBe(
+      "IMPROVE · CYCLE UNKNOWN — nothing recorded yet",
+    );
+    // Non-vacuity: the idle wording must remain reachable and distinct, or
+    // this assertion would pass on a strip that lost the distinction.
+    expect(loopHeadline("improve", "cycle", ALL_PENDING)).not.toBe(
+      loopHeadline("improve", "cycle", stages("unknown", "unknown")),
+    );
+  });
+});
+
+describe("an unknown stage is rendered honestly, never as pending", () => {
+  it("carries the state word as visible text so colour is never the only signal", () => {
+    const { container } = render(
+      <LoopStrip lane="improve" stages={stages("unknown", "unknown")} />,
+    );
+
+    const rendered = nodes(container);
+    expect(rendered.map((node) => node.dataset.state)).toEqual([
+      "unknown",
+      "unknown",
+    ]);
+    expect(rendered[0].textContent?.toLowerCase()).toContain("unknown");
+  });
 });

@@ -16,7 +16,18 @@
 // data this pure layer does not have; that assembly belongs to whichever
 // code calls these functions with real stage/check data.
 
-export type StageState = "pending" | "active" | "complete" | "blocked";
+// `unknown` is the server's fifth word (`core/process_model.py::StageState`)
+// and is deliberately not a position: an adapter that found no evidence says
+// it instead of claiming `pending` ("not reached yet"). The two derive*
+// functions below never *produce* it -- both are given a real position -- but
+// the union admits it so an assembled rail carrying one is representable, and
+// so the shell that renders it has to decide what an unknown row does.
+export type StageState =
+  | "pending"
+  | "active"
+  | "complete"
+  | "blocked"
+  | "unknown";
 
 export type LaneKind = "sequence" | "checklist";
 

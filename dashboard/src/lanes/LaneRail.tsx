@@ -156,7 +156,10 @@ function LaneStageBody({
     );
   }
 
-  if (stage.state === "pending") {
+  // `unknown` sits with `pending` rather than with the interactive states: a
+  // disclosure on a row the server knows nothing about opens onto nothing,
+  // which is exactly the affordance-that-lies this redesign is answering.
+  if (stage.state === "pending" || stage.state === "unknown") {
     return (
       <div class="lane-stage-body">
         <p class="muted">{stage.fact}</p>
