@@ -1,6 +1,6 @@
 {
   "name": "knotica",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "AI-maintained, compounding knowledge wiki (llm-wiki): a stateless MCP server plus per-topic self-improving agents over an Obsidian vault. The MCP client's LLM does all cognitive work (ingest/query/lint) guided by vault schemas.",
   "author": {
     "name": "Francisco Perez-Sorrosal",

@@ -1,3 +1,71 @@
+## v0.2.0 (2026-08-28)
+
+### BREAKING CHANGE
+
+- the dashboard's default landing changes — a bare URL
+and a fresh MCP-App mount open on Home; every explicit deep link still
+wins; unrecognized values degrade to Home.
+- the dashboard tab set changes again — Ingest/Ask/Sources
+tabs are replaced by the Learn, Answer and Fill lanes; legacy ?pane=
+values redirect.
+- the operator-tier flat MCP tools are removed; their
+behaviour is reachable as lane-dispatcher actions. Full mapping:
+
+### Feat
+
+- M5 — Home. The process-swimlanes redesign is complete
+- **dashboard**: Home — the cross-topic attention inbox is the front door
+- M4 — Learn, Answer and Fill are drawn; the handoff stage makes client-as-brain visible
+- **dashboard**: the last tool-shaped panes dissolve — the process lanes are the surface
+- **dashboard**: Learn, Answer and Fill drawn; the handoff stage makes client-as-brain visible
+- M3 — Improve and Tend are drawn; the tool-shaped dashboard dissolves
+- **dashboard**: the tool-shaped panes dissolve — Improve and Tend are the surface
+- **dashboard**: lanes wired into the app; drift joins Tend; the removal net is armed
+- **dashboard**: ImproveLane assembles the six stages; the armed-confirm affordance becomes one component
+- **dashboard**: the Tend checklist lane and all six Improve stage components
+- **dashboard**: the generic lane rail — pure state module and render component
+- **dashboard**: M3 entry gates — DOM test environment, characterization net, type-orphan gate
+- M2 — the read-side lane projections
+- **cli,docs**: the CLI rail and the M2 documentation pass
+- **status**: M2's read-side lane projections — attention view, lanes block, Fill session watch, lane deep-links
+- the process-swimlanes surface — six lanes declared once, projected onto every entry point
+- **cli,docs**: lane-grouped --help with examples first, and the docs speak the nested forms
+- **surface**: deprecation affordances, Fill's human gap transition, lane-grouped slash and CLI surfaces, and the collapsed description corpus
+- **mcp**: remove the operator flat tools — the surface is 21 registrations
+- **mcp**: the additive half of the lane surface — predicates, TS mirror, served declaration, six lane dispatchers
+- **core**: declare the process model once — six lanes, stages, LANE_MEMBERSHIP
+- **telemetry**: a tested summarizer and fixed thresholds for the baseline window
+- **verify**: resolve every published tool name against the registry
+- **verify**: gate the published surface against the code that publishes it
+- **telemetry**: every registered tool is measured, and the outcome is the real one
+- **swimlanes**: M0 steps 1-10 — test scaffolding, the two-phase primitive, gap lifecycle, telemetry sink
+- **loop**: make an unreachable baseline visible and escapable
+- **evals**: narrate a running eval to the terminal and the pane
+- **make**: targets for the whole runtime, and a from-scratch KB guide
+- **dashboard**: raise the deadline for LLM calls, add topic creation
+- run gap-fill discovery from Claude and the dashboard
+- show open gaps in the dashboard, not just suggestions
+- let clients read the gap queue, not just write to it
+
+### Fix
+
+- **telemetry**: two defects found reviewing the batch F interceptor
+- **adr**: give the tiered-lane draft the reciprocal its re-affirmation needs
+- **state**: give the four ADR drafts the timestamp the finalizer requires
+- **loop**: a conflicted gate merge aborts instead of stranding the vault
+- **evals**: a truncated judge sample no longer discards the eval run
+- **loop**: reopen the path back through the gate after a refusal
+- **evals**: a probe-set baseline no longer breaks the topic's next eval
+- **evals**: log the actionable fix, and correct the thread-count docstrings
+- **loop**: discard the eval clone when a loop cycle ends
+- cap mcp below 2.0, which removed mcp.server.fastmcp
+- make a forced eval possible, visible, and traceable
+- let the human freeze a golden set below the floor
+
+### Refactor
+
+- **dashboard**: the hub files split by lane — td-057 resolved, the ratchet exemption list is empty
+
 ## v0.1.0 (2026-08-06)
 
 ### Feat
