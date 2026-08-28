@@ -251,11 +251,11 @@
   white-space: nowrap;
 }
 
-.eyebrow {
+.eyebrow, .microlabel {
   margin: 0;
-  color: var(--accent);
-  font: .62rem var(--mono);
-  letter-spacing: .12em;
+  color: var(--muted);
+  font: 500 var(--fs-micro)/1.4 var(--mono);
+  letter-spacing: var(--tracking-micro);
   text-transform: uppercase;
 }
 .app-chrome .health-chip {
