@@ -182,30 +182,47 @@ these four rail positions.
 **Improve** is the topic-scoped iterative loop, and the one **cycle**-shaped lane: **Instrument →
 Observe → Gate → Heal → Promote → Prove**, with Prove looping back to Instrument.
 
+Every stage body below is built from one shared **stage-body grammar** — a small set of
+presentation primitives (`SectionCard`, `Stat`/`StatGrid`, `StateList`, `TermHint`) reused across
+all six stages rather than each stage inventing its own layout; see
+[Shared components](#shared-components). Every billed control (a call that spends model tokens or
+writes files) carries a visible `billed` chip next to its button, and either arms on the first
+click and bills on an explicit second confirm (`ArmedButton`), or previews on the first click and
+bills on an explicit second confirm (the server-nonce two-phase flow) — never a single click.
+
 **Six stages, in order:**
 
-1. **Instrument** — build the golden set. Two tables: **Loop corpora** (`trainset` / `held_out` /
-   `seal` — read-only expand) and **Golden pipeline** (`candidates` / `reviewed` — editable expand).
-   A Bootstrap → Review → Freeze breadcrumb lights up each step once its precondition is met.
-   **Bootstrap** synthesizes golden candidates from entity pages; **Save reviewed** writes changes;
-   **Freeze** (confirms before running) writes the sealed golden set and manifest. A contamination
-   banner surfaces train∩held-out / train∩reviewed / train∩candidates overlap counts whenever
-   nonzero.
-2. **Observe** — baseline and eval cadence. Set a cold-start baseline (score 0) or freeze at the
-   current score. Adjust defend policy (`latest` tracks reality; `best` ratchets a high-water
-   mark). Configure eval cadence (min interval, window, threads). **Run eval now** is a
-   two-phase billed action: first click previews cost; second click executes (**Cancel** discards).
-3. **Gate** — review pending `loop/c/*` candidate branches. Lists pending candidates with a diff
-   link per row; **Gate next candidate now** runs the full LLM eval. Requires a frozen baseline and
-   a pending candidate.
-4. **Heal** — live arena variant race. The dashboard renders the active stage/race in real time when
-   one is running. **Open Arena** enables once a race is live, racing, or healed.
-5. **Promote** — move a merged compile candidate to production. Shows the branch scoreboard
-   (open compile candidates, compile history, loop candidates, observation history) and a **Re-ask
-   in Answer** shortcut once something has merged.
+1. **Instrument** — build the golden set. Three cards: **PIPELINE** (candidates / reviewed /
+   held-out counts, a seal chip, and the **Bootstrap** / **Freeze golden** controls), **TRAINSET**
+   (the trainset count and **Bootstrap trainset**), and **FILES & OVERLAPS** (train∩held-out /
+   train∩reviewed / train∩candidates overlap counts, behind a disclosure). **Bootstrap**,
+   **Bootstrap trainset**, and **Freeze golden** are billed, each behind a `billed` chip and a
+   two-click armed→confirm control. **Freeze golden** refuses a reviewed set that overlaps the
+   trainset.
+2. **Observe** — baseline and eval cadence. Three cards: **MEASUREMENT** (latest generation,
+   scalar, and the frozen baseline), **EVAL RUN** (cadence settings and the billed eval trigger),
+   and **SCALAR TREND** (the chart, behind a disclosure). **Run eval now (billed)** is a two-phase
+   billed action behind a `billed` chip: the first click only quotes worker, judge, and thread
+   count; the second, explicit confirm executes (**Cancel** discards, nothing bills).
+3. **Gate** — review pending `loop/c/*` candidate branches. One **PENDING CANDIDATES** card lists
+   them as a state list (branch name and a right-aligned sha), each pending row carrying a
+   **Show query.md diff** toggle; **Gate next candidate now** is a billed, two-phase action behind
+   a `billed` chip. Requires a frozen baseline and a pending candidate.
+4. **Heal** — live arena variant race. Two cards: **ARENA** (the race's stage word, variant count,
+   recent-race count, and the live variant standings as a state list) and **COMPILE** (the billed
+   compile trigger). **Compile now** sits behind a `billed` chip and a two-click armed→confirm
+   control, since a fresh compile has no free preview leg.
+5. **Promote** — move a merged compile candidate to production. One **BRANCH UNDER REVIEW** card
+   shows the branch's identity (name, sha, status), its score / delta / baseline stats, the
+   beats-or-misses-baseline verdict, and a prompt diff. **Preview delete** sits left of **Preview
+   promote** — the destructive control is deliberately never the rightmost, closest-to-thumb
+   target — and each previews before a second, explicit apply.
 6. **Prove** — compile and validate the new prompt against a real question, closing the loop back
-   to Instrument. Shows which optimizer ran (MIPRO or bootstrap, with a fallback-reason tooltip
-   when MIPRO was unavailable) and a prompt diff against the live program.
+   to Instrument. One **COMPILED PROGRAM** card shows the compiled version, scalar, and a prompt
+   diff against the live program; one **PROBE** card lets you ask the compiled program directly —
+   **Probe it** carries a `costs tokens` chip and stays a single click, since a probe is a read
+   with nothing to confirm; a **BEFORE / AFTER** card compares a pinned answer against the latest
+   one once you have asked.
 
 A runner-liveness chip shows "runner: watching · pid N" or "runner: off". A chart plots the gate
 scalar over generations.
@@ -323,6 +340,7 @@ Embedded inside other lanes, not top-level:
 | Icon set (`icons.tsx`) | Everywhere | 26 inline stroke-SVG glyphs (lane marks, stage-state marks, six Improve stage marks, plus utility icons) — no icon font, no external fetch, always `aria-hidden` and paired with visible or `sr-only` text. |
 | InfoPopover / CopyBlock / EmptyState | Chrome, Home, every railed lane's `ⓘ` explanations | The non-modal `ⓘ` overlay ([Chrome](#chrome)), a mono code block with a copy button, and the shared icon/title/sentence/one-action template used for empty and zero states. |
 | LoopStrip | Every railed lane | The state-icon strip above the rail — see [The six lanes](#the-six-lanes). Draws its lane/stage copy from `lanes/laneMeta.ts` and `lanes/stageMeta.ts`. |
+| Stage-body grammar (`SectionCard`, `Stat` / `StatGrid`, `StateList`, `TermHint`) | Every Improve stage; Answer's React card; Fill's Ingest/Gate stage | The shared layout primitives every stage interior is built from: a titled card with header/footer slots, a label/value stat grid, a list of state-tinted rows, and a click-to-open term explainer that pairs with `InfoPopover`. |
 | Scoreboard, prompt diff, promote/delete preview (`ScoreboardPanel`, `PromptDiff`, `PromotePreview`, `DeletePreview`) | Improve lane (Promote stage mainly; `PromptDiff` also in Gate and Prove) | Per-topic baseline summary, unified prompt diffs, and preview-before-apply confirmation for promoting or deleting a candidate branch. |
 | Note-promote dialog (`NotePromoteDialog`) | Tend lane (Drift stage) | Offers **Training example** always and **Knowledge gap** for dispute/gap/question notes, from `DriftStage`. |
 
