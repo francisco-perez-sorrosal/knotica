@@ -8,7 +8,11 @@ import type {
   MetricsWindow,
   WikiStatus,
 } from "../../types";
-import { LoopStrip } from "../LoopStrip";
+import { Icon } from "../../icons";
+import { InfoPopover } from "../../InfoPopover";
+import { LoopStrip, StageStatesLegend } from "../LoopStrip";
+import { useStageFocus } from "../stageFocus";
+import { STATE_ICON, stageMeta } from "../stageMeta";
 import { GateStage } from "./GateStage";
 import { HealStage } from "./HealStage";
 import { InstrumentStage } from "./InstrumentStage";
@@ -80,10 +84,9 @@ const STAGE_SUMMARY: Record<StageId, string> = {
   prove: "Answers a question against the compiled program.",
 };
 
-function stageGlyph(state: LaneRailStageState, position: number): string {
-  if (state === "complete") return "✓";
-  if (state === "blocked") return "!";
-  return String(position);
+/** The DOM id a loop-strip node scrolls to when it takes focus (§7.2). */
+function rowDomId(id: string): string {
+  return `improve-stage-${id}`;
 }
 
 function stagePrecondition(
@@ -116,24 +119,47 @@ export function ImproveLane({
   const declared =
     status?.topics.find((row) => row.topic === topic)?.lanes?.improve ?? [];
   const byId = new Map(declared.map((stage) => [stage.id, stage] as const));
+  const stages = STAGE_ORDER.map((id) => ({
+    id,
+    title: STAGE_TITLE[id],
+    state: byId.get(id)?.state ?? "pending",
+  }));
+
+  // Focus is per topic+vault: switching either is a different process, so the
+  // stage the user had open no longer means anything (§7.2).
+  const { focusedId, focus, toggleFocus } = useStageFocus(
+    `${vault}/${topic}`,
+    stages,
+  );
+
+  function focusFromStrip(stageId: string): void {
+    focus(stageId);
+    // Optional-call rather than a ref per row: `scrollIntoView` is absent in
+    // jsdom, and the row is already in the DOM when the node is clicked.
+    document
+      .getElementById(rowDomId(stageId))
+      ?.scrollIntoView?.({ block: "nearest" });
+  }
 
   return (
     <main class="pane-main improve">
       <LoopStrip
         lane="improve"
-        stages={STAGE_ORDER.map((id) => ({
-          id,
-          title: STAGE_TITLE[id],
-          state: byId.get(id)?.state ?? "pending",
-        }))}
+        stages={stages}
+        focusedId={focusedId}
+        onFocus={focusFromStrip}
       />
       <ol class="lane-rail" aria-label="improve stages">
         {STAGE_ORDER.map((id, index) => (
           <ImproveStageRow
             key={id}
             id={id}
-            position={index + 1}
             declared={byId.get(id) ?? null}
+            focused={focusedId === id}
+            /* The "start here" cue belongs to the first row only, and only
+               while nothing at all is open (§7.2). */
+            startHere={focusedId === null && index === 0}
+            onToggleFocus={() => toggleFocus(id)}
             client={client}
             topic={topic}
             vault={vault}
@@ -150,8 +176,10 @@ export function ImproveLane({
 
 function ImproveStageRow({
   id,
-  position,
   declared,
+  focused,
+  startHere,
+  onToggleFocus,
   client,
   topic,
   vault,
@@ -161,8 +189,10 @@ function ImproveStageRow({
   onStatusRefresh,
 }: {
   id: StageId;
-  position: number;
   declared: LaneRailStageStatus | null;
+  focused: boolean;
+  startHere: boolean;
+  onToggleFocus: () => void;
   client: ToolClient | null;
   topic: string;
   vault: string;
@@ -172,34 +202,78 @@ function ImproveStageRow({
   onStatusRefresh?: () => void | Promise<void>;
 }): JSX.Element {
   const state: LaneRailStageState = declared?.state ?? "pending";
-  const isCurrent = state === "active" || state === "blocked";
+  // The server's axis. `aria-current="step"` is bound to this and nothing
+  // else — focus must never move the process marker (§5.3).
+  const isDeclaredCurrent = state === "active" || state === "blocked";
+  // The §5.3 render matrix: a declared-current stage is always open; a
+  // pending/complete stage opens only when the user focuses it.
+  const open = isDeclaredCurrent || focused;
+  const meta = stageMeta("improve", id);
 
   return (
     <li
+      id={rowDomId(id)}
       class="lane-stage"
       data-state={state}
-      aria-current={isCurrent ? "step" : undefined}
+      data-focus={focused ? "true" : "false"}
+      aria-current={isDeclaredCurrent ? "step" : undefined}
     >
       <span class="lane-stage-index" aria-hidden="true">
-        {stageGlyph(state, position)}
+        <Icon name={meta?.icon ?? STATE_ICON[state]} size={16} />
       </span>
       <div class="lane-stage-content">
         <div class="lane-stage-heading">
           <strong>{STAGE_TITLE[id]}</strong>
           <span class="lane-state-label muted">{state}</span>
+          {startHere ? <span class="lane-stage-cue">Start here</span> : null}
+          {meta ? (
+            <InfoPopover
+              id={`stage:improve:${id}`}
+              title={STAGE_TITLE[id]}
+              ariaLabel={`About ${STAGE_TITLE[id]}`}
+              whatThisIs={meta.whatThisIs}
+              whatTheStatesMean={<StageStatesLegend />}
+              whatToDoNext={meta.whatToDoNext}
+            />
+          ) : null}
+          {isDeclaredCurrent ? null : (
+            <button
+              type="button"
+              class="lane-stage-disclosure"
+              aria-expanded={focused}
+              onClick={onToggleFocus}
+            >
+              <span class="lane-disclosure-icon" aria-hidden="true">
+                <Icon name="chevron-right" size={16} />
+              </span>
+              <span class="sr-only">
+                {focused
+                  ? `Close ${STAGE_TITLE[id]}`
+                  : `Open ${STAGE_TITLE[id]}`}
+              </span>
+            </button>
+          )}
         </div>
         <div class="lane-stage-body">
-          {isCurrent ? (
-            <ImproveStageBody
-              id={id}
-              client={client}
-              topic={topic}
-              vault={vault}
-              status={status}
-              metrics={metrics}
-              obsidianCtx={obsidianCtx}
-              onStatusRefresh={onStatusRefresh}
-            />
+          {open ? (
+            <>
+              {state === "blocked" && declared?.reason ? (
+                <p class="lane-stage-remedy">{declared.reason}</p>
+              ) : null}
+              {meta ? (
+                <p class="lane-stage-explainer muted">{meta.whatThisIs}</p>
+              ) : null}
+              <ImproveStageBody
+                id={id}
+                client={client}
+                topic={topic}
+                vault={vault}
+                status={status}
+                metrics={metrics}
+                obsidianCtx={obsidianCtx}
+                onStatusRefresh={onStatusRefresh}
+              />
+            </>
           ) : (
             <p class="muted">
               {stagePrecondition(state, id, declared?.reason ?? null)}

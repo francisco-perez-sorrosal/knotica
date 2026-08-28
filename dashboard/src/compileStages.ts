@@ -25,10 +25,19 @@ export function flywheelLabel(input: {
   return "Curating";
 }
 
+/**
+ * `Curating` and `Ready` are not failures (design §7.3, the F4 fix). A fresh
+ * topic that has not been compiled yet is the honest absence of a comparison,
+ * not a red alarm — it reads `neutral`. `Ready` is actionable rather than
+ * worrying, so it reads `info`. Only a genuinely in-flight compile keeps
+ * `warn`; no label maps to `bad` any more, which is why `bad` has left the
+ * return type rather than lingering as an unreachable member.
+ */
 export function flywheelTone(
   label: ReturnType<typeof flywheelLabel>,
-): "ok" | "warn" | "bad" {
+): "ok" | "warn" | "info" | "neutral" {
   if (label === "Compiled") return "ok";
-  if (label === "Compiling" || label === "Ready") return "warn";
-  return "bad";
+  if (label === "Compiling") return "warn";
+  if (label === "Ready") return "info";
+  return "neutral";
 }

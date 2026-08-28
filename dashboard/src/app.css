@@ -379,7 +379,8 @@ h2, p { margin-top: 0; }
 }
 .gate-pass { border-left-color: var(--good); }
 .gate-fail { border-left-color: var(--bad); }
-.gate-unknown { border-left-color: var(--warn); }
+/* `unknown` is the honest absence of a comparison, not a warning (design §7.3). */
+.gate-unknown { border-left-color: var(--neutral); }
 
 .panel {
   margin-top: 1.75rem;
@@ -1066,6 +1067,21 @@ code { font-family: var(--mono); font-size: .9em; }
   color: var(--bad);
   border-color: color-mix(in srgb, var(--bad) 55%, var(--line));
   background: color-mix(in srgb, var(--bad) 12%, var(--surface));
+}
+/* `info` = actionable, `neutral` = the honest absence of a comparison —
+   the two tones `flywheelTone` gained so `Ready` stops reading as a warning
+   and `Curating` stops reading as a failure (design §7.3). */
+.health-chip.info,
+.health-inline.info {
+  color: var(--accent);
+  border-color: color-mix(in srgb, var(--accent) 55%, var(--line));
+  background: color-mix(in srgb, var(--accent) 12%, var(--surface));
+}
+.health-chip.neutral,
+.health-inline.neutral {
+  color: var(--neutral);
+  border-color: var(--line-strong);
+  background: var(--surface-raised);
 }
 .health-inline {
   border: 1px solid transparent;
@@ -3061,6 +3077,18 @@ button.danger:hover:not(:disabled) {
 .lane-stage-body { margin: .35rem 0 0; font-size: .8rem; line-height: 1.45; }
 .lane-stage-fact { margin: 0 0 .35rem; }
 .lane-stage-remedy { margin: 0; }
+/* Shown on the first row only while nothing at all is open, so an idle rail
+   still names its entry point rather than reading as six dead boxes (§7.2). */
+.lane-stage-cue {
+  padding: .1rem .4rem;
+  border: var(--border) solid var(--accent);
+  border-radius: var(--radius-pill);
+  font: var(--fs-micro) var(--mono);
+  letter-spacing: var(--tracking-label);
+  text-transform: uppercase;
+  color: var(--accent);
+}
+.lane-stage-explainer { margin: 0 0 var(--space-2); }
 .lane-stage-disclosure {
   appearance: none;
   display: inline-flex;
