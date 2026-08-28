@@ -59,7 +59,7 @@ The dashboard is structured around six process lanes, each declared once in `src
 
 **`home`** is the cross-topic attention inbox: a flat, rail-less lane listing what needs your attention across all topics right now, without choosing a single topic first. The other five lanes (`learn`, `answer`, `fill`, `improve`, `tend`) are each a complete workflow from trigger to completion, arranged as an ordered rail of stages.
 
-Each lane stages its work where you progress through numbered stages; a stage is complete when its work finishes (✓), blocked when it requires human input or external action, or pending when waiting for a prior stage. The rail accepts clicks to expand a stage and trigger its actions. A **Handoff Stage** pauses the lane and hands the work back to your client's own LLM via a slash command (`/knotica:fill`, etc.) — when that work completes, you resume the lane.
+Each lane stages its work where you progress through numbered stages; a stage is complete when its work finishes (✓), active when it is the position the process has reached, blocked when it requires human input or external action, or pending when waiting for a prior stage. A fifth word, unknown, means the server found no evidence either way — it is the honest absence of a position, not a failure, and it is rendered neutral rather than as a warning. The rail accepts clicks to expand a stage and trigger its actions. A **Handoff Stage** pauses the lane and hands the work back to your client's own LLM via a slash command (`/knotica:fill`, etc.) — when that work completes, you resume the lane.
 
 ### Lane reference
 

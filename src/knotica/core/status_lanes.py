@@ -6,8 +6,9 @@ module's one concern is translating already-computed per-topic fields into a
 lane's position payload. None of the adapters below introduces a second
 notion of progress a status read has already produced elsewhere -- Learn's
 watermark is the ingest journal's own position, Fill's is the suggestion
-queue :mod:`knotica.core.status` already summarizes, Tend's checks reuse
-``lint_violations``/notes-drift.
+queue :mod:`knotica.core.status` already summarizes, Improve's is that same
+read's dataset counts, newest metrics record, loop state and compile history,
+and Tend's checks reuse ``lint_violations``/notes-drift.
 """
 
 from __future__ import annotations
@@ -16,9 +17,10 @@ from pathlib import Path
 from typing import Any
 
 from knotica.core import process_model
+from knotica.core.compile_state import read_compile_state
 from knotica.core.gapfill import suggestions_path
 from knotica.core.ingest_activity import read_ingest_activity
-from knotica.core.loop_state import LoopStage, read_loop_state
+from knotica.core.loop_state import LoopStage, LoopState, read_loop_state
 from knotica.core.records import RecordParseError, SuggestionRecord
 from knotica.store import VaultStore
 
@@ -29,11 +31,11 @@ __all__ = ["is_refused", "lanes_block", "read_suggestion_records"]
 #: rather than restated here.
 _LANE_RAIL_ORDER: tuple[str, ...] = tuple(lane for lane in process_model.LANES if lane != "home")
 
-_IMPROVE_OBSERVE_INDEX = next(
-    index
-    for index, stage in enumerate(process_model.LANE_STAGES["improve"])
-    if stage.id == "observe"
-)
+#: Improve's rail positions by stage id, so the evidence ladder below names
+#: stages rather than integers a reorder would silently invalidate.
+_IMPROVE_INDEX: dict[str, int] = {
+    stage.id: index for index, stage in enumerate(process_model.LANE_STAGES["improve"])
+}
 
 _FILL_STAGES = process_model.LANE_STAGES["fill"]
 _FILL_APPROVE_INDEX = next(i for i, stage in enumerate(_FILL_STAGES) if stage.id == "approve")
@@ -49,20 +51,33 @@ def lanes_block(
     *,
     lint_violations: int,
     notes_drifted: int,
+    datasets_present: bool,
+    eval_recorded: bool,
+    compile_ready: bool,
 ) -> dict[str, tuple[dict[str, Any], ...]]:
-    """Every non-Home lane's rail for ``topic``, server-derived and total."""
+    """Every non-Home lane's rail for ``topic``, server-derived and total.
+
+    The three Improve evidence flags are passed in rather than re-read: the
+    same status assembly already computed the trainset/golden counts, the
+    newest metrics record and the compile-readiness verdict, and this module's
+    whole premise is that a lane's rail is a projection of numbers a status
+    read already produced, never a second computation of them.
+    """
     fill_watermark, fill_reason = _fill_watermark(store, topic)
-    sequence_positions: dict[str, tuple[int | None, str | None]] = {
-        "learn": (_learn_watermark(vault_path, topic), None),
+    payloads: dict[str, dict[str, Any]] = {
+        "learn": {"watermark": _learn_watermark(vault_path, topic), "blocked_reason": None},
         # Answer has no persisted state at all: every stage is pending.
-        "answer": (None, None),
-        "improve": (_improve_watermark(store, topic), None),
-        "fill": (fill_watermark, fill_reason),
+        "answer": {"watermark": None, "blocked_reason": None},
+        "improve": _improve_payload(
+            store,
+            topic,
+            datasets_present=datasets_present,
+            eval_recorded=eval_recorded,
+            compile_ready=compile_ready,
+        ),
+        "fill": {"watermark": fill_watermark, "blocked_reason": fill_reason},
     }
-    lanes = {
-        lane: process_model.derive_stages(lane, {"watermark": watermark, "blocked_reason": reason})
-        for lane, (watermark, reason) in sequence_positions.items()
-    }
+    lanes = {lane: process_model.derive_stages(lane, payload) for lane, payload in payloads.items()}
     lanes["tend"] = _tend_stages(lint_violations=lint_violations, notes_drifted=notes_drifted)
     return {lane: lanes[lane] for lane in _LANE_RAIL_ORDER}
 
@@ -84,24 +99,102 @@ def _learn_watermark(vault_path: Path, topic: str) -> int | None:
     return None
 
 
-def _improve_watermark(store: VaultStore, topic: str) -> int | None:
-    """Improve's rail position, read off the persisted loop state.
+def _improve_payload(
+    store: VaultStore,
+    topic: str,
+    *,
+    datasets_present: bool,
+    eval_recorded: bool,
+    compile_ready: bool,
+) -> dict[str, Any]:
+    """Improve's position payload -- a watermark, or an honest ``unknown``.
 
-    Deliberately narrow: ``LoopStage.evaluating`` is the only value that
-    unambiguously names a live rail position (the eval cycle itself, at
-    ``observe``). Every other value reports idle rather than guessing --
-    the idle/resting outcomes (``idle``/``passed``/``failed``), the unused
-    ``promoting``, and the gate cycle's own transient sub-stages
-    (``racing``/``merging``/``reverting``, each held for one atomic git span
-    a poll essentially never observes) name no unambiguous *blocked* or
-    *terminal* rail position from ``loop.stage``/``candidate_branch`` alone.
-    Full reconciliation with the paired test suite's own testability gap is
-    recorded in ``LEARNINGS.md``.
+    No evidence at all is **not** the idle reading. An idle rail asserts that
+    every stage is genuinely not yet reached; here the status read simply
+    found nothing either way, so it declares ``unknown`` and claims nothing.
+    """
+    watermark = _improve_watermark(
+        store,
+        topic,
+        datasets_present=datasets_present,
+        eval_recorded=eval_recorded,
+        compile_ready=compile_ready,
+    )
+    return {"watermark": watermark, "blocked_reason": None, "unknown": watermark is None}
+
+
+def _improve_watermark(
+    store: VaultStore,
+    topic: str,
+    *,
+    datasets_present: bool,
+    eval_recorded: bool,
+    compile_ready: bool,
+) -> int | None:
+    """Improve's rail position, read off every signal the status read produced.
+
+    An ordered evidence ladder, strongest-first -- the same most-urgent-first
+    shape :func:`_fill_watermark` uses, because a rail position is a decision
+    between competing signals, not a maximum over independent ones:
+
+    * a **live evaluating loop** is the one signal that names where the process
+      literally is right now, so it outranks every standing fact;
+    * a **compiled candidate awaiting merge** names ``promote``;
+    * a **candidate branch the runner still owes a cycle** names ``gate``,
+      by the same ``cursors``-vs-tip test ``status._pending_loop_candidates``
+      uses;
+    * a **recorded scalar plus a cleared compile floor** makes ``heal``
+      actionable -- both, never the floor alone (compiling before anything has
+      been measured is exactly what the loop exists to discourage);
+    * a **recorded scalar** completes ``observe``;
+    * **datasets** complete ``instrument``.
+
+    Returns ``None`` when no rung matches at all, which the caller renders as
+    ``unknown`` rather than idle. Under the rail contract a watermark is
+    monotonic, so naming a later position necessarily completes the earlier
+    ones -- that entailment is the sequence model this lane is declared under,
+    not an extra claim made here.
     """
     state = read_loop_state(store, topic)
     if state is not None and state.stage == LoopStage.evaluating:
-        return _IMPROVE_OBSERVE_INDEX
+        return _IMPROVE_INDEX["observe"]
+    if _has_candidate_awaiting_promotion(store, topic):
+        return _IMPROVE_INDEX["promote"]
+    if _has_pending_candidate(state):
+        return _IMPROVE_INDEX["gate"]
+    if eval_recorded and compile_ready:
+        return _IMPROVE_INDEX["heal"]
+    if eval_recorded:
+        return _IMPROVE_INDEX["gate"]
+    if datasets_present:
+        return _IMPROVE_INDEX["observe"]
     return None
+
+
+def _has_pending_candidate(state: LoopState | None) -> bool:
+    """Whether a candidate branch is still owed a gate cycle.
+
+    The cursor test is ``status._pending_loop_candidates``'s own -- a branch
+    whose recorded cursor has not caught up to its tip -- applied to the one
+    candidate the loop state names, so the two surfaces cannot disagree about
+    what "pending" means.
+    """
+    if state is None or state.candidate_branch is None:
+        return False
+    return state.cursors.get(state.candidate_branch) != state.candidate_sha
+
+
+def _has_candidate_awaiting_promotion(store: VaultStore, topic: str) -> bool:
+    """Whether a published compile branch is still waiting to be merged.
+
+    Read off ``compile-state.json``'s own history, which records exactly this:
+    an entry is written when a compile branch is published and flipped to
+    ``promoted`` when it merges. A deleted branch is nothing to promote.
+    """
+    compile_state = read_compile_state(store, topic)
+    if compile_state is None:
+        return False
+    return any(not entry.promoted and not entry.branch_deleted for entry in compile_state.history)
 
 
 def _fill_watermark(store: VaultStore, topic: str) -> tuple[int | None, str | None]:

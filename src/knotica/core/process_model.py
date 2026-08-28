@@ -452,10 +452,14 @@ VERB_CLASSIFICATION: Mapping[str, VerbClassification] = MappingProxyType(
 # plus one optional reason is enough to render a whole rail.
 # ---------------------------------------------------------------------------
 
-#: The rendered state of one stage on a rail. Four values suffice: a lane's
-#: terminal condition (Fill's ``quarantined``, Improve's ``merged``) is a
-#: lane-level outcome, never a fifth stage state.
-StageState = Literal["pending", "active", "complete", "blocked"]
+#: The rendered state of one stage on a rail. Four of the five are *positions*
+#: -- a lane's terminal condition (Fill's ``quarantined``, Improve's
+#: ``merged``) is a lane-level outcome, never a stage state of its own.
+#: ``unknown`` is the fifth and is deliberately **not** a position: it is the
+#: honest absence of one, for a lane whose adapter found no evidence either
+#: way. ``pending`` claims "not reached yet"; ``unknown`` claims nothing, and
+#: collapsing the two would make a rail assert a process history it never read.
+StageState = Literal["pending", "active", "complete", "blocked", "unknown"]
 
 #: How a lane's rail advances. A ``sequence`` lane has one monotonic
 #: watermark; the ``checklist`` lane (``tend``) is independently-evaluable
@@ -505,9 +509,21 @@ def _sequence_stage(
     return {"id": stage.id, "state": "active", "reason": None}
 
 
+def _unknown_stages(stages: tuple[Stage, ...]) -> tuple[dict[str, Any], ...]:
+    """R0: a rail whose adapter found no evidence declares no position at all.
+
+    Distinct from an idle rail (``watermark is None``), which asserts that
+    every stage is genuinely *not yet reached*. An adapter that cannot see
+    whether a stage ran says ``unknown`` instead of guessing ``pending``.
+    """
+    return tuple({"id": stage.id, "state": "unknown", "reason": None} for stage in stages)
+
+
 def _derive_sequence_stages(
     stages: tuple[Stage, ...], payload: Mapping[str, Any]
 ) -> tuple[dict[str, Any], ...]:
+    if payload.get("unknown"):
+        return _unknown_stages(stages)
     watermark = payload.get("watermark")
     blocked_reason = payload.get("blocked_reason")
     # An idle lane (`watermark is None`) is a watermark before every stage:
@@ -548,9 +564,13 @@ def derive_stages(lane: str, payload: Mapping[str, Any]) -> tuple[dict[str, Any]
     Args:
         lane: One of :data:`LANES`.
         payload: For a ``sequence`` lane, ``{"watermark": int | None,
-            "blocked_reason": str | None}``. For the ``checklist`` lane
-            (``tend``), ``{"checks": {stage_id: state}, "reasons":
-            {stage_id: reason}}``.
+            "blocked_reason": str | None}``, plus an optional
+            ``"unknown": bool``. ``unknown`` outranks the watermark and
+            declares every stage ``unknown`` -- for an adapter that found no
+            evidence at all, where the idle reading (``watermark is None`` ->
+            every stage ``pending``) would assert a process history nothing
+            was read from. For the ``checklist`` lane (``tend``),
+            ``{"checks": {stage_id: state}, "reasons": {stage_id: reason}}``.
 
     Returns:
         One dict per declared stage, in rail order, each shaped

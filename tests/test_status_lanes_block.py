@@ -32,18 +32,19 @@ in isolation, not tangled with its neighbours):
   ``gate_outcome`` verdict is ``refused`` (the existing
   ``refused_awaiting_rework`` signal) -> blocked at ``gate``; one ``ingested``
   suggestion with a ``merged`` verdict -> terminal (every stage complete).
-* **Improve** -- watermark derived from ``loop.stage``/``candidate_branch``
-  (the existing ``_gate_and_loop`` output): no persisted loop state -> idle;
-  ``LoopStage.evaluating`` -> active at ``observe``. **Deliberately not
-  covered**: a ``blocked``/``terminal`` case for Improve. Unlike Fill's
-  ``refused_awaiting_rework``/merged-verdict signals (already named fields on
-  the existing payload), no single ``LoopStage`` value unambiguously names a
-  *blocked* position on the six-stage rail, and Improve's rail
-  (instrument/observe/gate/heal/promote/prove) reads as an ongoing
-  measurement cycle rather than a one-shot pipeline that terminates the way
-  Fill/Learn do -- asserting one would pin a guess neither the plan nor any
-  existing field grounds. Recorded in ``LEARNINGS.md`` as a gap for
-  reconciliation against the landed adapter, not silently dropped.
+* **Improve** -- watermark derived from every signal the same status read
+  already produced, as an ordered evidence ladder (strongest first): a live
+  ``LoopStage.evaluating`` cycle -> active at ``observe``; a compile branch
+  awaiting merge -> active at ``promote``; a candidate branch the runner
+  still owes a cycle -> active at ``gate``; a recorded scalar plus a cleared
+  compile floor -> active at ``heal``; a recorded scalar alone -> ``observe``
+  complete; datasets alone -> ``instrument`` complete. **No evidence at all
+  is ``unknown``, not idle**: the idle reading asserts every stage is
+  genuinely not yet reached, which a read that saw nothing cannot claim.
+  **Deliberately not covered**: a ``blocked`` case for Improve. Unlike Fill's
+  ``refused_awaiting_rework``/merged-verdict signals, no single field
+  unambiguously names a *blocked* position on the six-stage rail, so
+  asserting one would pin a guess nothing grounds.
 * **Tend** (a checklist lane, independently-evaluated checks, no watermark)
   -- covered at the invariant level rather than by exact equality against a
   guessed ``{checks, reasons}`` dict: every declared check id is present in
@@ -73,14 +74,17 @@ from pathlib import Path
 from typing import Any
 
 from knotica.core import process_model
+from knotica.core.compile_state import CompileHistoryEntry, empty_compile_state, write_compile_state
 from knotica.core.gapfill import suggestions_path
 from knotica.core.ingest_activity import append_ingest_event
 from knotica.core.loop_state import LoopStage, LoopState, write_loop_state
+from knotica.core.metrics import append_metrics_record, build_compile_metrics_record
 from knotica.core.process_model import derive_stages
 from knotica.core.records import SuggestionRecord
 from knotica.core.status import gather_wiki_status
 from knotica.core.transaction import VaultTransaction
 from knotica.store import LocalFSStore
+from support.trainset import populate_query_trainset
 
 TOPIC = "agentic-systems"
 MEMORY_PAGE_RELPATH = f"{TOPIC}/agent-memory.md"
@@ -94,6 +98,13 @@ FILL_TERMINAL_WATERMARK = len(FILL_IDS)
 
 IMPROVE_IDS = [stage.id for stage in process_model.LANE_STAGES["improve"]]
 OBSERVE_INDEX = IMPROVE_IDS.index("observe")
+IMPROVE_GATE_INDEX = IMPROVE_IDS.index("gate")
+HEAL_INDEX = IMPROVE_IDS.index("heal")
+PROMOTE_INDEX = IMPROVE_IDS.index("promote")
+
+CANDIDATE_BRANCH = "loop/c/agentic-systems/candidate-a1b2c3d4"
+CANDIDATE_SHA = "a1b2c3d4" * 5
+COMPILE_BRANCH = "loop/compile/agentic-systems/e5f6a7b8"
 
 TEND_IDS = [stage.id for stage in process_model.LANE_STAGES["tend"]]
 
@@ -170,6 +181,50 @@ def _merged_gate_outcome() -> dict[str, object]:
         "reason": None,
         "regressed_questions": None,
     }
+
+
+def _seed_eval_scalar(store: LocalFSStore, vault: Path) -> None:
+    """Record one real eval scalar through the production append path."""
+    append_metrics_record(
+        store,
+        vault,
+        TOPIC,
+        build_compile_metrics_record(TOPIC, 0.61, merge_sha="a" * 40, generation=1, n_examples=20),
+        operation="compile",
+        title="seed one eval scalar for test",
+    )
+
+
+def _seed_candidate_branch(store: LocalFSStore, vault: Path) -> None:
+    """Name a candidate branch whose cursor has not caught up to its tip."""
+    write_loop_state(
+        store,
+        vault,
+        LoopState(
+            topic=TOPIC,
+            candidate_branch=CANDIDATE_BRANCH,
+            candidate_sha=CANDIDATE_SHA,
+        ),
+    )
+
+
+def _seed_compile_branch_awaiting_merge(store: LocalFSStore, vault: Path) -> None:
+    """Publish a compile branch into compile history without promoting it."""
+    state = empty_compile_state(TOPIC)
+    entry = CompileHistoryEntry(
+        history_id="e5f6a7b8",
+        branch=COMPILE_BRANCH,
+        head_sha="b" * 40,
+        base_sha="c" * 40,
+        scalar_before=0.61,
+        scalar_after=0.68,
+    )
+    write_compile_state(
+        store,
+        vault,
+        state.model_copy(update={"history": [entry]}),
+        title="seed an unpromoted compile branch for test",
+    )
 
 
 def _rail_index_for_journal_stage(lane: str, journal_stage: str) -> int:
@@ -260,19 +315,88 @@ def test_learn_lane_reflects_the_real_ingest_journal_position(template_vault: Pa
 
 
 # ---------------------------------------------------------------------------
-# Improve -- watermark read off the existing `_gate_and_loop` loop dict
+# Improve -- an ordered evidence ladder over signals the same status read
+# already produced; no evidence at all is `unknown`, never idle
 # ---------------------------------------------------------------------------
 
 
-def test_improve_lane_is_idle_when_no_loop_state_is_recorded(template_vault: Path) -> None:
+def test_improve_lane_is_unknown_when_the_status_read_finds_no_evidence(
+    template_vault: Path,
+) -> None:
     store = LocalFSStore(template_vault)
     row = _topic_row(store, template_vault)
 
-    _assert_matches_watermark(row["lanes"]["improve"], "improve", None)
+    assert [stage["state"] for stage in row["lanes"]["improve"]] == ["unknown"] * len(IMPROVE_IDS)
+    # Non-vacuity: `unknown` must be a distinct declaration, not a relabelling
+    # of idle -- idle asserts every stage is genuinely not yet reached.
+    idle = derive_stages("improve", {"watermark": None, "blocked_reason": None})
+    assert row["lanes"]["improve"] != idle
 
 
-def test_improve_lane_reflects_an_in_flight_evaluation_cycle(template_vault: Path) -> None:
+def test_improve_lane_completes_instrument_once_the_topic_has_datasets(
+    template_vault: Path,
+) -> None:
     store = LocalFSStore(template_vault)
+    populate_query_trainset(store, template_vault, TOPIC, train_n=1, golden_if_missing=False)
+
+    row = _topic_row(store, template_vault)
+
+    _assert_matches_watermark(row["lanes"]["improve"], "improve", OBSERVE_INDEX)
+
+
+def test_improve_lane_completes_observe_once_an_eval_scalar_is_recorded(
+    template_vault: Path,
+) -> None:
+    store = LocalFSStore(template_vault)
+    _seed_eval_scalar(store, template_vault)
+
+    row = _topic_row(store, template_vault)
+
+    _assert_matches_watermark(row["lanes"]["improve"], "improve", IMPROVE_GATE_INDEX)
+
+
+def test_improve_lane_is_active_at_gate_with_a_candidate_branch_still_owed_a_cycle(
+    template_vault: Path,
+) -> None:
+    store = LocalFSStore(template_vault)
+    _seed_candidate_branch(store, template_vault)
+
+    row = _topic_row(store, template_vault)
+
+    _assert_matches_watermark(row["lanes"]["improve"], "improve", IMPROVE_GATE_INDEX)
+
+
+def test_improve_lane_is_active_at_heal_once_a_scalar_and_the_compile_floor_are_both_met(
+    template_vault: Path,
+) -> None:
+    store = LocalFSStore(template_vault)
+    populate_query_trainset(store, template_vault, TOPIC)
+    _seed_eval_scalar(store, template_vault)
+
+    row = _topic_row(store, template_vault)
+
+    assert row["compile_ready"], (
+        "fixture must actually clear the compile floor, or this test proves nothing"
+    )
+    _assert_matches_watermark(row["lanes"]["improve"], "improve", HEAL_INDEX)
+
+
+def test_improve_lane_is_active_at_promote_with_a_compile_branch_awaiting_merge(
+    template_vault: Path,
+) -> None:
+    store = LocalFSStore(template_vault)
+    _seed_compile_branch_awaiting_merge(store, template_vault)
+
+    row = _topic_row(store, template_vault)
+
+    _assert_matches_watermark(row["lanes"]["improve"], "improve", PROMOTE_INDEX)
+
+
+def test_a_live_evaluation_cycle_outranks_every_standing_signal(template_vault: Path) -> None:
+    store = LocalFSStore(template_vault)
+    # Seed the strongest standing signal the ladder knows -- promote -- so the
+    # live cycle has something to actually outrank.
+    _seed_compile_branch_awaiting_merge(store, template_vault)
     write_loop_state(store, template_vault, LoopState(topic=TOPIC, stage=LoopStage.evaluating))
 
     row = _topic_row(store, template_vault)

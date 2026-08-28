@@ -20,9 +20,9 @@ every production symbol this file imports already exists today.
 **Position coverage mirrors the sibling adapter-level suite
 (``tests/test_status_lanes_block.py``) exactly, not a fresh guess**: Fill's
 already-landed adapter reaches all four rail positions (idle, active,
-blocked, terminal); Improve's adapter reaches only idle/active -- no ``LoopStage``
-value unambiguously names a blocked/terminal position on its six-stage rail,
-a testability gap already recorded and reconciled at the adapter level. Tend
+blocked, terminal); Improve's adapter reaches ``unknown`` (no evidence at all)
+and active -- no single field unambiguously names a blocked position on its
+six-stage rail, so the sibling suite asserts none and neither does this. Tend
 is a checklist lane with no watermark at all, covered at the invariant level
 (the checklist never reports ``active``; ``lint`` reflects a real lint
 violation). Driving four positions for Improve here would assert a state its
@@ -306,12 +306,12 @@ def test_fill_rail_renders_every_stage_title_and_live_state_when_terminal(
 
 
 # ---------------------------------------------------------------------------
-# Improve -- idle/active only; the landed adapter cannot reach blocked/
-# terminal (recorded gap, reconciled at the adapter level already).
+# Improve -- unknown/active only; the landed adapter names no blocked position
+# on this rail, so neither does this suite.
 # ---------------------------------------------------------------------------
 
 
-def test_improve_rail_renders_every_stage_title_and_live_state_when_idle(
+def test_improve_rail_renders_every_stage_title_and_live_state_with_no_evidence_recorded(
     template_vault: Path, vault_config: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
     from knotica.cli import main

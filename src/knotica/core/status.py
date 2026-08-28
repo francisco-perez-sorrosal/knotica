@@ -384,6 +384,7 @@ def _topic_status(
         }
     compile_ready = _is_compile_ready(trainset_n, golden_n)
     notes = _notes_summary(store, vcs, name)
+    last_eval = last_eval_summary(read_last_metrics(store, name))
     return TopicStatus(
         topic=name,
         pages=_page_count(store, name),
@@ -395,12 +396,21 @@ def _topic_status(
         compile_ready=compile_ready,
         compiled=compiled,
         lint_violations=lint_violations,
-        last_eval=last_eval_summary(read_last_metrics(store, name)),
+        last_eval=last_eval,
         suggestions=_suggestion_block(store, name),
         gaps=_gap_block(store, name),
         notes=notes,
         lanes=lanes_block(
-            store, vault_path, name, lint_violations=lint_violations, notes_drifted=notes["drifted"]
+            store,
+            vault_path,
+            name,
+            lint_violations=lint_violations,
+            notes_drifted=notes["drifted"],
+            # Improve's rail is a projection of these three numbers, which
+            # this same read already produced -- never a second computation.
+            datasets_present=bool(trainset_n or golden_n),
+            eval_recorded=last_eval is not None,
+            compile_ready=compile_ready,
         ),
     )
 
