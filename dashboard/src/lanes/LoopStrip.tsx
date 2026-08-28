@@ -77,7 +77,7 @@ export function loopHeadline(
 }
 
 /**
- * The rail's four-state vocabulary, rendered identically wherever a popover
+ * The rail's five-state vocabulary, rendered identically wherever a popover
  * explains a stage. Shared here rather than restated per call site, and held
  * as data in `stageMeta.ts` so that module stays DOM-free.
  */

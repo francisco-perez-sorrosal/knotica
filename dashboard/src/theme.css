@@ -36,12 +36,16 @@
   --muted:          var(--n-6);
 
   /* ── semantic tones (Solarized hues retained, two added) ─────────────────── */
-  --accent:  var(--blue);
-  --good:    var(--green);
-  --bad:     var(--red);
-  --warn:    var(--yellow);
+  /* Light values are darkened, hue-preserved variants of the Solarized accents:
+     these tokens are used as text at small sizes (chips, loop-node states), and
+     the raw accents sit at ~2.8–3.9:1 on the light surfaces — below the 4.5:1
+     floor. Both dark blocks restore the raw accents, which clear it there. */
+  --accent:  #1a6ba6;
+  --good:    #5f7000;
+  --bad:     #c22823;
+  --warn:    #8a6400;
   --neutral: var(--n-5);
-  --running: var(--cyan);
+  --running: #1d7a72;
 
   /* ── typography ───────────────────────────────────────────────────────────── */
   --mono:    "SF Mono", "JetBrains Mono", ui-monospace, Menlo, Consolas, monospace;
@@ -99,6 +103,11 @@
     --heading:        #eceef0;
     --muted:          #8d9298;
     --neutral:        #6f757b;
+    --accent:         var(--blue);
+    --good:           var(--green);
+    --bad:            var(--red);
+    --warn:           var(--yellow);
+    --running:        var(--cyan);
     --shadow-overlay: 0 4px 24px rgb(0 0 0 / 55%);
 
     --chart-series: #7ec8ff;
@@ -122,6 +131,11 @@
   --heading:        #eceef0;
   --muted:          #8d9298;
   --neutral:        #6f757b;
+  --accent:         var(--blue);
+  --good:           var(--green);
+  --bad:            var(--red);
+  --warn:           var(--yellow);
+  --running:        var(--cyan);
   --shadow-overlay: 0 4px 24px rgb(0 0 0 / 55%);
 
   --chart-series: #7ec8ff;
