@@ -2215,35 +2215,6 @@ code { font-family: var(--mono); font-size: .9em; }
   display: grid;
   gap: .55rem;
 }
-.arena-lane .lane-meta {
-  display: grid;
-  grid-template-columns: 1fr auto auto;
-  gap: .5rem;
-  font-size: .8rem;
-  margin-bottom: .25rem;
-}
-.arena-lane .lane-track {
-  position: relative;
-  height: .65rem;
-  background: color-mix(in srgb, var(--line) 70%, transparent);
-  overflow: visible;
-}
-.arena-lane .lane-fill {
-  height: 100%;
-  background: var(--accent);
-  transition: width .35s ease-out;
-}
-.arena-lane .lane-baseline {
-  position: absolute;
-  top: -3px;
-  bottom: -3px;
-  width: 2px;
-  background: var(--warn);
-  transform: translateX(-1px);
-  z-index: 1;
-}
-.arena-lane.status-winner .lane-fill { background: var(--good); }
-.arena-lane.status-lost .lane-fill { background: var(--muted); }
 .lane-rank { color: var(--muted); font: .72rem var(--mono); margin-right: .25rem; }
 .lane-badge {
   font-size: .72rem;
@@ -3645,4 +3616,212 @@ button.loop-node:focus-visible {
     0%, 100% { box-shadow: 0 0 0 0 color-mix(in srgb, var(--running) 45%, transparent); }
     50% { box-shadow: 0 0 0 5px color-mix(in srgb, var(--running) 0%, transparent); }
   }
+}
+
+/* ── STAGE-BODY GRAMMAR (round 2) ──────────────────────────────────────── */
+/* SectionCard — the stage-interior container (design §2.1). A card is
+   never a disclosure: no rule here targets `[aria-expanded]`. */
+.section-card {
+  border: var(--border) solid var(--line);
+  border-radius: var(--radius-card);
+  background: var(--surface);
+  box-shadow: none;
+}
+.section-card + .section-card { margin-top: var(--space-4); }
+/* `data-tone` sets a 3px left border only — never a fill. */
+.section-card[data-tone="bad"] { border-left: 3px solid var(--bad); }
+.section-card[data-tone="warn"] { border-left: 3px solid var(--warn); }
+.section-card[data-tone="good"] { border-left: 3px solid var(--good); }
+.section-card[data-tone="neutral"] { border-left: 3px solid var(--neutral); }
+.section-card-head {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-3) var(--space-4);
+  border-bottom: var(--border) solid var(--line);
+}
+.section-card-head .microlabel { margin: 0; }
+.section-card-head-actions {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  margin-left: auto;
+}
+.section-card-body {
+  display: grid;
+  gap: var(--space-3);
+  padding: var(--space-4);
+}
+.section-card-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: var(--space-2);
+  padding: var(--space-3) var(--space-4);
+  border-top: var(--border) solid var(--line);
+}
+.section-card-note {
+  margin: var(--space-2) var(--space-4) 0;
+  color: var(--muted);
+  font: var(--fs-xs)/1.5 var(--sans);
+}
+
+/* Stat / StatGrid — the readout primitive (design §2.2). `.stat-label` and
+   `.microlabel` already carry the uppercase/muted treatment; this section
+   only adds the grid and the value styling. */
+.stat-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(7rem, 1fr));
+  gap: var(--space-3) var(--space-4);
+}
+.stat {
+  display: grid;
+  gap: var(--space-1);
+}
+.stat-value {
+  color: var(--heading);
+  font: var(--fs-md) var(--mono);
+  font-variant-numeric: tabular-nums;
+}
+/* Colours the value only — a bare count is never toned. */
+.stat[data-tone="bad"] .stat-value { color: var(--bad); }
+.stat[data-tone="warn"] .stat-value { color: var(--warn); }
+.stat[data-tone="good"] .stat-value { color: var(--good); }
+.stat[data-tone="neutral"] .stat-value { color: var(--neutral); }
+
+/* TermHint — the inline dotted-underline explanatory overlay (design
+   §2.3). Byte-identical dismissal semantics to InfoPopover; a distinct
+   trigger visual (dotted underline, `cursor: help`) since it lives inline
+   in prose or a stat label rather than as a standalone `ⓘ` glyph. */
+.term-hint {
+  position: relative;
+  display: inline-block;
+}
+.term-hint-trigger {
+  appearance: none;
+  border: 0;
+  border-bottom: 1px dotted var(--line-strong);
+  padding: 0;
+  margin: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  cursor: help;
+}
+.term-hint-trigger:hover, .term-hint-trigger[aria-expanded="true"] {
+  border-bottom-color: var(--accent);
+}
+/* WCAG 2.2 §2.5.8 target size — a TermHint hosted by a stat label or a
+   state-list name gets a real hit area; inline-in-prose uses take the
+   WCAG 2.2 inline exception and need none. */
+.stat-label .term-hint-trigger,
+.state-list-name .term-hint-trigger {
+  display: inline-flex;
+  align-items: center;
+  min-height: 24px;
+  padding: 2px 0;
+}
+.term-hint-panel {
+  position: absolute;
+  top: calc(100% + var(--space-1));
+  left: 0;
+  z-index: var(--z-popover);
+  display: block;
+  width: min(18rem, 80vw);
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius-card);
+  background: var(--surface);
+  box-shadow: var(--shadow-overlay);
+  padding: var(--space-3);
+  white-space: normal;
+  font: var(--fs-sm)/1.5 var(--sans);
+}
+.term-hint[data-align="end"] .term-hint-panel {
+  left: auto;
+  right: 0;
+}
+.term-hint-panel .microlabel {
+  display: block;
+  margin: 0 0 var(--space-2);
+}
+.term-hint-body {
+  display: block;
+  color: var(--text);
+}
+
+/* StateList — the multi-item live readout primitive (design §2.4). Fixes
+   G1 (the unstyled `.arena-lane` sub-structure below): the state word is
+   always visible text next to the icon, and the value column is
+   tabular-nums, right-aligned. */
+.state-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.state-list-row {
+  display: grid;
+  grid-template-columns: auto 1fr auto auto auto;
+  align-items: baseline;
+  gap: var(--space-2) var(--space-3);
+  padding: var(--space-2) 0;
+}
+.state-list-row + .state-list-row {
+  border-top: 1px solid var(--line);
+}
+.state-list-icon {
+  align-self: center;
+  color: var(--neutral);
+}
+.state-list-name {
+  color: var(--heading);
+  font: var(--fs-sm) var(--mono);
+}
+.state-list-value {
+  color: var(--text);
+  font: var(--fs-sm) var(--mono);
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+}
+.state-list-action { justify-self: end; }
+
+/* Billed marker — a sibling of the button it precedes, never a child
+   (design §2.5): the chip must not change the button's accessible name. */
+.chip.cost {
+  color: var(--warn);
+  border-color: color-mix(in srgb, var(--warn) 45%, var(--line));
+}
+/* `data-tone` chip variants — the toned state word in a `StateList` row,
+   distinct from the pre-existing `.chip.ok`/`.chip.bad` class modifiers
+   used by Ask's citation chips. */
+.chip[data-tone="bad"] {
+  color: var(--bad);
+  border-color: color-mix(in srgb, var(--bad) 45%, var(--line));
+}
+.chip[data-tone="warn"] {
+  color: var(--warn);
+  border-color: color-mix(in srgb, var(--warn) 45%, var(--line));
+}
+.chip[data-tone="good"] {
+  color: var(--good);
+  border-color: color-mix(in srgb, var(--good) 45%, var(--line));
+}
+.chip[data-tone="neutral"] { color: var(--neutral); }
+
+/* Data table — the Instrument "Files & Overlaps" role/count/ready grid
+   (design §4.2). No consumer yet. */
+.data-table {
+  width: 100%;
+  border-collapse: collapse;
+  font: var(--fs-sm) var(--mono);
+}
+.data-table th, .data-table td {
+  padding: var(--space-2) var(--space-3);
+  text-align: left;
+  border-bottom: 1px solid var(--line);
+}
+.data-table th {
+  color: var(--muted);
+  font: 500 var(--fs-micro) var(--mono);
+  letter-spacing: var(--tracking-micro);
+  text-transform: uppercase;
 }
