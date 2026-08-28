@@ -1786,12 +1786,6 @@ code { font-family: var(--mono); font-size: .9em; }
   margin-bottom: .35rem;
 }
 .heal-step-body { margin: 0; font-size: .8rem; line-height: 1.45; }
-.heal-step-actions {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: .45rem .65rem;
-}
 .heal-inline-field {
   display: inline-flex;
   align-items: center;
@@ -1807,7 +1801,6 @@ code { font-family: var(--mono); font-size: .9em; }
   color: var(--text);
   font: inherit;
 }
-.heal-step-actions button,
 .heal-stepper button {
   appearance: none;
   border: 1px solid var(--line);
@@ -1817,12 +1810,10 @@ code { font-family: var(--mono); font-size: .9em; }
   font: 600 .78rem var(--display);
   cursor: pointer;
 }
-.heal-step-actions button:disabled,
 .heal-stepper button:disabled {
   opacity: .55;
   cursor: not-allowed;
 }
-.heal-hint { margin: 0; flex-basis: 100%; font-size: .74rem; }
 .heal-freeze-actions {
   flex-direction: column;
   align-items: stretch;
@@ -2187,13 +2178,6 @@ code { font-family: var(--mono); font-size: .9em; }
   gap: .5rem;
   margin: .85rem 0;
 }
-.arena-lanes {
-  list-style: none;
-  margin: .75rem 0 0;
-  padding: 0;
-  display: grid;
-  gap: .55rem;
-}
 .lane-rank { color: var(--muted); font: .72rem var(--mono); margin-right: .25rem; }
 .lane-badge {
   font-size: .72rem;
@@ -2302,35 +2286,10 @@ code { font-family: var(--mono); font-size: .9em; }
   margin: .65rem 0 0;
   font-size: .8rem;
 }
-.scoreboard-open-card {
-  margin-top: .75rem;
-  padding: .9rem 1rem;
-  border: 1px solid var(--line);
-  background: var(--surface);
-  display: grid;
-  gap: .65rem;
-}
-.scoreboard-open-card.beats-baseline {
-  border-left: 3px solid var(--good);
-}
-.scoreboard-open-card.under-baseline {
-  border-left: 3px solid var(--bad);
-}
-.scoreboard-open-head {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: .45rem .6rem;
-}
 .scoreboard-open-note,
 .scoreboard-open-verdict {
   margin: 0;
   font-size: .78rem;
-}
-.scoreboard-open-actions {
-  display: flex;
-  flex-wrap: wrap;
-  gap: .45rem;
 }
 .scoreboard-history {
   list-style: none;
