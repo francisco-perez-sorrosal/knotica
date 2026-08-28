@@ -3713,6 +3713,11 @@ button.loop-node:focus-visible {
   padding: var(--space-3);
   white-space: normal;
   font: var(--fs-sm)/1.5 var(--sans);
+  /* Hosted inside uppercase micro-labels — the transform inherits, and two
+     sentences of shouting is not an explanation. The title span keeps its
+     own .microlabel uppercase. */
+  text-transform: none;
+  letter-spacing: normal;
 }
 .term-hint[data-align="end"] .term-hint-panel {
   left: auto;
