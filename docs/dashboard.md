@@ -9,12 +9,14 @@ and shared tools.
 
 - [Open it](#open-it)
 - [Query parameters](#query-parameters)
+- [Chrome](#chrome)
 - [The six lanes](#the-six-lanes)
 - [Lane reference](#lane-reference)
-- [Handoff stages](#handoff-stages)
-- [Shared components](#shared-components)
-- [Obsidian links](#obsidian-links)
+- [Handoff Stages](#handoff-stages)
 - [Legacy `?pane=` routing](#legacy-pane-routing)
+- [Shared components](#shared-components)
+- [Design language](#design-language)
+- [Obsidian links](#obsidian-links)
 - [Develop / rebuild](#develop--rebuild)
 
 ## Open it
@@ -50,16 +52,65 @@ navigate, so a reload preserves your view.
 | `?pane=` | (none) | **Deprecated.** Legacy routing for bookmarks and old links — maps to the lane that absorbed the pane's content. See [Legacy `?pane=` Routing](#legacy-pane-routing) for the full table. Accepts old pane names (`ask`, `sources`, `ingest`, `improve`, `tend`) and deprecated aliases. Anything unrecognized falls back to `home` (the default landing). Use `lane=` instead. |
 | `?lane=` | (none) | Initial process lane. Accepts `home`, `learn`, `answer`, `fill`, `improve`, `tend`. Unrecognized values fall back to `home`. `home` is a flat cross-topic inbox with no stages; other lanes stage their workflows as ordered rails. Use with `focus=` to anchor a stage within a lane. |
 | `?focus=` | (none) | Stage name or object ID within the active lane. Unrecognized values degrade to the lane's default view. Requires `?lane=` to be meaningful. |
-| `?mcp=` | `http://127.0.0.1:8765/mcp` | HTTP-mount MCP endpoint override — point the client at a different streamable-HTTP server. |
+| `?mcp=` | same-origin `/mcp` on an `http:`/`https:` page; `http://127.0.0.1:8765/mcp` otherwise (e.g. a `file://` open of the built artifact) | HTTP-mount MCP endpoint override — point the client at a different streamable-HTTP server. The same-origin default follows whatever `--port` the server was started with, so it never polls a stale server the way a hardcoded port would. |
 | `?mount=` | (auto) | `bridge` or `http` forces the transport, overriding the framed-window auto-detect. |
+
+## Chrome
+
+The header (`<header class="app-chrome">`) is two rows: a **context row** and a **pill nav**.
+
+**Context row** — left side is the brand block: the `◈` mark, `knotica`, a vault picker
+(a plain `<select>`, replacing the earlier "New KB" heading + picker pair once a vault list
+exists — falls back to a static, Obsidian-linked heading when there is nothing to pick from),
+a topic picker, and a `⊕` **creation-drawer trigger** (`aria-expanded` mirrors the drawer's open
+state). Right side is a row of **status chips** — server LLM, gate baseline, and compile flywheel
+— each a `<span class="health-chip ...">` tone badge paired with a sibling `InfoPopover` inside a
+`.chrome-chip` wrapper (never merged into one control, to avoid two components fighting over
+hardcoded dimensions), plus the mount/last-updated meta text.
+
+The `⊕` trigger opens the **creation drawer**, which renders inline below the context row and
+holds the "New knowledge base" and "New topic" forms together in one panel — the two were
+previously separate inline forms, each with its own show/hide toggle. The drawer stays mounted
+(so in-progress field text survives a close/reopen) and simply returns nothing when closed.
+
+**Pill nav** (`<nav class="pane-tabs">`, second row) is six icon-plus-label buttons, one per
+lane, in `process_model.py`'s canonical `LANES` order (Home, Learn, Answer, Improve, Fill, Tend).
+
+**InfoPopover**, the non-modal `ⓘ` overlay behind every status chip, lane card, and rail stage
+explanation, is a shared primitive (`InfoPopover.tsx`): click to open, click outside / press
+Escape / focus-out to close, and only one is ever open at a time (a module-level signal closes
+whatever else was open). It renders up to three slots — *What this is*, an optional
+*What the states mean*, an optional *What to do next* — and positions itself via one of three
+static alignment variants (`start`/`end`/`center`), never a measured/portaled popover.
 
 ## The six lanes
 
-The dashboard is structured around six process lanes, each declared once in `src/knotica/core/process_model.py`; the dashboard is a projection of that declaration.
+The dashboard is structured around six process lanes, each declared once in
+`src/knotica/core/process_model.py`; the dashboard is a projection of that declaration.
 
-**`home`** is the cross-topic attention inbox: a flat, rail-less lane listing what needs your attention across all topics right now, without choosing a single topic first. The other five lanes (`learn`, `answer`, `fill`, `improve`, `tend`) are each a complete workflow from trigger to completion, arranged as an ordered rail of stages.
+**`home`** is the cross-topic attention inbox: a flat, rail-less lane listing what needs your
+attention across all topics right now, without choosing a single topic first. The other five
+lanes (`learn`, `answer`, `fill`, `improve`, `tend`) are each a complete workflow from trigger to
+completion, arranged as an ordered rail of stages.
 
-Each lane stages its work where you progress through numbered stages; a stage is complete when its work finishes (✓), active when it is the position the process has reached, blocked when it requires human input or external action, or pending when waiting for a prior stage. A fifth word, unknown, means the server found no evidence either way — it is the honest absence of a position, not a failure, and it is rendered neutral rather than as a warning. The rail accepts clicks to expand a stage and trigger its actions. A **Handoff Stage** pauses the lane and hands the work back to your client's own LLM via a slash command (`/knotica:fill`, etc.) — when that work completes, you resume the lane.
+A stage is `complete` when its work finishes, `active` when it is the position the process has
+reached, `blocked` when it requires human input or external action, `pending` when waiting for a
+prior stage, or `unknown` — the server found no evidence either way. `unknown` is deliberately not
+a guess: it is what a stage reads when nothing was recorded for it at all, rendered neutral rather
+than as a warning, and it is distinct from `pending` (which asserts the stage genuinely has not
+been reached yet). The rail accepts clicks to expand a stage and trigger its actions. A
+**Handoff Stage** pauses the lane and hands the work back to your client's own LLM via a slash
+command (`/knotica:fill`, `/knotica:ingest`) — when that work completes, you resume the lane.
+
+Every railed lane also carries a **loop strip** above its rail — a row of small state-icon nodes
+that mirrors the rail's stages, with a one-line headline (e.g. `IMPROVE · GATE ACTIVE — in
+progress`) and its own `ⓘ` explaining the rail's shape and the five-state vocabulary. The strip's
+shape follows the lane: `improve` is a **cycle** (its last node draws a return arc back to the
+first, annotated "Prove returns to Instrument"); `tend` is **checks** (independent peer chips,
+no track); every other railed lane is a straight **sequence**. Today, `improve` is the only lane
+where a strip node or a rail row's disclosure toggle actually opens that stage's body (including
+a "Start here" cue on the stage most in need of attention) — the other four railed lanes render
+the strip as a read-only overview above their (always-visible) rail rows.
 
 ### Lane reference
 
@@ -71,73 +122,120 @@ default view when opening the dashboard or navigating to an unrecognized lane.
 
 **No stages.** Home is not a rail-based workflow. It displays:
 
-1. **Attention rows** — organized by urgency class: `critical` (red), `high` (orange), `normal` (neutral).
-   Each row shows the topic, what needs attention (e.g., "3 pending gaps", "compile ready"), and an
-   action button (`[Open]` to jump to that lane in the same topic, or `[Watch]` for topic selection).
-2. **Drift row** (default-collapsed) — personal notes with anchors that have resolved stale. Expands to
-   show the count and offers a `[Check]` button to navigate to the `Tend` lane's **Drift** stage. The
-   expanded count is resolved on-demand (not pre-fetched) to keep Home's polling cheap.
+1. **Lane card grid** — six icon-led cards, one per lane, in canonical `LANES` order. Each card is
+   a whole-card button (name, blurb, and a one-line stat drawn entirely from the same attention
+   payload — e.g. "`N` ready · `N` running" for Improve, "`N` pending · `N` refused" for Fill) plus
+   a sibling `ⓘ` explaining the lane. `Learn` and `Answer` show `—` with a popover noting they carry
+   no cross-topic signal yet; open the lane to see its own state.
+2. **Attention queue** — an urgency-tinted table (`AttentionTable`) listing every open signal, one
+   row per signal rather than one per topic (a topic can appear more than once). Each row shows an
+   urgency icon plus its word (`blocked`, `waiting`, or `running` — never colour alone), the topic,
+   what needs attention, and an `[Open]` (or `[Watch]` for a running loop) button that jumps to that
+   lane. When there is nothing to show, the queue is replaced by an empty state ("Nothing needs
+   you") with a button into `Improve`.
+3. **Drift row** — a fixed statement below the queue ("Note drift — not checked...") with a `ⓘ`
+   explaining what drift means and offering a copyable `knotica notes drift --topic <topic>`
+   command. There is no button that runs the check from Home — resolving anchors is the one cost
+   the attention view does not pay unconditionally, so the honest affordance is the CLI command,
+   not a client-side action with nothing wired behind it.
 
-**Poll behavior**: Home polls for updates every 10 seconds (when the window is visible; polling pauses
-when the browser tab is hidden, resuming when you return). This is independent of the other lanes'
-2-second poll. Home's poll uses `wiki_status view="attention"`, which is faster than the full summary
-view — it includes only per-topic gap suggestions, compile-ready status, and loop-runner liveness,
-skipping the expensive lint pass and note-anchor resolution.
+**Poll behavior**: Home polls `wiki_status(view="attention")` every 10 seconds (paused while the
+browser tab is hidden, resuming on return) — independent of the other lanes' 2-second
+`view="summary"` poll. The lane-card stats and the attention queue both read this single payload;
+Home makes no other call.
 
 #### Learn
 
-**Learn** is the topic-scoped read-only exploration lane. Its purpose is to understand the current
-state of a topic — what pages exist, what the prompt covers, and what the compiled engine knows.
+**Learn** is the topic-scoped ingest-and-review lane: **Source → Fetch / parse → Pages → Curate**.
+It absorbs the ingest journal's own progress reporting, folding its finer-grained stages onto
+these four rail positions.
 
-**Three stages, in order:**
+**Four stages, in order:**
 
-1. **Understand** — browse the topic's pages and see the current compiled query engine state.
-   Expand pages to read their content, see backlinks, and filter by page category.
-2. **Review prompts** — inspect the vault's `query.md` and the live compiled prompt side-by-side
-   with a unified diff. Understand what was added, removed, or refined in the last compilation.
-3. **Baseline** — see the frozen baseline score and the eval cadence configuration. Read-only view
-   of where the measuring stick is set; to change it, go to the `Improve` lane's **Observe** stage.
+1. **Source** — the topic and its schema are resolved and the source is stored in the vault.
+2. **Fetch / parse** — the full text is fetched and parsed into page-sized sections. Runs on its
+   own once a source is stored.
+3. **Pages** — a **Handoff Stage** (`/knotica:ingest`): Claude writes the parsed sections into
+   wiki pages under the topic while the dashboard watches and reports progress. Reaching this
+   stage's terminal condition (a committed page) is the lane's actual outcome.
+4. **Curate** — reviewing the written pages into a training example is its own workflow,
+   deliberately decoupled from the ingest run: `Pages` reads `complete` as soon as its run ends,
+   even with no curation yet, so an un-curated ingest is never "stuck" on this rail.
 
 #### Answer
 
-**Answer** is the topic-scoped question-answering lane. It mirrors the earlier `Ask` pane,
-providing a place to query the vault and curate answers into the trainset.
+**Answer** is the topic-scoped question-answering lane: **Ask → Cite → React**.
 
 **Three stages, in order:**
 
-1. **Ask** — query the vault with grounded questions. Submit a question; the server's compiled
-   `query_engine` returns an answer, citations, and a cost estimate if the question will trigger
-   eval.
-   - **Pin as Before** freezes the current answer as a baseline card; asking the same question
-     again renders an **After** card once the text differs.
-   - Each answer card offers **Save as good** / **Save as bad**, which curates the question into
-     the trainset.
-   - Contextual banners: "Flywheel ready" (compile-ready, not yet compiled), "Compiled engine is
-     live" (re-ask hint), "Gate is red" (prompts a review of the `Improve` lane's Gate stage).
-2. **Trainset** — review curated questions. Expand entries to see your judgment, the answer you
-   saved, and a discard/restore toggle. Filter by recent or by judgment (good / bad).
-3. **Done** — no further action needed. Re-ask in the **Ask** stage if the compiled engine updates.
+1. **Ask** — a question textarea and an `Ask` button. Submitting calls the compiled `query_engine`
+   for this topic.
+2. **Cite** — once the answer resolves, shows it together with the pages it cites (`AnswerCard`).
+   Before that, reads "Ask a question to see its answer and citations."
+3. **React** — four actions, all of which terminate inside Answer rather than navigating elsewhere:
+   **Good example** / **Bad example** (curates the question into the trainset), **Note it**
+   (captures the exchange as a personal note), and **Report gap** (files a knowledge gap for the
+   `Fill` lane to pick up later).
+
+#### Improve
+
+**Improve** is the topic-scoped iterative loop, and the one **cycle**-shaped lane: **Instrument →
+Observe → Gate → Heal → Promote → Prove**, with Prove looping back to Instrument.
+
+**Six stages, in order:**
+
+1. **Instrument** — build the golden set. Two tables: **Loop corpora** (`trainset` / `held_out` /
+   `seal` — read-only expand) and **Golden pipeline** (`candidates` / `reviewed` — editable expand).
+   A Bootstrap → Review → Freeze breadcrumb lights up each step once its precondition is met.
+   **Bootstrap** synthesizes golden candidates from entity pages; **Save reviewed** writes changes;
+   **Freeze** (confirms before running) writes the sealed golden set and manifest. A contamination
+   banner surfaces train∩held-out / train∩reviewed / train∩candidates overlap counts whenever
+   nonzero.
+2. **Observe** — baseline and eval cadence. Set a cold-start baseline (score 0) or freeze at the
+   current score. Adjust defend policy (`latest` tracks reality; `best` ratchets a high-water
+   mark). Configure eval cadence (min interval, window, threads). **Run eval now** is a
+   two-phase billed action: first click previews cost; second click executes (**Cancel** discards).
+3. **Gate** — review pending `loop/c/*` candidate branches. Lists pending candidates with a diff
+   link per row; **Gate next candidate now** runs the full LLM eval. Requires a frozen baseline and
+   a pending candidate.
+4. **Heal** — live arena variant race. The dashboard renders the active stage/race in real time when
+   one is running. **Open Arena** enables once a race is live, racing, or healed.
+5. **Promote** — move a merged compile candidate to production. Shows the branch scoreboard
+   (open compile candidates, compile history, loop candidates, observation history) and a **Re-ask
+   in Answer** shortcut once something has merged.
+6. **Prove** — compile and validate the new prompt against a real question, closing the loop back
+   to Instrument. Shows which optimizer ran (MIPRO or bootstrap, with a fallback-reason tooltip
+   when MIPRO was unavailable) and a prompt diff against the live program.
+
+A runner-liveness chip shows "runner: watching · pid N" or "runner: off". A chart plots the gate
+scalar over generations.
+
+Each stage's rendered state is derived server-side from vault evidence — dataset counts for
+`Instrument`, the last recorded eval scalar for `Observe`, a pending candidate branch for `Gate`,
+an unpromoted compile-history entry for `Promote` — rather than a single hand-advanced watermark.
+When none of that evidence exists at all, every stage on this rail reads `unknown` instead of the
+misleading `pending` ("nothing has run yet" would be a guess the server cannot back up).
 
 #### Fill
 
-**Fill** is the per-topic gap-filling workflow: diagnose knowledge gaps → discover sources →
-approve and ingest. See [gap-fill.md](gap-fill.md) for the full context.
+**Fill** is the per-topic gap-filling workflow: **Gap → Discover → Approve → Ingest → Gate**. See
+[gap-fill.md](gap-fill.md) for the full context.
 
 **Five stages, in order:**
 
-1. **Gaps** — browse diagnosed gaps waiting for sources. Lists open gaps from the `gaps_read` tool.
+1. **Gap** — browse diagnosed gaps waiting for sources. Lists open gaps from the `gaps_read` tool.
    Each card shows the fault class, filed date, the unanswered question, and reference pages.
-   There is no approval action here — gaps are read-only until sources exist. To find sources,
-   run `/knotica:fill` from your client (instructions in the Handoff stage below).
-2. **Handoff: discover sources** — pauses the lane. Your client runs `/knotica:fill` to search
-   external databases and write source candidates into the vault. When complete, you resume this
-   lane.
-3. **Suggestions** — review discovered source suggestions. Filter tabs: **pending** / **approved**
-   / **all**, with count badges. Each card shows fault class, generation, rank, gap-origin badge
-   (measured / reported / retracted), source reputability, the failed question, and the suggested
-   source (title, link, venue, DOI, open-access signal).
-   - Actions on an undecided suggestion: **Approve**, **Reject…** (requires a reason),
-     **Defer**.
+   There is no approval action here — gaps are read-only until sources exist.
+2. **Discover** — runs source discovery directly from the dashboard, not a handoff: **Discover
+   sources…** is a two-phase billed action (a preview click quotes how many gaps would be drained
+   and the estimated cost; a second, explicit confirm runs it and stages ranked suggestions).
+3. **Approve** — review discovered source suggestions. Filter tabs: **pending** / **accepted**
+   (the underlying filter value is `approved`; the label reads "accepted" to avoid colliding with
+   the suggestion card's own `Approve` button) / **all**, with count badges. Each card shows fault
+   class, generation, rank, gap-origin badge (measured / reported / retracted), source
+   reputability, the failed question, and the suggested source (title, link, venue, DOI,
+   open-access signal).
+   - Actions on an undecided suggestion: **Approve**, **Reject…** (requires a reason), **Defer**.
    - Decided suggestions show the recorded decision; rejected-by-gate outcomes show the score
      delta and worst-regressed questions.
    - The list paginates with a **Load more** cursor.
@@ -146,53 +244,15 @@ approve and ingest. See [gap-fill.md](gap-fill.md) for the full context.
    > There is no "mark as ingested" button here. Marking a suggestion ingested is reachable only
    > by calling the underlying tool directly, not from the UI.
 
-4. **Handoff: ingest approved sources** — pauses the lane. Your client runs `/knotica:fill` to
-   write approved sources and their pages into the vault, then gate the ingest. When complete,
-   you resume.
-5. **Review gate** — see the ingest result (merged, refused with regressed questions, or blocked
-   pending a baseline). No action — the result is final.
-
-#### Improve
-
-**Improve** is the topic-scoped iterative loop: observe → heal → instrument → prove → promote →
-gate. It merges the observability and healing workflows, replacing the old tabbed Loop/Arena/Heal
-surface.
-
-**Six stages, in order:**
-
-1. **Observe** — baseline and eval cadence. Set a cold-start baseline (score 0) or freeze at the
-   current score. Adjust defend policy (`latest` tracks reality; `best` ratchets a high-water
-   mark). Configure eval cadence (min interval, window, threads). **Run eval now** is a
-   two-phase billed action: first click previews cost; second click executes (**Cancel** discards).
-2. **Heal** — live arena variant race. The dashboard renders the active stage/race in real time when
-   one is running. **Open Arena** enables once a race is live, racing, or healed.
-3. **Instrument** — build the golden set. Two tables: **Loop corpora** (`trainset` / `held_out` /
-   `seal` — read-only expand) and **Golden pipeline** (`candidates` / `reviewed` — editable expand).
-   A Bootstrap → Review → Freeze breadcrumb lights up each step once its precondition is met.
-   **Bootstrap** synthesizes golden candidates from entity pages; expanding `candidates`/`reviewed`
-   loads editable cards with question/answer text and a discard/restore toggle. **Save reviewed**
-   writes changes; **Freeze** (confirms before running) writes the sealed golden set and manifest.
-   Freezing is disabled only when the reviewed set overlaps the trainset; below the recommended floor
-   it stays enabled but warns instead. A contamination banner surfaces train∩held-out /
-   train∩reviewed / train∩candidates overlap counts whenever nonzero.
-4. **Prove** — compile and validate the new prompt. Trainset-vs-threshold meter, **Compile**
-   (disabled once already compiled or not ready), a live trial/trial-total poll while compiling,
-   and **Preview merge** → **Apply merge to main** once done. Shows which optimizer ran (MIPRO or
-   bootstrap, with a fallback-reason tooltip when MIPRO was unavailable).
-5. **Promote** — move the merged prompt to production. **Re-ask in Answer** jumps to the `Answer`
-   lane's **Ask** stage so you can re-ask your question against the now-merged prompt (disabled
-   until something has merged).
-6. **Gate** — review pending `loop/c/*` candidate branches. Lists pending candidates with a diff
-   link per row; **Gate next candidate now** runs the full LLM eval. Requires a frozen baseline and
-   a pending candidate.
-
-A runner-liveness chip shows "runner: watching · pid N" or "runner: off". A chart plots the gate
-scalar over generations.
+4. **Ingest** — a **Handoff Stage** (`/knotica:fill`): Claude writes approved sources and their
+   pages into the vault, then gates the ingest. When complete, you resume.
+5. **Gate** — see the ingest result (merged, refused with regressed questions, or blocked pending
+   a baseline). No action — the result is final.
 
 #### Tend
 
-**Tend** is the per-vault maintenance lane: health checks, repairs, and personal notes overlay
-management. It merges the old VaultPane Checks surface with personal marginalia.
+**Tend** is the per-vault maintenance lane: **Doctor → Lint → OKF → Migrate → Drift**. It merges
+the old VaultPane Checks surface with personal marginalia.
 
 **Five stages, in order:**
 
@@ -218,19 +278,22 @@ management. It merges the old VaultPane Checks surface with personal marginalia.
 
 ## Handoff Stages
 
-Two lanes — `Fill` and `Learn` — carry **Handoff Stages** where the dashboard pauses and hands work
-back to your client's own LLM via a slash command. When the command completes, you resume the lane.
+Two stages carry **Handoff Stages**, where the dashboard pauses and hands work back to your
+client's own LLM via a slash command. When the command completes, you resume the lane.
 
-The Handoff Stage in both cases carries:
+The Handoff Stage carries:
 1. **Narration** — a plain-English explanation of what just happened and what needs to happen next.
 2. **Dispatch button** — if your host supports it (Claude Desktop Chat with the ext-apps bridge),
    a clickable button that invokes the `/knotica:*` command directly.
 3. **Copyable command** — the full slash-command text, always copyable, for any client or host.
 
 **Handoff targets:**
-- `/knotica:fill` — continues a gap-fill session from the `Fill` lane's **Gaps** and **Suggestions**
-  stages. The command searches for sources, writes candidates, and gates the ingest. See
-  [commands/fill.md](commands/fill.md) and [gap-fill.md](gap-fill.md) for the full protocol.
+- `/knotica:ingest` — continues the `Learn` lane's **Pages** stage: writes the stored source's
+  content into wiki pages. See [../commands/ingest.md](../commands/ingest.md).
+- `/knotica:fill` — continues a gap-fill session from the `Fill` lane's **Ingest** stage: writes
+  an approved source's pages into the vault and gates the ingest. `Discover` (Fill's second
+  stage) is *not* a handoff — it runs as a two-phase billed dashboard action instead. See
+  [../commands/fill.md](../commands/fill.md) and [gap-fill.md](gap-fill.md) for the full protocol.
 
 ## Legacy `?pane=` Routing
 
@@ -241,7 +304,7 @@ functionality. The mapping is:
 | Legacy `?pane=` | Routed to | Lane | Stage |
 |---|---|---|---|
 | `ask` | `Answer` | `answer` | Ask |
-| `sources` | `Fill` | `fill` | Suggestions |
+| `sources` | `Fill` | `fill` | Approve |
 | `ingest` | *(removed — no dashboard surface)* | — | — |
 | `improve` | `Improve` | `improve` | Observe |
 | `tend` | `Tend` | `tend` | Doctor |
@@ -253,15 +316,22 @@ Any unrecognized `?pane=` value defaults to `home` — the same landing a bare U
 
 ## Shared components
 
-Embedded inside other panes or lanes, not top-level:
+Embedded inside other lanes, not top-level:
 
 | Component | Lives in | What it does |
-|-----------|----------|--------------|
-| Vault stat tiles | Tend lane (Migrate stage) | Vault-wide counts: Topics, Pages, Curated, Lint hits, Unpushed, Last lint. **+ New KB** opens a form (path / name / optional topic) to create and switch to a new vault. Topics picker list shows one card per topic with health glyph; click to select. Active topic shows **Bootstrap trainset** (before compile-ready) with "synthesizing page k/n" label. |
-| Scoreboard | Answer lane (Trainset stage), Improve lane (Observe/Prove/Gate stages) | Per-topic baseline summary (frozen state, gate state, source path); sections for open compile candidates (promote/delete), compile history (delete-only), loop candidates (promote + diff-on-select), observation history (merged `loop/r/*` pointers, delete-only, auto-pruned beyond 5), and read-only arena variants. Promote/delete both preview before applying. |
-| Metadata tree | Tend lane (Doctor stage) | Collapsible tree of the vault's metadata substrate — root `SCHEMA.md`/`log.md`, the vault-root `.knotica/` tree, then the selected topic's `SCHEMA.md` and `.knotica/` — one level deep by default, with a hover tooltip explaining each file's purpose; links open in Obsidian. |
-| Prompt diff | Answer lane (Review prompts stage), Improve lane (Prove/Gate stages), Scoreboard rows | Collapsible unified diff — either across git refs of `query.md`, or between the vault's `query.md` and the full compiled runtime program (with demo count and artifact filename). |
-| LaneRail | All lanes | Shared infrastructure for rendering the stage rail, deriving stage states from MCP tool outputs, and coordinating armed-confirm affordances for two-phase actions (billed eval, repairs, promotions). Defined in `dashboard/src/lanes/laneRailState.ts` and `LaneRail.tsx`. |
+|-----------|----------|---------------|
+| Icon set (`icons.tsx`) | Everywhere | 26 inline stroke-SVG glyphs (lane marks, stage-state marks, six Improve stage marks, plus utility icons) — no icon font, no external fetch, always `aria-hidden` and paired with visible or `sr-only` text. |
+| InfoPopover / CopyBlock / EmptyState | Chrome, Home, every railed lane's `ⓘ` explanations | The non-modal `ⓘ` overlay ([Chrome](#chrome)), a mono code block with a copy button, and the shared icon/title/sentence/one-action template used for empty and zero states. |
+| LoopStrip | Every railed lane | The state-icon strip above the rail — see [The six lanes](#the-six-lanes). Draws its lane/stage copy from `lanes/laneMeta.ts` and `lanes/stageMeta.ts`. |
+| Scoreboard, prompt diff, promote/delete preview (`ScoreboardPanel`, `PromptDiff`, `PromotePreview`, `DeletePreview`) | Improve lane (Promote stage mainly; `PromptDiff` also in Gate and Prove) | Per-topic baseline summary, unified prompt diffs, and preview-before-apply confirmation for promoting or deleting a candidate branch. |
+| Note-promote dialog (`NotePromoteDialog`) | Tend lane (Drift stage) | Offers **Training example** always and **Knowledge gap** for dispute/gap/question notes, from `DriftStage`. |
+
+## Design language
+
+The dashboard is dark-first, mono-voiced, and grayscale-led — a structural grammar (borders,
+spacing, uppercase micro-labels) carrying most of the hierarchy, with a small set of semantic
+hues (danger/warning/success/info/neutral) reserved for state, never for decoration. A light theme
+is still supported via `prefers-color-scheme`; all tokens live in `dashboard/src/theme.css`.
 
 ## Obsidian links
 
