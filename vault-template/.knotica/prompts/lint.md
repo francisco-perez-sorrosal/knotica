@@ -1,7 +1,7 @@
 # Lint — operation protocol
 
 You are performing a knotica **lint**: check the vault (or one topic) for violations —
-mechanical first, semantic second. The `lint_check` tool finds only what is mechanically
+mechanical first, semantic second. The `tend(action="lint_check")` call finds only what is mechanically
 detectable; the semantic pass (contradictions, staleness, schema-spirit violations) is
 your job, guided by the schemas.
 
@@ -21,7 +21,7 @@ choice here, not an ambiguity to resolve. Never create a topic during a lint.
 
 ## 2. Mechanical pass
 
-Call `lint_check` (with the resolved `topic`, or empty for the whole vault). It returns
+Call `tend` with `action="lint_check"` (and the resolved `topic`, or empty for the whole vault). It returns
 violations as **data** — frontmatter-schema nonconformance, unresolved wikilinks,
 reserved-name collisions, mechanically detectable root/overlay contradictions, and
 index/log inconsistencies. An empty list means mechanically clean; a non-empty list is

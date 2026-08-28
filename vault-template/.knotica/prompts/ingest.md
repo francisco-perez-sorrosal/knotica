@@ -157,11 +157,11 @@ or rewrite `index.md` yourself.
 ## Ingesting an approved suggestion
 
 When the user asks to ingest an approved gap-fill suggestion, or you discover one via
-`suggestions_read(status="approved")`, the ingest follows the same protocol above but
+`fill(action="suggestions_read", status="approved")`, the ingest follows the same protocol above but
 on an isolated candidate context — the loop will gate the result before it touches
 the wiki.
 
-**1. Open the candidate.** Call `source_ingest_open` with the resolved `topic` and
+**1. Open the candidate.** Call `fill` with `action="source_ingest_open"`, the resolved `topic` and
 the suggestion's `suggestion_id`. Save the returned `candidate` handle (an opaque string)
 and the `provenance` block. If the response carries `state: "resumed"`, the ingest is
 resuming an earlier partial session — read `resume.pages_present` and write only the
@@ -205,14 +205,14 @@ followed by acceptance and `golden.freeze` (atomically replaces the frozen set).
 read-merge-freeze pattern is load-bearing — never call freeze without reading first,
 or prior golden entries will be lost.
 
-**6. Submit to the gate.** Call `source_ingest_submit` with the `topic` and
+**6. Submit to the gate.** Call `fill` with `action="source_ingest_submit"`, the `topic` and
 `suggestion_id`. Mode defaults to `"dry-run"`, which checks lint-clean, source present,
 ≥1 page written, and gate eligibility (topic has a frozen baseline) without making
 changes. Then call it again with `mode: "apply"` to finalize and hand the candidate to
 the loop's gate — it evaluates the wiki WITH the new source and either merges it
 (closes the gap without regressing others) or refuses it (quarantined, reworkable).
 
-**7. Report the verdict.** The `source_ingest_submit` apply response carries the
+**7. Report the verdict.** The `action="source_ingest_submit"` apply response carries the
 verdict:
 
 - **merged** → the source closed the gap without regression; the suggestion is now
