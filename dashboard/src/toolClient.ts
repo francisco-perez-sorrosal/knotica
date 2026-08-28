@@ -115,13 +115,22 @@ abstract class BaseToolClient implements ToolClient {
    *
    * Deterministic and unbilled — no server-side model — so it keeps the default
    * request timeout rather than the LLM deadline.
+   *
+   * `create_topic` is not a registered tool: it is the `learn` lane's `source`
+   * stage action, and `learn` is its primary lane per `docs/reference.md`'s
+   * operator-verb table.
    */
   createTopic(
     topic: string,
     description = "",
     vault = "",
   ): Promise<Record<string, unknown>> {
-    return this.call("create_topic", { topic, description, vault });
+    return this.call("learn", {
+      action: "create_topic",
+      topic,
+      description,
+      vault,
+    });
   }
 
   abstract close(): Promise<void>;

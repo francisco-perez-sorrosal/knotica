@@ -7,6 +7,12 @@
  * mutating actions). Notes live here for the same reason their types do --
  * Tend's drift stage is their only lane surface, and the family is densely
  * self-referential.
+ *
+ * Every call here goes to the **`tend` lane dispatcher** -- `vault_health` and
+ * `notes` are lane actions, not registered tools. Both own a parameter
+ * literally named `action`, so each forwards its own as `<verb>_action`; the
+ * lane's own selector is already `action` (`docs/reference.md`, "Operator
+ * verbs").
  */
 
 import type { ToolCallGroup } from "../../toolClientCore";
@@ -29,6 +35,9 @@ import type {
   VaultLintResult,
   VaultMetadataTree,
 } from "./types";
+
+/** The registered tool every call in this group dispatches through. */
+const LANE = "tend";
 
 export interface TendToolCalls {
   doctorRun(
@@ -104,7 +113,13 @@ export interface TendToolCalls {
 
 export const tendToolCalls: ToolCallGroup<TendToolCalls> = {
   doctorRun(vault = "", quick = false, fix = false): Promise<DoctorReport> {
-    return this.call("vault_health", { action: "doctor", vault, quick, fix });
+    return this.call(LANE, {
+      action: "vault_health",
+      vault_health_action: "doctor",
+      vault,
+      quick,
+      fix,
+    });
   },
 
   doctorRepair(
@@ -114,8 +129,9 @@ export const tendToolCalls: ToolCallGroup<TendToolCalls> = {
     allTracked = false,
     deleteUntracked = false,
   ): Promise<DoctorRepairResult> {
-    return this.call("vault_health", {
-      action: "repair",
+    return this.call(LANE, {
+      action: "vault_health",
+      vault_health_action: "repair",
       mode,
       vault,
       paths_json: JSON.stringify(paths),
@@ -125,15 +141,30 @@ export const tendToolCalls: ToolCallGroup<TendToolCalls> = {
   },
 
   vaultLint(topic = "", vault = ""): Promise<VaultLintResult> {
-    return this.call("vault_health", { action: "lint", topic, vault });
+    return this.call(LANE, {
+      action: "vault_health",
+      vault_health_action: "lint",
+      topic,
+      vault,
+    });
   },
 
   vaultMetadataTree(vault = "", topic = ""): Promise<VaultMetadataTree> {
-    return this.call("vault_health", { action: "metadata_tree", vault, topic });
+    return this.call(LANE, {
+      action: "vault_health",
+      vault_health_action: "metadata_tree",
+      vault,
+      topic,
+    });
   },
 
   okfCheck(vault = "", strict = false): Promise<OkfCheckResult> {
-    return this.call("vault_health", { action: "okf_check", vault, strict });
+    return this.call(LANE, {
+      action: "vault_health",
+      vault_health_action: "okf_check",
+      vault,
+      strict,
+    });
   },
 
   okfRepair(
@@ -141,8 +172,9 @@ export const tendToolCalls: ToolCallGroup<TendToolCalls> = {
     vault = "",
     force = false,
   ): Promise<OkfRepairResult> {
-    return this.call("vault_health", {
-      action: "okf_repair",
+    return this.call(LANE, {
+      action: "vault_health",
+      vault_health_action: "okf_repair",
       mode,
       vault,
       force,
@@ -157,8 +189,9 @@ export const tendToolCalls: ToolCallGroup<TendToolCalls> = {
     limit = 20,
     vault = "",
   ): Promise<NotesListResult> {
-    return this.call("notes", {
-      action: "list",
+    return this.call(LANE, {
+      action: "notes",
+      notes_action: "list",
       topic,
       intent,
       status,
@@ -173,8 +206,9 @@ export const tendToolCalls: ToolCallGroup<TendToolCalls> = {
     noteId: string,
     vault = "",
   ): Promise<NoteReadResult> {
-    return this.call("notes", {
-      action: "read",
+    return this.call(LANE, {
+      action: "notes",
+      notes_action: "read",
       topic,
       note_id: noteId,
       vault,
@@ -187,7 +221,14 @@ export const tendToolCalls: ToolCallGroup<TendToolCalls> = {
     limit = 20,
     vault = "",
   ): Promise<NotesDriftResult> {
-    return this.call("notes", { action: "drift", topic, cursor, limit, vault });
+    return this.call(LANE, {
+      action: "notes",
+      notes_action: "drift",
+      topic,
+      cursor,
+      limit,
+      vault,
+    });
   },
 
   notesReanchor(
@@ -199,8 +240,9 @@ export const tendToolCalls: ToolCallGroup<TendToolCalls> = {
     quote = "",
     vault = "",
   ): Promise<NoteDecisionEnvelope | NoteAnchorActionResult> {
-    return this.call("notes", {
-      action: "reanchor",
+    return this.call(LANE, {
+      action: "notes",
+      notes_action: "reanchor",
       topic,
       note_id: noteId,
       anchor: anchorIndex,
@@ -218,8 +260,9 @@ export const tendToolCalls: ToolCallGroup<TendToolCalls> = {
     mode: "dry-run" | "apply" = "dry-run",
     vault = "",
   ): Promise<NoteDecisionEnvelope | NoteAnchorActionResult> {
-    return this.call("notes", {
-      action: "detach",
+    return this.call(LANE, {
+      action: "notes",
+      notes_action: "detach",
       topic,
       note_id: noteId,
       anchor: anchorIndex,
@@ -240,8 +283,9 @@ export const tendToolCalls: ToolCallGroup<TendToolCalls> = {
     } = {},
     vault = "",
   ): Promise<NoteDecisionEnvelope | NotePromoteActionResult> {
-    return this.call("notes", {
-      action: "promote",
+    return this.call(LANE, {
+      action: "notes",
+      notes_action: "promote",
       topic,
       note_id: noteId,
       target,
@@ -259,8 +303,9 @@ export const tendToolCalls: ToolCallGroup<TendToolCalls> = {
     mode: "dry-run" | "apply" = "dry-run",
     vault = "",
   ): Promise<NoteDecisionEnvelope | NoteArchiveActionResult> {
-    return this.call("notes", {
-      action: "archive",
+    return this.call(LANE, {
+      action: "notes",
+      notes_action: "archive",
       topic,
       note_id: noteId,
       mode,

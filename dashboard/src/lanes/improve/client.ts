@@ -10,6 +10,13 @@
  * Five of these calls bill: `compile action=run`, both `datasets` bootstraps,
  * and both `loop` runs. They carry `LLM_CALL_TIMEOUT_MS`; nothing else here
  * does, and the distinction is the file's one real invariant.
+ *
+ * Every call here goes to the **`improve` lane dispatcher** -- the verbs it
+ * routes to (`metrics_read`, `arena`, `compile`, `golden`, `datasets`, `loop`,
+ * `baseline_probe`, `branches`, `prompt_diff`) are lane actions, not registered
+ * tools. A verb that owns a parameter literally named `action` forwards it as
+ * `<verb>_action`, because the lane's own selector is already `action`
+ * (`docs/reference.md`, "Operator verbs").
  */
 
 import { LLM_CALL_TIMEOUT_MS, type ToolCallGroup } from "../../toolClientCore";
@@ -40,6 +47,9 @@ import type {
   MetricsWindow,
   PromptDiffResult,
 } from "./types";
+
+/** The registered tool every call in this group dispatches through. */
+const LANE = "improve";
 
 export interface ImproveToolCalls {
   metricsRead(topic: string, vault?: string): Promise<MetricsWindow>;
@@ -147,19 +157,35 @@ export interface ImproveToolCalls {
 
 export const improveToolCalls: ToolCallGroup<ImproveToolCalls> = {
   metricsRead(topic: string, vault = ""): Promise<MetricsWindow> {
-    return this.call("metrics_read", { topic, limit: 100, vault });
+    return this.call(LANE, { action: "metrics_read", topic, limit: 100, vault });
   },
 
   arenaStatus(topic: string, vault = ""): Promise<ArenaStatus> {
-    return this.call("arena", { action: "status", topic, vault });
+    return this.call(LANE, {
+      action: "arena",
+      arena_action: "status",
+      topic,
+      vault,
+    });
   },
 
   arenaHistory(topic: string, vault = "", limit = 20): Promise<ArenaHistory> {
-    return this.call("arena", { action: "history", topic, vault, limit });
+    return this.call(LANE, {
+      action: "arena",
+      arena_action: "history",
+      topic,
+      vault,
+      limit,
+    });
   },
 
   compileStatus(topic: string, vault = ""): Promise<CompileStatus> {
-    return this.call("compile", { action: "status", topic, vault });
+    return this.call(LANE, {
+      action: "compile",
+      compile_action: "status",
+      topic,
+      vault,
+    });
   },
 
   compileRun(
@@ -168,8 +194,14 @@ export const improveToolCalls: ToolCallGroup<ImproveToolCalls> = {
     useMipro = true,
   ): Promise<CompileRunResult> {
     return this.call(
-      "compile",
-      { action: "run", topic, vault, use_mipro: useMipro },
+      LANE,
+      {
+        action: "compile",
+        compile_action: "run",
+        topic,
+        vault,
+        use_mipro: useMipro,
+      },
       LLM_CALL_TIMEOUT_MS,
     );
   },
@@ -180,8 +212,9 @@ export const improveToolCalls: ToolCallGroup<ImproveToolCalls> = {
     mode: "dry-run" | "apply",
     vault = "",
   ): Promise<CompilePromoteResult> {
-    return this.call("compile", {
-      action: "promote",
+    return this.call(LANE, {
+      action: "compile",
+      compile_action: "promote",
       topic,
       branch,
       mode,
@@ -190,7 +223,12 @@ export const improveToolCalls: ToolCallGroup<ImproveToolCalls> = {
   },
 
   goldenReviewLoad(topic: string, vault = ""): Promise<GoldenReview> {
-    return this.call("golden", { action: "load", topic, vault });
+    return this.call(LANE, {
+      action: "golden",
+      golden_action: "load",
+      topic,
+      vault,
+    });
   },
 
   goldenReviewSave(
@@ -198,8 +236,9 @@ export const improveToolCalls: ToolCallGroup<ImproveToolCalls> = {
     accepted: GoldenCandidate[],
     vault = "",
   ): Promise<GoldenSaveResult> {
-    return this.call("golden", {
-      action: "save",
+    return this.call(LANE, {
+      action: "golden",
+      golden_action: "save",
       topic,
       vault,
       accepted_json: JSON.stringify(accepted),
@@ -207,7 +246,12 @@ export const improveToolCalls: ToolCallGroup<ImproveToolCalls> = {
   },
 
   datasetsInventory(topic: string, vault = ""): Promise<DatasetsInventory> {
-    return this.call("datasets", { action: "inventory", topic, vault });
+    return this.call(LANE, {
+      action: "datasets",
+      datasets_action: "inventory",
+      topic,
+      vault,
+    });
   },
 
   datasetsRecords(
@@ -216,8 +260,9 @@ export const improveToolCalls: ToolCallGroup<ImproveToolCalls> = {
     vault = "",
     limit = 200,
   ): Promise<DatasetRecords> {
-    return this.call("datasets", {
-      action: "records",
+    return this.call(LANE, {
+      action: "datasets",
+      datasets_action: "records",
       topic,
       role,
       vault,
@@ -230,8 +275,8 @@ export const improveToolCalls: ToolCallGroup<ImproveToolCalls> = {
     vault = "",
   ): Promise<DatasetsBootstrapResult> {
     return this.call(
-      "datasets",
-      { action: "bootstrap", topic, vault },
+      LANE,
+      { action: "datasets", datasets_action: "bootstrap", topic, vault },
       LLM_CALL_TIMEOUT_MS,
     );
   },
@@ -242,14 +287,25 @@ export const improveToolCalls: ToolCallGroup<ImproveToolCalls> = {
     vault = "",
   ): Promise<DatasetsBootstrapTrainResult> {
     return this.call(
-      "datasets",
-      { action: "bootstrap_train", topic, target, vault },
+      LANE,
+      {
+        action: "datasets",
+        datasets_action: "bootstrap_train",
+        topic,
+        target,
+        vault,
+      },
       LLM_CALL_TIMEOUT_MS,
     );
   },
 
   datasetsFreeze(topic: string, vault = ""): Promise<DatasetsFreezeResult> {
-    return this.call("datasets", { action: "freeze", topic, vault });
+    return this.call(LANE, {
+      action: "datasets",
+      datasets_action: "freeze",
+      topic,
+      vault,
+    });
   },
 
   /** Billed and two-phase: omit `confirm` to preview, pass the returned nonce to run. */
@@ -259,8 +315,8 @@ export const improveToolCalls: ToolCallGroup<ImproveToolCalls> = {
     vault = "",
   ): Promise<LoopOnceResult> {
     return this.call(
-      "loop",
-      { action: "run_once", topic, confirm, vault },
+      LANE,
+      { action: "loop", loop_action: "run_once", topic, confirm, vault },
       LLM_CALL_TIMEOUT_MS,
     );
   },
@@ -270,7 +326,13 @@ export const improveToolCalls: ToolCallGroup<ImproveToolCalls> = {
     scalar: number,
     vault = "",
   ): Promise<LoopSetBaselineResult> {
-    return this.call("loop", { action: "set_baseline", topic, scalar, vault });
+    return this.call(LANE, {
+      action: "loop",
+      loop_action: "set_baseline",
+      topic,
+      scalar,
+      vault,
+    });
   },
 
   loopBaselinePolicy(
@@ -278,8 +340,9 @@ export const improveToolCalls: ToolCallGroup<ImproveToolCalls> = {
     policy: "latest" | "best",
     vault = "",
   ): Promise<LoopBaselinePolicyResult> {
-    return this.call("loop", {
-      action: "baseline_policy",
+    return this.call(LANE, {
+      action: "loop",
+      loop_action: "baseline_policy",
       topic,
       policy,
       vault,
@@ -291,11 +354,17 @@ export const improveToolCalls: ToolCallGroup<ImproveToolCalls> = {
     mode: "best" | "latest" = "best",
     vault = "",
   ): Promise<LoopRebaselineResult> {
-    return this.call("loop", { action: "rebaseline", topic, mode, vault });
+    return this.call(LANE, {
+      action: "loop",
+      loop_action: "rebaseline",
+      topic,
+      mode,
+      vault,
+    });
   },
 
   baselineProbe(topic: string, vault = ""): Promise<BaselineProbeResult> {
-    return this.call("baseline_probe", { topic, vault });
+    return this.call(LANE, { action: "baseline_probe", topic, vault });
   },
 
   loopCadence(
@@ -307,8 +376,9 @@ export const improveToolCalls: ToolCallGroup<ImproveToolCalls> = {
     } = {},
     vault = "",
   ): Promise<LoopCadenceConfig> {
-    return this.call("loop", {
-      action: "cadence",
+    return this.call(LANE, {
+      action: "loop",
+      loop_action: "cadence",
       topic,
       eval_min_interval_hours: overrides.evalMinIntervalHours,
       eval_window: overrides.evalWindow,
@@ -324,14 +394,26 @@ export const improveToolCalls: ToolCallGroup<ImproveToolCalls> = {
     vault = "",
   ): Promise<LoopRunEvalResult> {
     return this.call(
-      "loop",
-      { action: "run_eval", topic, confirm, num_threads: numThreads, vault },
+      LANE,
+      {
+        action: "loop",
+        loop_action: "run_eval",
+        topic,
+        confirm,
+        num_threads: numThreads,
+        vault,
+      },
       LLM_CALL_TIMEOUT_MS,
     );
   },
 
   branchScoreboard(topic: string, vault = ""): Promise<BranchScoreboard> {
-    return this.call("branches", { action: "scoreboard", topic, vault });
+    return this.call(LANE, {
+      action: "branches",
+      branches_action: "scoreboard",
+      topic,
+      vault,
+    });
   },
 
   branchPromote(
@@ -341,8 +423,9 @@ export const improveToolCalls: ToolCallGroup<ImproveToolCalls> = {
     mode: "dry-run" | "apply",
     vault = "",
   ): Promise<CompilePromoteResult> {
-    return this.call("branches", {
-      action: "promote",
+    return this.call(LANE, {
+      action: "branches",
+      branches_action: "promote",
       kind,
       topic,
       branch,
@@ -357,8 +440,9 @@ export const improveToolCalls: ToolCallGroup<ImproveToolCalls> = {
     mode: "dry-run" | "apply",
     vault = "",
   ): Promise<BranchDeleteResult> {
-    return this.call("branches", {
-      action: "delete",
+    return this.call(LANE, {
+      action: "branches",
+      branches_action: "delete",
       topic,
       branch,
       mode,
@@ -375,7 +459,8 @@ export const improveToolCalls: ToolCallGroup<ImproveToolCalls> = {
     historyId = "",
     mode: "git" | "compiled" = "git",
   ): Promise<PromptDiffResult> {
-    return this.call("prompt_diff", {
+    return this.call(LANE, {
+      action: "prompt_diff",
       topic,
       branch,
       vault,

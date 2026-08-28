@@ -308,7 +308,7 @@ describe("the three shell methods still dispatch through the shell with their or
     ]);
   });
 
-  it("createTopic sends the create_topic tool", async () => {
+  it("createTopic sends the learn lane's create_topic action", async () => {
     const { app, calls } = fakeApp();
     const client = new BridgeToolClient(app);
 
@@ -316,8 +316,13 @@ describe("the three shell methods still dispatch through the shell with their or
 
     expect(calls).toEqual([
       {
-        name: "create_topic",
-        args: { topic: "physics", description: "", vault: "" },
+        name: "learn",
+        args: {
+          action: "create_topic",
+          topic: "physics",
+          description: "",
+          vault: "",
+        },
       },
     ]);
   });

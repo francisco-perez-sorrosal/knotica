@@ -231,9 +231,29 @@ def _lane_parameter_name(verb: str, parameter: str) -> str:
 
 
 def _optional(annotations: list[Any]) -> Any:
-    """``X | None``, or ``X | Y | None`` where two verbs type one name differently."""
+    """``X | None``, or ``X | Y | None`` where two verbs type one name differently.
+
+    A parameter every contributing verb types ``str`` stays bare ``str``, and
+    that exception is load bearing rather than cosmetic. FastMCP pre-parses a
+    string argument as JSON whenever the field's annotation ``is not str``
+    (``func_metadata.pre_parse_json`` -- it exists because some hosts send
+    lists and objects as JSON strings). Widening a ``str`` parameter to
+    ``str | None`` therefore *arms* that pre-parse, and a string whose text
+    happens to be valid JSON arrives as a list, dict, bool or ``None`` and
+    fails validation: ``paths_json="[]"``, ``accepted_json="[...]"``, or a
+    page ``content``/note whose body is a JSON blob. The flat tool, whose
+    parameter is a plain ``str``, accepts all of them.
+
+    So the widening broke payload equality -- the one property this module
+    exists to hold structurally -- for every all-``str`` parameter. Optionality
+    does not depend on the annotation: it comes from ``default=None`` plus
+    :func:`_forwarded` dropping unset arguments, both of which are unchanged.
+    """
     ordered = sorted({str(annotation): annotation for annotation in annotations}.items())
-    return reduce(or_, (annotation for _key, annotation in ordered)) | None
+    distinct = [annotation for _key, annotation in ordered]
+    if distinct == [str]:
+        return str
+    return reduce(or_, distinct) | None
 
 
 def _lane_signature(lane: str, actions: tuple[str, ...]) -> inspect.Signature:

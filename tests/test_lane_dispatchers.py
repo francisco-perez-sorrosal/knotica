@@ -525,3 +525,72 @@ def test_server_registers_all_six_lane_dispatchers_and_none_of_the_verbs_they_ab
         "the published surface is the 13 Tier-1 conversational tools, the two "
         f"unlaned Tier-2 tools and the six lanes; got {len(names)}: {sorted(names)}"
     )
+
+
+# ---------------------------------------------------------------------------
+# A `str` parameter must not be widened. FastMCP pre-parses a string argument
+# as JSON whenever the field's annotation `is not str`
+# (`func_metadata.pre_parse_json`), so widening a `str` parameter to
+# `str | None` silently arms that pre-parse: a string whose text happens to be
+# valid JSON arrives at the verb as a list, dict, bool or None and fails
+# validation, while the flat tool accepts it. The equivalence suite above
+# missed this for two years' worth of reasons in one: every representative
+# call passes plain prose, and the trigger is a property of the *value*, not
+# of the routing. So both halves are pinned here -- the structural rule, and
+# one value that actually round-trips through it.
+# ---------------------------------------------------------------------------
+
+
+def _all_str_parameters(lane: str) -> dict[str, Any]:
+    """``{parameter: annotation}`` for the lane params every verb types ``str``."""
+    from knotica.mcp_server import tools_dispatch_lane_common as common
+
+    actions = common.lane_actions(lane)
+    contributed: dict[str, list[Any]] = {}
+    for verb in actions:
+        for parameter in common._handler_parameters(verb).values():
+            name = common._lane_parameter_name(verb, parameter.name)
+            contributed.setdefault(name, []).append(parameter.annotation)
+    signature = common._lane_signature(lane, actions)
+    return {
+        name: signature.parameters[name].annotation
+        for name, annotations in contributed.items()
+        if name in signature.parameters and set(annotations) == {str}
+    }
+
+
+@pytest.mark.parametrize("lane", ["learn", "answer", "improve", "fill", "tend"])
+def test_lane_parameters_every_verb_types_str_are_not_widened(lane: str) -> None:
+    widened = {
+        name: annotation
+        for name, annotation in _all_str_parameters(lane).items()
+        if annotation is not str
+    }
+    assert not widened, (
+        f"{lane} widened {sorted(widened)} past bare `str`; FastMCP will JSON "
+        "pre-parse any of their values that happens to be valid JSON, and the "
+        "flat tool -- whose parameter is a plain `str` -- will not"
+    )
+
+
+def test_a_json_shaped_string_argument_survives_the_lane_it_is_passed_through(
+    vault_config: Path,
+) -> None:
+    """`paths_json='["..."]'` must reach `vault_health` intact through `tend`.
+
+    The value is what makes this falsifiable: prose would pass either way.
+    `mode="dry-run"` keeps it non-mutating, so no vault state is compared.
+    """
+    del vault_config
+    kwargs = {
+        "action": "repair",
+        "mode": "dry-run",
+        "paths_json": '["notes/one.md", "notes/two.md"]',
+    }
+
+    old = payload_of(call_tool(build_verb_server(), "vault_health", dict(kwargs)))
+    new = payload_of(
+        call_tool(_lane_dispatch_server("tend"), "tend", _lane_call_kwargs("vault_health", kwargs))
+    )
+
+    assert new == old, "tend(action=vault_health) mangled a JSON-shaped string argument"

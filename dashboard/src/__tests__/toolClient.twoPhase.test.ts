@@ -69,13 +69,14 @@ describe("previewing and then confirming a billed evaluation run", () => {
     host = recordingHost();
   });
 
-  it("asks the loop dispatcher for a free preview when no nonce is supplied", async () => {
+  it("asks the improve lane's loop action for a free preview when no nonce is supplied", async () => {
     await host.client.loopRunEval("physics");
 
     expect(host.calls).toHaveLength(1);
-    expect(host.calls[0].name).toBe("loop");
+    expect(host.calls[0].name).toBe("improve");
     expect(wireArgs(host.calls[0])).toEqual({
-      action: "run_eval",
+      action: "loop",
+      loop_action: "run_eval",
       topic: "physics",
       confirm: "",
       vault: "",
@@ -115,7 +116,8 @@ describe("previewing and then confirming a billed evaluation run", () => {
     await host.client.loopRunEval("physics", "nonce-1", 8, "research");
 
     expect(wireArgs(host.calls[0])).toEqual({
-      action: "run_eval",
+      action: "loop",
+      loop_action: "run_eval",
       topic: "physics",
       confirm: "nonce-1",
       num_threads: 8,
@@ -145,8 +147,9 @@ describe("previewing and then confirming a billed gap drain", () => {
     await host.client.gapfillDiscover("physics");
 
     expect(host.calls).toHaveLength(1);
-    expect(host.calls[0].name).toBe("gapfill_discover");
+    expect(host.calls[0].name).toBe("fill");
     expect(wireArgs(host.calls[0])).toEqual({
+      action: "gapfill_discover",
       topic: "physics",
       max_gaps: 0,
       confirm: "",
@@ -187,6 +190,7 @@ describe("previewing and then confirming a billed gap drain", () => {
     await host.client.gapfillDiscover("physics", 5, "drain-nonce", "research");
 
     expect(wireArgs(host.calls[0])).toEqual({
+      action: "gapfill_discover",
       topic: "physics",
       max_gaps: 5,
       confirm: "drain-nonce",
@@ -212,16 +216,23 @@ describe("previewing and then confirming a single billed loop pass", () => {
     host = recordingHost();
   });
 
-  it("asks the loop dispatcher for a free preview when no nonce is supplied", async () => {
+  it("asks the improve lane's loop action for a free preview when no nonce is supplied", async () => {
     await host.client.loopRunOnce("physics", "", "research");
 
     expect(host.calls).toHaveLength(1);
-    expect(host.calls[0].name).toBe("loop");
+    expect(host.calls[0].name).toBe("improve");
     const sent = wireArgs(host.calls[0]);
 
-    expect(Object.keys(sent).sort()).toEqual(["action", "confirm", "topic", "vault"]);
+    expect(Object.keys(sent).sort()).toEqual([
+      "action",
+      "confirm",
+      "loop_action",
+      "topic",
+      "vault",
+    ]);
     expect(sent).toEqual({
-      action: "run_once",
+      action: "loop",
+      loop_action: "run_once",
       topic: "physics",
       confirm: "",
       vault: "research",
@@ -232,7 +243,8 @@ describe("previewing and then confirming a single billed loop pass", () => {
     await host.client.loopRunOnce("physics");
 
     expect(wireArgs(host.calls[0])).toEqual({
-      action: "run_once",
+      action: "loop",
+      loop_action: "run_once",
       topic: "physics",
       confirm: "",
       vault: "",

@@ -5,6 +5,12 @@
  * billed discovery call, applies a review verdict, and polls the handoff
  * stage's session. `gap_report` is *not* here -- gaps are reported from
  * Answer's `react` stage and only land in this lane's queue.
+ *
+ * Every call here goes to the **`fill` lane dispatcher** -- `suggestions_read`,
+ * `gaps_read`, `gapfill_discover`, `suggestions_review` and `session_status`
+ * are lane actions, not registered tools. `suggestions_review` owns a parameter
+ * literally named `action`, so it forwards its own as `suggestions_review_action`
+ * (`docs/reference.md`, "Operator verbs").
  */
 
 import { LLM_CALL_TIMEOUT_MS, type ToolCallGroup } from "../../toolClientCore";
@@ -19,6 +25,9 @@ import type {
   SuggestionsReadResult,
   SuggestionsStatusFilter,
 } from "./types";
+
+/** The registered tool every call in this group dispatches through. */
+const LANE = "fill";
 
 export interface FillToolCalls {
   suggestionsRead(
@@ -64,7 +73,8 @@ export const fillToolCalls: ToolCallGroup<FillToolCalls> = {
     limit = 20,
     vault = "",
   ): Promise<SuggestionsReadResult> {
-    return this.call("suggestions_read", {
+    return this.call(LANE, {
+      action: "suggestions_read",
       topic,
       status,
       cursor,
@@ -80,7 +90,14 @@ export const fillToolCalls: ToolCallGroup<FillToolCalls> = {
     limit = 20,
     vault = "",
   ): Promise<GapsReadResult> {
-    return this.call("gaps_read", { topic, status, cursor, limit, vault });
+    return this.call(LANE, {
+      action: "gaps_read",
+      topic,
+      status,
+      cursor,
+      limit,
+      vault,
+    });
   },
 
   /** Billed and two-phase: omit `confirm` to preview, pass the returned nonce to run. */
@@ -91,8 +108,14 @@ export const fillToolCalls: ToolCallGroup<FillToolCalls> = {
     vault = "",
   ): Promise<GapfillDiscoverResult> {
     return this.call(
-      "gapfill_discover",
-      { topic, max_gaps: maxGaps, confirm, vault },
+      LANE,
+      {
+        action: "gapfill_discover",
+        topic,
+        max_gaps: maxGaps,
+        confirm,
+        vault,
+      },
       LLM_CALL_TIMEOUT_MS,
     );
   },
@@ -105,10 +128,11 @@ export const fillToolCalls: ToolCallGroup<FillToolCalls> = {
     reason = "",
     vault = "",
   ): Promise<SuggestionReviewResult> {
-    return this.call("suggestions_review", {
+    return this.call(LANE, {
+      action: "suggestions_review",
+      suggestions_review_action: action,
       topic,
       suggestion_id: suggestionId,
-      action,
       mode,
       reason,
       vault,
@@ -121,7 +145,7 @@ export const fillToolCalls: ToolCallGroup<FillToolCalls> = {
     suggestionId: string,
     vault = "",
   ): Promise<SessionStatus> {
-    return this.call("fill", {
+    return this.call(LANE, {
       action: "session_status",
       topic,
       suggestion_id: suggestionId,
