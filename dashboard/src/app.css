@@ -3665,6 +3665,14 @@ button.loop-node:focus-visible {
   color: var(--muted);
   font: var(--fs-xs)/1.5 var(--sans);
 }
+/* An icon-prefixed live line inside a card body (design §4.1's progress
+   row). The grammar had no inline icon+text pairing outside `StateList`,
+   and a bare inline `<svg>` sits on the text baseline with a descender gap. */
+.section-card-status {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
 
 /* Stat / StatGrid — the readout primitive (design §2.2). `.stat-label` and
    `.microlabel` already carry the uppercase/muted treatment; this section

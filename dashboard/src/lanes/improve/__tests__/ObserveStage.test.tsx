@@ -223,6 +223,14 @@ describe("observe renders its facts from the mocked status, metrics, and cadence
     expect(await screen.findByText(/0\.66/)).toBeTruthy();
   });
 
+  /**
+   * Asserts the rendered cadence readouts by their exact text, not a bare
+   * `/6/`. The bare-digit form was vacuous: it resolved against the latest
+   * scalar (`0.66`) on the first `waitFor` tick, before `setCadence` had
+   * re-rendered anything, and so would have passed with the cadence display
+   * deleted outright. All three cadence facts are checked, so a regression
+   * that drops the window or the default-thread count fails here too.
+   */
   it("shows the cadence once client.loopCadence resolves", async () => {
     const client = makeClient({
       loopCadence: vi
@@ -240,7 +248,9 @@ describe("observe renders its facts from the mocked status, metrics, and cadence
     );
 
     await vi.waitFor(() => expect(client.loopCadence).toHaveBeenCalled());
-    expect(await screen.findByText(/6/)).toBeTruthy();
+    expect(await screen.findByText("every 6h")).toBeTruthy();
+    expect(await screen.findByText("7d")).toBeTruthy();
+    expect(await screen.findByText("4")).toBeTruthy();
   });
 
   it("renders `runner: watching · pid <n>` when status.loop.runner.alive is true", async () => {

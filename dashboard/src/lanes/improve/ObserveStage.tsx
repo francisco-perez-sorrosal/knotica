@@ -3,6 +3,10 @@ import { useEffect, useMemo, useRef, useState } from "preact/hooks";
 import uPlot from "uplot";
 import "uplot/dist/uPlot.min.css";
 
+import { Icon } from "../../icons";
+import { SectionCard } from "../../SectionCard";
+import { Stat, StatGrid } from "../../Stat";
+import { TermHint } from "../../TermHint";
 import {
   TwoPhaseConfirm,
   TwoPhaseOutcome,
@@ -16,13 +20,18 @@ import type {
 } from "../../types";
 
 /**
- * `observe` stage body (`INTERFACE_DESIGN.md §2.4`). Absorbs `LoopPane`'s
- * cadence controls, runner-liveness chip, `loop-progress`, the scalar chart,
- * `metrics_read`, and the billed two-phase `loop run_eval`. `Run eval now
- * (billed)` is the one primary control (§2.4's one-primary-control rule) and
- * stays at the top level alongside the summary facts (latest metrics,
- * runner, cadence); the chart and raw cadence editing live behind the single
- * `▸` disclosure.
+ * `observe` stage body. Absorbs `LoopPane`'s cadence controls,
+ * runner-liveness chip, `loop-progress`, the scalar chart, `metrics_read`,
+ * and the billed two-phase `loop run_eval`.
+ *
+ * The body is three `SectionCard`s in the stage-body grammar's fixed scan
+ * order — MEASUREMENT (the numbers), EVAL RUN (the knobs plus the one
+ * primary action, which sits in the footer of the card holding the settings
+ * it spends against), SCALAR TREND (the chart, behind the single
+ * `aria-expanded` disclosure this stage owns). `Run eval now (billed)` keeps
+ * its label, its class and its two-phase semantics verbatim: the visible
+ * `billed` chip is a *sibling* of the button, never a child, so the
+ * accessible name is unchanged and a single click still cannot bill.
  *
  * `status`/`metrics` are passed down from the lane's own read rather than
  * fetched independently here — the sibling `gate` stage reads the same
@@ -179,57 +188,138 @@ export function ObserveStage({
 
   return (
     <section class="pane-main observe-stage" aria-label="Observe">
-      <header class="observe-toolbar">
-        <div class="observe-facts">
-          {latest ? (
-            <span>
-              Latest: gen <strong>{latest.generation}</strong> · scalar{" "}
-              <strong>{latest.scalar}</strong>
-            </span>
-          ) : (
-            <span class="muted">No eval observations yet.</span>
-          )}
+      <SectionCard
+        title="MEASUREMENT"
+        icon="stage:observe"
+        headerActions={
           <output class={`observe-chip ${runnerAlive ? "ok" : "warn"}`}>
             {runnerAlive
               ? `runner: watching · pid ${runner?.pid ?? "?"}`
               : "runner: off"}
           </output>
-          {cadence ? (
-            <span class="muted">
-              cadence: every {cadence.eval_min_interval_hours}h · window{" "}
-              {cadence.eval_window} · threads {cadence.eval_num_threads}
-            </span>
-          ) : null}
-        </div>
-        <div class="observe-actions">
-          {runEvalControls(runEval, runEvalThreads, setRunEvalThreads)}
-        </div>
-      </header>
-
-      {progress ? (
-        <p class="muted observe-progress">
-          {progress.phase} · {progress.current}/{progress.total}
-          {progress.detail ? ` · ${progress.detail}` : ""}
-        </p>
-      ) : null}
-      {actionNote ? <p class="saved-note">{actionNote}</p> : null}
-
-      <button
-        type="button"
-        class="observe-disclosure"
-        aria-expanded={expanded}
-        onClick={() => setExpanded((wasExpanded) => !wasExpanded)}
+        }
       >
-        <span aria-hidden="true">▸</span>{" "}
-        {expanded ? "Hide details" : "Show details"}
-      </button>
+        <>
+          <StatGrid>
+            <Stat label={hint("gen")} value={latest?.generation} />
+            <Stat label={hint("scalar")} value={latest?.scalar} />
+            <Stat label={hint("baseline")} value={baselineScalar} />
+          </StatGrid>
+          <p class="muted">
+            {latest
+              ? "The score the last cycle produced, next to the frozen stick it must beat."
+              : "No eval has run for this topic yet."}
+          </p>
+          {progress ? (
+            <p class="muted section-card-status observe-progress">
+              <Icon name="state:running" size={16} />
+              {`${progress.phase} · ${progress.current}/${progress.total}${
+                progress.detail ? ` · ${progress.detail}` : ""
+              }`}
+            </p>
+          ) : null}
+          {actionNote ? (
+            <p class="saved-note" role="status">
+              {actionNote}
+            </p>
+          ) : null}
+        </>
+      </SectionCard>
 
-      {expanded ? <div class="observe-details" ref={chartHost} /> : null}
+      <SectionCard
+        title="EVAL RUN"
+        icon="refresh"
+        footer={runEvalFooter(runEval, runEvalThreads, setRunEvalThreads)}
+      >
+        <>
+          <StatGrid>
+            <Stat
+              label={hint("cadence")}
+              value={
+                cadence ? `every ${cadence.eval_min_interval_hours}h` : null
+              }
+            />
+            <Stat label={hint("window")} value={cadence?.eval_window} />
+            <Stat label={hint("threads")} value={cadence?.eval_num_threads} />
+          </StatGrid>
+          <p class="muted">
+            Running a cycle costs model tokens. The first click only quotes it.
+          </p>
+        </>
+      </SectionCard>
+
+      <SectionCard
+        title="SCALAR TREND"
+        headerActions={
+          <button
+            type="button"
+            class="observe-disclosure"
+            aria-expanded={expanded}
+            onClick={() => setExpanded((wasExpanded) => !wasExpanded)}
+          >
+            <span aria-hidden="true">▸</span>{" "}
+            {expanded ? "Hide details" : "Show details"}
+          </button>
+        }
+      >
+        <>
+          <p class="muted">
+            The scalar for each generation, with the baseline drawn across it.
+          </p>
+          {expanded ? <div class="observe-details" ref={chartHost} /> : null}
+        </>
+      </SectionCard>
     </section>
   );
 }
 
-function runEvalControls(
+/**
+ * The explanatory copy behind each stat label's `TermHint`. Held as data so
+ * the three cards above read as structure rather than prose.
+ */
+const OBSERVE_HINTS = {
+  gen: {
+    term: "LATEST GEN",
+    title: "Latest gen",
+    body: "Each finished eval cycle bumps the generation by one. Generations are per topic and are never reused, so gen 12 here and gen 12 in another topic are unrelated.",
+  },
+  scalar: {
+    term: "LATEST SCALAR",
+    title: "Latest scalar",
+    body: "The score the last eval cycle got on the held-out set. Higher is better. It only means something next to the baseline — a scalar with no baseline is a number, not a verdict.",
+  },
+  baseline: {
+    term: "BASELINE",
+    title: "Baseline",
+    body: "The frozen measuring stick this topic is scored against. A candidate has to beat it to pass the gate. It is set when a golden set is frozen in Instrument.",
+  },
+  cadence: {
+    term: "CADENCE",
+    title: "Cadence",
+    body: "The shortest gap the background watcher leaves between two eval cycles. It does not stop you running one right now.",
+  },
+  window: {
+    term: "WINDOW",
+    title: "Window",
+    body: "How much recent history each eval samples from.",
+  },
+  threads: {
+    term: "DEFAULT THREADS",
+    title: "Default threads",
+    body: "How many eval questions the watcher runs in parallel on its own schedule. The box below overrides it for this run only — the confirm quote will show the number you actually set.",
+  },
+} as const;
+
+function hint(key: keyof typeof OBSERVE_HINTS): JSX.Element {
+  return <TermHint id={`observe-${key}`} {...OBSERVE_HINTS[key]} />;
+}
+
+/**
+ * The EVAL RUN card's footer. The quote and the outcome replace this row in
+ * place — the two-phase confirm never moves out of the card that owns the
+ * control, so the answer always lands where the question was asked.
+ */
+function runEvalFooter(
   runEval: ReturnType<typeof useTwoPhaseAction<LoopRunEvalResult>>,
   runEvalThreads: string,
   setRunEvalThreads: (value: string) => void,
@@ -275,9 +365,9 @@ function runEvalControls(
   }
 
   return (
-    <div class="observe-run-eval">
+    <>
       <label class="observe-inline-field">
-        <span>threads</span>
+        <span>threads for this run</span>
         <input
           type="number"
           step="1"
@@ -289,6 +379,9 @@ function runEvalControls(
           }
         />
       </label>
+      {/* Sibling of the button, never a child: the accessible name stays
+          `Run eval now (billed)` and the two-phase contract is untouched. */}
+      <span class="chip cost">billed</span>
       <button
         type="button"
         class="primary"
@@ -297,7 +390,7 @@ function runEvalControls(
       >
         {busy === "preview" ? "Estimating…" : "Run eval now (billed)"}
       </button>
-    </div>
+    </>
   );
 }
 
