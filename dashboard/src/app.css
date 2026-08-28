@@ -3654,6 +3654,7 @@ button.loop-node:focus-visible {
 }
 .section-card-actions {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   justify-content: flex-end;
   gap: var(--space-2);
@@ -3664,6 +3665,14 @@ button.loop-node:focus-visible {
   margin: var(--space-2) var(--space-4) 0;
   color: var(--muted);
   font: var(--fs-xs)/1.5 var(--sans);
+}
+/* A note carried inside the footer (design §4.2's disabled-Freeze reason)
+   takes its own full-width line below the action row, left-aligned against
+   the card's own padding rather than the footer's flex-end. */
+.section-card-actions .section-card-note {
+  flex: 1 0 100%;
+  margin: 0;
+  text-align: left;
 }
 /* An icon-prefixed live line inside a card body (design §4.1's progress
    row). The grammar had no inline icon+text pairing outside `StateList`,
