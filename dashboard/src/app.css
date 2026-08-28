@@ -3096,3 +3096,167 @@ button.danger:hover:not(:disabled) {
     max-width: 100%;
   }
 }
+
+/* ——— Info popover (M6) ——— */
+.info-popover {
+  position: relative;
+  display: inline-flex;
+}
+.info-trigger {
+  appearance: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  border: 1px solid transparent;
+  border-radius: var(--radius-pill);
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+  transition: color .15s, border-color .15s, background .15s;
+}
+.info-trigger:hover, .info-trigger[aria-expanded="true"] {
+  color: var(--accent);
+  border-color: color-mix(in srgb, var(--accent) 35%, var(--line));
+  background: color-mix(in srgb, var(--accent) 8%, transparent);
+}
+.info-popover-panel {
+  position: absolute;
+  top: calc(100% + var(--space-1));
+  left: 0;
+  z-index: var(--z-popover);
+  width: min(20rem, 80vw);
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius-card);
+  background: var(--surface);
+  box-shadow: var(--shadow-overlay);
+  padding: var(--space-3);
+}
+.info-popover[data-align="end"] .info-popover-panel {
+  left: auto;
+  right: 0;
+}
+.info-popover[data-align="center"] .info-popover-panel {
+  left: 50%;
+  transform: translateX(-50%);
+}
+.info-popover-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+  padding-bottom: var(--space-2);
+  margin-bottom: var(--space-2);
+  border-bottom: 1px solid var(--line);
+}
+.info-popover-close {
+  appearance: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  padding: 0;
+  border: 0;
+  border-radius: var(--radius);
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+}
+.info-popover-close:hover { color: var(--heading); }
+.info-popover-body p {
+  margin: 0 0 var(--space-2);
+  color: var(--text);
+  font: var(--fs-sm)/1.5 var(--sans);
+}
+.info-popover-body p.microlabel {
+  margin: var(--space-3) 0 var(--space-1);
+}
+.info-popover-body p.microlabel:first-child { margin-top: 0; }
+.info-popover-body p:last-child { margin-bottom: 0; }
+
+/* ——— Copy block (M6) ——— */
+.copy-block {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-2) var(--space-3);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--surface-sunken);
+}
+.copy-block-code {
+  flex: 1 1 auto;
+  overflow-x: auto;
+  white-space: pre;
+  color: var(--text);
+  background: transparent;
+  font: var(--fs-sm) var(--mono);
+}
+.copy-block-action {
+  appearance: none;
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--surface);
+  color: var(--muted);
+  cursor: pointer;
+  transition: color .15s, border-color .15s;
+}
+.copy-block-action:hover {
+  color: var(--accent);
+  border-color: color-mix(in srgb, var(--accent) 35%, var(--line));
+}
+.copy-block-status {
+  flex: 0 0 auto;
+  min-width: 3.5rem;
+  color: var(--muted);
+  font: var(--fs-micro) var(--mono);
+  text-transform: uppercase;
+  letter-spacing: var(--tracking-micro);
+}
+
+/* ——— Empty state (M6) ——— */
+.empty-state {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-12) var(--space-4);
+  text-align: center;
+  color: var(--muted);
+}
+.empty-state-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 48px;
+  height: 48px;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius-card);
+  color: var(--muted);
+}
+.empty-state-title {
+  margin: 0;
+  color: var(--heading);
+  font: 600 var(--fs-md) var(--mono);
+  text-transform: uppercase;
+  letter-spacing: var(--tracking-label);
+}
+.empty-state-sentence {
+  margin: 0;
+  max-width: 28rem;
+  color: var(--muted);
+  font: var(--fs-sm)/1.5 var(--sans);
+}
+.empty-state-extra, .empty-state-action {
+  display: inline-flex;
+}
