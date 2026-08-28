@@ -2322,22 +2322,6 @@ code { font-family: var(--mono); font-size: .9em; }
   align-items: center;
   gap: .45rem .6rem;
 }
-.scoreboard-open-metrics {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(6.5rem, 1fr));
-  gap: .65rem;
-}
-.scoreboard-open-metrics .stat-label {
-  display: block;
-  font-size: .62rem;
-  text-transform: uppercase;
-  letter-spacing: .06em;
-  color: var(--muted);
-  margin-bottom: .15rem;
-}
-.scoreboard-open-metrics strong {
-  font: 600 1rem var(--mono);
-}
 .scoreboard-open-note,
 .scoreboard-open-verdict {
   margin: 0;
@@ -3708,7 +3692,8 @@ button.loop-node:focus-visible {
    WCAG 2.2 inline exception and need none. */
 .stat-label .term-hint-trigger,
 .state-list-name .term-hint-trigger,
-.chip .term-hint-trigger {
+.chip .term-hint-trigger,
+.status-chip .term-hint-trigger {
   display: inline-flex;
   align-items: center;
   min-height: 24px;

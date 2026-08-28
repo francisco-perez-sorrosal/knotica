@@ -6,6 +6,10 @@ import { formatDeleteApplied } from "../../deleteHelpers";
 import { PromotePreviewBanner } from "../../PromotePreview";
 import { formatPromoteApplied } from "../../promoteHelpers";
 import { PromptDiff } from "../../PromptDiff";
+import { SectionCard } from "../../SectionCard";
+import type { SectionTone } from "../../SectionCard";
+import { Stat, StatGrid } from "../../Stat";
+import { TermHint } from "../../TermHint";
 import type { ToolClient } from "../../toolClient";
 import type {
   BranchDeleteResult,
@@ -34,9 +38,9 @@ import type {
  * be deleted, for two five-line formatters.
  */
 
-function deltaTone(delta: number | null | undefined): string {
-  if (delta == null) return "";
-  return delta >= 0 ? "delta-up" : "delta-down";
+function deltaTone(delta: number | null | undefined): SectionTone | undefined {
+  if (delta == null) return undefined;
+  return delta >= 0 ? "good" : "bad";
 }
 
 function formatDeltaOrDash(delta: number | null | undefined): string {
@@ -190,84 +194,95 @@ export function PromoteStage({
       ) : null}
       {note ? <p class="scoreboard-note">{note}</p> : null}
 
-      {openCompile ? (
-        <article class="scoreboard-open-card">
-          <header class="scoreboard-open-head">
-            <code class="scoreboard-name">{openCompile.name}</code>
-            {openCompile.sha ? (
-              <span class="scoreboard-sha">{openCompile.sha}</span>
+      <SectionCard
+        title="BRANCH UNDER REVIEW"
+        icon="stage:promote"
+        headerActions={openCompile ? branchIdentity(openCompile) : undefined}
+        footer={
+          openCompile ? (
+            <>
+              {/* `Preview delete` sits left of `Preview promote` so the
+                  destructive control is never the rightmost, closest-to-thumb
+                  target — Fitts, inverted deliberately. */}
+              {openCompile.deletable ? (
+                <button
+                  type="button"
+                  class="danger"
+                  disabled={!client || deleteBusy}
+                  onClick={() => void previewDelete()}
+                >
+                  {deletePreviewBusy ? "Previewing…" : "Preview delete"}
+                </button>
+              ) : null}
+              {openCompile.promotable ? (
+                <button
+                  type="button"
+                  class="primary"
+                  data-testid="promote-preview-trigger"
+                  disabled={!client || promoteBusy}
+                  onClick={() => void previewPromote()}
+                >
+                  {previewBusy ? "Previewing…" : "Preview promote"}
+                </button>
+              ) : null}
+            </>
+          ) : undefined
+        }
+      >
+        {openCompile ? (
+          <>
+            <StatGrid>
+              <Stat
+                label={hint("score")}
+                value={
+                  openCompile.scalar != null
+                    ? openCompile.scalar.toFixed(4)
+                    : null
+                }
+              />
+              <Stat
+                label={hint("delta")}
+                value={
+                  openCompile.delta == null
+                    ? null
+                    : formatDeltaOrDash(openCompile.delta)
+                }
+                tone={deltaTone(openCompile.delta)}
+              />
+              <Stat
+                label={hint("baseline")}
+                value={baseline != null ? baseline.toFixed(4) : null}
+              />
+            </StatGrid>
+            {baseline != null ? (
+              <p class="scoreboard-open-verdict">
+                {openCompile.beats_baseline ? (
+                  <span class="delta-up">
+                    Beats per-topic baseline ({baseline.toFixed(4)})
+                  </span>
+                ) : (
+                  <span class="delta-down">
+                    Does not beat per-topic baseline ({baseline.toFixed(4)})
+                  </span>
+                )}
+              </p>
             ) : null}
-            <span
-              class={`status-chip status-${openCompile.status.replace(/[^a-z]+/g, "-")}`}
-            >
-              {openCompile.status}
-            </span>
-          </header>
-          <div class="scoreboard-open-metrics">
-            <div>
-              <span class="stat-label">Score</span>
-              <strong>
-                {openCompile.scalar != null
-                  ? openCompile.scalar.toFixed(4)
-                  : "—"}
-              </strong>
-            </div>
-            <div>
-              <span class="stat-label">Δ baseline</span>
-              <strong class={deltaTone(openCompile.delta)}>
-                {formatDeltaOrDash(openCompile.delta)}
-              </strong>
-            </div>
-          </div>
-          {baseline != null ? (
-            <p class="scoreboard-open-verdict">
-              {openCompile.beats_baseline ? (
-                <span class="delta-up">
-                  Beats per-topic baseline ({baseline.toFixed(4)})
-                </span>
-              ) : (
-                <span class="delta-down">
-                  Does not beat per-topic baseline ({baseline.toFixed(4)})
-                </span>
-              )}
-            </p>
-          ) : null}
 
-          <PromptDiff
-            client={client}
-            topic={topic}
-            vault={vault}
-            mode="compiled"
-            branch={openCompile.name}
-          />
-
-          <div class="scoreboard-open-actions">
-            {openCompile.promotable ? (
-              <button
-                type="button"
-                class="primary"
-                data-testid="promote-preview-trigger"
-                disabled={!client || promoteBusy}
-                onClick={() => void previewPromote()}
-              >
-                {previewBusy ? "Previewing…" : "Preview promote"}
-              </button>
-            ) : null}
-            {openCompile.deletable ? (
-              <button
-                type="button"
-                class="danger"
-                disabled={!client || deleteBusy}
-                onClick={() => void previewDelete()}
-              >
-                {deletePreviewBusy ? "Previewing…" : "Preview delete"}
-              </button>
-            ) : null}
-          </div>
-        </article>
-      ) : (
-        <p class="muted">No open compile branch to promote yet.</p>
-      )}
+            <PromptDiff
+              client={client}
+              topic={topic}
+              vault={vault}
+              mode="compiled"
+              branch={openCompile.name}
+            />
+          </>
+        ) : (
+          <p class="muted">
+            No open compile branch to promote yet. Heal writes one after a gate
+            refusal.
+          </p>
+        )}
+      </SectionCard>
 
       <PromotePreviewBanner
         preview={preview}
@@ -283,4 +298,54 @@ export function PromoteStage({
       />
     </div>
   );
+}
+
+/**
+ * The reviewed branch's identity in the card header: its name, its sha and
+ * its status verdict. The three elements keep their existing classes and
+ * their existing text — only their container changed.
+ */
+function branchIdentity(openCompile: ScoreboardEntry): JSX.Element {
+  return (
+    <>
+      <code class="scoreboard-name">{openCompile.name}</code>
+      {openCompile.sha ? (
+        <span class="scoreboard-sha">{openCompile.sha}</span>
+      ) : null}
+      <span
+        class={`status-chip status-${openCompile.status.replace(/[^a-z]+/g, "-")}`}
+      >
+        <TermHint
+          id="promote-status"
+          term={openCompile.status}
+          title="Promotable"
+          body="A branch is promotable once it has been gated and beats the baseline. Promote merges it into the vault; delete drops the branch and keeps the vault as it is."
+          align="end"
+        />
+      </span>
+    </>
+  );
+}
+
+/** The explanatory copy behind each stat label's `TermHint`. */
+const PROMOTE_HINTS = {
+  score: {
+    term: "SCORE",
+    title: "Score",
+    body: "What this branch scored on the held-out set, using the same harness as the baseline. Scores from different harness versions are not comparable — the loop reports unknown rather than pretending otherwise.",
+  },
+  delta: {
+    term: "Δ BASELINE",
+    title: "Δ baseline",
+    body: "Score minus baseline. Positive means this branch is better on the held-out set; it does not mean better everywhere.",
+  },
+  baseline: {
+    term: "BASELINE",
+    title: "Baseline",
+    body: "The frozen stick this topic is measured against. Promoting a branch that beats it moves the stick.",
+  },
+} as const;
+
+function hint(key: keyof typeof PROMOTE_HINTS): JSX.Element {
+  return <TermHint id={`promote-${key}`} {...PROMOTE_HINTS[key]} />;
 }
