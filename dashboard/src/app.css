@@ -1979,27 +1979,6 @@ code { font-family: var(--mono); font-size: .9em; }
   background: var(--surface-raised);
   font-size: .78rem;
 }
-.candidate-list {
-  list-style: none;
-  margin: 0;
-  padding: 0;
-  display: grid;
-  gap: .35rem;
-}
-.candidate-list li {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: baseline;
-  gap: .35rem .55rem;
-  font-size: .78rem;
-}
-.candidate-tag {
-  color: var(--muted);
-  font-size: .72rem;
-}
-.candidate-tag.pending { color: var(--warn); }
-.candidate-tag.done { color: var(--good); }
-
 .loop-banner {
   display: grid;
   grid-template-columns: 1fr auto;
@@ -2635,10 +2614,6 @@ button.danger:hover:not(:disabled) {
 .prompt-diff-line-del .prompt-diff-text {
   color: var(--bad);
 }
-.candidate-list .prompt-diff {
-  margin-top: .35rem;
-}
-
 @media (max-width: 840px) {
   .pipeline { grid-template-columns: repeat(3, 1fr); }
   .pipeline.workflow-curate { grid-template-columns: repeat(2, minmax(0, 1fr)); }
@@ -3732,7 +3707,8 @@ button.loop-node:focus-visible {
    state-list name gets a real hit area; inline-in-prose uses take the
    WCAG 2.2 inline exception and need none. */
 .stat-label .term-hint-trigger,
-.state-list-name .term-hint-trigger {
+.state-list-name .term-hint-trigger,
+.chip .term-hint-trigger {
   display: inline-flex;
   align-items: center;
   min-height: 24px;
@@ -3800,6 +3776,15 @@ button.loop-node:focus-visible {
   text-align: right;
 }
 .state-list-action { justify-self: end; }
+/* An *opened* row action (a `PromptDiff` panel) would otherwise size its own
+   `auto` column against the whole diff and collapse the `1fr` name column.
+   Spanning the row keeps the panel full-width — the same break the flexbox
+   `.candidate-list li` this replaces already relied on. Collapsed, the
+   toggle stays inline and right-aligned, exactly as the mockup draws it. */
+.state-list-row:has(.state-list-action .prompt-diff-panel) .state-list-action {
+  grid-column: 1 / -1;
+  justify-self: stretch;
+}
 
 /* Billed marker — a sibling of the button it precedes, never a child
    (design §2.5): the chip must not change the button's accessible name. */
