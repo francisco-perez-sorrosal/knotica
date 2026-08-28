@@ -50,7 +50,18 @@ const initialLane = query.get("lane") || "";
 const initialPane = initialLane
   ? resolveLaneFocus(initialLane, query.get("focus") || "")
   : resolvePane(query.get("pane"));
-const mcpUrl = query.get("mcp") || "http://127.0.0.1:8765/mcp";
+/**
+ * The HTTP mount is normally served by the same process that answers `/mcp`,
+ * so same-origin is the honest default — a hardcoded port polls a *different*
+ * server whenever `--port` isn't 8765, and the stale answers it gets are
+ * indistinguishable from live ones. The fixed fallback remains only for
+ * non-http contexts (e.g. a file:// open of the built artifact).
+ */
+const mcpUrl =
+  query.get("mcp") ||
+  (window.location.protocol === "http:" || window.location.protocol === "https:"
+    ? new URL("/mcp", window.location.origin).toString()
+    : "http://127.0.0.1:8765/mcp");
 
 const catalog = signal<WikiStatus | null>(null);
 const status = signal<WikiStatus | null>(null);
