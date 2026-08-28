@@ -3,6 +3,7 @@ import { signal } from "@preact/signals";
 import type { App as ExtApp } from "@modelcontextprotocol/ext-apps";
 import { applyDocumentTheme } from "@modelcontextprotocol/ext-apps";
 
+import { CreateDrawer } from "./CreateDrawer";
 import { AnswerLane } from "./lanes/answer/AnswerLane";
 import { FillLane } from "./lanes/fill/FillLane";
 import { HomeLane } from "./lanes/home/HomeLane";
@@ -82,14 +83,6 @@ export function App() {
   const [vault, setVault] = useState(initialVault);
   const [pane, setPane] = useState<PaneId>(initialPane);
   const [showCreateDrawer, setShowCreateDrawer] = useState(false);
-  const [newKbPath, setNewKbPath] = useState("");
-  const [newKbName, setNewKbName] = useState("");
-  const [newKbTopic, setNewKbTopic] = useState("");
-  const [newTopicName, setNewTopicName] = useState("");
-  const [newTopicBusy, setNewTopicBusy] = useState(false);
-  const [newTopicError, setNewTopicError] = useState<string | null>(null);
-  const [newKbBusy, setNewKbBusy] = useState(false);
-  const [newKbError, setNewKbError] = useState<string | null>(null);
   const [mount, setMount] = useState<"http" | "bridge" | "connecting">(
     preferBridgeMount() ? "connecting" : "http",
   );
@@ -351,62 +344,11 @@ export function App() {
     }
   }
 
-  function newKbBasename(path: string): string {
-    const trimmed = path.trim().replace(/\/+$/, "");
-    const parts = trimmed.split("/");
-    return parts[parts.length - 1] || trimmed;
-  }
-
-  async function submitNewKb(event: Event) {
-    event.preventDefault();
-    const path = newKbPath.trim();
-    if (!clientRef.current || !path) return;
-    setNewKbBusy(true);
-    setNewKbError(null);
-    try {
-      const name = newKbName.trim() || newKbBasename(path);
-      await clientRef.current.vaultCreate(name, path, newKbTopic.trim(), true);
-      setShowCreateDrawer(false);
-      setNewKbPath("");
-      setNewKbName("");
-      setNewKbTopic("");
-      await selectVault(name);
-    } catch (cause) {
-      setNewKbError(cause instanceof Error ? cause.message : String(cause));
-    } finally {
-      setNewKbBusy(false);
-    }
-  }
-
   function selectTopic(name: string) {
     setTopic(name);
     const url = new URL(window.location.href);
     url.searchParams.set("topic", name);
     window.history.replaceState({}, "", url);
-  }
-
-  // A knowledge base is normally several topics, but `vault action=create`
-  // seeds only the first — so without this the dashboard could start a KB and
-  // then not grow it. Refresh before selecting: the picker renders from the
-  // status payload, and selecting a topic it has not yet seen shows an entry
-  // that vanishes on the next poll.
-  async function submitNewTopic(event: Event) {
-    event.preventDefault();
-    const name = newTopicName.trim();
-    if (!clientRef.current || !name) return;
-    setNewTopicBusy(true);
-    setNewTopicError(null);
-    try {
-      await clientRef.current.createTopic(name);
-      setShowCreateDrawer(false);
-      setNewTopicName("");
-      await refreshStatus(true);
-      selectTopic(name);
-    } catch (cause) {
-      setNewTopicError(cause instanceof Error ? cause.message : String(cause));
-    } finally {
-      setNewTopicBusy(false);
-    }
   }
 
   function selectPane(next: PaneId) {
@@ -487,11 +429,7 @@ export function App() {
                 aria-expanded={showCreateDrawer}
                 aria-controls="chrome-create-drawer"
                 aria-label="Create a knowledge base or topic"
-                onClick={() => {
-                  setShowCreateDrawer((prev) => !prev);
-                  setNewKbError(null);
-                  setNewTopicError(null);
-                }}
+                onClick={() => setShowCreateDrawer((prev) => !prev)}
               >
                 <Icon name="plus" size={16} />
               </button>
@@ -571,107 +509,14 @@ export function App() {
           </div>
         </div>
 
-        {showCreateDrawer ? (
-          <div id="chrome-create-drawer" class="chrome-create-drawer">
-            <form
-              class="doctor-repair-toolbar"
-              onSubmit={(event) => void submitNewKb(event)}
-            >
-              <p class="microlabel chrome-create-drawer-title">
-                New knowledge base
-              </p>
-              <label class="heal-inline-field">
-                <span>path</span>
-                <input
-                  type="text"
-                  required
-                  value={newKbPath}
-                  placeholder="/path/to/vault"
-                  onInput={(event) =>
-                    setNewKbPath((event.target as HTMLInputElement).value)
-                  }
-                />
-              </label>
-              <label class="heal-inline-field">
-                <span>name</span>
-                <input
-                  type="text"
-                  value={newKbName}
-                  placeholder={newKbBasename(newKbPath) || "vault name"}
-                  onInput={(event) =>
-                    setNewKbName((event.target as HTMLInputElement).value)
-                  }
-                />
-              </label>
-              <label class="heal-inline-field">
-                <span>topic</span>
-                <input
-                  type="text"
-                  value={newKbTopic}
-                  placeholder="optional"
-                  onInput={(event) =>
-                    setNewKbTopic((event.target as HTMLInputElement).value)
-                  }
-                />
-              </label>
-              <button
-                type="submit"
-                class="primary"
-                disabled={newKbBusy || !newKbPath.trim()}
-              >
-                {newKbBusy ? "Creating…" : "Create"}
-              </button>
-              <button
-                type="button"
-                class="toggle"
-                onClick={() => {
-                  setShowCreateDrawer(false);
-                  setNewKbError(null);
-                }}
-              >
-                Cancel
-              </button>
-              {newKbError ? <p class="tone-bad">{newKbError}</p> : null}
-            </form>
-
-            <form
-              class="doctor-repair-toolbar"
-              onSubmit={(event) => void submitNewTopic(event)}
-            >
-              <p class="microlabel chrome-create-drawer-title">New topic</p>
-              <label class="heal-inline-field">
-                <span>topic</span>
-                <input
-                  type="text"
-                  required
-                  value={newTopicName}
-                  placeholder="pretraining"
-                  onInput={(event) =>
-                    setNewTopicName((event.target as HTMLInputElement).value)
-                  }
-                />
-              </label>
-              <button
-                type="submit"
-                class="primary"
-                disabled={newTopicBusy || !newTopicName.trim()}
-              >
-                {newTopicBusy ? "Creating…" : "Create"}
-              </button>
-              <button
-                type="button"
-                class="toggle"
-                onClick={() => {
-                  setShowCreateDrawer(false);
-                  setNewTopicError(null);
-                }}
-              >
-                Cancel
-              </button>
-              {newTopicError ? <p class="tone-bad">{newTopicError}</p> : null}
-            </form>
-          </div>
-        ) : null}
+        <CreateDrawer
+          open={showCreateDrawer}
+          client={client}
+          onClose={() => setShowCreateDrawer(false)}
+          onCreatedKb={selectVault}
+          onCreatedTopic={selectTopic}
+          onRefreshStatus={refreshStatus}
+        />
 
         <div class="app-chrome-band">
           <div class="chrome-controls">
