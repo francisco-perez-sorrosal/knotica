@@ -3317,3 +3317,119 @@ button.danger:hover:not(:disabled) {
 .empty-state-extra, .empty-state-action {
   display: inline-flex;
 }
+
+/* ——— Lane card grid (M5) ——— */
+.lane-card-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(9.5rem, 1fr));
+  gap: var(--space-3);
+  margin: 0 0 var(--space-6);
+  padding: 0;
+  list-style: none;
+}
+.lane-card {
+  position: relative;
+}
+.lane-card-open {
+  appearance: none;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: .35rem;
+  width: 100%;
+  min-height: 8.5rem;
+  padding: var(--space-3);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-card);
+  background: var(--surface);
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+  transition: border-color .15s, background .15s;
+}
+.lane-card-open:hover,
+.lane-card-open:focus-visible {
+  border-color: var(--line-strong);
+  background: var(--surface-raised);
+}
+.lane-card-name {
+  margin-top: .15rem;
+  color: var(--heading);
+  font: 600 var(--fs-sm) var(--mono);
+  text-transform: uppercase;
+  letter-spacing: var(--tracking-label);
+}
+.lane-card-blurb {
+  margin: 0;
+  color: var(--muted);
+  font: var(--fs-xs)/1.4 var(--sans);
+}
+.lane-card-stat {
+  margin: auto 0 0;
+  padding-top: .3rem;
+  color: var(--text);
+  font: var(--fs-xs) var(--mono);
+}
+.lane-card .info-popover {
+  position: absolute;
+  top: var(--space-2);
+  right: var(--space-2);
+  z-index: 1;
+}
+
+/* ——— Attention table (M5) ——— */
+.attention-table {
+  width: 100%;
+  border-collapse: collapse;
+  margin: 0 0 var(--space-4);
+  font: var(--fs-sm) var(--mono);
+}
+.attention-table caption {
+  text-align: left;
+  margin-bottom: var(--space-2);
+}
+.attention-table th {
+  padding: var(--space-2) var(--space-3);
+  color: var(--muted);
+  font: 500 var(--fs-micro)/1.4 var(--mono);
+  text-transform: uppercase;
+  letter-spacing: var(--tracking-micro);
+  text-align: left;
+  border-bottom: 1px solid var(--line);
+}
+.attention-table td {
+  padding: var(--space-2) var(--space-3);
+  border-bottom: 1px solid var(--line);
+  vertical-align: middle;
+}
+.attention-table tbody tr {
+  border-left: 3px solid transparent;
+}
+.attention-table tbody tr[data-urgency="blocked"] { border-left-color: var(--bad); }
+.attention-table tbody tr[data-urgency="waiting"] { border-left-color: var(--warn); }
+.attention-table tbody tr[data-urgency="running"] { border-left-color: var(--running); }
+.attention-table-urgency-label {
+  margin-left: .35rem;
+  text-transform: uppercase;
+  font-size: var(--fs-xs);
+}
+.attention-table-topic {
+  color: var(--heading);
+  font-weight: 600;
+}
+.attention-table-lane-cell {
+  display: flex;
+  align-items: center;
+  gap: .5rem;
+}
+.attention-table-lane {
+  color: var(--muted);
+  text-transform: uppercase;
+  font-size: var(--fs-xs);
+}
+.home-drift-row {
+  display: flex;
+  align-items: center;
+  gap: .4rem;
+  margin: var(--space-4) 0 0;
+}
