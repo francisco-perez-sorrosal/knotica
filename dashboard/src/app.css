@@ -394,6 +394,24 @@ output {
   font: 1.5rem var(--mono);
   font-variant-numeric: tabular-nums;
 }
+/* The runner-liveness readout is a status chip, not a numeric readout — it must
+   not inherit the bare `output` display size above. Mirrors the .chip idiom. */
+output.observe-chip {
+  display: inline-block;
+  padding: .15rem .55rem;
+  border: 1px solid var(--line);
+  background: var(--surface-raised);
+  color: var(--muted);
+  font: .7rem var(--mono);
+}
+output.observe-chip.ok {
+  color: var(--good);
+  border-color: color-mix(in srgb, var(--good) 45%, var(--line));
+}
+output.observe-chip.warn {
+  color: var(--warn);
+  border-color: color-mix(in srgb, var(--warn) 45%, var(--line));
+}
 .chart {
   margin-top: 1rem;
   min-height: 260px;
