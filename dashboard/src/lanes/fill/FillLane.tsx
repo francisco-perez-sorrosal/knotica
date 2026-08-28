@@ -1,7 +1,9 @@
 import type { JSX } from "preact";
 
+import { LANE_STAGES } from "../../processModel";
 import type { ToolClient } from "../../toolClient";
 import type { WikiStatus } from "../../types";
+import { LoopStrip } from "../LoopStrip";
 import { IngestGateStage } from "./IngestGateStage";
 import { QueueStage } from "./QueueStage";
 
@@ -46,8 +48,23 @@ export function FillLane({
   status?: WikiStatus | null;
   onStatusRefresh?: () => void | Promise<void>;
 }): JSX.Element {
+  // The same already-derived array both children read (`QueueStage`,
+  // `IngestGateStage`) -- the strip is a projection of it, never a second read.
+  const declared =
+    status?.topics.find((row) => row.topic === topic)?.lanes?.fill ?? [];
+  const byId = new Map(declared.map((stage) => [stage.id, stage] as const));
+
   return (
     <main class="pane-main fill">
+      <LoopStrip
+        lane="fill"
+        stages={LANE_STAGES.fill.map(({ id, title }) => ({
+          id,
+          title,
+          state: byId.get(id)?.state ?? "pending",
+        }))}
+      />
+
       <ol class="lane-rail" aria-label="fill stages">
         <QueueStage
           client={client}

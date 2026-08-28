@@ -7,6 +7,7 @@ import type { ToolClient } from "../../toolClient";
 import type { IngestActivity, IngestRun } from "../../types";
 import { HandoffStage } from "../HandoffStage";
 import { deriveSequenceStages, type StageState } from "../laneRailState";
+import { LoopStrip } from "../LoopStrip";
 
 /**
  * `LearnLane` (`INTERFACE_DESIGN.md §2.2`) -- the four-stage
@@ -186,6 +187,28 @@ export function LearnLane({
 
   return (
     <main class="pane-main learn">
+      <LoopStrip
+        lane="learn"
+        stages={[
+          {
+            id: sourceStage.id,
+            title: sourceStage.title,
+            state: sourceStage.state,
+          },
+          {
+            id: fetchParseStage.id,
+            title: fetchParseStage.title,
+            state: fetchParseStage.state,
+          },
+          { id: pagesStage.id, title: pagesStage.title, state: pagesState },
+          {
+            id: curateDeclared.id,
+            title: curateDeclared.title,
+            state: curateState,
+          },
+        ]}
+      />
+
       <ol class="lane-rail" aria-label="learn stages">
         <StageRow
           state={sourceStage.state}

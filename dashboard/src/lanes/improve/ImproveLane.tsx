@@ -8,6 +8,7 @@ import type {
   MetricsWindow,
   WikiStatus,
 } from "../../types";
+import { LoopStrip } from "../LoopStrip";
 import { GateStage } from "./GateStage";
 import { HealStage } from "./HealStage";
 import { InstrumentStage } from "./InstrumentStage";
@@ -118,6 +119,14 @@ export function ImproveLane({
 
   return (
     <main class="pane-main improve">
+      <LoopStrip
+        lane="improve"
+        stages={STAGE_ORDER.map((id) => ({
+          id,
+          title: STAGE_TITLE[id],
+          state: byId.get(id)?.state ?? "pending",
+        }))}
+      />
       <ol class="lane-rail" aria-label="improve stages">
         {STAGE_ORDER.map((id, index) => (
           <ImproveStageRow

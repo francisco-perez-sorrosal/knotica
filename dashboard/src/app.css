@@ -2951,7 +2951,7 @@ button.danger:hover:not(:disabled) {
 
 /* ——— Lane rail (M3) ——— */
 :root {
-  --lane-state-pending: var(--muted);
+  --lane-state-pending: var(--neutral);
   --lane-state-active: var(--accent);
   --lane-state-complete: var(--good);
   --lane-state-blocked: var(--bad);
@@ -2961,7 +2961,7 @@ button.danger:hover:not(:disabled) {
 }
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme="light"]) {
-    --lane-state-pending: var(--muted);
+    --lane-state-pending: var(--neutral);
     --lane-state-active: var(--accent);
     --lane-state-complete: var(--good);
     --lane-state-blocked: var(--bad);
@@ -2971,7 +2971,7 @@ button.danger:hover:not(:disabled) {
   }
 }
 :root[data-theme="dark"] {
-  --lane-state-pending: var(--muted);
+  --lane-state-pending: var(--neutral);
   --lane-state-active: var(--accent);
   --lane-state-complete: var(--good);
   --lane-state-blocked: var(--bad);
@@ -2990,11 +2990,18 @@ button.danger:hover:not(:disabled) {
 .lane-stage {
   display: grid;
   grid-template-columns: auto 1fr;
-  gap: .65rem;
-  padding: .65rem .75rem;
-  border: 1px solid var(--line);
+  gap: var(--space-3);
+  padding: var(--space-3);
+  border: var(--border) solid var(--line);
   border-left: 3px solid var(--line);
+  border-radius: var(--radius);
   background: var(--surface);
+}
+/* The client-owned focus axis (design §5.3) -- orthogonal to `data-state`,
+   which stays the server's. Inert until a lane passes `focusedId`. */
+.lane-stage[data-focus="true"] {
+  border-color: var(--line-strong);
+  background: var(--surface-raised);
 }
 .lane-stage[data-state="pending"] { border-left-color: var(--lane-state-pending); }
 .lane-stage[data-state="active"] {
@@ -3010,12 +3017,12 @@ button.danger:hover:not(:disabled) {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 1.5rem;
-  height: 1.5rem;
-  border-radius: 999px;
-  font: 600 .72rem var(--display);
-  color: var(--muted);
-  border: 1px solid var(--line);
+  width: 26px;
+  height: 26px;
+  border-radius: var(--radius-pill);
+  font: 600 .72rem var(--mono);
+  color: var(--lane-state-pending);
+  border: var(--border) solid var(--line-strong);
 }
 .lane-stage[data-state="active"] .lane-stage-index {
   color: var(--lane-state-active);
@@ -3035,11 +3042,21 @@ button.danger:hover:not(:disabled) {
   align-items: baseline;
   gap: .4rem;
 }
-.lane-stage-heading strong { font: 600 .85rem var(--display); }
-.lane-state-label {
-  text-transform: capitalize;
-  font: .68rem var(--mono);
+.lane-stage-heading strong {
+  font: 600 var(--fs-sm) var(--mono);
+  letter-spacing: var(--tracking-label);
+  text-transform: uppercase;
+  color: var(--heading);
 }
+.lane-state-label {
+  font: var(--fs-xs) var(--mono);
+  letter-spacing: var(--tracking-label);
+  text-transform: uppercase;
+  color: var(--lane-state-pending);
+}
+.lane-stage[data-state="active"] .lane-state-label { color: var(--lane-state-active); }
+.lane-stage[data-state="complete"] .lane-state-label { color: var(--lane-state-complete); }
+.lane-stage[data-state="blocked"] .lane-state-label { color: var(--lane-state-blocked); }
 .lane-stage-actor { font: .68rem var(--mono); }
 .lane-stage-body { margin: .35rem 0 0; font-size: .8rem; line-height: 1.45; }
 .lane-stage-fact { margin: 0 0 .35rem; }
@@ -3432,4 +3449,148 @@ button.danger:hover:not(:disabled) {
   align-items: center;
   gap: .4rem;
   margin: var(--space-4) 0 0;
+}
+
+/* ——— Loop strip (M6) ——— */
+.lane-rail-shell {
+  display: grid;
+  gap: var(--space-4);
+}
+.loop-strip {
+  display: grid;
+  gap: var(--space-3);
+  padding: var(--space-4);
+  margin: 0 0 var(--space-4);
+  border: var(--border) solid var(--line);
+  border-radius: var(--radius-card);
+  background: var(--surface);
+}
+.loop-strip-header {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+.loop-strip-headline { color: var(--heading); }
+.loop-strip-track {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  grid-auto-flow: column;
+  grid-auto-columns: 1fr;
+  gap: var(--space-1);
+}
+.loop-strip-item {
+  position: relative;
+  display: grid;
+  justify-items: center;
+  gap: var(--space-1);
+  text-align: center;
+}
+/* The track — a 1px rule joining each node back to its predecessor.
+   Suppressed entirely for the `checks` shape: independent peers have no
+   sequence (`laneRailState.ts::deriveChecklistStages`). */
+.loop-strip-item + .loop-strip-item::before {
+  content: "";
+  position: absolute;
+  top: 14px;
+  right: 50%;
+  left: -50%;
+  border-top: var(--border) solid var(--line);
+}
+.loop-strip-item[data-state="complete"] + .loop-strip-item::before {
+  border-top-color: var(--good);
+}
+.loop-strip-item[data-state="active"]::before {
+  border-top: 2px solid var(--running);
+}
+.loop-strip[data-shape="checks"] .loop-strip-item::before { content: none; }
+.loop-node {
+  position: relative;
+  z-index: 1;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border: var(--border) solid var(--line-strong);
+  border-radius: var(--radius-pill);
+  background: var(--surface);
+  color: var(--neutral);
+}
+button.loop-node {
+  appearance: none;
+  cursor: pointer;
+}
+button.loop-node:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+.loop-strip-item[data-state="active"] .loop-node {
+  border-color: var(--running);
+  color: var(--running);
+}
+.loop-strip-item[data-state="complete"] .loop-node {
+  border-color: var(--good);
+  color: var(--good);
+}
+.loop-strip-item[data-state="blocked"] .loop-node {
+  border-color: var(--bad);
+  color: var(--bad);
+}
+.loop-strip-item[data-focus="true"] .loop-node {
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 28%, transparent);
+}
+.loop-node-title { color: var(--muted); }
+.loop-strip-item[data-focus="true"] .loop-node-title { color: var(--heading); }
+.loop-node-state {
+  font: var(--fs-micro) var(--mono);
+  letter-spacing: var(--tracking-label);
+  text-transform: uppercase;
+  color: var(--neutral);
+}
+.loop-strip-item[data-state="active"] .loop-node-state { color: var(--running); }
+.loop-strip-item[data-state="complete"] .loop-node-state { color: var(--good); }
+.loop-strip-item[data-state="blocked"] .loop-node-state { color: var(--bad); }
+/* The return arc — drawn only for a `cycle`-shaped lane (design §3.3). */
+.loop-strip-arc {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  margin: 0;
+}
+.loop-strip-arc-line {
+  flex: 1;
+  height: 8px;
+  border: var(--border) solid var(--line-strong);
+  border-top: 0;
+  border-radius: 0 0 var(--radius-card) var(--radius-card);
+}
+.stage-state-legend {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: var(--space-1);
+}
+.stage-state-legend li {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+.stage-state-legend strong {
+  text-transform: uppercase;
+  font: 600 var(--fs-micro) var(--mono);
+  letter-spacing: var(--tracking-label);
+  color: var(--heading);
+}
+@media (prefers-reduced-motion: no-preference) {
+  .loop-strip-item[data-state="active"] .loop-node {
+    animation: loop-node-pulse 1.8s var(--ease-out) infinite;
+  }
+  @keyframes loop-node-pulse {
+    0%, 100% { box-shadow: 0 0 0 0 color-mix(in srgb, var(--running) 45%, transparent); }
+    50% { box-shadow: 0 0 0 5px color-mix(in srgb, var(--running) 0%, transparent); }
+  }
 }

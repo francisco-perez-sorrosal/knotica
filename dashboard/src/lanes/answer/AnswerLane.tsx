@@ -6,6 +6,7 @@ import type { ObsidianContext } from "../../obsidianLinks";
 import type { ToolClient } from "../../toolClient";
 import type { QueryAnswer, WikiStatus } from "../../types";
 import { deriveSequenceStages, type StageState } from "../laneRailState";
+import { LoopStrip } from "../LoopStrip";
 
 /**
  * `AnswerLane` (`INTERFACE_DESIGN.md §2.3`) -- the three-stage `ask -> cite ->
@@ -188,6 +189,13 @@ export function AnswerLane({
 
   return (
     <main class="pane-main answer">
+      <LoopStrip
+        lane="answer"
+        stages={[askStage, citeStage, reactStage].map(
+          ({ id, title, state }) => ({ id, title, state }),
+        )}
+      />
+
       <ol class="lane-rail" aria-label="answer stages">
         <StageRow state={askStage.state} position={1} title="Ask">
           <label class="ask-label">
