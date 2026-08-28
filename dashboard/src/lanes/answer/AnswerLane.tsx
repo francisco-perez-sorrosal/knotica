@@ -3,6 +3,8 @@ import { useState } from "preact/hooks";
 
 import { AnswerCard } from "../../answerPresentation";
 import type { ObsidianContext } from "../../obsidianLinks";
+import { SectionCard } from "../../SectionCard";
+import { TermHint } from "../../TermHint";
 import type { ToolClient } from "../../toolClient";
 import type { QueryAnswer, WikiStatus } from "../../types";
 import { deriveSequenceStages, type StageState } from "../laneRailState";
@@ -27,6 +29,16 @@ import { LoopStrip } from "../LoopStrip";
  * `Bad example` reuse the unchanged `client.curateExample` call `AskPane.tsx`
  * already makes; `Note it`/`Report gap` are the two new flat Tier-1 tools
  * this step wires onto `ToolClient` (`note_capture`/`gap_report`).
+ *
+ * `react`'s body is rebuilt on the stage-body grammar
+ * (`INTERFACE_DESIGN_2.md §5`, P2-1): one `SectionCard "REACT"` whose muted
+ * explanation names what the four buttons do; `Good example`/`Bad example`
+ * keep their exact accessible names and their default (non-quiet) button
+ * class, since they are the pair the loop trains on directly; `Note it`/
+ * `Report gap` become `class="ghost"` quiet actions, since they route
+ * through the loop's queues rather than feeding a training signal directly.
+ * The `role="status"` outcome note stays in the footer, unchanged text. Ask
+ * and Cite are untouched -- `§5` names only React for this budget.
  */
 
 interface AnswerStage {
@@ -246,45 +258,71 @@ export function AnswerLane({
         </StageRow>
 
         <StageRow state={reactStage.state} position={3} title="React">
-          {result ? (
-            <div class="ask-curate">
-              <button
-                type="button"
-                disabled={busy}
-                onClick={() => void curate("good")}
-              >
-                Good example
-              </button>
-              <button
-                type="button"
-                disabled={busy}
-                onClick={() => void curate("bad")}
-              >
-                Bad example
-              </button>
-              <button
-                type="button"
-                disabled={busy}
-                onClick={() => void noteIt()}
-              >
-                Note it
-              </button>
-              <button
-                type="button"
-                disabled={busy}
-                onClick={() => void reportGap()}
-              >
-                Report gap
-              </button>
-              {reacted && reactNote ? (
-                <p class="muted" role="status">
-                  Answer + signal: {reactNote}
+          <SectionCard
+            title="REACT"
+            footer={
+              result ? (
+                <>
+                  <button
+                    type="button"
+                    disabled={busy}
+                    onClick={() => void curate("good")}
+                  >
+                    Good example
+                  </button>
+                  <button
+                    type="button"
+                    disabled={busy}
+                    onClick={() => void curate("bad")}
+                  >
+                    Bad example
+                  </button>
+                  <button
+                    type="button"
+                    class="ghost"
+                    disabled={busy}
+                    onClick={() => void noteIt()}
+                  >
+                    Note it
+                  </button>
+                  <button
+                    type="button"
+                    class="ghost"
+                    disabled={busy}
+                    onClick={() => void reportGap()}
+                  >
+                    Report gap
+                  </button>
+                  {reacted && reactNote ? (
+                    <p class="section-card-note" role="status">
+                      Answer + signal: {reactNote}
+                    </p>
+                  ) : null}
+                </>
+              ) : undefined
+            }
+          >
+            {result ? (
+              <>
+                <p class="muted">
+                  These are the signals the loop learns from.
                 </p>
-              ) : null}
-            </div>
-          ) : (
-            <p class="muted">Answer a question to react to it.</p>
-          )}
+                <p class="muted">
+                  Good/Bad{" "}
+                  <TermHint
+                    id="answer-react-example"
+                    term="example"
+                    title="Curated example"
+                    body="Kept as a curated example — good ones become training signal, bad ones become counter-examples."
+                  />{" "}
+                  trains the loop directly; Note it and Report gap route
+                  through the loop's queues instead.
+                </p>
+              </>
+            ) : (
+              <p class="muted">Answer a question to react to it.</p>
+            )}
+          </SectionCard>
         </StageRow>
       </ol>
     </main>
