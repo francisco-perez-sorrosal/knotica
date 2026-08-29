@@ -270,3 +270,123 @@ describe("compile is a spend-immediately action gated on an explicit click, neve
     expect(compileRun.mock.calls[0][1]).toBe(VAULT);
   });
 });
+
+describe("an aborted race explains itself and names the next step", () => {
+  function abortedStatus(): ArenaStatus {
+    return fakeArenaStatus({
+      stage: "aborted",
+      scorer_id: "heuristic-keyword",
+      message:
+        "arena aborted: scorer 'heuristic-keyword' does not produce eval-comparable scalars",
+      variants: [
+        { id: "v1", label: "variant-1", scalar: null, status: "pending" },
+        { id: "v2", label: "variant-2", scalar: null, status: "pending" },
+      ],
+    });
+  }
+
+  it("renders the server's abort reason verbatim and the config next step", async () => {
+    const client = fakeClient({
+      arenaStatus: vi.fn().mockResolvedValue(abortedStatus()),
+    });
+
+    render(
+      <HealStage
+        client={client}
+        topic={TOPIC}
+        vault={VAULT}
+        status={baseStatus("fail")}
+      />,
+    );
+
+    const reason = await screen.findByTestId("heal-abort-reason");
+    expect(reason.textContent).toContain(
+      "does not produce eval-comparable scalars",
+    );
+    // The remediation is copyable, not just described: the exact [loop] table
+    // edit, and the prerequisites that stop it silently falling back.
+    expect(
+      screen.getByText(/arena_scorer = "eval"/, { exact: false }),
+    ).toBeTruthy();
+    expect(
+      screen.getByText(/frozen golden set/i, { exact: false }),
+    ).toBeTruthy();
+  });
+
+  it("renders no abort card while the race is merely racing", async () => {
+    const client = fakeClient();
+
+    render(
+      <HealStage
+        client={client}
+        topic={TOPIC}
+        vault={VAULT}
+        status={baseStatus("fail")}
+      />,
+    );
+
+    await screen.findByTestId("heal-compile-run");
+    expect(screen.queryByTestId("heal-abort-reason")).toBeNull();
+    expect(screen.queryByText(/arena_scorer = "eval"/)).toBeNull();
+  });
+});
+
+describe("the arena card carries the race's instrument and each variant's provenance", () => {
+  it("shows the baseline and the scorer as stats", async () => {
+    const client = fakeClient({
+      arenaStatus: vi
+        .fn()
+        .mockResolvedValue(fakeArenaStatus({ scorer_id: "eval", n_examples: 40 })),
+    });
+
+    render(
+      <HealStage
+        client={client}
+        topic={TOPIC}
+        vault={VAULT}
+        status={baseStatus("fail")}
+      />,
+    );
+
+    await screen.findByTestId("heal-compile-run");
+    expect(screen.getByText("0.6200")).toBeTruthy();
+    expect(screen.getByText("eval · 40 q")).toBeTruthy();
+  });
+
+  it("opens a variant's overlay onto that variant's own scalar provenance", async () => {
+    const client = fakeClient({
+      arenaStatus: vi.fn().mockResolvedValue(
+        fakeArenaStatus({
+          variants: [
+            {
+              id: "v1",
+              label: "variant-1",
+              scalar: 0.6421,
+              status: "scored",
+              scorer_id: "eval",
+              n_examples: 40,
+            },
+          ],
+        }),
+      ),
+    });
+
+    render(
+      <HealStage
+        client={client}
+        topic={TOPIC}
+        vault={VAULT}
+        status={baseStatus("fail")}
+      />,
+    );
+
+    await screen.findByTestId("heal-compile-run");
+    fireEvent.click(
+      screen.getByRole("button", { name: "variant-1 — what this means" }),
+    );
+    const note = screen.getByRole("note");
+    expect(note.textContent).toContain(
+      "Scored 0.6421 by eval over 40 golden questions",
+    );
+  });
+});

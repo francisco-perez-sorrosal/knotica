@@ -2,6 +2,7 @@ import type { JSX } from "preact";
 import { useEffect, useState } from "preact/hooks";
 
 import { ArmedButton } from "../ArmedButton";
+import { CopyBlock } from "../../CopyBlock";
 import { SectionCard } from "../../SectionCard";
 import { Stat, StatGrid } from "../../Stat";
 import { StateList } from "../../StateList";
@@ -26,13 +27,18 @@ import type { ArenaHistory, ArenaStatus, ArenaVariant, WikiStatus } from "../../
  * affordance instead of `window.confirm()` — never native, and never a single
  * click.
  *
- * The open body is two `SectionCard`s: ARENA (what the race is doing) and
- * COMPILE (the one billed action, in the footer of the card that explains it).
- * The variant race is a `StateList`, so each variant's state word sits as
- * visible text next to its icon with its scalar in a right-aligned tabular
- * column — the unstyled `.arena-lane` `<strong>/<span>/<em>` triple it
- * replaces ran the label and the state word together into one unreadable
- * string. The loose "N recent race(s)" counter becomes a labelled `Stat`.
+ * The open body is two `SectionCard`s — ARENA (what the race is doing) and
+ * COMPILE (the one billed action, in the footer of the card that explains it)
+ * — plus, only when the race aborted, a warn-toned card between them that
+ * carries the server's own abort reason verbatim and the grounded next step
+ * (`[loop] arena_scorer = "eval"` in `~/.config/knotica/config.toml`, with
+ * its prerequisites). The variant race is a `StateList`, so each variant's
+ * state word sits as visible text next to its icon with its scalar in a
+ * right-aligned tabular column; each variant's `TermHint` carries the
+ * scalar's provenance (`scorer_id` / `n_examples`), which the wire already
+ * ships per variant. The loose "N recent race(s)" counter is a labelled
+ * `Stat`, joined by BASELINE and SCORER so the race's measuring stick and
+ * instrument are readable without leaving the card.
  */
 
 export function HealStage({
@@ -108,6 +114,7 @@ export function HealStage({
   const variants = [...(arenaStatus?.variants ?? [])].sort(
     (a, b) => (b.scalar ?? -1) - (a.scalar ?? -1),
   );
+  const aborted = arenaStatus?.stage === "aborted";
 
   return (
     <div class="heal-stage">
@@ -122,6 +129,28 @@ export function HealStage({
             <Stat
               label={
                 <TermHint
+                  id="heal-baseline"
+                  term="BASELINE"
+                  title="Gate baseline"
+                  body="The frozen eval scalar a winning variant must clear. Only a scorer that shares the baseline's scale can be ranked against it — a race scored on a different instrument cannot clear it by definition."
+                />
+              }
+              value={arenaStatus?.baseline_scalar?.toFixed(4)}
+            />
+            <Stat
+              label={
+                <TermHint
+                  id="heal-scorer"
+                  term="SCORER"
+                  title="Race scorer"
+                  body="What produced the variants' scalars. heuristic-keyword is free and network-free but shares no scale with the eval-derived gate baseline, so the arena refuses to rank its races against the gate. The eval scorer runs the golden-set harness per variant — gate-comparable, and billed per variant."
+                />
+              }
+              value={scorerValue(arenaStatus)}
+            />
+            <Stat
+              label={
+                <TermHint
                   id="heal-recent-races"
                   term="RECENT RACES"
                   title="Recent races"
@@ -133,8 +162,10 @@ export function HealStage({
           </StatGrid>
           <p class="muted">
             {arenaStatus
-              ? (arenaStatus.message ??
-                "The watcher races prompt variants against each other and keeps the one that clears the gate baseline.")
+              ? aborted
+                ? "The watcher races prompt variants against each other and keeps the one that clears the gate baseline."
+                : (arenaStatus.message ??
+                  "The watcher races prompt variants against each other and keeps the one that clears the gate baseline.")
               : "Reading the arena…"}
           </p>
           {variants.length > 0 ? (
@@ -147,6 +178,42 @@ export function HealStage({
           ) : null}
         </>
       </SectionCard>
+
+      {aborted ? (
+        <SectionCard title="WHY THE RACE ABORTED" icon="state:blocked" tone="warn">
+          <>
+            {arenaStatus?.message ? (
+              // The server's own reason, verbatim — this card never re-words it.
+              <p data-testid="heal-abort-reason">{arenaStatus.message}</p>
+            ) : null}
+            <p class="muted">
+              Aborted means the race stopped before ranking anything: the
+              scorer and the gate baseline are different instruments, so no
+              ranking between them would mean anything. The variants above
+              were generated but never judged against the gate — nothing was
+              promoted and nothing was lost.
+            </p>
+            <span class="microlabel">NEXT STEP</span>
+            <p class="muted">
+              Make races gate-comparable by switching the arena to the
+              eval-backed scorer, in the <code>[loop]</code> table of{" "}
+              <code>~/.config/knotica/config.toml</code>. The next race reads
+              the config automatically — no restart needed.
+            </p>
+            <CopyBlock
+              code={'[loop]\narena_scorer = "eval"'}
+              label="arena_scorer under [loop] in ~/.config/knotica/config.toml"
+            />
+            <p class="muted">
+              Prerequisites: a frozen golden set (Instrument → Freeze) and the{" "}
+              <code>evals</code> extra (<code>uv sync --extra evals</code>).
+              The eval scorer bills one golden-set eval per variant. Without
+              the prerequisites the runner falls back to the heuristic and the
+              race aborts again rather than scoring on the wrong instrument.
+            </p>
+          </>
+        </SectionCard>
+      ) : null}
 
       <SectionCard
         title="COMPILE"
@@ -215,6 +282,37 @@ const VARIANT_PRESENTATION: Record<string, { icon: IconName; tone: SectionTone }
   lost: { icon: "state:blocked", tone: "bad" },
 };
 
+/** The SCORER stat's value: the id, with the question count when recorded. */
+function scorerValue(arenaStatus: ArenaStatus | null): string | null {
+  if (!arenaStatus?.scorer_id) return null;
+  return arenaStatus.n_examples != null
+    ? `${arenaStatus.scorer_id} · ${arenaStatus.n_examples} q`
+    : arenaStatus.scorer_id;
+}
+
+/**
+ * Each variant's overlay carries the scalar's provenance — the wire ships
+ * `scorer_id`/`n_examples` per variant precisely so a bare number stays
+ * interpretable — followed by what a variant is at all.
+ */
+function variantHintBody(variant: ArenaVariant): string {
+  const provenance =
+    variant.scalar == null
+      ? variant.status === "pending"
+        ? "Not scored yet — the race stopped (or has not reached it)."
+        : "No scalar recorded."
+      : `Scored ${variant.scalar.toFixed(4)} by ${variant.scorer_id ?? "an unrecorded scorer"}${
+          variant.n_examples != null
+            ? ` over ${variant.n_examples} golden question${variant.n_examples === 1 ? "" : "s"}`
+            : ""
+        }.`;
+  return (
+    `One candidate rewrite of the operation prompt. ${provenance} ` +
+    "The arena races variants against each other and keeps one only if it " +
+    "clears the gate baseline — no model weights are ever touched."
+  );
+}
+
 function variantRow(variant: ArenaVariant): StateListRow {
   const presentation = VARIANT_PRESENTATION[variant.status] ?? {
     icon: "state:unknown" as IconName,
@@ -229,7 +327,7 @@ function variantRow(variant: ArenaVariant): StateListRow {
         id={`heal-variant-${variant.id}`}
         term={variant.label}
         title="Prompt variant"
-        body="One candidate rewrite of the operation prompt. The arena races variants against each other and keeps the one that clears the baseline — no model weights are ever touched."
+        body={variantHintBody(variant)}
       />
     ),
     stateLabel: variant.status,

@@ -279,6 +279,14 @@ export interface ArenaVariant {
   label: string;
   scalar: number | null;
   status: "pending" | "scored" | "winner" | "lost" | string;
+  /**
+   * Provenance of this variant's scalar — the server carries it per variant
+   * (`core/arena.py::ArenaVariant`) so a bare number stays interpretable:
+   * what measured it, and against how many questions. Absent on races
+   * recorded before provenance existed.
+   */
+  scorer_id?: string | null;
+  n_examples?: number | null;
 }
 
 export interface ArenaStatus {
@@ -292,6 +300,9 @@ export interface ArenaStatus {
   winner_scalar: number | null;
   candidate_branch: string | null;
   message: string | null;
+  /** Race-level scalar provenance — same contract as the per-variant pair. */
+  scorer_id?: string | null;
+  n_examples?: number | null;
   updated_at?: string;
 }
 
