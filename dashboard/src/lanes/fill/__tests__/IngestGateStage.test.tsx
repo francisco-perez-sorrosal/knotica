@@ -931,3 +931,153 @@ describe("the whole component touches nothing beyond suggestionsRead and Handoff
     expect(offenders).toEqual([]);
   });
 });
+
+// ---------------------------------------------------------------------------
+// The you-control's disclosure -- the four states a user actually stands on
+// ---------------------------------------------------------------------------
+
+/**
+ * Before this panel existed, the four `next.actor === "you"` controls were
+ * `<button type="button">` with no handler at all: visible, enabled,
+ * focusable, and inert. Worse, `HandoffStage` gated its dispatch surface on
+ * `next.actor === "claude"`, so on precisely the states a user stands on
+ * there was nothing to reveal -- no command, no tier button, no copy.
+ *
+ * The click now opens an inline disclosure that (a) says why the work
+ * happens in Claude rather than here, (b) offers the dispatch affordance the
+ * host's tier supports, and (c) always shows the literal invocation. Two
+ * deliberate clicks: open the panel, then dispatch. Nothing here dispatches
+ * on the first click -- `[Rework it]`'s own no-client-call guarantee above
+ * still holds.
+ */
+
+/** Promotes the default (tier-C) fake to tier A: a bridge host that can start a turn. */
+function withMessageCapability(client: ToolClient): ToolClient {
+  Object.assign(client as unknown as Record<string, unknown>, {
+    hostCapabilities: { message: {} },
+  });
+  return client;
+}
+
+async function openPanelFor(
+  container: HTMLElement,
+  title: string,
+  controlName: RegExp,
+): Promise<HTMLElement> {
+  fireEvent.click(expandButtonFor(container, title));
+  const control = await vi.waitFor(() =>
+    within(container).getByRole("button", { name: controlName }),
+  );
+  fireEvent.click(control);
+  return control;
+}
+
+describe("the you-control opens an inline panel rather than doing nothing", () => {
+  const YOU_STATES: Array<[string, (id: string) => SessionStatus, RegExp, RegExp]> = [
+    ["not_started", NOT_STARTED, /^open a session$/i, /only claude can write into it/i],
+    ["client_wrote", CLIENT_WROTE, /^submit$/i, /runs the preflight in your claude session/i],
+    ["refused", REFUSED, /^rework it$/i, /reopens the quarantined session/i],
+    ["swept", SWEPT, /^reopen$/i, /expired after 24 hours/i],
+  ];
+
+  it.each(YOU_STATES)(
+    "%s: the control is a disclosure whose aria-controls resolves to the panel it opens",
+    async (_label, state, controlName, narration) => {
+      const suggestion = baseSuggestion();
+      const { client } = fakeClient({
+        suggestions: [suggestion],
+        sessionResponses: { [suggestion.suggestion_id]: [state(suggestion.suggestion_id)] },
+      });
+      const container = renderIngestGateStage(client);
+      await vi.waitFor(() => expect(ingestRowsRendered(container)).toBe(true));
+
+      fireEvent.click(expandButtonFor(container, suggestion.candidate.title));
+      const control = await vi.waitFor(() =>
+        within(container).getByRole("button", { name: controlName }),
+      );
+      expect(control.getAttribute("aria-expanded")).toBe("false");
+
+      fireEvent.click(control);
+
+      expect(control.getAttribute("aria-expanded")).toBe("true");
+      const panelId = control.getAttribute("aria-controls") ?? "";
+      const panel = container.querySelector(`#${CSS.escape(panelId)}`);
+      expect(panel).toBeTruthy();
+      // The panel says why the work happens in Claude, and shows the one
+      // command that serves all four entry points.
+      expect(panel?.textContent ?? "").toMatch(narration);
+      expect(panel?.textContent ?? "").toContain(
+        `/knotica:fill ${suggestion.suggestion_id} ${TOPIC}`,
+      );
+    },
+  );
+
+  it("tier A: dispatch is a second, explicit click, and the sent state is stated", async () => {
+    const suggestion = baseSuggestion();
+    const { client, sendMessage } = fakeClient({
+      suggestions: [suggestion],
+      sessionResponses: { [suggestion.suggestion_id]: [NOT_STARTED(suggestion.suggestion_id)] },
+    });
+    const container = renderIngestGateStage(withMessageCapability(client));
+    await vi.waitFor(() => expect(ingestRowsRendered(container)).toBe(true));
+
+    await openPanelFor(container, suggestion.candidate.title, /^open a session$/i);
+    // Opening the panel is not dispatching.
+    expect(sendMessage).not.toHaveBeenCalled();
+
+    fireEvent.click(within(container).getByRole("button", { name: /send to claude/i }));
+
+    await vi.waitFor(() => expect(sendMessage).toHaveBeenCalledTimes(1));
+    expect(
+      await within(container).findByText(/sent to your claude session/i),
+    ).toBeTruthy();
+  });
+
+  it("tier C: no programmatic button, only the copy -- and nothing is claimed to have been sent", async () => {
+    const suggestion = baseSuggestion();
+    const { client, sendMessage, updateModelContext } = fakeClient({
+      suggestions: [suggestion],
+      sessionResponses: { [suggestion.suggestion_id]: [NOT_STARTED(suggestion.suggestion_id)] },
+    });
+    const container = renderIngestGateStage(client);
+    await vi.waitFor(() => expect(ingestRowsRendered(container)).toBe(true));
+
+    await openPanelFor(container, suggestion.candidate.title, /^open a session$/i);
+
+    expect(
+      within(container).queryByRole("button", { name: /send to claude/i }),
+    ).toBeNull();
+    expect(within(container).getByText("Copy the instruction")).toBeTruthy();
+    expect(within(container).queryByText(/sent to your claude session/i)).toBeNull();
+    expect(sendMessage).not.toHaveBeenCalled();
+    expect(updateModelContext).not.toHaveBeenCalled();
+  });
+
+  it("expanding a different suggestion resets both the disclosure and the sent state", async () => {
+    const { client, sendMessage } = fakeClient({
+      suggestions: [SUGGESTION_A, SUGGESTION_B],
+      sessionResponses: {
+        [SUGGESTION_A.suggestion_id]: [NOT_STARTED(SUGGESTION_A.suggestion_id)],
+        [SUGGESTION_B.suggestion_id]: [NOT_STARTED(SUGGESTION_B.suggestion_id)],
+      },
+    });
+    const container = renderIngestGateStage(withMessageCapability(client));
+    await vi.waitFor(() => expect(ingestRowsRendered(container)).toBe(true));
+
+    await openPanelFor(container, SUGGESTION_A.candidate.title, /^open a session$/i);
+    fireEvent.click(within(container).getByRole("button", { name: /send to claude/i }));
+    await vi.waitFor(() => expect(sendMessage).toHaveBeenCalledTimes(1));
+    expect(
+      await within(container).findByText(/sent to your claude session/i),
+    ).toBeTruthy();
+
+    fireEvent.click(expandButtonFor(container, SUGGESTION_B.candidate.title));
+
+    const controlB = await vi.waitFor(() =>
+      within(container).getByRole("button", { name: /^open a session$/i }),
+    );
+    // B's panel is closed, and A's confirmation does not bleed into it.
+    expect(controlB.getAttribute("aria-expanded")).toBe("false");
+    expect(within(container).queryByText(/sent to your claude session/i)).toBeNull();
+  });
+});

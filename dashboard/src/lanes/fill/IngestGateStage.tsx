@@ -1,8 +1,9 @@
 import { useEffect, useState } from "preact/hooks";
 import type { JSX } from "preact";
 
-import { HandoffStage } from "../HandoffStage";
-import { Spinner, type IconName } from "../../icons";
+import { HandoffDispatchPanel, HandoffStage } from "../HandoffStage";
+import type { HandoffDispatch } from "../HandoffStage";
+import { Icon, Spinner, type IconName } from "../../icons";
 import { SectionCard } from "../../SectionCard";
 import type { SectionTone } from "../../SectionCard";
 import { Stat, StatGrid } from "../../Stat";
@@ -89,6 +90,14 @@ export function IngestGateStage({
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [expandedId, setExpandedId] = useState<string | null>(null);
+  /* The you-control's disclosure, and whether a tier-A/B dispatch has
+     actually resolved. `dispatched` is held here rather than inside the
+     panel so it survives the actor flipping `you -> claude` when the session
+     advances and the panel unmounts -- a confirmation that quietly vanishes
+     is the failure mode this whole flow exists to fix. Both reset whenever a
+     different suggestion is expanded. */
+  const [panelOpen, setPanelOpen] = useState(false);
+  const [dispatched, setDispatched] = useState(false);
 
   useEffect(() => {
     if (!client || !topic) return;
@@ -128,6 +137,8 @@ export function IngestGateStage({
     setExpandedId((current) =>
       current === suggestionId ? null : suggestionId,
     );
+    setPanelOpen(false);
+    setDispatched(false);
   }
 
   const collapsedRows = suggestions.filter(
@@ -179,7 +190,17 @@ export function IngestGateStage({
                     command="fill"
                     ask={`Claude writes the pages for "${expandedSuggestion.candidate.title}" into ${topic}, using the open candidate session.`}
                     active
-                    renderYouControl={renderYouControlFor(expandedSuggestion)}
+                    renderYouControl={(status, dispatch) => (
+                      <IngestYouControl
+                        suggestion={expandedSuggestion}
+                        status={status}
+                        dispatch={dispatch}
+                        open={panelOpen}
+                        dispatched={dispatched}
+                        onToggle={() => setPanelOpen((current) => !current)}
+                        onDispatched={() => setDispatched(true)}
+                      />
+                    )}
                   />
                 ) : null}
               </>
@@ -236,42 +257,134 @@ function ingestRow(
   };
 }
 
+/** What the control is called, and why the work happens in Claude. */
+interface YouAffordance {
+  label: string;
+  why: string;
+}
+
 /**
- * The in-lane control for every `next.actor === "you"` state -- calls no
- * client method itself (`dec-091`: only the dispatched `/knotica:fill`
- * command writes to the vault). `[Rework it]` re-enters `ingest` in-lane
- * (`INTERFACE_DESIGN.md §2.5`): it is the *same* control as "Open a session"
- * once the suggestion's own last-recorded `gate_outcome` was `refused` --
- * closing over the suggestion this way means it renders correctly whether
- * the live session hasn't started yet (`not_started`) or has already been
- * marked `refused` by a prior poll, with no second, independently-tracked
- * affordance to keep in sync with it. `blocked` gets no button -- `
- * HandoffStage`'s own three-part `next.do` text already says what is
- * missing, and there is nothing an in-lane click could do about a missing
- * baseline.
+ * One entry per `next.actor === "you"` state. The label is the historical
+ * one and is **byte-preserved** -- `Open a session` is matched as an exact
+ * accessible name by the lane's assembly tests, so nothing may be appended
+ * to it in text.
+ *
+ * The narration answers the question the bare button never did: *why does
+ * this happen over in Claude rather than here?* The dashboard can read a
+ * candidate session; only the client's own LLM can write into one, which is
+ * the client-as-brain split the whole surface is built on.
  */
-function renderYouControlFor(
-  suggestion: SuggestionRecord,
-): (status: SessionStatus) => JSX.Element | null {
-  const previouslyRefused = suggestion.gate_outcome?.verdict === "refused";
-  return function renderYouControl(status: SessionStatus): JSX.Element | null {
-    switch (status.state) {
-      case "not_started":
-        return (
-          <button type="button">
-            {previouslyRefused ? "Rework it" : "Open a session"}
-          </button>
-        );
-      case "client_wrote":
-        return <button type="button">Submit</button>;
-      case "refused":
-        return <button type="button">Rework it</button>;
-      case "swept":
-        return <button type="button">Reopen</button>;
-      default:
-        return null;
-    }
-  };
+function affordanceFor(
+  state: SessionStatus["state"],
+  previouslyRefused: boolean,
+): YouAffordance | null {
+  switch (state) {
+    case "not_started":
+      return previouslyRefused
+        ? {
+            label: "Rework it",
+            why: "Reworking a refused candidate happens in your Claude session: it reopens the quarantined session and rewrites from what is already there.",
+          }
+        : {
+            label: "Open a session",
+            why: "Opening the candidate session — and writing the source and its pages into it — happens in your Claude session. The dashboard can read the session; only Claude can write into it.",
+          };
+    case "client_wrote":
+      return {
+        label: "Submit",
+        why: "Submitting runs the preflight in your Claude session, then — only after you confirm there — finalizes the candidate and runs the gate.",
+      };
+    case "refused":
+      return {
+        label: "Rework it",
+        why: "The gate refused this candidate. Reworking it reopens the quarantined session in Claude and rewrites from what is already there.",
+      };
+    case "swept":
+      return {
+        label: "Reopen",
+        why: "This session expired after 24 hours. Reopening restarts it in Claude from the source that was already stored.",
+      };
+    default:
+      // `blocked` deliberately gets no control: `HandoffStage`'s own
+      // three-part `next.do` already names the missing baseline, and no
+      // in-lane click can freeze one.
+      return null;
+  }
+}
+
+/**
+ * The in-lane control for every `next.actor === "you"` state, and the inline
+ * disclosure it owns. The control itself still calls no client method
+ * (`dec-091`: only the dispatched `/knotica:fill` writes to the vault) --
+ * the first click opens the panel, and dispatch is a second, explicit click
+ * inside it.
+ *
+ * `[Rework it]` re-enters `ingest` in-lane (`INTERFACE_DESIGN.md §2.5`): it
+ * is the *same* control as "Open a session" once the suggestion's own
+ * last-recorded `gate_outcome` was `refused`, so a single affordance covers
+ * both the never-started and the already-refused reading with nothing to
+ * keep in sync.
+ *
+ * The command is identical for all four states -- `/knotica:fill` branches
+ * on the session state itself -- so this is one command with four entry
+ * points, not four commands.
+ */
+function IngestYouControl({
+  suggestion,
+  status,
+  dispatch,
+  open,
+  dispatched,
+  onToggle,
+  onDispatched,
+}: {
+  suggestion: SuggestionRecord;
+  status: SessionStatus;
+  dispatch: HandoffDispatch;
+  open: boolean;
+  dispatched: boolean;
+  onToggle: () => void;
+  onDispatched: () => void;
+}): JSX.Element | null {
+  const affordance = affordanceFor(
+    status.state,
+    suggestion.gate_outcome?.verdict === "refused",
+  );
+  if (!affordance) return null;
+
+  const panelId = `handoff-panel-${suggestion.suggestion_id}`;
+
+  return (
+    <>
+      {/* The panel is a sibling, never a child: a `<div>` inside a
+          `<button>` is invalid and would pollute the accessible name, which
+          `aria-expanded`/`aria-controls` deliberately do not. */}
+      <button
+        type="button"
+        class="handoff-you-trigger"
+        aria-expanded={open}
+        aria-controls={panelId}
+        onClick={onToggle}
+      >
+        {affordance.label}
+        <Icon name="chevron-right" class="lane-disclosure-icon" />
+      </button>
+      {open ? (
+        <div class="handoff-you-panel" id={panelId}>
+          <p class="handoff-panel-why">{affordance.why}</p>
+          <HandoffDispatchPanel
+            dispatch={dispatch}
+            dispatched={dispatched}
+            onDispatched={onDispatched}
+          />
+          <p class="handoff-panel-next muted">
+            Then continue in your Claude session — this panel stays open and
+            updates on its own as the session writes.
+          </p>
+        </div>
+      ) : null}
+    </>
+  );
 }
 
 /**
