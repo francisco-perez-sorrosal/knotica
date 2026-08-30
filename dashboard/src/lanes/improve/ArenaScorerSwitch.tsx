@@ -52,6 +52,7 @@ export function ArenaScorerSwitch({
   const [armed, setArmed] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [savedAs, setSavedAs] = useState<string | null>(null);
 
   const target =
     current === ARENA_SCORER_EVAL ? ARENA_SCORER_HEURISTIC : ARENA_SCORER_EVAL;
@@ -60,12 +61,16 @@ export function ArenaScorerSwitch({
     if (!client || busy) return;
     setBusy(true);
     setError(null);
+    setSavedAs(null);
     try {
       const config = await client.loopCadence(
         topic,
         { arenaScorer: target },
         vault,
       );
+      // The server echoes the resolved config back — confirm from that, never
+      // from the value we sent.
+      setSavedAs(config.arena_scorer);
       await onSwitched?.(config);
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : String(cause));
@@ -111,6 +116,20 @@ export function ArenaScorerSwitch({
           </button>
         )}
       </div>
+      {savedAs ? (
+        /* Timing is the load-bearing fact here: both runners (the supervised
+           service and the CLI watcher) rebuild from config every tick, so the
+           switch needs no restart — but the numbers already on this card
+           belong to the LAST race and will not change until a new one runs. */
+        <p role="status" class="muted">
+          {savedAs === ARENA_SCORER_EVAL
+            ? "Saved — the watcher reads config every tick, so the next race " +
+              "scores with the eval scorer and bills per variant. No restart " +
+              "needed; this card still shows the last race until then."
+            : "Saved — the next race scores with the free heuristic (not " +
+              "gate-comparable, so it cannot pass the gate). No restart needed."}
+        </p>
+      ) : null}
       {error ? (
         <p role="alert" class="ask-error">
           {error}

@@ -427,6 +427,37 @@ describe("the arena scorer is switchable in place, asymmetrically guarded", () =
     ]);
   });
 
+  it("confirms a saved switch from the server's echo, naming when it takes effect", async () => {
+    const client = makeClient({
+      loopCadence: vi
+        .fn()
+        .mockResolvedValueOnce(cadenceFixture({ arena_scorer: "heuristic" }))
+        .mockResolvedValueOnce(cadenceFixture({ arena_scorer: "eval" })),
+    });
+    render(
+      <ObserveStage
+        client={client}
+        topic="agentic-systems"
+        vault="main"
+        status={statusFixture()}
+        metrics={metricsFixture()}
+      />,
+    );
+
+    await vi.waitFor(() => expect(client.loopCadence).toHaveBeenCalledTimes(1));
+    fireEvent.click(await screen.findByTestId("observe-arena-scorer"));
+    fireEvent.click(screen.getByTestId("observe-arena-scorer"));
+
+    // The confirmation comes off the server's resolved echo, and it carries
+    // the load-bearing timing fact: next race, no restart.
+    const note = await screen.findByText(/next race/);
+    expect(note.textContent).toContain("eval scorer");
+    expect(note.textContent).toContain("No restart needed");
+    // A live region, so the outcome is announced -- but not the runner
+    // chip's region, which also carries role=status.
+    expect(note.getAttribute("role")).toBe("status");
+  });
+
   it("switches back to the heuristic on a single click -- going free needs no guard", async () => {
     const client = makeClient({
       loopCadence: vi
