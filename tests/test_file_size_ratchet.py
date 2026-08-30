@@ -82,7 +82,14 @@ OVER_CEILING_BASELINE: dict[str, int] = {
     # `to_json_line`/`from_json_line` -- not extractable from a frozen record's
     # own (de)serialization pair.
     "core/records.py": 955,
-    # Raised 1142 -> 1221 for the dismiss cascade and the refused-transition
+    # Raised 1221 -> 1252 for the vault-dedup half of the discovery-dedup fix:
+    # the drain now drops candidates the vault already stores (the set itself
+    # lives in the new `core/source_inventory.py`; only the drain-loop skip,
+    # the RefreshResult count, and the URL-identity key stay here, each bound
+    # to the drain's own transaction and result shape). td-042 still names the
+    # real fix.
+    #
+    # Prior raise, 1142 -> 1221, for the dismiss cascade and the refused-transition
     # exit hint (a field report: an approved suggestion read as terminal from
     # Claude Desktop, and dismissing a gap stranded its approved suggestions).
     # `_plan_dismiss_cascade` must sit here: it rewrites `suggestions.jsonl`
@@ -116,7 +123,7 @@ OVER_CEILING_BASELINE: dict[str, int] = {
     # as the suggestion stamp or the two writes stop being one commit, and the
     # human half is the parameter-for-parameter sibling of `apply_decision`, which
     # lives in this module.
-    "core/gapfill.py": 1221,
+    "core/gapfill.py": 1252,
 }
 
 

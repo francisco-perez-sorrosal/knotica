@@ -329,3 +329,61 @@ def test_discover_invokes_the_configured_enricher_on_the_deduped_candidate_set()
 
     assert len(enricher.calls) == 1, "the configured enricher must be invoked exactly once"
     assert [c.url for c in enricher.calls[0]] == [candidate.url]
+
+
+# ---------------------------------------------------------------------------
+# Sanitize: the syntactic URL floor + host canonicalization, ahead of dedup
+# ---------------------------------------------------------------------------
+
+
+def test_archive_editions_of_one_sep_entry_collapse_to_a_single_canonical_candidate():
+    """A field report staged nine archive editions of one SEP entry as nine
+    independent sources -- one with a broken-case ``archIves`` segment. Editions
+    must collapse before ranking, and what survives must carry the living
+    entry's URL, not an edition permalink."""
+    service_module = _service_module()
+    canonical = "https://plato.stanford.edu/entries/bounded-rationality/"
+    editions = [
+        _candidate(url="https://plato.stanford.edu/archives/win2018/entries/bounded-rationality/"),
+        _candidate(url="https://plato.stanford.edu/archIves/win2024/entries/bounded-rationality/"),
+        _candidate(url=canonical),
+    ]
+    provider = FakeSearchProvider(editions, name="editions")
+    scorer = _FakeScorer({canonical: _score(ReputabilityTier.ESTABLISHED_ORG, 0.7)})
+
+    service = service_module.DiscoveryService(providers=[provider], enricher=None, scorer=scorer)
+    results = service.discover(SearchQuery(text="bounded rationality"))
+
+    assert [c.url for c in results] == [canonical]
+
+
+def test_a_candidate_whose_url_is_not_a_web_source_is_dropped_before_staging():
+    """A provider hit with an empty, schemeless, or non-web URL is not a source
+    anyone can ingest; it must never reach dedup, scoring, or the queue."""
+    service_module = _service_module()
+    good = _candidate(url="https://example.com/paper", doi=None)
+    provider = FakeSearchProvider(
+        [
+            _candidate(url="", doi=None),
+            _candidate(url="plato.stanford.edu/entries/frame-problem", doi=None),
+            good,
+        ],
+        name="mixed",
+    )
+    scorer = _FakeScorer({good.url: _score(ReputabilityTier.GENERAL_WEB, 0.4)})
+
+    service = service_module.DiscoveryService(providers=[provider], enricher=None, scorer=scorer)
+    results = service.discover(SearchQuery(text="frame problem"))
+
+    assert [c.url for c in results] == [good.url]
+
+
+def test_a_drop_of_every_candidate_is_the_ordinary_empty_result_not_an_error():
+    service_module = _service_module()
+    provider = FakeSearchProvider([_candidate(url="", doi=None)], name="junk")
+
+    service = service_module.DiscoveryService(
+        providers=[provider], enricher=None, scorer=_FakeScorer({})
+    )
+
+    assert service.discover(SearchQuery(text="anything")) == []

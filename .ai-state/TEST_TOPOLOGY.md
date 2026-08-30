@@ -768,11 +768,13 @@ selectors:
       - tests/test_source_gate.py
       - tests/test_source_ingest.py
       - tests/test_source_ingest_rework.py
+      - tests/test_source_inventory.py
       - tests/test_suggestion_withdraw.py
 file_dependencies:
   - "src/knotica/core/gap_classifier.py"
   - "src/knotica/core/gapfill.py"
   - "src/knotica/core/gapfill_config.py"
+  - "src/knotica/core/source_inventory.py"
   - "src/knotica/core/gapfill_session.py"
   - "src/knotica/core/gate_inputs.py"
   - "src/knotica/core/source_gate.py"

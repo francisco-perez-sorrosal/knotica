@@ -183,6 +183,10 @@ export interface GapfillDiscoverResult {
   gaps_considered?: number;
   gaps_drained?: number;
   suggestions_staged?: number;
+  /** Candidates dropped because the vault already stores their source (by
+   *  canonical URL against `sources/<topic>/` provenance) — the honest reason
+   *  a drain can stage little while having found plenty. */
+  candidates_already_in_vault?: number;
 }
 
 /** ``gap_report``'s result -- the flat Tier-1 tool Answer's ``react`` stage calls for "Report gap". */

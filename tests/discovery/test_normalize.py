@@ -29,7 +29,13 @@ from __future__ import annotations
 
 import pytest
 
-from knotica.discovery.normalize import normalize_doi, normalize_url, source_key
+from knotica.discovery.normalize import (
+    canonicalize_url,
+    is_http_url,
+    normalize_doi,
+    normalize_url,
+    source_key,
+)
 
 
 @pytest.mark.parametrize(
@@ -94,6 +100,82 @@ def test_a_candidate_with_neither_doi_nor_url_keys_to_the_bare_url_bucket() -> N
     # field dedup into one bucket. Behavior is unchanged from before the rule was
     # extracted; this test exists so changing it has to be deliberate.
     assert source_key(None, "") == "url:"
+
+
+# ---------------------------------------------------------------------------
+# Host canonicalization -- SEP archive editions are snapshots of one entry
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    "edition_url",
+    [
+        "https://plato.stanford.edu/archives/win2018/entries/bounded-rationality/",
+        "https://plato.stanford.edu/archives/win2024/entries/bounded-rationality/",
+        # A field report caught a provider emitting the segment with broken case.
+        "https://plato.stanford.edu/archIves/spr2024/entries/bounded-rationality/",
+        "http://www.plato.stanford.edu/archives/fall2021/entries/bounded-rationality",
+    ],
+)
+def test_every_sep_archive_edition_canonicalizes_to_the_living_entry(edition_url: str) -> None:
+    """Nine editions of one entry were once staged as nine independent sources,
+    ranked against each other -- the identity must not see editions at all."""
+    assert normalize_url(edition_url) == "https://plato.stanford.edu/entries/bounded-rationality"
+
+
+def test_an_archive_edition_and_the_living_entry_share_one_source_key() -> None:
+    edition = "https://plato.stanford.edu/archives/win2018/entries/bounded-rationality/"
+    living = "https://plato.stanford.edu/entries/bounded-rationality/"
+
+    assert source_key(None, edition) == source_key(None, living)
+
+
+def test_a_non_archive_sep_url_passes_through_unchanged() -> None:
+    url = "https://plato.stanford.edu/entries/bounded-rationality/"
+    assert canonicalize_url(url) == url
+
+
+def test_an_archives_path_on_another_host_is_not_rewritten() -> None:
+    # The rule is host-scoped: /archives/ elsewhere (a blog, the Wayback
+    # Machine) says nothing about SEP editions.
+    url = "https://web.archive.org/archives/win2018/entries/bounded-rationality"
+    assert canonicalize_url(url) == url
+
+
+def test_canonicalization_preserves_the_query() -> None:
+    url = "https://plato.stanford.edu/archives/win2018/entries/frame-problem?lang=en"
+    assert canonicalize_url(url) == "https://plato.stanford.edu/entries/frame-problem?lang=en"
+
+
+# ---------------------------------------------------------------------------
+# Syntactic URL floor -- what may be staged at all
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    "url",
+    [
+        "https://example.com/paper",
+        "http://example.com",
+        "HTTPS://Example.com/x",
+    ],
+)
+def test_a_schemed_web_url_with_a_host_clears_the_floor(url: str) -> None:
+    assert is_http_url(url)
+
+
+@pytest.mark.parametrize(
+    "url",
+    [
+        "",
+        "plato.stanford.edu/entries/bounded-rationality",  # schemeless
+        "ftp://example.com/paper",
+        "https:///no-host",
+        "mailto:someone@example.com",
+    ],
+)
+def test_a_url_nobody_can_ingest_fails_the_floor(url: str) -> None:
+    assert not is_http_url(url)
 
 
 @pytest.mark.parametrize(

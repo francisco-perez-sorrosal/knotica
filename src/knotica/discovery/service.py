@@ -9,13 +9,20 @@ Composes every stage of the discovery pipeline behind one call,
    skipped, not fatal; the first provider yielding at least one candidate
    wins; if every provider raises or returns nothing, ``discover`` returns
    ``[]`` -- never an error.
-2. **dedup** -- by normalized DOI, falling back to normalized URL when no DOI
+2. **sanitize** -- drop candidates whose URL is not a plausible web source
+   (:func:`~knotica.discovery.normalize.is_http_url` -- syntactic only, no
+   reachability probe) and rewrite each survivor's URL to its host's
+   canonical form (:func:`~knotica.discovery.normalize.canonicalize_url`),
+   so what the pipeline stages is the URL a reader can actually reach. One
+   seam here covers every provider, present and future, rather than each
+   adapter re-validating its own wire shape.
+3. **dedup** -- by normalized DOI, falling back to normalized URL when no DOI
    is present, preferring the candidate with richer metadata when two
    providers surface the same source.
-3. **enrich** -- via the configured :class:`~knotica.discovery.provider.Enricher`
+4. **enrich** -- via the configured :class:`~knotica.discovery.provider.Enricher`
    (optional; ``None`` skips this stage).
-4. **score** -- via :class:`~knotica.discovery.reputability.ReputabilityScorer`.
-5. **rank** -- a total, explicit sort key ``(tier_rank, -score, url)``,
+5. **score** -- via :class:`~knotica.discovery.reputability.ReputabilityScorer`.
+6. **rank** -- a total, explicit sort key ``(tier_rank, -score, url)``,
    so ordering never depends on dict/insertion order and repeated runs over
    the same input produce byte-identical ordering, including the tie-break
    for two candidates sharing an identical ``(tier, score)``.
@@ -24,10 +31,11 @@ Composes every stage of the discovery pipeline behind one call,
 from __future__ import annotations
 
 from collections.abc import Callable, Sequence
+from dataclasses import replace
 from datetime import date
 
 from knotica.core.errors import KnoticaError
-from knotica.discovery.normalize import source_key
+from knotica.discovery.normalize import canonicalize_url, is_http_url, source_key
 from knotica.discovery.provider import Enricher, SearchProvider
 from knotica.discovery.records import ReputabilityTier, SearchQuery, SourceCandidate
 from knotica.discovery.reputability import ReputabilityScorer
@@ -69,7 +77,7 @@ class DiscoveryService:
 
     def discover(self, query: SearchQuery) -> list[SourceCandidate]:
         """Run the full pipeline for ``query``; ``[]`` when nothing is found."""
-        candidates = self._search(query)
+        candidates = _sanitize(self._search(query))
         if not candidates:
             return []
         deduped = _dedup(candidates)
@@ -87,6 +95,31 @@ class DiscoveryService:
             if candidates:
                 return candidates
         return []
+
+
+# ---------------------------------------------------------------------------
+# Sanitize -- syntactic URL floor + host canonicalization, ahead of dedup
+# ---------------------------------------------------------------------------
+
+
+def _sanitize(candidates: Sequence[SourceCandidate]) -> list[SourceCandidate]:
+    """Drop un-ingestable URLs; rewrite the rest to their canonical form.
+
+    Runs *before* dedup so archive-edition permalinks of one source collapse in
+    the stored form too, not only in the identity key -- the queue then holds
+    one canonical URL instead of nine edition snapshots a reviewer has to
+    recognize as the same entry. A dropped candidate was never a source (no
+    scheme, non-web scheme, or no host), so nothing counts it.
+    """
+    sanitized: list[SourceCandidate] = []
+    for candidate in candidates:
+        if not is_http_url(candidate.url):
+            continue
+        canonical = canonicalize_url(candidate.url)
+        sanitized.append(
+            candidate if canonical == candidate.url else replace(candidate, url=canonical)
+        )
+    return sanitized
 
 
 # ---------------------------------------------------------------------------

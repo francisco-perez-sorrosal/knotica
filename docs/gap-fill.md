@@ -85,7 +85,10 @@ knotica fill discover --topic agentic-systems --max-gaps 3
 
 The gap's failed question **is** the search text, verbatim — no LLM rewrites it — and each query asks
 for up to 10 results. New candidates are deduped against **every** existing suggestion at any status
-on `(gap_id, source_key)`: a source you rejected is never proposed again.
+on `(gap_id, source_key)`: a source you rejected is never proposed again. They are also checked
+against the vault's own stored sources by canonical URL (the `origin_url` each
+`sources/<topic>/*.md` provenance records): a source an earlier ingest already holds is skipped and
+counted as `candidates_already_in_vault` in the drain summary, never re-proposed.
 
 **`dilution` gaps are never drained** — a dilution gap's reference page still exists, so there is
 nothing to go find, and those records sit in the queue inert. **Under a cap**, gaps carrying a
@@ -118,8 +121,13 @@ probe below — so a key kept only in a `.env` file both switches the loop-side 
 the drain search. Keys never come from `config.toml` or the vault, and are never logged.
 
 Search is a fallback chain: a provider that fails is skipped, not fatal, and the first one returning
-at least one candidate wins. Survivors are deduped by `source_key` (DOI first, normalized URL
-otherwise), enriched by the keyless OpenAlex `works` endpoint — which stamps citation count, venue,
+at least one candidate wins. Survivors are sanitized first — a hit whose URL has no `http(s)`
+scheme or no host is dropped (syntactic only, no reachability probe), and each URL is rewritten to
+its host's canonical form (SEP archive-edition permalinks like
+`plato.stanford.edu/archives/win2018/entries/<slug>` collapse to the living
+`plato.stanford.edu/entries/<slug>`, case-insensitively on the archive segment) — then deduped by
+`source_key` (DOI first, normalized URL otherwise, both canonicalization-aware, so nine editions of
+one entry stage once), enriched by the keyless OpenAlex `works` endpoint — which stamps citation count, venue,
 open-access status, FWCI, and publication date onto anything with a resolvable DOI, and degrades to
 un-enriched rather than failing when rate-limited — then scored deterministically on metadata alone
 (venue tier, citations, recency; never the title or snippet) and ranked in an explicit total order.

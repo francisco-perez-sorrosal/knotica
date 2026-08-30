@@ -34,16 +34,37 @@ sources that are genuinely different:
 * **URL** — scheme and host case, *every* trailing slash, and the fragment. The
   query survives (two URLs differing in query can be two sources); the fragment
   does not (it addresses a position *within* one source).
+
+**Host canonicalization** sits one narrow notch above those: a small table of
+per-host rewrites for sites that publish the *same* source under many URLs.
+The one rule today is the Stanford Encyclopedia of Philosophy, whose archive
+editions (``/archives/<edition>/entries/<slug>``) are snapshots of one living
+entry (``/entries/<slug>``) — a field report staged nine editions of one entry
+as nine independent sources, ranked against each other. The archive segment is
+matched case-insensitively because providers have emitted it with broken case
+(``archIves``). Host rules feed both the identity (:func:`normalize_url`
+canonicalizes first, so every consumer of :func:`source_key` collapses
+editions — including previously staged records re-keyed at dedup time) and the
+stored form (:func:`canonicalize_url` is what the discovery service rewrites a
+candidate's own URL with, so what lands in the queue is the canonical,
+reachable URL rather than a possibly-malformed edition permalink).
 """
 
 from __future__ import annotations
 
+import re
 from urllib.parse import urlsplit, urlunsplit
 
-__all__ = ["normalize_doi", "normalize_url", "source_key"]
+__all__ = ["canonicalize_url", "is_http_url", "normalize_doi", "normalize_url", "source_key"]
 
 #: The un-normalized DOI URL prefix a provider or enricher may still carry.
 _DOI_URL_PREFIX = "https://doi.org/"
+
+#: Hosts serving the Stanford Encyclopedia of Philosophy.
+_SEP_HOSTS = frozenset({"plato.stanford.edu", "www.plato.stanford.edu"})
+#: An SEP archive-edition path; the leading segment is matched case-insensitively
+#: because provider payloads have carried it with broken case (``archIves``).
+_SEP_ARCHIVE_RE = re.compile(r"^/archives/[^/]+(?P<entry>/entries/.+)$", re.IGNORECASE)
 
 
 def normalize_doi(doi: str | None) -> str | None:
@@ -54,13 +75,47 @@ def normalize_doi(doi: str | None) -> str | None:
     return stripped.lower()
 
 
-def normalize_url(url: str) -> str:
-    """Lowercase scheme/host, strip every trailing slash, drop any fragment.
+def canonicalize_url(url: str) -> str:
+    """Rewrite ``url`` to its host's canonical form; unknown hosts pass through.
 
-    ``rstrip`` collapses a run, not one character: ``/paper///`` and ``/paper``
-    are the same source, so they must reach the same key.
+    Unlike :func:`normalize_url` this returns a *usable* URL, not an identity
+    key: it is what the discovery service stores on the candidate itself, so a
+    rewrite must produce something a reader can click. SEP archive editions
+    become the living entry at the bare host over https (the canonical form SEP
+    itself links); everything else — including SEP URLs that are not archive
+    editions — is returned unchanged.
     """
     parsed = urlsplit(url)
+    if parsed.netloc.lower() not in _SEP_HOSTS:
+        return url
+    match = _SEP_ARCHIVE_RE.match(parsed.path)
+    if match is None:
+        return url
+    entry: str = match.group("entry")
+    return urlunsplit(("https", "plato.stanford.edu", entry, parsed.query, ""))
+
+
+def is_http_url(url: str) -> bool:
+    """Whether ``url`` is a syntactically plausible web source (http/https + host).
+
+    The floor a candidate must clear to be staged at all: a provider hit whose
+    URL has no scheme, a non-web scheme, or an empty host is not a source
+    anyone can ingest. Deliberately syntactic only — no reachability probe, so
+    discovery stays deterministic and spends nothing beyond the search call.
+    """
+    parsed = urlsplit(url)
+    return parsed.scheme.lower() in {"http", "https"} and bool(parsed.netloc)
+
+
+def normalize_url(url: str) -> str:
+    """Canonicalize, then lowercase scheme/host, strip trailing slashes and fragment.
+
+    ``rstrip`` collapses a run, not one character: ``/paper///`` and ``/paper``
+    are the same source, so they must reach the same key. Canonicalization runs
+    first so two archive editions of one SEP entry — or an edition and the
+    living entry — reach the same identity key everywhere this rule is asked.
+    """
+    parsed = urlsplit(canonicalize_url(url))
     path = parsed.path.rstrip("/")
     return urlunsplit((parsed.scheme.lower(), parsed.netloc.lower(), path, parsed.query, ""))
 

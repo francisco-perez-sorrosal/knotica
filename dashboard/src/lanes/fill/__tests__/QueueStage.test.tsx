@@ -572,6 +572,43 @@ describe("the discover stage's two-phase flow", () => {
     expect(suggestionsRead).toHaveBeenCalled();
   });
 
+  it("says how many candidates were skipped as already ingested, and why zero staged", async () => {
+    // The server drops candidates whose source the vault already stores
+    // (canonical-URL match against stored provenance) and reports the count;
+    // a drain that stages nothing for that reason must say so, not imply the
+    // search found nothing.
+    const { client, gapfillDiscover } = fakeClient({
+      discoverConfirmResult: discoverOutcome({
+        suggestions_staged: 0,
+        candidates_already_in_vault: 9,
+      }),
+    });
+    const container = renderQueueStage(client);
+
+    fireEvent.click(
+      within(stageNodes(container)[DISCOVER]).getByRole("button", {
+        name: /discover sources/i,
+      }),
+    );
+    await vi.waitFor(() => expect(gapfillDiscover).toHaveBeenCalledTimes(1));
+    fireEvent.click(
+      await within(stageNodes(container)[DISCOVER]).findByRole("button", {
+        name: /confirm.*run and bill/i,
+      }),
+    );
+
+    await vi.waitFor(() =>
+      expect(
+        within(stageNodes(container)[DISCOVER]).getByText(
+          /9 candidates skipped — already ingested in the vault/i,
+        ),
+      ).toBeTruthy(),
+    );
+    expect(
+      within(stageNodes(container)[DISCOVER]).queryByText(/nothing ranked/i),
+    ).toBeNull();
+  });
+
   it("disables the confirm leg when no search provider is configured", async () => {
     const { client } = fakeClient({
       discoverPreviewResult: discoverPreview({ provider_configured: false }),

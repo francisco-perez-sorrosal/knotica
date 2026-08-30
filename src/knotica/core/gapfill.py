@@ -8,7 +8,10 @@ suggestions.jsonl``), plus the gap queue's own terminal transitions (below):
   per gap, runs an injected ``DiscoveryService``, and stages one ``pending``
   :class:`~knotica.core.records.SuggestionRecord` per (gap, ranked candidate) --
   deduped on ``(gap_id, source_key)`` so a persistent regression never spams the
-  queue -- writing once per drain in its own :class:`VaultTransaction`.
+  queue, and against the vault's own stored sources by URL identity
+  (``core.source_inventory``) so discovery never re-proposes what an earlier
+  ingest already holds -- writing once per drain in its own
+  :class:`VaultTransaction`.
 * **Decide** (:func:`apply_decision`) mediates the human approve / reject / defer /
   mark-ingested transition over the D2 lifecycle state machine, requiring a
   non-empty reason on reject, rewriting exactly one record in its own transaction.
@@ -20,8 +23,10 @@ stamp's own transaction, one commit for both), and :func:`apply_gap_decision` gi
 a human the ``dismiss`` / ``reopen`` transitions. Filing gaps stays with
 ``core.gap_classifier`` and :func:`report_gap`.
 
-This is the *only* P3 code that touches ``discovery/`` -- and it does so **lazily,
-inside the function that needs it**, never at module top level. That keeps the
+This module and ``core.source_inventory`` are the only P3 code touching
+``discovery/`` -- and both do so **lazily, inside the function that needs it**,
+never at module top level (the inventory reaches only the ``normalize`` identity
+leaf). That keeps the
 module importable on the MCP cold-start path (an MCP tool delegates to
 :func:`apply_decision`, which imports no ``discovery`` at all) without dragging the
 heavy search chain onto that path. The config->service factory
@@ -52,6 +57,7 @@ from knotica.core.records import (
     parse_gaps_jsonl,
     parse_suggestions_jsonl,
 )
+from knotica.core.source_inventory import stored_source_url_keys
 from knotica.core.topics import require_topic
 from knotica.core.transaction import VaultTransaction
 from knotica.store import VaultStore
@@ -171,13 +177,17 @@ class RefreshResult:
     configured discovery service (a clean no-op). ``gaps_drained`` counts the
     open ``genuine_gap`` records a discovery query was issued for; a gap whose
     candidates were all already suggested still counts as drained but contributes
-    zero to ``suggestions_written`` (dedup).
+    zero to ``suggestions_written`` (dedup). ``candidates_already_in_vault``
+    counts the candidates dropped because their URL identity matches a source
+    the vault already stores -- surfaced rather than swallowed, so a drain that
+    stages little says why.
     """
 
     service_available: bool
     gaps_considered: int
     gaps_drained: int
     suggestions_written: int
+    candidates_already_in_vault: int = 0
 
 
 @dataclass(frozen=True)
@@ -343,12 +353,14 @@ def refresh_suggestions_for_gaps(
 
     Reads ``gaps.jsonl``, keeps only ``fault_class == genuine_gap AND status ==
     open``, optionally caps to the ``max_gaps`` highest-``|quality_delta|`` gaps,
-    formulates one query per surviving gap, runs ``service.discover``, dedups the
-    produced candidates against every existing suggestion on ``(gap_id,
-    source_key)``, and writes the survivors once in an own ``VaultTransaction``.
-    A ``None`` service (no key configured) or zero survivors is a clean no-op --
-    no transaction, no commit. A failure raised by ``service.discover`` is **not**
-    caught (failure isolation is the loop hook's boundary).
+    formulates one query per surviving gap, runs ``service.discover``, drops
+    candidates whose URL identity the vault already stores as an ingested source
+    (``core.source_inventory`` -- counted on the result, never silent), dedups
+    the rest against every existing suggestion on ``(gap_id, source_key)``, and
+    writes the survivors once in an own ``VaultTransaction``. A ``None`` service
+    (no key configured) or zero survivors is a clean no-op -- no transaction, no
+    commit. A failure raised by ``service.discover`` is **not** caught (failure
+    isolation is the loop hook's boundary).
     """
     open_gaps = _open_genuine_gaps(store, topic)
     considered = len(open_gaps)
@@ -362,10 +374,15 @@ def refresh_suggestions_for_gaps(
 
     selected = _select_gaps(open_gaps, max_gaps)
     seen = _existing_dedup_keys(store, topic)
+    vault_urls = stored_source_url_keys(store, topic)
+    in_vault = 0
     new_records: list[SuggestionRecord] = []
     for gap in selected:
         built = build_suggestion_records(gap, service.discover(formulate_query(gap)), clock=clock)
         for record in built:
+            if _candidate_url_key(record.candidate) in vault_urls:
+                in_vault += 1
+                continue
             key = (record.gap_id, _source_key(record.candidate))
             if key in seen:
                 continue
@@ -379,6 +396,7 @@ def refresh_suggestions_for_gaps(
         gaps_considered=considered,
         gaps_drained=len(selected),
         suggestions_written=len(new_records),
+        candidates_already_in_vault=in_vault,
     )
 
 
@@ -1159,6 +1177,19 @@ def _source_key(candidate: Mapping[str, object]) -> str:
 
     doi, url = candidate.get("doi"), candidate.get("url")
     return source_key(doi if isinstance(doi, str) else None, url if isinstance(url, str) else "")
+
+
+def _candidate_url_key(candidate: Mapping[str, object]) -> str:
+    """The candidate's URL identity alone -- the vault-dedup handshake key.
+
+    Deliberately *not* ``_source_key``: stored provenance records no DOI, so
+    the vault comparison is URL-to-URL, and DOI-first keying would let a
+    DOI-carrying candidate slip past a URL-recorded ingest of the same source.
+    """
+    from knotica.discovery.normalize import normalize_url
+
+    url = candidate.get("url")
+    return normalize_url(url if isinstance(url, str) else "")
 
 
 def _suggestion_id(topic: str, gap_id: str, source_key: str) -> str:

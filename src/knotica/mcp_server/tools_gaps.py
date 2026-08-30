@@ -129,6 +129,9 @@ _DISCOVER_DESCRIPTION = (
     "call the configured search provider plus OpenAlex enrichment, and stage the "
     "ranked candidates as pending suggestions for review. This is the step that "
     "turns a gap into something `fill action=suggestions_read` can show. "
+    "Candidate URLs are canonicalized (archive-edition permalinks collapse to "
+    "the living entry) and a candidate whose URL the vault already stores as an "
+    "ingested source is skipped, counted as candidates_already_in_vault. "
     "BILLED and two-phase: a bare call previews (how many gaps would drain, "
     "whether a provider is configured, the cost) and returns a short-lived "
     "confirm_nonce WITHOUT spending anything; only a second call passing that "
@@ -569,6 +572,7 @@ def _execute_discover(
             "gaps_considered": result.gaps_considered,
             "gaps_drained": result.gaps_drained,
             "suggestions_staged": result.suggestions_written,
+            "candidates_already_in_vault": result.candidates_already_in_vault,
         }
     )
 

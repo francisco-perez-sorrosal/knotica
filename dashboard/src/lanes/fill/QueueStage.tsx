@@ -400,8 +400,15 @@ export function QueueStage({
             {discover.state.outcome.gaps_considered === 1 ? "" : "s"} and staged{" "}
             {discover.state.outcome.suggestions_staged} suggestion
             {discover.state.outcome.suggestions_staged === 1 ? "" : "s"}.
+            {(discover.state.outcome.candidates_already_in_vault ?? 0) > 0
+              ? ` ${discover.state.outcome.candidates_already_in_vault} candidate${
+                  discover.state.outcome.candidates_already_in_vault === 1 ? "" : "s"
+                } skipped — already ingested in the vault.`
+              : ""}
             {discover.state.outcome.suggestions_staged === 0
-              ? " Nothing ranked — the gap stays open."
+              ? (discover.state.outcome.candidates_already_in_vault ?? 0) > 0
+                ? " The gap stays open."
+                : " Nothing ranked — the gap stays open."
               : ""}
           </p>
         ) : null}
