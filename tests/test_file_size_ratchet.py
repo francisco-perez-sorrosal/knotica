@@ -82,7 +82,16 @@ OVER_CEILING_BASELINE: dict[str, int] = {
     # `to_json_line`/`from_json_line` -- not extractable from a frozen record's
     # own (de)serialization pair.
     "core/records.py": 955,
-    # Raised 1138 -> 1142 for the synthetic-gap topic guard: `_file_synthetic_gap`
+    # Raised 1142 -> 1221 for the dismiss cascade and the refused-transition
+    # exit hint (a field report: an approved suggestion read as terminal from
+    # Claude Desktop, and dismissing a gap stranded its approved suggestions).
+    # `_plan_dismiss_cascade` must sit here: it rewrites `suggestions.jsonl`
+    # inside `apply_gap_decision`'s own `VaultTransaction` -- the same
+    # one-commit argument that pinned the gap-lifecycle writers below -- and
+    # `_legal_exits_hint` is a projection of `_ALLOWED_FROM`, which cannot
+    # leave. td-042 still names the real fix.
+    #
+    # Prior raise, 1138 -> 1142, for the synthetic-gap topic guard: `_file_synthetic_gap`
     # now runs `require_topic` before filing (an unguarded conversational report
     # once scaffolded a stray topic the loop began tending). The check itself
     # lives in `core/topics.py`; only the two-line rationale comment and the one
@@ -107,7 +116,7 @@ OVER_CEILING_BASELINE: dict[str, int] = {
     # as the suggestion stamp or the two writes stop being one commit, and the
     # human half is the parameter-for-parameter sibling of `apply_decision`, which
     # lives in this module.
-    "core/gapfill.py": 1142,
+    "core/gapfill.py": 1221,
 }
 
 

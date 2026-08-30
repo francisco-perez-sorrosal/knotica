@@ -157,3 +157,37 @@ def test_withdraw_is_illegal_from_pending(template_vault: Path) -> None:
         )
 
     assert "withdraw" in str(excinfo.value)
+
+
+@pytest.mark.parametrize("decision", ["reject", "defer"])
+def test_a_refused_decision_on_an_approved_suggestion_names_withdraw_in_its_fix(
+    approved: tuple[LocalFSStore, Path, str], decision: str
+) -> None:
+    """The refusal must name the exit that *does* apply, not only the sources
+    the attempted decision accepts. A field report proved the dead end: a
+    client that read only 'pending/deferred can be rejected' concluded that
+    ``approved`` was terminal, and ``withdraw`` went unfound."""
+    store, vault, suggestion_id = approved
+
+    with pytest.raises(KnoticaError) as excinfo:
+        gapfill.apply_decision(
+            store, vault, TOPIC, suggestion_id, decision=decision, reason="chose another source"
+        )
+
+    assert "withdraw" in excinfo.value.fix, (
+        "the fix text must point at the legal exit from 'approved'"
+    )
+    assert _status(store, suggestion_id) == "approved", "a refused decision mutates nothing"
+
+
+def test_an_unknown_decision_verb_is_told_withdraw_exists(
+    approved: tuple[LocalFSStore, Path, str],
+) -> None:
+    """The valid-decision enumeration is derived from the state machine, so a
+    decision added there can never go missing from the error text again."""
+    store, vault, suggestion_id = approved
+
+    with pytest.raises(KnoticaError) as excinfo:
+        gapfill.apply_decision(store, vault, TOPIC, suggestion_id, decision="unapprove")
+
+    assert "withdraw" in excinfo.value.fix

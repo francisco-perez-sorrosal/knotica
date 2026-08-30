@@ -753,6 +753,7 @@ selectors:
       - tests/test_file_size_ratchet.py
       - tests/test_fill_review_gap.py
       - tests/test_gap_classifier.py
+      - tests/test_gap_dismiss_cascade.py
       - tests/test_gap_lifecycle.py
       - tests/test_gapfill.py
       - tests/test_gapfill_discovery_default.py

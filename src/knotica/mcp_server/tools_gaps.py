@@ -113,12 +113,15 @@ _GAPS_READ_DESCRIPTION = (
 _REVIEW_GAP_DESCRIPTION = (
     "Dismiss a diagnosed gap that is not worth sourcing, or reopen one you "
     "dismissed. decision='dismiss' requires a non-empty 'reason' and is legal "
-    "ONLY from an open gap; decision='reopen' is legal only from a dismissed "
-    "gap and 'reason' is optional. A resolved gap -- already answered by a "
-    "merged source -- accepts neither: undoing a merge is a vault operation, "
-    "not a queue edit; a source status refuses with an INVALID_ARGUMENT error. "
-    "The reason is persisted on the gap record and survives a re-read. One "
-    "commit; requires a lock."
+    "ONLY from an open gap; it also closes the gap's still-open suggestions "
+    "(pending/approved/deferred become rejected, reason recorded) in the same "
+    "commit, returning their ids as cascaded_suggestion_ids. decision='reopen' "
+    "is legal only from a dismissed gap and 'reason' is optional; it resurrects "
+    "no suggestion -- re-run `fill action=gapfill_discover` to re-propose "
+    "sources. A resolved gap -- already answered by a merged source -- accepts "
+    "neither: undoing a merge is a vault operation, not a queue edit; a source "
+    "status refuses with an INVALID_ARGUMENT error. The reason is persisted on "
+    "the gap record and survives a re-read. One commit; requires a lock."
 )
 
 _DISCOVER_DESCRIPTION = (
@@ -461,6 +464,7 @@ def _review_gap_payload(
         "question": result.question,
         "changed": result.changed,
         "commit_sha": result.commit_sha,
+        "cascaded_suggestion_ids": list(result.cascaded_suggestion_ids),
     }
 
 

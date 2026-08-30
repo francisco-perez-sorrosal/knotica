@@ -232,6 +232,11 @@ class GapDecisionResult:
     question: str
     changed: bool
     commit_sha: str
+    #: Suggestions closed alongside a ``dismiss`` -- the gap's still-open
+    #: (pending/approved/deferred) records, rejected in the same commit so a
+    #: dismissed gap cannot strand approved sources in the queue. Empty for
+    #: ``reopen`` and for a dismiss with no open suggestions.
+    cascaded_suggestion_ids: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -427,12 +432,13 @@ def plan_decision(
     if allowed_from is None:
         raise _invalid(
             f"decision must be one of {'|'.join(sorted(_ALLOWED_FROM))}, got {decision!r}",
-            "Pass a valid decision: approve, reject, defer, or mark_ingested.",
+            f"Pass a valid decision: {', '.join(sorted(_ALLOWED_FROM))}.",
         )
     if record.status not in allowed_from:
         raise _invalid(
             f"suggestion {record.suggestion_id!r} is {record.status!r}; cannot {decision}",
-            f"Only a {'/'.join(sorted(allowed_from))} suggestion can be {decision}ed.",
+            f"Only a {'/'.join(sorted(allowed_from))} suggestion can be {decision}ed. "
+            + _legal_exits_hint(record.status),
         )
     cleaned = (reason or "").strip()
     if decision == "reject" and not cleaned:
@@ -613,7 +619,11 @@ def apply_gap_decision(
     only from ``dismissed``, anything else a typed ``INVALID_ARGUMENT`` raised
     before any write -- then rewrites that one record's ``status`` and
     ``decided_reason`` and commits the whole queue once in its own
-    :class:`VaultTransaction`. ``dismiss`` requires a non-empty ``reason``;
+    :class:`VaultTransaction`. A ``dismiss`` also closes the gap's still-open
+    suggestions in the same transaction (see :func:`_plan_dismiss_cascade`) --
+    the human mirror of the gate's merge closing its originating gap; a
+    ``reopen`` resurrects nothing (re-drain to re-propose sources).
+    ``dismiss`` requires a non-empty ``reason``;
     ``reopen``'s is optional (see :class:`GapDecisionResult`). ``clock`` injects
     the reported ``decided_at`` stamp for deterministic tests. Raises
     ``ValueError`` when no record has ``gap_id``.
@@ -629,9 +639,18 @@ def apply_gap_decision(
     body = _gaps_body_with(
         gaps, index, replace(gap, status=to_status, decided_reason=decided_reason)
     )
+    decided_at = stamp()
+    cascaded, suggestions_body = _plan_dismiss_cascade(
+        _read_suggestions(store, topic) if decision == "dismiss" else [],
+        gap_id,
+        reason=decided_reason or "",
+        decided_at=decided_at,
+    )
     title = f"{decision} gap {gap_id[:8]}"
     with VaultTransaction(store, Path(root), _GAP_REVIEW_OP, topic, title) as txn:
         txn.write(gaps_path(topic), body)
+        if suggestions_body is not None:
+            txn.write(suggestions_path(topic), suggestions_body)
     return GapDecisionResult(
         gap_id=gap_id,
         topic=topic,
@@ -639,11 +658,58 @@ def apply_gap_decision(
         from_status=gap.status,
         to_status=to_status,
         reason=decided_reason,
-        decided_at=stamp(),
+        decided_at=decided_at,
         question=gap.question,
         changed=txn.result.changed,
         commit_sha=txn.result.commit_sha,
+        cascaded_suggestion_ids=cascaded,
     )
+
+
+#: Suggestion statuses a gap dismissal closes -- the ones still waiting on a
+#: human. ``ingested`` is history and keeps its status; ``rejected`` is already
+#: terminal.
+_CASCADE_SOURCES: frozenset[str] = frozenset({"pending", "approved", "deferred"})
+
+
+def _plan_dismiss_cascade(
+    records: Sequence[SuggestionRecord],
+    gap_id: str,
+    *,
+    reason: str,
+    decided_at: str,
+) -> tuple[tuple[str, ...], str | None]:
+    """Close the dismissed gap's still-open suggestions as ``rejected`` (pure).
+
+    A dismissed gap no longer wants a source, so leaving its pending/approved/
+    deferred suggestions in the queue strands them: ``approved`` in particular
+    has no human exit but ``withdraw``, and nothing would ever take it. Each
+    closed record carries ``gap dismissed: <reason>`` so the rejection explains
+    itself, and a rejected record does not dedup future discovery -- reopening
+    the gap and re-draining re-proposes its sources. Returns the closed ids and
+    the rewritten ``suggestions.jsonl`` body, or ``(), None`` when nothing
+    matches (the file is then left out of the commit entirely).
+    """
+    matched = [
+        record
+        for record in records
+        if record.gap_id == gap_id and record.status in _CASCADE_SOURCES
+    ]
+    if not matched:
+        return (), None
+    matched_ids = {record.suggestion_id for record in matched}
+    updated = [
+        replace(
+            record,
+            status="rejected",
+            decided_at=decided_at,
+            decided_reason=f"gap dismissed: {reason}",
+        )
+        if record.suggestion_id in matched_ids
+        else record
+        for record in records
+    ]
+    return tuple(record.suggestion_id for record in matched), _serialize(updated)
 
 
 def _plan_gap_decision(
@@ -1127,6 +1193,19 @@ def _reported_gap_id(topic: str, qa_id: str, fault_class: str) -> str:
 def _invalid(message: str, fix: str) -> KnoticaError:
     """A typed argument-validation error (the house ``INVALID_ARGUMENT`` code)."""
     return KnoticaError(ErrorCode.INVALID_ARGUMENT, message, fix=fix)
+
+
+def _legal_exits_hint(status: str) -> str:
+    """The decisions legal from ``status``, for a refused transition's fix text.
+
+    A refusal that names only the attempted decision's legal sources leaves the
+    caller stuck when the record's *actual* status has a different exit --
+    ``approved`` has ``withdraw``, but a refused ``reject`` never said so.
+    """
+    exits = sorted(decision for decision, sources in _ALLOWED_FROM.items() if status in sources)
+    if not exits:
+        return f"A {status!r} suggestion accepts no further decision."
+    return f"From {status!r} the legal decisions are: {', '.join(exits)}."
 
 
 def _append_jsonl_lines(existing_text: str, lines: Sequence[str]) -> str:
