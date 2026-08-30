@@ -52,6 +52,7 @@ from knotica.core.records import (
     parse_gaps_jsonl,
     parse_suggestions_jsonl,
 )
+from knotica.core.topics import require_topic
 from knotica.core.transaction import VaultTransaction
 from knotica.store import VaultStore
 
@@ -795,6 +796,9 @@ def _file_synthetic_gap(
     ``write_gap_records`` path, whose ``(qa_id, fault_class)`` open-dedup drops a
     repeat, so ``written`` reports whether this call actually appended a record.
     """
+    # A synthetic gap is filed AGAINST a topic, never a way to create one — an
+    # unguarded report once scaffolded a stray topic the loop began tending.
+    topic = require_topic(store, topic)
     stamp = clock or _utc_now_iso
     qa_id = _synthetic_qa_id(text, origin)
     fault_class = FaultClass.GENUINE_GAP
