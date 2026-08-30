@@ -56,6 +56,12 @@ def suggestion_block(store: VaultStore, topic: str) -> dict[str, Any]:
         if record.status == "approved" and is_refused(record):
             refused_awaiting_rework += 1
     return {
+        # Every suggestion ever recorded for the topic, whatever its status.
+        # Free -- the counter already holds it -- and it is what lets a client
+        # tell "discovery has never run here" apart from "discovery ran and
+        # everything it proposed has already been dealt with". Those two look
+        # identical through the per-status counts alone.
+        "total": counts.total(),
         "pending": counts.get("pending", 0),
         "approved_awaiting_ingest": counts.get("approved", 0),
         "deferred": counts.get("deferred", 0),

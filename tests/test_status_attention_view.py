@@ -43,6 +43,8 @@ from typing import Any
 import pytest
 
 from knotica.core import status as status_module
+from knotica.core.arena import ArenaStage, ArenaState, write_arena_state
+from knotica.core.gapfill import report_gap
 from knotica.core.loop_heartbeat import write_heartbeat
 from knotica.core.operations.capture_note import capture_note
 from knotica.core.operations.create_topic import create_topic
@@ -308,3 +310,116 @@ def test_attention_view_on_an_empty_vault_returns_a_valid_empty_topics_list(
     body = gather_wiki_status(store, template_vault, view="attention")
 
     assert body["topics"] == []
+
+
+# ---------------------------------------------------------------------------
+# The two Surface holes: open gaps nobody discovered against, and an aborted race
+# ---------------------------------------------------------------------------
+
+
+def _row_for(body: dict[str, Any], topic: str) -> dict[str, Any]:
+    return next(row for row in body["topics"] if row["topic"] == topic)
+
+
+def test_attention_row_reports_open_gaps_so_an_undiscovered_queue_can_surface(
+    template_vault: Path,
+) -> None:
+    """A topic with open gaps and no suggestions tripped none of the four
+    original signals, so Home reported "nothing needs you" while the gap queue
+    sat untouched. The row now carries the two numbers that tell those apart:
+    gaps are open, and nothing has ever been proposed for them."""
+    store = LocalFSStore(template_vault)
+    report_gap(
+        store,
+        template_vault,
+        TOPIC,
+        question="what is the retrieval story for long documents?",
+    )
+
+    row = _row_for(gather_wiki_status(store, template_vault, view="attention"), TOPIC)
+
+    assert row["gaps"]["open_total"] == 1
+    # The conservative predicate the client derives on: zero suggestions ever,
+    # not merely zero pending. A topic mid-pipeline must not trip it.
+    assert row["suggestions"]["total"] == 0
+
+
+def test_attention_row_reports_zero_open_gaps_for_a_topic_with_none(
+    template_vault: Path,
+) -> None:
+    """Honest zeros, not an absent key -- a client that has to distinguish
+    "no gaps" from "field missing" has been handed the server's problem."""
+    store = LocalFSStore(template_vault)
+
+    row = _row_for(gather_wiki_status(store, template_vault, view="attention"), TOPIC)
+
+    assert row["gaps"]["open_total"] == 0
+    assert row["suggestions"]["total"] == 0
+
+
+def test_attention_row_reports_the_arena_stage_when_a_race_was_refused(
+    template_vault: Path,
+) -> None:
+    """``aborted`` means refused before scoring: the arena scorer and the gate
+    baseline are not the same instrument. It is a stopped pipeline needing a
+    human config decision, and until now it was visible only to someone already
+    standing in Improve -> Heal on that topic."""
+    store = LocalFSStore(template_vault)
+    write_arena_state(
+        store,
+        template_vault,
+        ArenaState(topic=TOPIC, race_id="race-aborted", stage=ArenaStage.aborted),
+        title="seed an aborted race",
+    )
+
+    row = _row_for(gather_wiki_status(store, template_vault, view="attention"), TOPIC)
+
+    assert row["arena"]["stage"] == "aborted"
+
+
+def test_attention_row_reports_a_non_aborted_arena_stage_verbatim(
+    template_vault: Path,
+) -> None:
+    """The server returns the stage word and nothing else -- deciding that
+    ``reverted`` ("raced and nobody won") is normal while ``aborted`` needs a
+    human is the client's call, exactly as every other attention row is
+    derived client-side."""
+    store = LocalFSStore(template_vault)
+    write_arena_state(
+        store,
+        template_vault,
+        ArenaState(topic=TOPIC, race_id="race-reverted", stage=ArenaStage.reverted),
+        title="seed a reverted race",
+    )
+
+    row = _row_for(gather_wiki_status(store, template_vault, view="attention"), TOPIC)
+
+    assert row["arena"]["stage"] == "reverted"
+
+
+def test_attention_row_reports_a_null_arena_stage_when_no_race_was_ever_recorded(
+    template_vault: Path,
+) -> None:
+    """ "No race we can speak for" is null, never a guessed stage -- the same
+    ruling the view already applies to runner liveness: a wrong answer is worse
+    than an absent one."""
+    store = LocalFSStore(template_vault)
+
+    row = _row_for(gather_wiki_status(store, template_vault, view="attention"), TOPIC)
+
+    assert row["arena"]["stage"] is None
+
+
+def test_attention_row_carries_both_new_fields_for_every_topic_in_the_vault(
+    template_vault: Path,
+) -> None:
+    """The view's contract is per-topic, so a field present on one row and
+    absent on another is a client-side crash waiting for the second topic."""
+    store = _seed_multi_topic_vault(template_vault)
+
+    body = gather_wiki_status(store, template_vault, view="attention")
+
+    for row in body["topics"]:
+        assert "open_total" in row["gaps"], row["topic"]
+        assert "total" in row["suggestions"], row["topic"]
+        assert "stage" in row["arena"], row["topic"]

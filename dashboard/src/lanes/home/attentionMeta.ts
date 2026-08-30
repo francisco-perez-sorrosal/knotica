@@ -40,6 +40,12 @@ export interface AttentionKindMeta {
  *   `docs/dashboard.md` describes.
  * - `runner_active` -- `AttentionTopicRow.runner.alive`, the same signal
  *   `deriveAttentionRows` reads for this row's `action: "Watch"`.
+ * - `gaps_awaiting_discovery` -- `core/gapfill.py`'s discovery leg, which
+ *   turns an open gap into ranked candidate sources; the row exists because
+ *   nothing else reports a gap queue that discovery never reached.
+ * - `arena_aborted` -- `core/arena.py::ArenaStage.aborted` ("refused before
+ *   scoring: the scorer and the baseline are not the same instrument"), and
+ *   `HealStage.tsx`'s abort card, whose scorer switch is the fix.
  */
 export const ATTENTION_KIND_META: Record<AttentionKind, AttentionKindMeta> = {
   refused_rework: {
@@ -54,6 +60,20 @@ export const ATTENTION_KIND_META: Record<AttentionKind, AttentionKindMeta> = {
     unlocks:
       "Approving queues an ingest instruction for the next interactive session, moving the gaps those sources answer toward closed.",
     anchor: { lane: "fill", stage: "approve" },
+  },
+  gaps_awaiting_discovery: {
+    why: "Gaps are filed against this topic and discovery has never run, so no source has ever been proposed for them — the queue is stalled at its first step.",
+    unlocks:
+      "Running discovery turns each open gap into ranked candidate sources you can approve, which is what starts an ingest.",
+    // Discovery is the stalled step, so Discover is where the user must land.
+    anchor: { lane: "fill", stage: "discover" },
+  },
+  arena_aborted: {
+    why: "A prompt race was refused before scoring because the arena scorer and the gate baseline are not the same instrument, so no ranking between them would mean anything.",
+    unlocks:
+      "Switching the scorer to the gate-comparable one lets the next race actually rank — until then every race is refused the same way.",
+    // The abort card and the scorer switch that clears it are both in Heal.
+    anchor: { lane: "improve", stage: "heal" },
   },
   compile_ready: {
     why: "The trainset and golden set have both crossed the compile floor, so a better prompt is available but not yet built.",

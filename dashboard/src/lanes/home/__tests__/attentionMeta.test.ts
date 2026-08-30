@@ -13,11 +13,13 @@ describe("ATTENTION_KIND_META census", () => {
   const KNOWN_KINDS = [
     "refused_rework",
     "pending_suggestions",
+    "gaps_awaiting_discovery",
     "compile_ready",
+    "arena_aborted",
     "runner_active",
   ] as const;
 
-  it("has exactly the four known AttentionRow kinds, no more, no less", () => {
+  it("has exactly the six known AttentionRow kinds, no more, no less", () => {
     expect(new Set(Object.keys(ATTENTION_KIND_META))).toEqual(
       new Set(KNOWN_KINDS),
     );

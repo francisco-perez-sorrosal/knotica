@@ -14,15 +14,22 @@ import type {
  * quiet topic (every signal false) contributes zero rows -- "not rendered"
  * is the fourth, correct urgency class.
  *
- * Routing (signal → lane, both suggestion-lifecycle signals land on `fill`;
- * both Improve-folded signals land on `improve`, per `INTERFACE_DESIGN.md
- * §2.4`): `refused_awaiting_rework` → blocked/fill, `pending` →
- * waiting/fill, `compile_ready` → waiting/improve, `runner.alive` →
- * running/improve. `action` is `"Watch"` only for `running` rows, `"Open"`
- * otherwise. Each row also carries its own `kind` -- one per branch below,
- * never derived from `urgency`/`lane` (two branches share `waiting`, two
- * share `fill`) -- so `attentionMeta.ts` can attach a rationale per signal
- * rather than per urgency class.
+ * Routing (signal → lane, every gap-queue signal lands on `fill`; every
+ * Improve-folded signal lands on `improve`, per `INTERFACE_DESIGN.md §2.4`):
+ * `refused_awaiting_rework` → blocked/fill, `pending` → waiting/fill, open
+ * gaps with no discovery → waiting/fill, an aborted race → blocked/improve,
+ * `compile_ready` → waiting/improve, `runner.alive` → running/improve.
+ * `action` is `"Watch"` only for `running` rows, `"Open"` otherwise. Each row
+ * also carries its own `kind` -- one per branch below, never derived from
+ * `urgency`/`lane` (three branches share `waiting`, three share `fill`) -- so
+ * `attentionMeta.ts` can attach a rationale *and a destination stage* per
+ * signal rather than per urgency class.
+ *
+ * The two later branches close the surface holes that made Home lie. A topic
+ * with open gaps and no suggestions tripped nothing, so "nothing needs you"
+ * rendered over a stalled queue; an arena race refused before scoring was
+ * visible only to someone already standing in Improve → Heal on that topic.
+ * Both are now signals the server sends and this function reads.
  */
 export function deriveAttentionRows(payload: AttentionStatus): AttentionRow[] {
   return payload.topics.flatMap(rowsForTopic);
@@ -49,6 +56,45 @@ function rowsForTopic(topic: AttentionTopicRow): AttentionRow[] {
       urgency: "waiting",
       kind: "pending_suggestions",
       narration: `${topic.suggestions.pending} suggestion(s) pending review.`,
+      action: "Open",
+    });
+  }
+
+  // Optionally read: a server whose `attention` view predates these two fields
+  // still renders a working inbox, one signal short, rather than throwing on
+  // the first topic and blanking Home entirely. `App.tsx` reads the summary
+  // view's own `gaps` block the same way and for the same reason.
+  const openGaps = topic.gaps?.open_total ?? 0;
+  const suggestionsEverProposed = topic.suggestions?.total ?? 0;
+
+  // Deliberately conservative: this fires only when *nothing* has ever been
+  // proposed for the topic, so it cannot false-positive on a topic mid-pipeline.
+  // Its known false negative -- three open gaps and one old suggestion hides two
+  // of them -- is the price. A conservative signal that is always right when it
+  // fires beats a clever one that cries wolf; the attention view's own doctrine
+  // is that a wrong answer is worse than an absent one.
+  if (openGaps > 0 && suggestionsEverProposed === 0) {
+    rows.push({
+      topic: topic.topic,
+      lane: "fill",
+      urgency: "waiting",
+      kind: "gaps_awaiting_discovery",
+      narration: `${openGaps} open gap(s), no discovery run yet.`,
+      action: "Open",
+    });
+  }
+
+  // `blocked`, not `waiting`: an aborted race is a stopped pipeline, which is
+  // exactly what the rank-0 class means. `aborted` is distinct from `reverted`
+  // on purpose -- that word already means "raced and nobody won", which is a
+  // normal terminal state needing nobody.
+  if (topic.arena?.stage === "aborted") {
+    rows.push({
+      topic: topic.topic,
+      lane: "improve",
+      urgency: "blocked",
+      kind: "arena_aborted",
+      narration: "A prompt race was refused before scoring.",
       action: "Open",
     });
   }

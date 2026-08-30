@@ -47,6 +47,10 @@ import { beforeAll, describe, expect, it } from "vitest";
 interface AttentionSuggestions {
   pending: number;
   refused_awaiting_rework: number;
+  /** Optional in this mirror on purpose: the derivation must keep working
+   *  against a server whose `attention` view predates the field, and every
+   *  fixture below that omits it is exercising exactly that. */
+  total?: number;
 }
 
 interface AttentionRunner {
@@ -58,6 +62,9 @@ interface AttentionTopicRow {
   suggestions: AttentionSuggestions;
   compile_ready: boolean;
   runner: AttentionRunner;
+  /** Optional for the same back-compat reason as `suggestions.total`. */
+  gaps?: { open_total: number };
+  arena?: { stage: string | null };
 }
 
 interface AttentionTotals {
@@ -93,7 +100,9 @@ type AttentionLane = "learn" | "answer" | "improve" | "fill" | "tend";
 type AttentionKind =
   | "refused_rework"
   | "pending_suggestions"
+  | "gaps_awaiting_discovery"
   | "compile_ready"
+  | "arena_aborted"
   | "runner_active";
 
 interface AttentionRow {
@@ -376,6 +385,142 @@ describe("sortAttentionRows -- urgency-class ordering (blocked < waiting < runni
       "blocked",
       "waiting",
       "running",
+    ]);
+  });
+});
+
+/**
+ * The two signals that close Home's surface holes. Both were conditions a user
+ * had to already be standing in the right lane to discover -- which is Phase 1
+ * of the lifecycle contract failing, not a missing nicety.
+ */
+describe("waiting class -- open gaps that discovery never reached", () => {
+  const UNDISCOVERED: AttentionTopicRow = {
+    topic: "rag-patterns",
+    suggestions: { pending: 0, refused_awaiting_rework: 0, total: 0 },
+    gaps: { open_total: 3 },
+    compile_ready: false,
+    runner: { alive: false },
+  };
+
+  it("produces exactly one waiting row routed to fill", () => {
+    const rows = rowsFor(UNDISCOVERED);
+
+    expect(rows).toHaveLength(1);
+    expect(rows[0].urgency).toBe("waiting");
+    expect(rows[0].lane).toBe("fill");
+    expect(rows[0].kind).toBe("gaps_awaiting_discovery");
+    expect(rows[0].action).toBe("Open");
+  });
+
+  it("narrates the open-gap count, so the row says how much is stalled", () => {
+    expect(rowsFor(UNDISCOVERED)[0].narration).toMatch(/\b3\b/);
+    expect(rowsFor(UNDISCOVERED)[0].narration).toMatch(/gap/i);
+  });
+
+  it("stays silent once anything has ever been proposed -- the conservative half", () => {
+    // The predicate is "nothing has ever been discovered here", not "nothing is
+    // pending". A topic mid-pipeline must not be reported as never-discovered.
+    const midPipeline: AttentionTopicRow = {
+      ...UNDISCOVERED,
+      suggestions: { pending: 0, refused_awaiting_rework: 0, total: 1 },
+    };
+
+    expect(
+      rowsFor(midPipeline).filter((row) => row.kind === "gaps_awaiting_discovery"),
+    ).toEqual([]);
+  });
+
+  it("stays silent when there are no open gaps at all", () => {
+    expect(rowsFor({ ...UNDISCOVERED, gaps: { open_total: 0 } })).toEqual([]);
+  });
+
+  it("stays silent against a server that does not send the fields yet", () => {
+    // One signal short beats a blank Home: the row is absent, nothing throws.
+    expect(rowsFor(QUIET_ROW)).toEqual([]);
+  });
+});
+
+describe("blocked class -- a prompt race refused before scoring", () => {
+  const ABORTED: AttentionTopicRow = {
+    topic: "agentic-systems",
+    suggestions: { pending: 0, refused_awaiting_rework: 0, total: 0 },
+    gaps: { open_total: 0 },
+    compile_ready: false,
+    runner: { alive: false },
+    arena: { stage: "aborted" },
+  };
+
+  it("produces exactly one blocked row routed to improve", () => {
+    const rows = rowsFor(ABORTED);
+
+    expect(rows).toHaveLength(1);
+    expect(rows[0].urgency).toBe("blocked");
+    expect(rows[0].lane).toBe("improve");
+    expect(rows[0].kind).toBe("arena_aborted");
+    expect(rows[0].action).toBe("Open");
+  });
+
+  it("narrates the refusal rather than a generic placeholder", () => {
+    expect(rowsFor(ABORTED)[0].narration).toMatch(/refused|scoring/i);
+  });
+
+  it.each(["idle", "racing", "promoting", "completed", "reverted"])(
+    "stays silent for a %s race -- only aborted needs a human",
+    (stage) => {
+      // `reverted` is the one worth naming: it means "raced and nobody won",
+      // a normal terminal state. Treating it as blocked would cry wolf on
+      // every healthy race that failed to beat its baseline.
+      expect(rowsFor({ ...ABORTED, arena: { stage } })).toEqual([]);
+    },
+  );
+
+  it("stays silent when no race was ever recorded", () => {
+    expect(rowsFor({ ...ABORTED, arena: { stage: null } })).toEqual([]);
+  });
+});
+
+describe("the new signals sort into their classes with the old ones", () => {
+  it("puts an aborted race above open gaps, because blocked outranks waiting", () => {
+    const rows = attentionRows.deriveAttentionRows(
+      payload([
+        {
+          topic: "rag-patterns",
+          suggestions: { pending: 0, refused_awaiting_rework: 0, total: 0 },
+          gaps: { open_total: 2 },
+          compile_ready: false,
+          runner: { alive: false },
+        },
+        {
+          topic: "agentic-systems",
+          suggestions: { pending: 0, refused_awaiting_rework: 0, total: 0 },
+          gaps: { open_total: 0 },
+          compile_ready: false,
+          runner: { alive: false },
+          arena: { stage: "aborted" },
+        },
+      ]),
+    );
+
+    expect(attentionRows.sortAttentionRows(rows).map((row) => row.kind)).toEqual([
+      "arena_aborted",
+      "gaps_awaiting_discovery",
+    ]);
+  });
+
+  it("emits both new rows for one topic that is simultaneously stalled and blocked", () => {
+    const rows = rowsFor({
+      topic: "rag-patterns",
+      suggestions: { pending: 0, refused_awaiting_rework: 0, total: 0 },
+      gaps: { open_total: 1 },
+      compile_ready: false,
+      runner: { alive: false },
+      arena: { stage: "aborted" },
+    });
+
+    expect(rows.map((row) => row.kind).sort()).toEqual([
+      "arena_aborted",
+      "gaps_awaiting_discovery",
     ]);
   });
 });

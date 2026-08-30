@@ -20,13 +20,25 @@ export type StatusView = "summary" | "attention";
 export interface AttentionSuggestions {
   pending: number;
   refused_awaiting_rework: number;
+  /** Every suggestion ever recorded for the topic, whatever its status. What
+   * lets a client tell "discovery has never run here" apart from "discovery ran
+   * and everything it proposed has been dealt with" -- identical through the
+   * per-status counts alone. */
+  total: number;
 }
 
 export interface AttentionTopicRow {
   topic: string;
   suggestions: AttentionSuggestions;
+  /** Open gap records, all fault classes. A filed gap with nothing proposed
+   * against it is a stalled queue that no other signal reports. */
+  gaps: { open_total: number };
   compile_ready: boolean;
   runner: { alive: boolean };
+  /** The topic's last arena stage, or `null` when no race was ever recorded --
+   * "no race we can speak for", never a guessed stage. The server returns the
+   * stage word; whether `aborted` needs a human is derived here. */
+  arena: { stage: string | null };
 }
 
 /** The `view="attention"` payload -- every topic's actionable signals plus
@@ -52,7 +64,7 @@ export interface AttentionStatus {
 
 export type AttentionUrgency = "blocked" | "waiting" | "running";
 
-/** Which of `deriveAttentionRows`'s four signal branches produced a row --
+/** Which of `deriveAttentionRows`'s six signal branches produced a row --
  * drives `attentionMeta.ts`'s per-row rationale (why it is queued, what
  * acting on it unfolds). One kind per branch in `rowsForTopic`, never
  * derived from `urgency`/`lane` (two kinds share `waiting`, two share
@@ -60,7 +72,9 @@ export type AttentionUrgency = "blocked" | "waiting" | "running";
 export type AttentionKind =
   | "refused_rework"
   | "pending_suggestions"
+  | "gaps_awaiting_discovery"
   | "compile_ready"
+  | "arena_aborted"
   | "runner_active";
 
 /** One actionable row `deriveAttentionRows` emits -- one per independent

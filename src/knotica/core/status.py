@@ -309,14 +309,46 @@ def _attention_status(store: VaultStore, vault_path: Path, vault_name: str) -> d
 
 
 def _attention_row(store: VaultStore, vault_path: Path, topic: str) -> dict[str, Any]:
-    """One topic's attention row -- small file reads only, no git, no lint."""
+    """One topic's attention row -- small file reads only, no git, no lint.
+
+    ``gaps`` and ``arena`` add **one small file read each** (``gaps.jsonl`` and
+    the arena state file), taking the row from four reads to six. Both stay
+    inside the dec-092 budget: no git subprocess, no lint walk, no note-anchor
+    resolution, and cost still linear in topic count.
+
+    They exist because two "needs a human" conditions reached Home through no
+    signal at all. A topic with open gaps and no suggestions -- because
+    discovery never ran against them -- tripped none of the four existing
+    branches, so Home reported "nothing needs you" while the gap queue rotted.
+    And an arena race refused before scoring is a *stopped* pipeline that was
+    visible only to someone already standing in Improve -> Heal on that topic.
+
+    Only the honest numbers are returned; whether they *mean* a row is the
+    client's call, exactly as every other attention signal is derived
+    client-side.
+    """
     trainset_n = count_query_train_examples(store, topic)
     return {
         "topic": topic,
         "suggestions": suggestion_block(store, topic),
+        "gaps": {"open_total": gap_block(store, topic)["open_total"]},
         "compile_ready": _is_compile_ready(trainset_n, golden_count(store, topic)),
         "runner": read_runner_liveness(vault_path, topic),
+        "arena": _attention_arena_block(store, topic),
     }
+
+
+def _attention_arena_block(store: VaultStore, topic: str) -> dict[str, Any]:
+    """The topic's last arena stage, or null when no race was ever recorded.
+
+    One small file read; no git, no scoring, no variant resolution. The *stage
+    word* is all this returns -- whether an ``aborted`` race needs a decision is
+    the client's call. A corrupt or absent state file reads as ``None`` via
+    :func:`~knotica.core.arena.read_arena_state`, which is the honest answer:
+    "no race we can speak for", never a guessed stage.
+    """
+    state = read_arena_state(store, topic)
+    return {"stage": state.stage.value if state is not None else None}
 
 
 def _last_lint_status(store: VaultStore, *, today: date | None = None) -> dict[str, Any]:
