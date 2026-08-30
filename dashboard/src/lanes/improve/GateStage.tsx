@@ -7,6 +7,8 @@ import type { StateListRow } from "../../StateList";
 import { TermHint } from "../../TermHint";
 import { useTwoPhaseAction } from "../../TwoPhaseAction";
 import { Spinner } from "../../icons";
+import { ProcessBrief } from "../ProcessBrief";
+import { ProcessOutcome } from "../ProcessOutcome";
 import type { ToolClient } from "../../toolClient";
 import type {
   LoopOnceResult,
@@ -107,6 +109,13 @@ export function GateStage({
                   </>
                 )}
               </p>
+              {/* The server's own sentence is above, inside this same live
+                  region, so the brief contributes the sixth answer only:
+                  where the verdict sends you, and why. */}
+              <ProcessOutcome
+                process="improve.gate_candidate"
+                discriminant={outcome.decision ?? null}
+              />
               <button type="button" class="ghost" onClick={gateOnce.reset}>
                 Dismiss
               </button>
@@ -156,8 +165,10 @@ export function GateStage({
             <>
               {/* Sibling of the button, never a child: the accessible name
                   stays `Gate next candidate now` and the two-phase contract
-                  is untouched. */}
-              <span class="chip cost">billed</span>
+                  is untouched. The brief carries the spend chip and the two
+                  answers the chip alone cannot give — why now, and what it
+                  will do. */}
+              <ProcessBrief process="improve.gate_candidate" align="end" />
               <button
                 type="button"
                 data-testid="gate-run-once-preview"

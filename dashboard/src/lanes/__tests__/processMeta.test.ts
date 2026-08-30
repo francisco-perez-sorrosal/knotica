@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { beforeAll, describe, expect, it } from "vitest";
 
 import { toolCallMethodNames } from "../../__tests__/helpers/clientSurface";
 import { LANES, LANE_STAGES } from "../../processModel";
@@ -31,9 +31,65 @@ import type { ProcessAnchor, ProcessId, ProcessMeta } from "../processMeta";
  *   G6  Home acts on nothing
  *   G7  copy uniqueness
  *
- * G2 (trigger routing) and G3 (raw-trigger interdiction) are source scans
- * over wired call sites; they arrive with the first wired process.
+ *   G2  trigger routing — every row is wired, every marker is a real id
+ *   G3  raw-trigger interdiction — the teeth
+ *
+ * `@types/node` is not a project dependency; `fs`/`path`/`url` are loaded via
+ * a dynamic `import()` with a variable specifier, the same technique
+ * `crossLaneLinkCensus.test.ts` and `toolNameRegistryCensus.test.ts` use.
  */
+
+interface FsModule {
+  readdirSync(path: string): string[];
+  statSync(path: string): { isDirectory(): boolean };
+  readFileSync(path: string, encoding: string): string;
+}
+interface PathModule {
+  dirname(path: string): string;
+  join(...parts: string[]): string;
+  relative(from: string, to: string): string;
+}
+interface UrlModule {
+  fileURLToPath(url: string): string;
+}
+
+const FS_MODULE_NAME = "fs";
+const PATH_MODULE_NAME = "path";
+const URL_MODULE_NAME = "url";
+
+let fsModule: FsModule;
+let pathModule: PathModule;
+let srcDir: string;
+
+beforeAll(async () => {
+  fsModule = (await import(FS_MODULE_NAME)) as unknown as FsModule;
+  pathModule = (await import(PATH_MODULE_NAME)) as unknown as PathModule;
+  const urlModule = (await import(URL_MODULE_NAME)) as unknown as UrlModule;
+  const testDir = pathModule.dirname(urlModule.fileURLToPath(import.meta.url));
+  srcDir = pathModule.join(testDir, "..", "..");
+});
+
+/** Walks `dashboard/src`, skipping `__tests__`, returning every `.ts`/`.tsx` file. */
+function collectSourceFiles(dir: string): string[] {
+  const files: string[] = [];
+  for (const entry of fsModule.readdirSync(dir)) {
+    if (entry === "__tests__") continue;
+    const full = pathModule.join(dir, entry);
+    if (fsModule.statSync(full).isDirectory()) {
+      files.push(...collectSourceFiles(full));
+    } else if (/\.(ts|tsx)$/.test(entry)) {
+      files.push(full);
+    }
+  }
+  return files;
+}
+
+function sources(): { path: string; text: string }[] {
+  return collectSourceFiles(srcDir).map((path) => ({
+    path: pathModule.relative(srcDir, path),
+    text: fsModule.readFileSync(path, "utf-8"),
+  }));
+}
 
 // ---------------------------------------------------------------------------
 // G1 — registry completeness against the client surface.
@@ -350,6 +406,95 @@ describe("G6 — Home routes, every other lane acts", () => {
 // ---------------------------------------------------------------------------
 // G7 — copy uniqueness. Copy-paste is how a registry becomes decorative.
 // ---------------------------------------------------------------------------
+
+// ---------------------------------------------------------------------------
+// G2 — trigger routing. Orphan copy is as bad as no copy.
+// ---------------------------------------------------------------------------
+
+/** `process="improve.gate_candidate"` and its braced form. */
+const PROCESS_MARKER = /process=\{?"([^"]+)"\}?/g;
+
+function markersInSource(): { path: string; id: string }[] {
+  return sources().flatMap(({ path, text }) =>
+    [...text.matchAll(PROCESS_MARKER)].map((match) => ({ path, id: match[1] })),
+  );
+}
+
+describe("G2 — every registered process is wired, every marker is a real id", () => {
+  it("names no process the registry does not declare", () => {
+    const known = new Set<string>(PROCESS_IDS);
+    const unknown = [
+      ...new Set(
+        markersInSource()
+          .filter((marker) => !known.has(marker.id))
+          .map((marker) => `${marker.path}: ${marker.id}`),
+      ),
+    ].sort();
+    expect(unknown).toEqual([]);
+  });
+
+  it("leaves no registry row unwired — copy with no trigger is a lie by omission", () => {
+    const wired = new Set(markersInSource().map((marker) => marker.id));
+    const orphans = ROWS.filter(
+      ([id, meta]) => meta.dispatch !== "cli" && !wired.has(id),
+    ).map(([id]) => id);
+    expect(orphans).toEqual([]);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// G3 — raw-trigger interdiction. The teeth.
+// ---------------------------------------------------------------------------
+
+/**
+ * The seven modules that *define* the client surface. A definition is not a
+ * trigger; interdicting them would forbid the client from existing.
+ */
+const CLIENT_DEFINITION_SOURCES: readonly string[] = [
+  "toolClient.ts",
+  "lanes/home/client.ts",
+  "lanes/learn/client.ts",
+  "lanes/answer/client.ts",
+  "lanes/improve/client.ts",
+  "lanes/fill/client.ts",
+  "lanes/tend/client.ts",
+];
+
+describe("G3 — a registered process is never triggered without its lifecycle copy", () => {
+  /**
+   * The check is *file*-level, not *control*-level: a file that calls a
+   * registered client method must declare which process it is running. The
+   * design proposed proxying that through an import of `processMeta`; the
+   * `process="<id>"` marker is used instead because it is strictly tighter
+   * (the file names the process, not merely the module) and because it does
+   * not need widening each time a new lifecycle composition lands.
+   *
+   * Stated rather than oversold: a file legitimately rendering one process
+   * could add a raw trigger for a second and still pass. G2 catches the case
+   * where that second process is never wired anywhere; the residual is
+   * "wired twice in one file, once correctly" — a two-step mistake instead of
+   * a one-step one, and a visible one in review. Closing it fully needs a JSX
+   * AST walk and a parser dependency the dashboard does not carry.
+   */
+  it("finds no call site outside a file that declares its process", () => {
+    const methods = registeredClientMethods();
+    const exempt = new Set(CLIENT_DEFINITION_SOURCES);
+    const offenders: string[] = [];
+
+    for (const { path, text } of sources()) {
+      if (exempt.has(path)) continue;
+      const declares = PROCESS_MARKER.test(text);
+      PROCESS_MARKER.lastIndex = 0;
+      if (declares) continue;
+      for (const method of methods) {
+        if (new RegExp(`\\b${method}\\s*\\(`).test(text)) {
+          offenders.push(`${path}: ${method}`);
+        }
+      }
+    }
+    expect(offenders).toEqual([]);
+  });
+});
 
 describe("G7 — no two processes share their copy", () => {
   it("gives each process its own why", () => {

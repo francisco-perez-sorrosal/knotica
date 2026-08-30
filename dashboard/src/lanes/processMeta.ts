@@ -199,9 +199,13 @@ export const PROCESS_META: Record<ProcessId, ProcessMeta> = {
     outcomeMode: "verdict",
     next: {
       kind: "conditional",
+      // The discriminant is `LoopOnceResult.decision`, whose vocabulary is
+      // `core/loop_state.py::LoopDecision` — `pass` / `fail` / `none`. It is
+      // *not* the gapfill gate's `merged` / `refused`; the two gates are
+      // different instruments and share no verdict word.
       branches: [
         {
-          when: "merged",
+          when: "pass",
           go: {
             lane: "improve",
             stage: "promote",
@@ -209,7 +213,7 @@ export const PROCESS_META: Record<ProcessId, ProcessMeta> = {
           },
         },
         {
-          when: "refused",
+          when: "fail",
           go: {
             lane: "improve",
             stage: "heal",
@@ -220,7 +224,7 @@ export const PROCESS_META: Record<ProcessId, ProcessMeta> = {
       fallback: {
         lane: "improve",
         stage: "observe",
-        why: "The verdict was not one this build recognises — read the trend and the raw cycle before deciding.",
+        why: "Nothing was decided this tick — read the trend and the raw cycle before spending again.",
       },
     },
   },

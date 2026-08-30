@@ -3888,6 +3888,31 @@ button.loop-node:focus-visible {
   word-break: break-word;
 }
 
+/* The process lifecycle brief and outcome (`lanes/processMeta.ts`). The brief
+   is the spend chip plus its `TermHint`, kept on one baseline beside the
+   trigger they describe -- the chip stays a sibling of the button, so the
+   button's accessible name never absorbs its price. */
+.process-brief {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+.process-brief-slot { display: block; margin-top: var(--space-2); }
+.process-brief-slot:first-child { margin-top: 0; }
+.process-brief-text { display: block; }
+
+/* The outcome is phrasing content -- it is mounted inside a `<p>` -- so the
+   block layout comes from here rather than from block-level tags. */
+.process-outcome { display: block; margin-top: var(--space-3); }
+.process-outcome-line { display: block; }
+.process-outcome .microlabel { display: block; margin-top: var(--space-2); }
+.process-outcome-next {
+  display: block;
+  color: var(--muted);
+  font: var(--fs-xs)/1.5 var(--sans);
+}
+.process-outcome-dest { color: var(--text); }
+
 /* ── FILL APPROVE QUEUE — toolbar + triage rows ────────────────────────── */
 /* One toolbar, two rows: what is listed and what came of it on top, in what
    order underneath. Replaces two visually identical `.sources-filters` rows

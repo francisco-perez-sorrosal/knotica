@@ -14,6 +14,8 @@ import {
   useTwoPhaseAction,
 } from "../../TwoPhaseAction";
 import { Spinner } from "../../icons";
+import { ProcessBrief } from "../ProcessBrief";
+import { ProcessOutcome } from "../ProcessOutcome";
 import type { ToolClient } from "../../toolClient";
 import type {
   LoopCadenceConfig,
@@ -368,6 +370,9 @@ function runEvalFooter(
             {outcome.message || "The loop declined this observation."}
           </>
         )}
+        {/* Inside `TwoPhaseOutcome`'s own live region and its own `<p>`, so
+            this contributes phrasing content and the sixth answer only. */}
+        <ProcessOutcome process="improve.run_eval" />
       </TwoPhaseOutcome>
     );
   }
@@ -405,8 +410,10 @@ function runEvalFooter(
         />
       </label>
       {/* Sibling of the button, never a child: the accessible name stays
-          `Run eval now (billed)` and the two-phase contract is untouched. */}
-      <span class="chip cost">billed</span>
+          `Run eval now (billed)` and the two-phase contract is untouched.
+          The brief carries the spend chip plus why this cycle is necessary
+          and what it will do. */}
+      <ProcessBrief process="improve.run_eval" />
       <button
         type="button"
         class="primary"
