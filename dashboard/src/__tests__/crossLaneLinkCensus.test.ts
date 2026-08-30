@@ -168,7 +168,13 @@ describe("no survivor outside App.tsx/lanes declares a retiring cross-lane onOpe
  * Three groups, each naming a distinct way the contract can rot.
  */
 describe("navigation has exactly one owner and no ad-hoc destinations", () => {
-  const NAVIGATION_OWNERS = ["/App.tsx", "/lanes/laneNavigation.ts"];
+  /** The mechanism module and the seam it publishes through. `App.tsx` reaches
+   *  navigation only by calling `useAnchorNavigation`, so it is deliberately
+   *  *not* on this list: the owner is one module, not "App plus a module". */
+  const NAVIGATION_OWNERS = [
+    "/anchorNavigation.ts",
+    "/lanes/laneNavigation.ts",
+  ];
 
   /** Scan code, never prose: a docblock naming a symbol to explain a rule is
    *  not a call, and a census that fails on a sentence teaches people to reword
@@ -180,7 +186,7 @@ describe("navigation has exactly one owner and no ad-hoc destinations", () => {
       .replace(/(^|[^:])\/\/.*$/gm, "$1");
   }
 
-  it("only App.tsx publishes the callback -- a second publisher would be a second owner", () => {
+  it("exactly one module publishes the callback -- a second publisher would be a second owner", () => {
     const offenders = collectSourceFiles(srcDir).filter((file) => {
       if (NAVIGATION_OWNERS.some((owner) => file.endsWith(owner))) return false;
       return /\bpublishOpenAnchor\b/.test(code(file));

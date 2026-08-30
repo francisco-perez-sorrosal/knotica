@@ -6,7 +6,6 @@ import { applyDocumentTheme } from "@modelcontextprotocol/ext-apps";
 import { CreateDrawer } from "./CreateDrawer";
 import { ProcessBrief } from "./lanes/ProcessBrief";
 import { ProcessOutcome } from "./lanes/ProcessOutcome";
-import { publishOpenAnchor } from "./lanes/laneNavigation";
 import type { ProcessId } from "./lanes/processMeta";
 import { AnswerLane } from "./lanes/answer/AnswerLane";
 import { FillLane } from "./lanes/fill/FillLane";
@@ -26,6 +25,7 @@ import {
 import { flywheelLabel, flywheelTone } from "./compileStages";
 import { Icon } from "./icons";
 import { InfoPopover } from "./InfoPopover";
+import { useAnchorNavigation } from "./anchorNavigation";
 import { DEFAULT_PANE, resolveAnchor, resolvePane } from "./paneRouting";
 import type { LaneAnchor } from "./paneRouting";
 import {
@@ -60,6 +60,9 @@ const initialAnchor: LaneAnchor = initialLane
   ? resolveAnchor(initialLane, query.get("focus") || "")
   : { lane: resolvePane(query.get("pane")), stage: null };
 const initialPane = initialAnchor.lane;
+const initialArrival: LaneAnchor | null = initialAnchor.stage
+  ? initialAnchor
+  : null;
 /**
  * The HTTP mount is normally served by the same process that answers `/mcp`,
  * so same-origin is the honest default — a hardcoded port polls a *different*
@@ -83,16 +86,6 @@ const llmBannerDismissed = signal(false);
 
 const TRANSPORT_ERROR_HINT = /fetch|mcp|connect/i;
 
-/** How long an arrived-at row keeps its border tint. Long enough to find, short
- *  enough not to become a second, competing "current" marker. */
-const ARRIVAL_TINT_MS = 1_600;
-
-function prefersReducedMotion(): boolean {
-  return Boolean(
-    window.matchMedia?.("(prefers-reduced-motion: reduce)")?.matches,
-  );
-}
-
 function errorRemediationHint(message: string): string | null {
   if (!TRANSPORT_ERROR_HINT.test(message)) return null;
   return "Is the knotica server running? Start it with: knotica mcp --http --port 8765";
@@ -113,14 +106,6 @@ export function App() {
   const [topic, setTopic] = useState(initialTopic);
   const [vault, setVault] = useState(initialVault);
   const [pane, setPane] = useState<PaneId>(initialPane);
-  /* The one-shot arrival. Non-null for exactly one render after an anchor is
-     followed: the target lane reads it (Improve seeds its stage focus from it,
-     every railed lane gets its row scrolled into view and tinted), then the
-     effect below clears it. A request that survived would re-seed focus on the
-     next topic change, which is focus theft with a delay. */
-  const [arrival, setArrival] = useState<LaneAnchor | null>(
-    initialAnchor.stage ? initialAnchor : null,
-  );
   const [showCreateDrawer, setShowCreateDrawer] = useState(false);
   /* What the last chrome process did. It is held here rather than in
      `CreateDrawer` because both of that drawer's forms close on success --
@@ -412,63 +397,10 @@ export function App() {
     window.history.replaceState({}, "", url);
   }
 
-  /**
-   * The single cross-lane navigation callback (`dec-092`/M4 sharpened). It does
-   * three things and nothing else: sets the pane, records the destination in the
-   * URL so the landing is shareable and survives a reload, and publishes the
-   * one-shot arrival the target lane consumes.
-   *
-   * Every caller passes a `(lane, stage)` pair that came out of a registry —
-   * `PROCESS_META`'s `next` anchors or `ATTENTION_KIND_META`'s row anchors —
-   * both census-validated against `LANE_STAGES`, so this cannot be handed a
-   * destination the process model does not declare.
-   */
-  const openAnchor = useCallback((lane: PaneId, stage?: string | null) => {
-    setPane(lane);
-    const url = new URL(window.location.href);
-    url.searchParams.delete("pane");
-    url.searchParams.set("lane", lane);
-    if (stage) url.searchParams.set("focus", stage);
-    else url.searchParams.delete("focus");
-    window.history.replaceState({}, "", url);
-    setArrival({ lane, stage: stage ?? null });
-  }, []);
-
-  useEffect(() => {
-    publishOpenAnchor(openAnchor);
-    return () => publishOpenAnchor(null);
-  }, [openAnchor]);
-
-  /**
-   * Arrival, for every lane that is not Improve: scroll the row into view and
-   * tint its border for a moment. **Focus is not moved** — a scroll-and-tint
-   * orients without hijacking the keyboard, and moving focus on arrival is the
-   * same theft the rail contract forbids. The tint is decoration; the position
-   * is the carrier, so a reduced-motion user loses nothing.
-   *
-   * Runs after the target lane's own render, which is what guarantees the row
-   * exists — including the case where Improve's focus seeding is what mounted
-   * the stage body in the first place.
-   */
-  useEffect(() => {
-    if (!arrival) return;
-    const target = arrival.stage
-      ? document.querySelector<HTMLElement>(
-          `[data-anchor="${arrival.lane}:${arrival.stage}"]`,
-        )
-      : null;
-    setArrival(null);
-    if (!target) return;
-    target.scrollIntoView?.({
-      block: "nearest",
-      behavior: prefersReducedMotion() ? "auto" : "smooth",
-    });
-    target.dataset.anchorArrived = "true";
-    const timer = window.setTimeout(() => {
-      delete target.dataset.anchorArrived;
-    }, ARRIVAL_TINT_MS);
-    return () => window.clearTimeout(timer);
-  }, [arrival]);
+  /* Cross-lane navigation, whole, in one module: the URL write, the one-shot
+     arrival, the publish that lets a `ProcessOutcome` deep in a stage body
+     reach the callback without a prop, and the scroll-and-tint on landing. */
+  const { openAnchor, arrival } = useAnchorNavigation(setPane, initialArrival);
 
   return (
     <>
