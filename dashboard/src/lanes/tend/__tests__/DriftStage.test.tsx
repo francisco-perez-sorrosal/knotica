@@ -8,6 +8,7 @@ import {
 import type { JSX } from "preact";
 import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 
+import { PROCESS_META } from "../../processMeta";
 import type { ToolClient } from "../../../toolClient";
 import type {
   NoteAnchor,
@@ -455,7 +456,7 @@ describe("the merged surface renders NotesDriftView's own facts for a queue-elig
       within(container).queryByRole("button", { name: /^re-anchor/i }),
     ).toBeNull();
     expect(
-      within(container).getByRole("button", { name: /detach/i }),
+      within(container).getByRole("button", { name: /^detach$/i }),
     ).toBeTruthy();
   });
 });
@@ -517,7 +518,7 @@ describe("reanchor and detach reach exactly one preview/confirm implementation, 
     const container = renderDriftStage(client);
     await expandStage();
 
-    fireEvent.click(within(container).getByRole("button", { name: /detach/i }));
+    fireEvent.click(within(container).getByRole("button", { name: /^detach$/i }));
 
     const banner = await within(container).findByRole("status");
     expect(banner.className).toMatch(/notes-action-confirm/);
@@ -528,6 +529,25 @@ describe("reanchor and detach reach exactly one preview/confirm implementation, 
     await vi.waitFor(() => expect(notesDetach).toHaveBeenCalled());
     expect(notesDetach.mock.calls[notesDetach.mock.calls.length - 1]).toContain(
       "apply",
+    );
+  });
+
+  it("says what an applied detach did instead of only re-reading the list", async () => {
+    const { client } = fakeClient();
+    const container = renderDriftStage(client);
+    await expandStage();
+
+    fireEvent.click(within(container).getByRole("button", { name: /^detach$/i }));
+    const banner = await within(container).findByRole("status");
+    fireEvent.click(
+      within(banner).getByRole("button", { name: /confirm detach/i }),
+    );
+
+    // The stage, not the card, holds the outcome: the card this ran from is
+    // re-rendered from a fresh scan, so an outcome parked there would vanish
+    // at the moment it needed reading.
+    await within(container).findByText(
+      PROCESS_META["tend.note_detach"].outcomeFallback as string,
     );
   });
 

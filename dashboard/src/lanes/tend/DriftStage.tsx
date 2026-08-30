@@ -10,6 +10,9 @@ import {
   pageLabel,
 } from "../../notePresentation";
 import type { ToolClient } from "../../toolClient";
+import { ProcessBrief } from "../ProcessBrief";
+import { ProcessOutcome } from "../ProcessOutcome";
+import type { ProcessId } from "../processMeta";
 import type {
   NoteAnchor,
   NoteDecisionEnvelope,
@@ -78,6 +81,27 @@ type PendingAction = {
   envelope: NoteDecisionEnvelope;
 };
 
+const PROCESS_BY_KIND: Record<PendingAction["kind"], ProcessId> = {
+  reanchor: "tend.note_reanchor",
+  detach: "tend.note_detach",
+  archive: "tend.note_archive",
+};
+
+/**
+ * What the last applied mutation was, so the stage can say what it did.
+ *
+ * It is held **here, in the stage** rather than in the card or the dialog
+ * that ran it: promotion's dialog unmounts on success and a drift card's row
+ * is re-rendered from a fresh scan, so an outcome parked in either would
+ * vanish at exactly the moment it needed to be read. It is superseded by the
+ * next action, never cleared on a timer -- a state that quietly disappears is
+ * the failure this contract exists to fix.
+ */
+type AppliedOutcome = {
+  process: ProcessId;
+  discriminant?: string | null;
+};
+
 export function DriftStage({
   client,
   topic,
@@ -95,6 +119,7 @@ export function DriftStage({
   const [busy, setBusy] = useState(false);
   const [pending, setPending] = useState<PendingAction | null>(null);
   const [promoteNoteId, setPromoteNoteId] = useState<string | null>(null);
+  const [applied, setApplied] = useState<AppliedOutcome | null>(null);
 
   // Post-mutation refetch. `checked` is already true by the time this runs, so
   // it only refreshes the data -- it never touches the collapse state.
@@ -147,6 +172,7 @@ export function DriftStage({
     if (!client || pending || busy) return;
     setBusy(true);
     setError(null);
+    setApplied(null);
     try {
       const envelope = await client.notesReanchor(
         topic,
@@ -178,6 +204,7 @@ export function DriftStage({
     if (!client || pending || busy) return;
     setBusy(true);
     setError(null);
+    setApplied(null);
     try {
       const envelope = await client.notesDetach(
         topic,
@@ -205,6 +232,7 @@ export function DriftStage({
     if (!client || pending || busy) return;
     setBusy(true);
     setError(null);
+    setApplied(null);
     try {
       const envelope = await client.notesArchive(
         topic,
@@ -253,6 +281,7 @@ export function DriftStage({
       } else {
         await client.notesArchive(topic, pending.noteId, "apply", vault);
       }
+      setApplied({ process: PROCESS_BY_KIND[pending.kind] });
       setPending(null);
       await refresh();
     } catch (cause) {
@@ -311,6 +340,13 @@ export function DriftStage({
         </p>
       ) : null}
 
+      {applied ? (
+        <ProcessOutcome
+          process={applied.process}
+          discriminant={applied.discriminant}
+        />
+      ) : null}
+
       {notes.length === 0 ? (
         <p class="muted">No notes on this topic.</p>
       ) : (
@@ -343,7 +379,10 @@ export function DriftStage({
           vault={vault}
           note={promoteNote}
           onClose={() => setPromoteNoteId(null)}
-          onPromoted={() => {
+          onPromoted={(target) => {
+            // The dialog unmounts on success, so the outcome is recorded here
+            // and the destination it picked becomes the Next's discriminant.
+            setApplied({ process: "tend.note_promote", discriminant: target });
             setPromoteNoteId(null);
             void refresh();
           }}
@@ -453,6 +492,7 @@ function NoteRow({
           <button type="button" disabled={disabled} onClick={onArchive}>
             Archive
           </button>
+          <ProcessBrief process="tend.note_archive" align="end" />
         </div>
       )}
     </li>
@@ -571,6 +611,13 @@ function DriftAnchorCard({
           <button type="button" disabled={disabled} onClick={onDetach}>
             Detach
           </button>
+          {/* Two processes share this row, so each brief names its own. */}
+          <ProcessBrief
+            process="tend.note_reanchor"
+            term="why re-anchor"
+            align="end"
+          />
+          <ProcessBrief process="tend.note_detach" term="why detach" align="end" />
         </div>
       )}
     </div>

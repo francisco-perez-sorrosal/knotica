@@ -1,6 +1,7 @@
 import { useEffect, useState } from "preact/hooks";
 
 import { Spinner } from "./icons";
+import { ProcessBrief } from "./lanes/ProcessBrief";
 import type { ToolClient } from "./toolClient";
 import type {
   NoteDecisionEnvelope,
@@ -45,7 +46,9 @@ export function NotePromoteDialog({
   vault: string;
   note: NoteRecord;
   onClose: () => void;
-  onPromoted: () => void;
+  /** Carries the destination the user picked -- the stage keeps it as the
+   *  outcome's discriminant once this dialog unmounts. */
+  onPromoted: (target: PromoteTarget) => void;
 }) {
   const gapEligible = GAP_ELIGIBLE_INTENTS.has(note.intent);
   const [target, setTarget] = useState<PromoteTarget>("trainset");
@@ -103,7 +106,7 @@ export function NotePromoteDialog({
           vault,
         );
       if (result.mode !== "apply") return;
-      onPromoted();
+      onPromoted(target);
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : String(cause));
     } finally {
@@ -180,6 +183,7 @@ export function NotePromoteDialog({
               >
                 Back
               </button>
+              <ProcessBrief process="tend.note_promote" align="end" />
             </div>
           </>
         ) : (

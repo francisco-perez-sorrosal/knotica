@@ -133,18 +133,25 @@ const READ_ONLY_CLIENT_METHODS: readonly string[] = [
  * Live client surface reaching a live server action with **no way for a user
  * to trigger it** — zero non-test call sites anywhere in `dashboard/src`.
  *
- * This fixture is the finding, not a suppression: four invisible processes
+ * This fixture is the finding, not a suppression: five invisible processes
  * made visible and reviewable, which is the contract's own Surface phase
  * applied to the codebase. They deliberately get no registry row — a `why`
  * for a control nobody can click is fiction — and they are deliberately not
  * deleted here either; removing client surface is a separate decision from
  * engraving the lifecycle onto the surface that stays.
+ *
+ * `doctorRepair` was found by this census, not by the audit that preceded it:
+ * Tend's doctor card offers the *CLI* repair command as copyable text and
+ * never calls the client method, so a `tend.doctor_repair` row would have
+ * described a control the dashboard does not have. The four `loop`/`baseline`
+ * methods were already known.
  */
 const UNWIRED_CLIENT_METHODS: readonly string[] = [
   "loopSetBaseline",
   "loopRebaseline",
   "loopBaselinePolicy",
   "baselineProbe",
+  "doctorRepair",
 ];
 
 /**
@@ -176,12 +183,6 @@ const AWAITING_LIFECYCLE_CLIENT_METHODS: readonly string[] = [
   "gapReport",
   "gapfillDiscover",
   "suggestionsReview",
-  "doctorRepair",
-  "okfRepair",
-  "notesReanchor",
-  "notesDetach",
-  "notesPromote",
-  "notesArchive",
   "createTopic",
   "vaultCreate",
   "vaultUse",

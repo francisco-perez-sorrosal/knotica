@@ -31,12 +31,20 @@ const SPEND_CHIP: Record<Spend, string | null> = {
 export interface ProcessBriefProps {
   /** The registered process this trigger runs. */
   process: ProcessId;
+  /**
+   * The visible link text. A *pointer label*, not lifecycle copy — it says
+   * which control the brief annotates, and only needs overriding where two
+   * briefs share an action row and "why this" would give both the same
+   * accessible name.
+   */
+  term?: string;
   /** Static positioning variant, forwarded to `TermHint`. */
   align?: "start" | "end";
 }
 
 export function ProcessBrief({
   process,
+  term = "why this",
   align = "start",
 }: ProcessBriefProps): JSX.Element {
   const meta = PROCESS_META[process];
@@ -47,7 +55,7 @@ export function ProcessBrief({
       {chip ? <span class="chip cost">{chip}</span> : null}
       <TermHint
         id={`process-brief-${process}`}
-        term="why this"
+        term={term}
         title={meta.title}
         align={align}
         body={

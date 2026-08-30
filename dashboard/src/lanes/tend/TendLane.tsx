@@ -14,6 +14,8 @@ import { ArmedButton } from "../ArmedButton";
 import { deriveChecklistStages } from "../laneRailState";
 import type { StageState } from "../laneRailState";
 import { LoopStrip } from "../LoopStrip";
+import { ProcessBrief } from "../ProcessBrief";
+import { ProcessOutcome } from "../ProcessOutcome";
 import { DriftStage } from "./DriftStage";
 
 /**
@@ -402,6 +404,9 @@ function OkfActions({
           onConfirm={onConfirm}
           onCancel={onCancel}
         />
+        {/* Sibling of the armed button, never a child: `Repair apply` keeps
+            its accessible name and the arm→confirm contract is untouched. */}
+        <ProcessBrief process="tend.okf_repair" align="end" />
       </div>
       <p class="action-note">
         Same as <code>knotica okf check|repair</code>. Apply writes files and
@@ -674,6 +679,10 @@ function RepairPanel({
         </h3>
         <HealthChip tone={tone} />
       </div>
+      {/* Only an applied repair has an outcome. A dry run is still the
+          preview, and stamping a NEXT STEP on a preview would claim the
+          vault changed when nothing has. */}
+      {result.dry_run ? null : <ProcessOutcome process="tend.okf_repair" />}
       <p class="muted">
         {result.files_changed.length} file
         {result.files_changed.length === 1 ? "" : "s"}
