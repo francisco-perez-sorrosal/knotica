@@ -3,6 +3,8 @@ import type { JSX } from "preact";
 
 import { HandoffDispatchPanel, HandoffStage } from "../HandoffStage";
 import type { HandoffDispatch } from "../HandoffStage";
+import { ProcessBrief } from "../ProcessBrief";
+import { ProcessOutcome } from "../ProcessOutcome";
 import { Icon, Spinner, type IconName } from "../../icons";
 import { SectionCard } from "../../SectionCard";
 import type { SectionTone } from "../../SectionCard";
@@ -369,6 +371,10 @@ function IngestYouControl({
         {affordance.label}
         <Icon name="chevron-right" class="lane-disclosure-icon" />
       </button>
+      {/* Sibling of the trigger, never a child: the four you-state labels are
+          matched as exact accessible names by the lane's assembly tests, so
+          nothing may be appended to them in text. */}
+      <ProcessBrief process="fill.ingest_dispatch" term="why in Claude" align="end" />
       {open ? (
         <div class="handoff-you-panel" id={panelId}>
           <p class="handoff-panel-why">{affordance.why}</p>
@@ -381,6 +387,12 @@ function IngestYouControl({
             Then continue in your Claude session — this panel stays open and
             updates on its own as the session writes.
           </p>
+          {/* Named only once the dispatch has actually gone: before that the
+              follow-up is the dispatch, and stamping a NEXT STEP on an
+              un-sent payload would point past a step nobody has taken. The
+              outcome itself stays `external` -- this claims nothing about the
+              session's progress, only where the work lands when it finishes. */}
+          {dispatched ? <ProcessOutcome process="fill.ingest_dispatch" /> : null}
         </div>
       ) : null}
     </>

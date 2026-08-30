@@ -40,6 +40,8 @@ export type ProcessId =
   | "fill.suggestion_reject"
   | "fill.suggestion_defer"
   | "fill.suggestion_withdraw"
+  | "fill.ingest_dispatch"
+  | "learn.ingest_dispatch"
   | "tend.okf_repair"
   | "tend.note_reanchor"
   | "tend.note_detach"
@@ -495,6 +497,65 @@ export const PROCESS_META: Record<ProcessId, ProcessMeta> = {
     next: {
       kind: "terminal",
       why: "The record is back where it started, in this queue, still owed the decision you withdrew — there is nowhere else to be.",
+    },
+  },
+
+  // The two handoffs. Both declare `external` progress and `external`
+  // outcome, and the census refuses any other pairing for a `handoff`: once
+  // the payload leaves for another agent's turn this surface has no channel
+  // into the work, so the only honest claims it can make are that the
+  // dispatch was sent, that the poll is running at its cadence, and that the
+  // panel updates itself. Never "working", never "done".
+  "fill.ingest_dispatch": {
+    lane: "fill",
+    stage: "ingest",
+    title: "Open a session",
+    spend: "free",
+    // Nothing here writes. The dispatched `/knotica:fill` does, in Claude's
+    // turn, which is exactly why this is a handoff and not a client call.
+    mutates: false,
+    dispatch: "handoff",
+    clientMethod: null,
+    why: "Only your Claude session can write into the candidate session; this surface can read that session but has no way to write a page into it.",
+    willDo:
+      "Sends the ingest instruction to your Claude session. Nothing is written from here — the session writes, and this list re-reads every 3 seconds as it does.",
+    previewMode: "none",
+    progressMode: "external",
+    outcomeMode: "external",
+    next: {
+      kind: "always",
+      go: {
+        lane: "fill",
+        stage: "gate",
+        why: "An ingested source does not count for anything until the gate measures it against the topic and records a verdict.",
+      },
+    },
+  },
+
+  "learn.ingest_dispatch": {
+    lane: "learn",
+    stage: "pages",
+    // Ships under three labels, one per capability tier: `Send to Claude`,
+    // `Queue for Claude`, or -- where the host can do neither -- the copyable
+    // instruction itself. One process, three affordances for one payload.
+    title: "Send to Claude",
+    spend: "free",
+    mutates: false,
+    dispatch: "handoff",
+    clientMethod: null,
+    why: "The run has fetched and parsed the source and is waiting on the turn that writes pages from it, and only your Claude session can take that turn.",
+    willDo:
+      "Sends the ingest instruction to your Claude session. Nothing is written from here — the rail advances as the session writes, and this stage re-reads the journal every second.",
+    previewMode: "none",
+    progressMode: "external",
+    outcomeMode: "external",
+    next: {
+      kind: "always",
+      go: {
+        lane: "learn",
+        stage: "curate",
+        why: "A written page is not yet a training signal — curating is the separate run that turns one into an example the compiler reads.",
+      },
     },
   },
 

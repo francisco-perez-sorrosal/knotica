@@ -95,6 +95,19 @@ describe("ProcessOutcome says what was done and where it leads", () => {
     expect(screen.getByText(/Go to Improve → Observe\./)).toBeTruthy();
   });
 
+  it("lets a handoff name its destination without claiming the work happened", () => {
+    // Once a payload leaves for another agent's turn this surface has no
+    // channel into the work. Naming where the work lands is a fact about the
+    // pipeline; announcing an outcome would be a claim about a turn nobody
+    // here can observe.
+    const { container } = render(
+      <ProcessOutcome process="fill.ingest_dispatch" />,
+    );
+
+    expect(screen.queryByRole("status")).toBeNull();
+    expect(container.textContent).toContain("Go to Fill → Gate.");
+  });
+
   it("answers a terminal process with why it ends rather than with nothing", () => {
     const meta = PROCESS_META["tend.note_detach"];
     const { container } = render(<ProcessOutcome process="tend.note_detach" />);

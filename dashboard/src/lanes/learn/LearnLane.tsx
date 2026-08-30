@@ -8,6 +8,8 @@ import type { IngestActivity, IngestRun } from "../../types";
 import { HandoffStage } from "../HandoffStage";
 import { deriveSequenceStages, type StageState } from "../laneRailState";
 import { LoopStrip } from "../LoopStrip";
+import { ProcessBrief } from "../ProcessBrief";
+import { ProcessOutcome } from "../ProcessOutcome";
 
 /**
  * `LearnLane` (`INTERFACE_DESIGN.md §2.2`) -- the four-stage
@@ -236,22 +238,38 @@ export function LearnLane({
 
         <StageRow state={pagesState} position={3} title={pagesStage.title}>
           {pagesState === "active" && client && ingestRun ? (
-            <HandoffStage
-              client={client}
-              topic={topic}
-              suggestionId={ingestRun.citation_key}
-              vault={vault}
-              command="ingest"
-              active
-              ask={INGEST_ASK}
-              renderYouControl={() => null}
-            />
+            <>
+              {/* Above the shell rather than inside it: `HandoffStage` is
+                  shared with Fill, and the reason *this* lane's pages are
+                  written in Claude belongs to this lane. */}
+              <ProcessBrief
+                process="learn.ingest_dispatch"
+                term="why in Claude"
+              />
+              <HandoffStage
+                client={client}
+                topic={topic}
+                suggestionId={ingestRun.citation_key}
+                vault={vault}
+                command="ingest"
+                active
+                ask={INGEST_ASK}
+                renderYouControl={() => null}
+              />
+            </>
           ) : (
-            <p class="muted">
-              {pagesState === "complete"
-                ? "Pages written for this run."
-                : "Pending — writes pages once fetch/parse land."}
-            </p>
+            <>
+              <p class="muted">
+                {pagesState === "complete"
+                  ? "Pages written for this run."
+                  : "Pending — writes pages once fetch/parse land."}
+              </p>
+              {/* Only a finished run has somewhere to send you. While pages
+                  are still landing the follow-up is the handoff itself. */}
+              {pagesState === "complete" ? (
+                <ProcessOutcome process="learn.ingest_dispatch" />
+              ) : null}
+            </>
           )}
         </StageRow>
 
