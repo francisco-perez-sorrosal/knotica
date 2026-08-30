@@ -3670,7 +3670,9 @@ button.loop-node:focus-visible {
 .dataset-role-name .term-hint-trigger,
 .dataset-role-guard .term-hint-trigger,
 .chip .term-hint-trigger,
-.status-chip .term-hint-trigger {
+.status-chip .term-hint-trigger,
+.attention-table-urgency-label .term-hint-trigger,
+.attention-table th .term-hint-trigger {
   display: inline-flex;
   align-items: center;
   min-height: 24px;
@@ -3860,6 +3862,14 @@ button.loop-node:focus-visible {
 .quiet-action[data-tone="good"] { border-color: var(--good); }
 .quiet-action[data-tone="bad"] { border-color: var(--bad); }
 .quiet-action[data-tone="neutral"] { border-color: var(--line-strong); }
+
+/* Attention queue rank cell — leading `#N`, right-aligned tabular-nums so a
+   two-digit rank does not shift the row below it out of alignment. */
+.attention-table-rank {
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+}
 
 /* ── FILL APPROVE QUEUE — toolbar + triage rows ────────────────────────── */
 /* One toolbar, two rows: what is listed and what came of it on top, in what

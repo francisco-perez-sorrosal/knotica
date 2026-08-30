@@ -9,7 +9,7 @@ import { startVisibilityPausedPoll } from "../visibilityPausedPoll";
 import type { ToolClient } from "../../toolClient";
 import type { AttentionStatus, PaneId } from "../../types";
 import { AttentionTable } from "./AttentionTable";
-import { deriveAttentionRows } from "./attentionRows";
+import { deriveAttentionRows, sortAttentionRows } from "./attentionRows";
 import { LaneCardGrid } from "./LaneCardGrid";
 
 /**
@@ -79,7 +79,7 @@ export function HomeLane({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [client, vault]);
 
-  const rows = attention ? deriveAttentionRows(attention) : [];
+  const rows = attention ? sortAttentionRows(deriveAttentionRows(attention)) : [];
 
   return (
     <main class="pane-main home">

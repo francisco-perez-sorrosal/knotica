@@ -301,5 +301,6 @@ export type {
   AttentionTopicRow,
   AttentionStatus,
   AttentionUrgency,
+  AttentionKind,
   AttentionRow,
 } from "./lanes/home/types";
