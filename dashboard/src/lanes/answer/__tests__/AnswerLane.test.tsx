@@ -379,6 +379,44 @@ describe("react's four actions terminate inside Answer (§2.0 clause 2, §2.3 cl
   });
 });
 
+describe("the lifecycle contract on React's verbs", () => {
+  it("names the lane each signal actually feeds, and a different one per verb", async () => {
+    // React's three verbs were the app's strongest "did that do anything?" —
+    // they recorded a signal into a lane the user was never told about. The
+    // outcome now names it, and the destination differs per verb, which is
+    // the whole reason the sentence is worth rendering.
+    const { client } = fakeClient();
+    renderAnswerLane(client);
+    await askAndAwaitAnswer();
+
+    fireEvent.click(screen.getByRole("button", { name: "Report gap" }));
+    await screen.findByText(/Go to Fill → Discover\./);
+
+    cleanup();
+    renderAnswerLane(fakeClient().client);
+    await askAndAwaitAnswer();
+
+    fireEvent.click(screen.getByRole("button", { name: "Good example" }));
+    await screen.findByText(/Go to Improve → Instrument\./);
+  });
+
+  it("keeps one live region: the verb's own sentence carries the outcome", async () => {
+    const { client } = fakeClient();
+    const container = renderAnswerLane(client);
+    await askAndAwaitAnswer();
+
+    fireEvent.click(screen.getByRole("button", { name: "Note it" }));
+
+    await vi.waitFor(() => {
+      const live = Array.from(
+        container.querySelectorAll<HTMLElement>('[role="status"]'),
+      );
+      expect(live).toHaveLength(1);
+      expect(live[0].textContent).toBe("Answer + signal: Captured as a note.");
+    });
+  });
+});
+
 describe("ephemeral by design (§2.3's explicit decision: query stays a non-writer)", () => {
   it("does not restore cite/react state across a fresh mount", async () => {
     const { client } = fakeClient();

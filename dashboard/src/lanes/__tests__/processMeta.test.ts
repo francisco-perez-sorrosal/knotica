@@ -84,10 +84,31 @@ function collectSourceFiles(dir: string): string[] {
   return files;
 }
 
+/**
+ * Source text with comments removed, because the source scans below are
+ * looking for *code* and a comment is prose.
+ *
+ * This is not tidiness. `query` is a registered client method and also an
+ * ordinary English word: `LaneCardGrid.tsx` says "accessible-name query
+ * (`HomeLane.test.tsx`...)" in a docblock, which `\bquery\s*\(` matches
+ * exactly as if it were a call. A census that fails on a sentence teaches
+ * people to reword sentences, and a census people work around has stopped
+ * being one.
+ *
+ * The line-comment rule skips a `//` preceded by `:` so a URL inside a string
+ * survives; the block-comment rule is non-greedy so adjacent docblocks are not
+ * swallowed whole.
+ */
+function stripComments(text: string): string {
+  return text
+    .replace(/\/\*[\s\S]*?\*\//g, " ")
+    .replace(/(^|[^:])\/\/.*$/gm, "$1");
+}
+
 function sources(): { path: string; text: string }[] {
   return collectSourceFiles(srcDir).map((path) => ({
     path: pathModule.relative(srcDir, path),
-    text: fsModule.readFileSync(path, "utf-8"),
+    text: stripComments(fsModule.readFileSync(path, "utf-8")),
   }));
 }
 
@@ -177,10 +198,6 @@ const AWAITING_LIFECYCLE_CLIENT_METHODS: readonly string[] = [
   "loopCadence",
   "branchPromote",
   "branchDelete",
-  "query",
-  "curateExample",
-  "noteCapture",
-  "gapReport",
   "gapfillDiscover",
   "suggestionsReview",
   "createTopic",

@@ -10,6 +10,9 @@ import type { ToolClient } from "../../toolClient";
 import type { QueryAnswer, WikiStatus } from "../../types";
 import { deriveSequenceStages, type StageState } from "../laneRailState";
 import { LoopStrip } from "../LoopStrip";
+import { ProcessBrief } from "../ProcessBrief";
+import { ProcessOutcome } from "../ProcessOutcome";
+import type { ProcessId } from "../processMeta";
 
 /**
  * `AnswerLane` (`INTERFACE_DESIGN.md §2.3`) -- the three-stage `ask -> cite ->
@@ -44,6 +47,18 @@ import { LoopStrip } from "../LoopStrip";
 
 /** React's four verbs, named so the one in flight can be told from its peers. */
 type ReactVerb = "good" | "bad" | "note" | "gap";
+
+/**
+ * Which registered process each React verb runs. `good`/`bad` are one
+ * process under two labels -- same server action, the verdict is the
+ * argument -- which is why the map is many-to-one rather than a union alias.
+ */
+const REACT_PROCESS: Record<ReactVerb, ProcessId> = {
+  good: "answer.curate_example",
+  bad: "answer.curate_example",
+  note: "answer.note_capture",
+  gap: "answer.gap_report",
+};
 
 interface AnswerStage {
   readonly id: "ask" | "cite" | "react";
@@ -119,6 +134,11 @@ export function AnswerLane({
   const [result, setResult] = useState<QueryAnswer | null>(null);
   const [reacted, setReacted] = useState(false);
   const [reactNote, setReactNote] = useState<string | null>(null);
+  /* Which process produced the note below. Held beside it rather than derived
+     from `reactBusy`, which is already back to `null` by the time the outcome
+     renders -- and it is what selects the follow-up: the three verbs feed
+     three different lanes, which is the point of saying so at all. */
+  const [reactedProcess, setReactedProcess] = useState<ProcessId | null>(null);
 
   const watermark = result ? 2 : busy ? 1 : 0;
   const [askStage, citeStage, reactStage] = deriveSequenceStages(
@@ -133,6 +153,7 @@ export function AnswerLane({
     setResult(null);
     setReacted(false);
     setReactNote(null);
+    setReactedProcess(null);
     try {
       setResult(await client.query(topic, question.trim(), vault));
     } catch (cause) {
@@ -156,6 +177,7 @@ export function AnswerLane({
         vault,
       );
       setReacted(true);
+      setReactedProcess(REACT_PROCESS[verdict]);
       setReactNote(
         verdict === "good" ? "Saved as good example." : "Saved as bad example.",
       );
@@ -182,6 +204,7 @@ export function AnswerLane({
         vault,
       );
       setReacted(true);
+      setReactedProcess(REACT_PROCESS.note);
       setReactNote("Captured as a note.");
     } catch (cause) {
       setReactNote(cause instanceof Error ? cause.message : String(cause));
@@ -204,6 +227,7 @@ export function AnswerLane({
         vault,
       );
       setReacted(true);
+      setReactedProcess(REACT_PROCESS.gap);
       setReactNote("Reported as a gap.");
     } catch (cause) {
       setReactNote(cause instanceof Error ? cause.message : String(cause));
@@ -237,6 +261,11 @@ export function AnswerLane({
             />
           </label>
           <div class="ask-actions">
+            {/* Sibling of the button, never a child: the accessible name
+                stays `Ask`. The chip is the whole of an `acknowledged`
+                preview -- this click bills on its own, which the brief says
+                in words as well as on the chip. */}
+            <ProcessBrief process="answer.ask" term="why ask" />
             <button
               type="button"
               disabled={!client || busy || !question.trim()}
@@ -323,10 +352,34 @@ export function AnswerLane({
                     {reactBusy === "gap" ? <Spinner /> : null}
                     Report gap
                   </button>
-                  {reacted && reactNote ? (
-                    <p class="section-card-note" role="status">
-                      Answer + signal: {reactNote}
-                    </p>
+                  {/* Three briefs, three terms: each verb feeds a different
+                      lane, and a shared `why this` would give all three the
+                      same accessible name. Good/Bad share one, because they
+                      are one process under two labels. */}
+                  <ProcessBrief
+                    process="answer.curate_example"
+                    term="why grade it"
+                    align="end"
+                  />
+                  <ProcessBrief
+                    process="answer.note_capture"
+                    term="why note it"
+                    align="end"
+                  />
+                  <ProcessBrief
+                    process="answer.gap_report"
+                    term="why report it"
+                    align="end"
+                  />
+                  {reacted && reactNote && reactedProcess ? (
+                    /* One live region, not two: the sentence the verb
+                       composed is passed in rather than announced again
+                       beside it, so a reader hears what was recorded and
+                       where it leads as a single statement. */
+                    <ProcessOutcome
+                      process={reactedProcess}
+                      message={`Answer + signal: ${reactNote}`}
+                    />
                   ) : null}
                 </>
               ) : undefined

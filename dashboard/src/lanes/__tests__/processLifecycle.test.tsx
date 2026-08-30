@@ -41,6 +41,16 @@ describe("ProcessBrief shows why a click is necessary and what it will do", () =
     ).not.toMatch(/billed/i);
   });
 
+  it("prices an acknowledged spend as what it costs, not as a confirm to come", () => {
+    // `acknowledged` is the one billed mode with no second click, so the chip
+    // is the whole of its preview -- it has to say the price, not promise a
+    // gate that is not there.
+    const { container } = render(<ProcessBrief process="answer.ask" />);
+    expect(container.querySelector(".chip.cost")?.textContent).toBe(
+      "costs tokens",
+    );
+  });
+
   it("says nothing about cost for a free process", () => {
     const { container } = render(<ProcessBrief process="tend.note_archive" />);
     expect(container.querySelector(".chip.cost")).toBeNull();

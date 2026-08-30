@@ -11,6 +11,8 @@ import { Spinner } from "../../icons";
 import type { ToolClient } from "../../toolClient";
 import { findTopicRow } from "../../topicHelpers";
 import type { QueryAnswer, WikiStatus } from "../../types";
+import { ProcessBrief } from "../ProcessBrief";
+import { ProcessOutcome } from "../ProcessOutcome";
 
 /**
  * The `prove` stage body (`INTERFACE_DESIGN.md §2.4`) — the compiled
@@ -125,8 +127,11 @@ export function ProveStage({
             {/* Sibling of the button, never a child: the accessible name
                 stays `Probe it`. `query` mints no nonce and Answer's own
                 `Ask` is a single click, so this stays single-click too — the
-                chip is the honest marker for that spend, not a gate. */}
-            <span class="chip cost">costs tokens</span>
+                chip is the honest marker for that spend, not a gate. It is
+                the registry's chip now: `acknowledged` is the named
+                exception, and it carries this exact word wherever it
+                appears. */}
+            <ProcessBrief process="improve.probe" term="why probe" align="end" />
             <button
               type="button"
               class="primary"
@@ -184,28 +189,34 @@ export function ProveStage({
           title="BEFORE / AFTER"
           ariaLabel="Before and after probe answers"
         >
-          <div class="ask-compare">
-            {pinned ? (
+          <>
+            <div class="ask-compare">
+              {pinned ? (
               <AnswerCard
-                title="Before"
-                tone="before"
-                answer={pinned}
-                topic={topic}
-                obsidianCtx={obsidianCtx}
-                actions={null}
-              />
-            ) : null}
-            {result ? (
-              <AnswerCard
-                title={after ? "After" : "Latest"}
-                tone={after ? "after" : "latest"}
-                answer={result}
-                topic={topic}
-                obsidianCtx={obsidianCtx}
-                actions={null}
-              />
-            ) : null}
-          </div>
+                  title="Before"
+                  tone="before"
+                  answer={pinned}
+                  topic={topic}
+                  obsidianCtx={obsidianCtx}
+                  actions={null}
+                />
+              ) : null}
+              {result ? (
+                <AnswerCard
+                  title={after ? "After" : "Latest"}
+                  tone={after ? "after" : "latest"}
+                  answer={result}
+                  topic={topic}
+                  obsidianCtx={obsidianCtx}
+                  actions={null}
+                />
+              ) : null}
+            </div>
+            {/* The answer cards above are the outcome, so nothing is announced
+                twice here -- what this adds is the sixth answer, which for a
+                probe is that there is no seventh. */}
+            {result ? <ProcessOutcome process="improve.probe" /> : null}
+          </>
         </SectionCard>
       ) : null}
     </div>
