@@ -82,11 +82,15 @@ function stageGlyph(state: StageState, position: number): string {
 }
 
 function StageRow({
+  stage,
   state,
   position,
   title,
   children,
 }: {
+  /** The `LANE_STAGES.answer` id this row renders — the anchor coordinate an
+   *  `openAnchor` jump lands on. */
+  stage: string;
   state: StageState;
   position: number;
   title: string;
@@ -95,6 +99,7 @@ function StageRow({
   return (
     <li
       class="lane-stage"
+      data-anchor={`answer:${stage}`}
       data-state={state}
       aria-current={isCurrentStage(state) ? "step" : undefined}
     >
@@ -247,7 +252,7 @@ export function AnswerLane({
       />
 
       <ol class="lane-rail" aria-label="answer stages">
-        <StageRow state={askStage.state} position={1} title="Ask">
+        <StageRow stage="ask" state={askStage.state} position={1} title="Ask">
           <label class="ask-label">
             <span>Question</span>
             <textarea
@@ -289,7 +294,7 @@ export function AnswerLane({
           ) : null}
         </StageRow>
 
-        <StageRow state={citeStage.state} position={2} title="Cite">
+        <StageRow stage="cite" state={citeStage.state} position={2} title="Cite">
           {result ? (
             <AnswerCard
               title="Answer"
@@ -308,7 +313,7 @@ export function AnswerLane({
           )}
         </StageRow>
 
-        <StageRow state={reactStage.state} position={3} title="React">
+        <StageRow stage="react" state={reactStage.state} position={3} title="React">
           <SectionCard
             title="REACT"
             footer={

@@ -91,11 +91,15 @@ function stageGlyph(state: StageState, position: number): string {
 }
 
 function StageRow({
+  stage,
   state,
   position,
   title,
   children,
 }: {
+  /** The `LANE_STAGES.learn` id this row renders — the anchor coordinate an
+   *  `openAnchor` jump lands on. */
+  stage: string;
   state: StageState;
   position: number;
   title: string;
@@ -104,6 +108,7 @@ function StageRow({
   return (
     <li
       class="lane-stage"
+      data-anchor={`learn:${stage}`}
       data-state={state}
       aria-current={
         state === "active" || state === "blocked" ? "step" : undefined
@@ -213,6 +218,7 @@ export function LearnLane({
 
       <ol class="lane-rail" aria-label="learn stages">
         <StageRow
+          stage={sourceStage.id}
           state={sourceStage.state}
           position={1}
           title={sourceStage.title}
@@ -225,6 +231,7 @@ export function LearnLane({
         </StageRow>
 
         <StageRow
+          stage={fetchParseStage.id}
           state={fetchParseStage.state}
           position={2}
           title={fetchParseStage.title}
@@ -236,7 +243,12 @@ export function LearnLane({
           </p>
         </StageRow>
 
-        <StageRow state={pagesState} position={3} title={pagesStage.title}>
+        <StageRow
+          stage={pagesStage.id}
+          state={pagesState}
+          position={3}
+          title={pagesStage.title}
+        >
           {pagesState === "active" && client && ingestRun ? (
             <>
               {/* Above the shell rather than inside it: `HandoffStage` is
@@ -273,7 +285,12 @@ export function LearnLane({
           )}
         </StageRow>
 
-        <StageRow state={curateState} position={4} title={curateDeclared.title}>
+        <StageRow
+          stage={curateDeclared.id}
+          state={curateState}
+          position={4}
+          title={curateDeclared.title}
+        >
           <p class="muted">
             {curateState === "pending"
               ? "Pending — after the pages land. Saving an example opens its own run."

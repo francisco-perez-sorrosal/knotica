@@ -409,10 +409,18 @@ describe("every consumer that references a moved type imports it through the roo
     ]);
     const barrelImportPattern = /from\s+["'](?:\.\.?\/)+types["']/;
     const allMovedNames = Object.values(MOVED_TYPES).flat();
+    // Comments are stripped before matching, the same way `processMeta.test.ts`
+    // strips them for its own source scan: a docblock that *names* a type while
+    // explaining a field's vocabulary is prose, not a reference, and needs no
+    // import. Without this the census fails on a sentence, which teaches people
+    // to reword sentences instead of fixing imports.
     const offenders = collectSourceFiles(srcDir)
       .filter((file) => !declarationFiles.has(file))
       .filter((file) => {
-        const content = fsModule.readFileSync(file, "utf-8");
+        const raw = fsModule.readFileSync(file, "utf-8");
+        const content = raw
+          .replace(/\/\*[\s\S]*?\*\//g, " ")
+          .replace(/(^|[^:])\/\/.*$/gm, "$1");
         const referencesMovedType = allMovedNames.some((name) =>
           new RegExp(`\\b${name}\\b`).test(content),
         );

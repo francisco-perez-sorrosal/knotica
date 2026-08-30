@@ -261,6 +261,7 @@ export function TendLane({
 
       <ol class="lane-rail" aria-label="tend stages">
         <StageShell
+          stage="doctor"
           state={doctorStage.state}
           position={1}
           title="Doctor"
@@ -270,6 +271,7 @@ export function TendLane({
         </StageShell>
 
         <StageShell
+          stage="lint"
           state={lintStage.state}
           position={2}
           title="Lint"
@@ -282,7 +284,7 @@ export function TendLane({
           <LintPanel result={lint} busy={loading} obsidianCtx={obsidianCtx} />
         </StageShell>
 
-        <StageShell state={okfStage.state} position={3} title="OKF">
+        <StageShell stage="okf" state={okfStage.state} position={3} title="OKF">
           <OkfStatus
             okf={okf}
             repair={repair}
@@ -300,11 +302,21 @@ export function TendLane({
           />
         </StageShell>
 
-        <StageShell state={migrateStage.state} position={4} title="Migrate">
+        <StageShell
+          stage="migrate"
+          state={migrateStage.state}
+          position={4}
+          title="Migrate"
+        >
           <MigrateHandoff />
         </StageShell>
 
-        <StageShell state={driftStage.state} position={5} title="Drift">
+        <StageShell
+          stage="drift"
+          state={driftStage.state}
+          position={5}
+          title="Drift"
+        >
           <DriftStage client={client} topic={topic} vault={vault} />
         </StageShell>
       </ol>
@@ -325,12 +337,16 @@ function HealthChip({ tone }: { tone: Health }): JSX.Element {
 /** The shared `.lane-rail`/`.lane-stage` shell every checklist stage renders through — factored
  * out after the initial draft repeated this wrapper four times (DRY, self-review). */
 function StageShell({
+  stage,
   state,
   position,
   title,
   healthChip,
   children,
 }: {
+  /** The `LANE_STAGES.tend` id this row renders — the anchor coordinate an
+   *  `openAnchor` jump lands on. */
+  stage: string;
   state: StageState;
   position: number;
   title: string;
@@ -338,7 +354,7 @@ function StageShell({
   children: JSX.Element | Array<JSX.Element | null>;
 }): JSX.Element {
   return (
-    <li class="lane-stage" data-state={state}>
+    <li class="lane-stage" data-anchor={`tend:${stage}`} data-state={state}>
       <span class="lane-stage-index" aria-hidden="true">
         {stageGlyph(state, position)}
       </span>

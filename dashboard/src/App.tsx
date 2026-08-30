@@ -6,6 +6,7 @@ import { applyDocumentTheme } from "@modelcontextprotocol/ext-apps";
 import { CreateDrawer } from "./CreateDrawer";
 import { ProcessBrief } from "./lanes/ProcessBrief";
 import { ProcessOutcome } from "./lanes/ProcessOutcome";
+import { publishOpenAnchor } from "./lanes/laneNavigation";
 import type { ProcessId } from "./lanes/processMeta";
 import { AnswerLane } from "./lanes/answer/AnswerLane";
 import { FillLane } from "./lanes/fill/FillLane";
@@ -25,7 +26,8 @@ import {
 import { flywheelLabel, flywheelTone } from "./compileStages";
 import { Icon } from "./icons";
 import { InfoPopover } from "./InfoPopover";
-import { DEFAULT_PANE, resolveLaneFocus, resolvePane } from "./paneRouting";
+import { DEFAULT_PANE, resolveAnchor, resolvePane } from "./paneRouting";
+import type { LaneAnchor } from "./paneRouting";
 import {
   ObsidianLink,
   obsidianOpenVaultFromContext,
@@ -50,9 +52,14 @@ const initialVault = query.get("vault") || "";
  * wins when both are present — it is the newer, explicit form.
  */
 const initialLane = query.get("lane") || "";
-const initialPane = initialLane
-  ? resolveLaneFocus(initialLane, query.get("focus") || "")
-  : resolvePane(query.get("pane"));
+/* `?focus=` used to be accepted and then thrown away. It now seeds the same
+   one-shot arrival a Home queue row or a registry `NEXT STEP` produces, so the
+   three entry points into a stage — attention row, deep link, `open_dashboard`
+   argument — land identically. */
+const initialAnchor: LaneAnchor = initialLane
+  ? resolveAnchor(initialLane, query.get("focus") || "")
+  : { lane: resolvePane(query.get("pane")), stage: null };
+const initialPane = initialAnchor.lane;
 /**
  * The HTTP mount is normally served by the same process that answers `/mcp`,
  * so same-origin is the honest default — a hardcoded port polls a *different*
@@ -76,6 +83,16 @@ const llmBannerDismissed = signal(false);
 
 const TRANSPORT_ERROR_HINT = /fetch|mcp|connect/i;
 
+/** How long an arrived-at row keeps its border tint. Long enough to find, short
+ *  enough not to become a second, competing "current" marker. */
+const ARRIVAL_TINT_MS = 1_600;
+
+function prefersReducedMotion(): boolean {
+  return Boolean(
+    window.matchMedia?.("(prefers-reduced-motion: reduce)")?.matches,
+  );
+}
+
 function errorRemediationHint(message: string): string | null {
   if (!TRANSPORT_ERROR_HINT.test(message)) return null;
   return "Is the knotica server running? Start it with: knotica mcp --http --port 8765";
@@ -96,6 +113,14 @@ export function App() {
   const [topic, setTopic] = useState(initialTopic);
   const [vault, setVault] = useState(initialVault);
   const [pane, setPane] = useState<PaneId>(initialPane);
+  /* The one-shot arrival. Non-null for exactly one render after an anchor is
+     followed: the target lane reads it (Improve seeds its stage focus from it,
+     every railed lane gets its row scrolled into view and tinted), then the
+     effect below clears it. A request that survived would re-seed focus on the
+     next topic change, which is focus theft with a delay. */
+  const [arrival, setArrival] = useState<LaneAnchor | null>(
+    initialAnchor.stage ? initialAnchor : null,
+  );
   const [showCreateDrawer, setShowCreateDrawer] = useState(false);
   /* What the last chrome process did. It is held here rather than in
      `CreateDrawer` because both of that drawer's forms close on success --
@@ -379,8 +404,71 @@ export function App() {
     // The default pane is the bare URL — no `?pane=` to strip off later.
     if (next === DEFAULT_PANE) url.searchParams.delete("pane");
     else url.searchParams.set("pane", next);
+    // A tab click is a fresh destination, so any anchor coordinate left over
+    // from a followed `NEXT STEP` is stale: keeping it would make a reload land
+    // somewhere the user did not last choose.
+    url.searchParams.delete("lane");
+    url.searchParams.delete("focus");
     window.history.replaceState({}, "", url);
   }
+
+  /**
+   * The single cross-lane navigation callback (`dec-092`/M4 sharpened). It does
+   * three things and nothing else: sets the pane, records the destination in the
+   * URL so the landing is shareable and survives a reload, and publishes the
+   * one-shot arrival the target lane consumes.
+   *
+   * Every caller passes a `(lane, stage)` pair that came out of a registry —
+   * `PROCESS_META`'s `next` anchors or `ATTENTION_KIND_META`'s row anchors —
+   * both census-validated against `LANE_STAGES`, so this cannot be handed a
+   * destination the process model does not declare.
+   */
+  const openAnchor = useCallback((lane: PaneId, stage?: string | null) => {
+    setPane(lane);
+    const url = new URL(window.location.href);
+    url.searchParams.delete("pane");
+    url.searchParams.set("lane", lane);
+    if (stage) url.searchParams.set("focus", stage);
+    else url.searchParams.delete("focus");
+    window.history.replaceState({}, "", url);
+    setArrival({ lane, stage: stage ?? null });
+  }, []);
+
+  useEffect(() => {
+    publishOpenAnchor(openAnchor);
+    return () => publishOpenAnchor(null);
+  }, [openAnchor]);
+
+  /**
+   * Arrival, for every lane that is not Improve: scroll the row into view and
+   * tint its border for a moment. **Focus is not moved** — a scroll-and-tint
+   * orients without hijacking the keyboard, and moving focus on arrival is the
+   * same theft the rail contract forbids. The tint is decoration; the position
+   * is the carrier, so a reduced-motion user loses nothing.
+   *
+   * Runs after the target lane's own render, which is what guarantees the row
+   * exists — including the case where Improve's focus seeding is what mounted
+   * the stage body in the first place.
+   */
+  useEffect(() => {
+    if (!arrival) return;
+    const target = arrival.stage
+      ? document.querySelector<HTMLElement>(
+          `[data-anchor="${arrival.lane}:${arrival.stage}"]`,
+        )
+      : null;
+    setArrival(null);
+    if (!target) return;
+    target.scrollIntoView?.({
+      block: "nearest",
+      behavior: prefersReducedMotion() ? "auto" : "smooth",
+    });
+    target.dataset.anchorArrived = "true";
+    const timer = window.setTimeout(() => {
+      delete target.dataset.anchorArrived;
+    }, ARRIVAL_TINT_MS);
+    return () => window.clearTimeout(timer);
+  }, [arrival]);
 
   return (
     <>
@@ -668,12 +756,13 @@ export function App() {
       {pane === "home" ? (
         // Home owns its own cross-topic `view="attention"` read, so it takes
         // no `status`/`topic` from the app poll — only the client, the vault
-        // it reads across, and the router callback every other lane is
-        // forbidden to have.
+        // it reads across, and the one navigation callback. That callback is
+        // no longer Home's alone: it is the single `openAnchor` every lane may
+        // hold, and Home's privilege is now that it *routes on nothing else*.
         <HomeLane
           client={client}
           vault={resolvedVaultName}
-          onOpenLane={selectPane}
+          onOpenAnchor={openAnchor}
         />
       ) : null}
       {pane === "improve" ? (
@@ -681,6 +770,7 @@ export function App() {
           client={client}
           topic={topic}
           vault={resolvedVaultName}
+          arrivalStage={arrival?.lane === "improve" ? arrival.stage : null}
           status={status.value}
           metrics={metrics.value}
           obsidianCtx={obsidianCtx}

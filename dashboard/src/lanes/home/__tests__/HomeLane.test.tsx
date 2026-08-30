@@ -22,10 +22,10 @@ import type { ToolClient } from "../../../toolClient";
  * (full reasoning in `LEARNINGS_test-engineer_step114.md`; the paired
  * implementation wins on conflict):
  *
- *   1. `<HomeLane client={...} vault={...} onOpenLane={...} />` -- the same
- *      three props `m5HomeCensus.test.tsx`'s own Step-112 smoke render
- *      already guessed (`client`, `vault`, `onOpenLane`); no `topic` prop,
- *      since Home is cross-topic.
+ *   1. `<HomeLane client={...} vault={...} onOpenAnchor={...} />` -- three
+ *      props, no `topic`, since Home is cross-topic. The navigation callback
+ *      was renamed when it stopped being lane-granular: it now carries the
+ *      `(lane, stage)` anchor the row's kind declares.
  *   2. On mount, fetches `client.wikiStatus("", vault, "attention")` --
  *      `ToolClient.wikiStatus`'s new optional third `view` parameter this
  *      same step's implementer adds.
@@ -37,13 +37,13 @@ import type { ToolClient } from "../../../toolClient";
  *      depending on real interval timing (already covered by
  *      `visibilityPausedPoll.test.ts`, Step 108).
  *   4. Each row carries a `[Open]` or `[Watch]` button (`"Watch"` only for
- *      `urgency: "running"` rows) that calls `onOpenLane` with the row's own
- *      lane and nothing else -- Home is the one legitimate `onOpen*`-shaped
- *      occupant (`INTERFACE_DESIGN.md §2.0` clause 3).
+ *      `urgency: "running"` rows) that calls `onOpenAnchor` with the anchor
+ *      its `kind` declares in `attentionMeta.ts` -- the stage that holds the
+ *      control, not merely the lane that contains it.
  *   5. The drift row renders unconditionally as one line with a `[Check]`
  *      affordance; per Step 113's own declared scope, `[Check]` has no click
  *      handler yet -- clicking it must not reach the client beyond the
- *      initial `wikiStatus` fetch and must not call `onOpenLane`.
+ *      initial `wikiStatus` fetch and must not call `onOpenAnchor`.
  *   6. Payload shape is pinned from the live server seam
  *      (`core/status.py::_attention_status`/`_attention_row`), not from
  *      `INTERFACE_DESIGN.md §2.1`'s illustrative mockup -- see
@@ -85,7 +85,7 @@ interface AttentionStatus {
 type HomeLaneProps = {
   client: ToolClient | null;
   vault: string;
-  onOpenLane: (lane: string) => void;
+  onOpenAnchor: (lane: string, stage?: string | null) => void;
 };
 
 type HomeLaneComponent = (props: HomeLaneProps) => JSX.Element;
@@ -170,7 +170,7 @@ function fakeClient(payload: AttentionStatus) {
 
 async function renderHomeLane(
   payload: AttentionStatus,
-  onOpenLane: (lane: string) => void = vi.fn(),
+  onOpenAnchor: (lane: string, stage?: string | null) => void = vi.fn(),
 ) {
   const { HomeLane } = (await import(HOME_LANE_MODULE_PATH)) as {
     HomeLane: HomeLaneComponent;
@@ -180,10 +180,10 @@ async function renderHomeLane(
   // a real `<div>` at runtime -- the same cast `IngestGateStage.test.tsx`
   // uses for the identical reason (it is passed into `within()` directly).
   const container = render(
-    <HomeLane client={client} vault={VAULT} onOpenLane={onOpenLane} />,
+    <HomeLane client={client} vault={VAULT} onOpenAnchor={onOpenAnchor} />,
   ).container as HTMLElement;
   await vi.waitFor(() => expect(wikiStatus).toHaveBeenCalled());
-  return { container, wikiStatus, onOpenLane, client };
+  return { container, wikiStatus, onOpenAnchor, client };
 }
 
 beforeEach(() => {
@@ -202,43 +202,43 @@ describe("fetches the cross-topic attention view on mount", () => {
 });
 
 describe("blocked class", () => {
-  it("renders a why-it-needs-you narration and routes [Open] to fill only", async () => {
-    const onOpenLane = vi.fn();
+  it("renders a why-it-needs-you narration and routes [Open] to fill's Gate", async () => {
+    const onOpenAnchor = vi.fn();
     const { container } = await renderHomeLane(
       attentionPayload([BLOCKED_TOPIC]),
-      onOpenLane,
+      onOpenAnchor,
     );
     await vi.waitFor(() =>
       expect(container.textContent).toMatch(/rag-patterns/),
     );
     fireEvent.click(within(container).getByRole("button", { name: /open/i }));
-    expect(onOpenLane).toHaveBeenCalledTimes(1);
-    expect(onOpenLane).toHaveBeenCalledWith("fill");
+    expect(onOpenAnchor).toHaveBeenCalledTimes(1);
+    expect(onOpenAnchor).toHaveBeenCalledWith("fill", "gate");
   });
 });
 
 describe("waiting class", () => {
-  it("renders a pending-suggestions row and routes [Open] to fill", async () => {
-    const onOpenLane = vi.fn();
+  it("renders a pending-suggestions row and routes [Open] to fill's Approve", async () => {
+    const onOpenAnchor = vi.fn();
     const { container } = await renderHomeLane(
       attentionPayload([WAITING_TOPIC]),
-      onOpenLane,
+      onOpenAnchor,
     );
     await vi.waitFor(() =>
       expect(container.textContent).toMatch(/gap-fill/),
     );
     fireEvent.click(within(container).getByRole("button", { name: /open/i }));
-    expect(onOpenLane).toHaveBeenCalledTimes(1);
-    expect(onOpenLane).toHaveBeenCalledWith("fill");
+    expect(onOpenAnchor).toHaveBeenCalledTimes(1);
+    expect(onOpenAnchor).toHaveBeenCalledWith("fill", "approve");
   });
 });
 
 describe("running class", () => {
-  it("renders an in-flight row with a Watch action routed to improve", async () => {
-    const onOpenLane = vi.fn();
+  it("renders an in-flight row with a Watch action routed to improve's Observe", async () => {
+    const onOpenAnchor = vi.fn();
     const { container } = await renderHomeLane(
       attentionPayload([RUNNING_TOPIC]),
-      onOpenLane,
+      onOpenAnchor,
     );
     await vi.waitFor(() =>
       expect(container.textContent).toMatch(/agentic-systems/),
@@ -246,8 +246,8 @@ describe("running class", () => {
     fireEvent.click(
       within(container).getByRole("button", { name: /watch/i }),
     );
-    expect(onOpenLane).toHaveBeenCalledTimes(1);
-    expect(onOpenLane).toHaveBeenCalledWith("improve");
+    expect(onOpenAnchor).toHaveBeenCalledTimes(1);
+    expect(onOpenAnchor).toHaveBeenCalledWith("improve", "observe");
   });
 });
 
@@ -310,9 +310,9 @@ describe("drift row -- statement plus an info affordance, no [Check] button", ()
     ).toBeNull();
   });
 
-  it("makes no client call and no onOpenLane call beyond the initial fetch, even when the drift info affordance is clicked", async () => {
+  it("makes no client call and no onOpenAnchor call beyond the initial fetch, even when the drift info affordance is clicked", async () => {
     const payload = attentionPayload([BLOCKED_TOPIC]);
-    const onOpenLane = vi.fn();
+    const onOpenAnchor = vi.fn();
     const { client: raw, wikiStatus } = fakeClient(payload);
     const allowed = new Set(["wikiStatus"]);
     const offenders: string[] = [];
@@ -329,7 +329,7 @@ describe("drift row -- statement plus an info affordance, no [Check] button", ()
       HomeLane: HomeLaneComponent;
     };
     const container = render(
-      <HomeLane client={guarded} vault={VAULT} onOpenLane={onOpenLane} />,
+      <HomeLane client={guarded} vault={VAULT} onOpenAnchor={onOpenAnchor} />,
     ).container as HTMLElement;
     await vi.waitFor(() => expect(wikiStatus).toHaveBeenCalledTimes(1));
 
@@ -340,7 +340,7 @@ describe("drift row -- statement plus an info affordance, no [Check] button", ()
 
     expect(offenders).toEqual([]);
     expect(wikiStatus).toHaveBeenCalledTimes(1);
-    expect(onOpenLane).not.toHaveBeenCalled();
+    expect(onOpenAnchor).not.toHaveBeenCalled();
   });
 });
 
@@ -368,7 +368,7 @@ describe("the poll is wired through startVisibilityPausedPoll, not a bare interv
     };
     const { client, wikiStatus } = fakeClient(attentionPayload([]));
     const { unmount } = render(
-      <HomeLane client={client} vault={VAULT} onOpenLane={vi.fn()} />,
+      <HomeLane client={client} vault={VAULT} onOpenAnchor={vi.fn()} />,
     );
     await vi.waitFor(() => expect(wikiStatus).toHaveBeenCalled());
     unmount();

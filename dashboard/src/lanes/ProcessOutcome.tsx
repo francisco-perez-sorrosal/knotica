@@ -1,6 +1,7 @@
 import type { JSX } from "preact";
 
 import { LANE_STAGES } from "../processModel";
+import { canOpenAnchor, openAnchor } from "./laneNavigation";
 import { PROCESS_META, resolveNextAnchor } from "./processMeta";
 import type { ProcessAnchor, ProcessId } from "./processMeta";
 
@@ -22,9 +23,13 @@ import type { ProcessAnchor, ProcessId } from "./processMeta";
  * announced here instead. That is the rule that keeps a silent re-render from
  * passing as an outcome.
  *
- * The destination is named in prose. Making it *reachable* is the navigation
- * contract's job and lands separately; naming it is already the difference
- * between a dead end and a signpost.
+ * **The destination is reachable, not merely named.** `Go to Improve → Gate`
+ * is a quiet button that calls the single App-owned `openAnchor`, which sets
+ * the pane, records the coordinate in the URL and publishes a one-shot arrival
+ * the target lane consumes. A Next the user cannot reach is not a Next; it is a
+ * footnote. When navigation is not published — a component rendered in
+ * isolation, a test harness with no `App` — the same sentence renders as plain
+ * text rather than as a control that would do nothing.
  */
 
 export interface ProcessOutcomeProps {
@@ -69,8 +74,7 @@ export function ProcessOutcome({
       <span class="process-outcome-next">
         {anchor ? (
           <>
-            {anchor.why}{" "}
-            <span class="process-outcome-dest">Go to {anchorLabel(anchor)}.</span>
+            {anchor.why} <NextDestination anchor={anchor} />
           </>
         ) : (
           // `anchor` is null only for a terminal next, whose `why` is the
@@ -79,6 +83,26 @@ export function ProcessOutcome({
         )}
       </span>
     </span>
+  );
+}
+
+/**
+ * The destination itself. A button when navigation is wired, the same words as
+ * plain text when it is not — never a control that silently does nothing.
+ */
+function NextDestination({ anchor }: { anchor: ProcessAnchor }): JSX.Element {
+  const label = `Go to ${anchorLabel(anchor)}.`;
+  if (!canOpenAnchor()) {
+    return <span class="process-outcome-dest">{label}</span>;
+  }
+  return (
+    <button
+      type="button"
+      class="process-outcome-dest process-outcome-go"
+      onClick={() => openAnchor(anchor.lane, anchor.stage)}
+    >
+      {label}
+    </button>
   );
 }
 

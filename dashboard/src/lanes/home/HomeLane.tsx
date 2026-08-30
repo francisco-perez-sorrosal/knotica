@@ -6,8 +6,9 @@ import { EmptyState } from "../../EmptyState";
 import { Icon } from "../../icons";
 import { InfoPopover } from "../../InfoPopover";
 import { startVisibilityPausedPoll } from "../visibilityPausedPoll";
+import type { OpenAnchor } from "../../paneRouting";
 import type { ToolClient } from "../../toolClient";
-import type { AttentionStatus, PaneId } from "../../types";
+import type { AttentionStatus } from "../../types";
 import { AttentionTable } from "./AttentionTable";
 import { deriveAttentionRows, sortAttentionRows } from "./attentionRows";
 import { LaneCardGrid } from "./LaneCardGrid";
@@ -25,10 +26,12 @@ import { LaneCardGrid } from "./LaneCardGrid";
  * six `LaneCardGrid` cards and the drift row both read from this same
  * `attention` payload -- no new call, no new poll.
  *
- * `onOpenLane` is the one legitimate `onOpen*`-shaped prop left in the tree
- * (`§2.0` clause 3): every card and every queue row's `[Open]`/`[Watch]`
- * button calls it with the row's own `lane` and nothing else -- Home is the
- * router, every other lane may only narrate.
+ * `onOpenAnchor` is `App.tsx`'s single navigation callback -- the same one
+ * every other lane now holds. Home's privilege was never that it *had* the
+ * callback; it is that Home **acts on nothing**: it routes and narrates, and
+ * has no process of its own (the process registry forbids `lane: "home"`
+ * outright). Every card and every queue row calls the callback with a
+ * `(lane, stage)` pair sourced from `attentionMeta.ts`, never one it invents.
  *
  * The drift row renders unconditionally as a statement plus an
  * `InfoPopover` (design §3.2) -- the prior `[Check]` button had no click
@@ -42,11 +45,11 @@ const ATTENTION_POLL_MS = 10_000;
 export function HomeLane({
   client,
   vault,
-  onOpenLane,
+  onOpenAnchor,
 }: {
   client: ToolClient | null;
   vault: string;
-  onOpenLane: (lane: PaneId) => void;
+  onOpenAnchor: OpenAnchor;
 }): JSX.Element {
   const [attention, setAttention] = useState<AttentionStatus | null>(null);
 
@@ -83,7 +86,7 @@ export function HomeLane({
 
   return (
     <main class="pane-main home">
-      <LaneCardGrid attention={attention} onOpenLane={onOpenLane} />
+      <LaneCardGrid attention={attention} onOpenAnchor={onOpenAnchor} />
       {rows.length === 0 ? (
         <EmptyState
           icon="state:complete"
@@ -93,14 +96,14 @@ export function HomeLane({
             <button
               type="button"
               class="primary"
-              onClick={() => onOpenLane("improve")}
+              onClick={() => onOpenAnchor("improve")}
             >
               Open Improve →
             </button>
           }
         />
       ) : (
-        <AttentionTable rows={rows} onOpenLane={onOpenLane} />
+        <AttentionTable rows={rows} onOpenAnchor={onOpenAnchor} />
       )}
       <DriftRow />
     </main>

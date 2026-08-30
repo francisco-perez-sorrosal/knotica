@@ -472,7 +472,7 @@ function StageShell({
   children: JSX.Element | Array<JSX.Element | null>;
 }): JSX.Element {
   return (
-    <li class="lane-stage" data-state={state}>
+    <li class="lane-stage" data-state={state} data-anchor={`fill:${id}`}>
       <span class="lane-stage-index" aria-hidden="true">
         {stageGlyph(state, position)}
       </span>

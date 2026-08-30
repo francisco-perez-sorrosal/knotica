@@ -1,6 +1,8 @@
 import { describe, expect, it, beforeAll } from "vitest";
 
+import { PROCESS_META } from "../lanes/processMeta";
 import { PANE_BY_PARAM, resolveLaneFocus, resolvePane } from "../paneRouting";
+import { LANE_STAGES } from "../processModel";
 import type { PaneId } from "../types";
 
 /**
@@ -148,6 +150,94 @@ describe("no survivor outside App.tsx/lanes declares a retiring cross-lane onOpe
       }
     }
     expect(offenders).toEqual([]);
+  });
+});
+
+/**
+ * The sharpened form of the rule above. "No lane may invent its own cross-lane
+ * prop" was never repealed -- it was tightened: there is now exactly **one**
+ * cross-lane callback, `App.tsx` owns it, and every anchor handed to it comes
+ * out of a registry validated against the lane/stage model.
+ *
+ * The four-name interdiction above is untouched and stays untouched: those are
+ * *retired* identifiers, and `openAnchor` is a new name the exact-identifier
+ * match never sees. Widening that regex to a bare `onOpen` substring would
+ * false-positive on `onOpenReject` forever -- the reason its own docblock
+ * already gives.
+ *
+ * Three groups, each naming a distinct way the contract can rot.
+ */
+describe("navigation has exactly one owner and no ad-hoc destinations", () => {
+  const NAVIGATION_OWNERS = ["/App.tsx", "/lanes/laneNavigation.ts"];
+
+  /** Scan code, never prose: a docblock naming a symbol to explain a rule is
+   *  not a call, and a census that fails on a sentence teaches people to reword
+   *  sentences. Same stripper `processMeta.test.ts` uses for its own scan. */
+  function code(file: string): string {
+    return fsModule
+      .readFileSync(file, "utf-8")
+      .replace(/\/\*[\s\S]*?\*\//g, " ")
+      .replace(/(^|[^:])\/\/.*$/gm, "$1");
+  }
+
+  it("only App.tsx publishes the callback -- a second publisher would be a second owner", () => {
+    const offenders = collectSourceFiles(srcDir).filter((file) => {
+      if (NAVIGATION_OWNERS.some((owner) => file.endsWith(owner))) return false;
+      return /\bpublishOpenAnchor\b/.test(code(file));
+    });
+    expect(offenders).toEqual([]);
+  });
+
+  it("no lane reaches for the router directly instead of the callback", () => {
+    // Routing resolution belongs to `paneRouting.ts` and its one caller. A lane
+    // that resolved a pane itself would be navigating around the contract.
+    const offenders: string[] = [];
+    for (const file of collectSourceFiles(srcDir)) {
+      if (!file.includes("/lanes/")) continue;
+      const content = code(file);
+      for (const symbol of ["resolvePane", "resolveAnchor", "PANE_BY_PARAM"]) {
+        if (new RegExp(`\\b${symbol}\\b`).test(content)) {
+          offenders.push(`${file}: ${symbol}`);
+        }
+      }
+    }
+    expect(offenders).toEqual([]);
+  });
+
+  it("every literal (lane, stage) pair passed to openAnchor is a destination the process model declares", () => {
+    // Catches the hand-written anchor: a call site that spells out a stage
+    // rather than reading one from `PROCESS_META`/`ATTENTION_KIND_META`, and
+    // spells it wrong. Registry-sourced anchors pass variables, not literals,
+    // and are validated by their own suites.
+    const literalCall =
+      /\b(?:onOpenAnchor|openAnchor)\(\s*"([a-z_]+)"\s*,\s*"([a-z_]+)"\s*\)/g;
+    const offenders: string[] = [];
+    for (const file of collectSourceFiles(srcDir)) {
+      const content = code(file);
+      for (const [, lane, stage] of content.matchAll(literalCall)) {
+        const declared = LANE_STAGES[lane] ?? [];
+        if (!declared.some((entry) => entry.id === stage)) {
+          offenders.push(`${file}: ${lane}:${stage}`);
+        }
+      }
+    }
+    expect(offenders).toEqual([]);
+  });
+
+  it("Home still acts on nothing -- it routes, and owns no process of its own", () => {
+    const laneOwners = Object.values(PROCESS_META).map((meta) => meta.lane);
+    expect(laneOwners).not.toContain("home");
+    // ...and no destination points *into* a Home stage, because there are none.
+    const anchors = Object.values(PROCESS_META).flatMap((meta) =>
+      meta.next.kind === "always"
+        ? [meta.next.go]
+        : meta.next.kind === "conditional"
+          ? [...meta.next.branches.map((branch) => branch.go), meta.next.fallback]
+          : [],
+    );
+    expect(
+      anchors.filter((anchor) => anchor.lane === "home" && anchor.stage !== null),
+    ).toEqual([]);
   });
 });
 

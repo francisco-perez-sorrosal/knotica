@@ -1,6 +1,30 @@
 /** `?pane=` deep-link routing — the single reader of the `pane` search param. */
 
+import { LANE_STAGES } from "./processModel";
 import type { PaneId } from "./types";
+
+/**
+ * A reachable destination: a lane, and a stage that lane actually declares in
+ * `core/process_model.py` (mirrored here as `LANE_STAGES`), or `null` for the
+ * lane's own landing surface.
+ *
+ * This is `ProcessAnchor` minus its `why` — the coordinate without the
+ * rationale. `processMeta.ts` carries the rationale because a registry row has
+ * to say *why* the destination is the destination; a URL does not.
+ */
+export interface LaneAnchor {
+  readonly lane: PaneId;
+  readonly stage: string | null;
+}
+
+/**
+ * The **single** cross-lane navigation callback (`dec-092`/M4 sharpened, not
+ * repealed). No lane may invent its own cross-lane prop; every lane receives
+ * this one, and may only pass it a `(lane, stage)` pair sourced from a
+ * registry — `PROCESS_META`'s `next` anchors or `ATTENTION_KIND_META`'s row
+ * anchors — both of which are census-validated against `LANE_STAGES`.
+ */
+export type OpenAnchor = (lane: PaneId, stage?: string | null) => void;
 
 /**
  * Every `?pane=` value the dashboard accepts, mapped to the pane it opens.
@@ -80,6 +104,30 @@ export function resolvePane(param: string | null): PaneId {
  * degrades to the default pane rather than erroring. Matching is exact, with
  * no trimming or case folding, uniformly with `resolvePane`.
  */
-export function resolveLaneFocus(lane: string, _focus: string): PaneId {
-  return PANE_BY_PARAM.get(lane) ?? DEFAULT_PANE;
+export function resolveLaneFocus(lane: string, focus: string): PaneId {
+  return resolveAnchor(lane, focus).lane;
+}
+
+/**
+ * Resolve an `open_dashboard(lane=, focus=)` pair — or a `?lane=&focus=` deep
+ * link — to the full destination, stage included.
+ *
+ * `resolveLaneFocus` above answers only "which pane opens", which is all its
+ * callers ever needed; this answers the whole question, and is what closes the
+ * long-standing hole where `?focus=` was accepted and then discarded. Both read
+ * the same allowlist: there is one resolution, projected two ways.
+ *
+ * **Degrade-never-error (`dec-092`), with one ruling worth naming.** An
+ * unrecognised `lane` still degrades to the default pane. An unrecognised
+ * `focus` degrades to `stage: null` — the lane opens at its own declared-active
+ * stage — and **never** discards the lane: a bad *within-lane coordinate* must
+ * not throw away a good lane, which would be a worse landing than no deep link
+ * at all. Matching is exact, with no trimming or case folding, uniformly with
+ * `resolvePane`.
+ */
+export function resolveAnchor(lane: string, focus: string): LaneAnchor {
+  const resolved = PANE_BY_PARAM.get(lane) ?? DEFAULT_PANE;
+  const declared = LANE_STAGES[resolved] ?? [];
+  const stage = declared.some((entry) => entry.id === focus) ? focus : null;
+  return { lane: resolved, stage };
 }

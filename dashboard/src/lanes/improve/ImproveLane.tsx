@@ -107,6 +107,7 @@ export function ImproveLane({
   metrics,
   obsidianCtx,
   onStatusRefresh,
+  arrivalStage,
 }: {
   client: ToolClient | null;
   topic: string;
@@ -115,6 +116,8 @@ export function ImproveLane({
   metrics: MetricsWindow | null;
   obsidianCtx: ObsidianContext;
   onStatusRefresh?: () => void | Promise<void>;
+  /** One-shot arrival from `App`'s `openAnchor`; see `stageFocus.ts`. */
+  arrivalStage?: string | null;
 }): JSX.Element {
   const declared =
     status?.topics.find((row) => row.topic === topic)?.lanes?.improve ?? [];
@@ -126,10 +129,14 @@ export function ImproveLane({
   }));
 
   // Focus is per topic+vault: switching either is a different process, so the
-  // stage the user had open no longer means anything (§7.2).
+  // stage the user had open no longer means anything (§7.2). An arrival request
+  // is the one thing allowed to seed it, once — Improve is the only railed lane
+  // whose stage bodies are focus-gated, so it is the only lane where landing on
+  // a stage has to *open* it rather than merely scroll to it.
   const { focusedId, focus, toggleFocus } = useStageFocus(
     `${vault}/${topic}`,
     stages,
+    arrivalStage,
   );
 
   function focusFromStrip(stageId: string): void {
@@ -214,6 +221,7 @@ function ImproveStageRow({
     <li
       id={rowDomId(id)}
       class="lane-stage"
+      data-anchor={`improve:${id}`}
       data-state={state}
       data-focus={focused ? "true" : "false"}
       aria-current={isDeclaredCurrent ? "step" : undefined}

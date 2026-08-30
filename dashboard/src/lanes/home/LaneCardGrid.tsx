@@ -2,6 +2,7 @@ import type { JSX } from "preact";
 
 import { Icon } from "../../icons";
 import { InfoPopover } from "../../InfoPopover";
+import type { OpenAnchor } from "../../paneRouting";
 import { LANES } from "../../processModel";
 import type { AttentionStatus, PaneId } from "../../types";
 import { LANE_META } from "../laneMeta";
@@ -53,10 +54,10 @@ function cardStat(lane: PaneId, attention: AttentionStatus | null): string {
  */
 export function LaneCardGrid({
   attention,
-  onOpenLane,
+  onOpenAnchor,
 }: {
   attention: AttentionStatus | null;
-  onOpenLane: (lane: PaneId) => void;
+  onOpenAnchor: OpenAnchor;
 }): JSX.Element {
   return (
     <ul class="lane-card-grid">
@@ -70,7 +71,9 @@ export function LaneCardGrid({
             <button
               type="button"
               class="lane-card-open"
-              onClick={() => onOpenLane(lane)}
+              /* Lane-level: a card is "show me this lane", not "take me to a
+                 particular control in it", so it carries no stage. */
+              onClick={() => onOpenAnchor(lane)}
             >
               <Icon name={meta.icon} size={20} />
               <span class="lane-card-name">{lane}</span>

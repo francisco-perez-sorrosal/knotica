@@ -3,7 +3,8 @@ import type { JSX } from "preact";
 import type { IconName } from "../../icons";
 import { Icon } from "../../icons";
 import { TermHint } from "../../TermHint";
-import type { AttentionRow, AttentionUrgency, PaneId } from "../../types";
+import type { OpenAnchor } from "../../paneRouting";
+import type { AttentionRow, AttentionUrgency } from "../../types";
 import { ATTENTION_KIND_META } from "./attentionMeta";
 
 const URGENCY_ICON: Record<AttentionUrgency, IconName> = {
@@ -28,13 +29,19 @@ const URGENCY_ORDER_EXPLANATION =
  * reinforcing signal, not the only one). Each row's urgency label hosts a
  * `TermHint` naming why that row's `kind` is queued and what acting on it
  * unfolds (`attentionMeta.ts`).
+ *
+ * `[Open]`/`[Watch]` lands on the *stage* that holds the control the row is
+ * about, not merely on the lane that contains it — the anchor comes from the
+ * row's `kind` in `attentionMeta.ts`, which is census-validated against the
+ * lane/stage model. Dropping a user at the top of a six-stage lane and letting
+ * them hunt is the failure this queue exists to prevent.
  */
 export function AttentionTable({
   rows,
-  onOpenLane,
+  onOpenAnchor,
 }: {
   rows: AttentionRow[];
-  onOpenLane: (lane: PaneId) => void;
+  onOpenAnchor: OpenAnchor;
 }): JSX.Element {
   return (
     <table class="attention-table">
@@ -77,7 +84,12 @@ export function AttentionTable({
               <td class="muted">{row.narration}</td>
               <td class="attention-table-lane-cell">
                 <span class="attention-table-lane">{row.lane}</span>
-                <button type="button" onClick={() => onOpenLane(row.lane)}>
+                <button
+                  type="button"
+                  onClick={() =>
+                    onOpenAnchor(meta.anchor.lane, meta.anchor.stage)
+                  }
+                >
                   {row.action}
                 </button>
               </td>

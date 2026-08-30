@@ -46,7 +46,7 @@ describe("rank column", () => {
     const { container } = render(
       <AttentionTable
         rows={[BLOCKED_ROW, WAITING_ROW, RUNNING_ROW]}
-        onOpenLane={vi.fn()}
+        onOpenAnchor={vi.fn()}
       />,
     );
 
@@ -60,7 +60,7 @@ describe("rank column", () => {
     const { container } = render(
       <AttentionTable
         rows={[RUNNING_ROW, BLOCKED_ROW]}
-        onOpenLane={vi.fn()}
+        onOpenAnchor={vi.fn()}
       />,
     );
 
@@ -78,7 +78,7 @@ describe("rank column", () => {
 
 describe("per-row rationale TermHint", () => {
   it("opens onto its kind's why/unlocks copy", () => {
-    render(<AttentionTable rows={[BLOCKED_ROW]} onOpenLane={vi.fn()} />);
+    render(<AttentionTable rows={[BLOCKED_ROW]} onOpenAnchor={vi.fn()} />);
 
     fireEvent.click(
       screen.getByRole("button", { name: "blocked — what this means" }),
@@ -92,7 +92,7 @@ describe("per-row rationale TermHint", () => {
 
   it("a different row's hint carries its own kind's copy, not another row's", () => {
     render(
-      <AttentionTable rows={[WAITING_ROW]} onOpenLane={vi.fn()} />,
+      <AttentionTable rows={[WAITING_ROW]} onOpenAnchor={vi.fn()} />,
     );
 
     fireEvent.click(
@@ -110,7 +110,7 @@ describe("per-row rationale TermHint", () => {
 
 describe("Urgency column header", () => {
   it("hosts a TermHint stating the blocked > waiting > running ordering rule", () => {
-    render(<AttentionTable rows={[BLOCKED_ROW]} onOpenLane={vi.fn()} />);
+    render(<AttentionTable rows={[BLOCKED_ROW]} onOpenAnchor={vi.fn()} />);
 
     fireEvent.click(
       screen.getByRole("button", { name: "Urgency — what this means" }),
@@ -122,13 +122,31 @@ describe("Urgency column header", () => {
   });
 });
 
-describe("row action still routes to the row's own lane", () => {
-  it("[Open] on the blocked row calls onOpenLane with fill, unaffected by the new columns", () => {
-    const onOpenLane = vi.fn();
-    render(<AttentionTable rows={[BLOCKED_ROW]} onOpenLane={onOpenLane} />);
+describe("row action routes to the stage its kind names, not just the lane", () => {
+  it("[Open] on the blocked row lands on fill's Gate -- where the refusal verdict is written", () => {
+    const onOpenAnchor = vi.fn();
+    render(<AttentionTable rows={[BLOCKED_ROW]} onOpenAnchor={onOpenAnchor} />);
 
     fireEvent.click(screen.getByRole("button", { name: /^open$/i }));
 
-    expect(onOpenLane).toHaveBeenCalledWith("fill");
+    expect(onOpenAnchor).toHaveBeenCalledWith("fill", "gate");
+  });
+
+  it("[Open] on the pending row lands on fill's Approve -- the same lane, a different stage", () => {
+    const onOpenAnchor = vi.fn();
+    render(<AttentionTable rows={[WAITING_ROW]} onOpenAnchor={onOpenAnchor} />);
+
+    fireEvent.click(screen.getByRole("button", { name: /^open$/i }));
+
+    expect(onOpenAnchor).toHaveBeenCalledWith("fill", "approve");
+  });
+
+  it("[Watch] on the running row lands on improve's Observe, where the trend is", () => {
+    const onOpenAnchor = vi.fn();
+    render(<AttentionTable rows={[RUNNING_ROW]} onOpenAnchor={onOpenAnchor} />);
+
+    fireEvent.click(screen.getByRole("button", { name: /^watch$/i }));
+
+    expect(onOpenAnchor).toHaveBeenCalledWith("improve", "observe");
   });
 });

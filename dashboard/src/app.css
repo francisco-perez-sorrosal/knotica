@@ -3912,6 +3912,39 @@ button.loop-node:focus-visible {
   font: var(--fs-xs)/1.5 var(--sans);
 }
 .process-outcome-dest { color: var(--text); }
+/* The destination is a real control, styled as quiet text: it is a signpost in
+   the middle of a sentence, not a call to action competing with the stage's own
+   primary button. Underline (never colour alone) carries the affordance. */
+button.process-outcome-go {
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--text);
+  font: inherit;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  cursor: pointer;
+}
+button.process-outcome-go:hover { color: var(--accent); }
+
+/* ── ANCHOR ARRIVAL ────────────────────────────────────────────────────── */
+/* Landing from an `openAnchor` jump. The scroll position is the carrier; this
+   tint only confirms *which* row the jump meant, then gets out of the way.
+   Focus is deliberately not moved -- orienting the user must not hijack the
+   keyboard. A left border, never a fill, matching the STAGE-BODY GRAMMAR rule
+   `data-tone` follows. */
+[data-anchor-arrived="true"] {
+  border-left: 3px solid var(--accent);
+}
+@media (prefers-reduced-motion: no-preference) {
+  [data-anchor-arrived="true"] {
+    animation: anchor-arrival var(--dur-enter) var(--ease-out) both;
+  }
+  @keyframes anchor-arrival {
+    from { border-left-color: transparent; }
+    to { border-left-color: var(--accent); }
+  }
+}
 
 /* Where several briefs annotate a row of verbs rather than a single button --
    the triage queue's four. The briefs sit together above the rows instead of
