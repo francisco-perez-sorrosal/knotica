@@ -25,7 +25,11 @@ from knotica.core.config_write import atomic_write, dump_config_toml, read_confi
 from knotica.core.doctor import build_doctor_payload, run_doctor_checks
 from knotica.core.errors import ErrorCode, KnoticaError
 from knotica.core.loop import LoopRunner, build_loop_runner, harness_evaluate
-from knotica.core.loop_cadence_config import LOOP_CONFIG_SECTION, resolve_loop_cadence_config
+from knotica.core.loop_cadence_config import (
+    LOOP_CONFIG_SECTION,
+    resolve_loop_cadence_config,
+    validate_arena_scorer,
+)
 from knotica.core.loop_state import read_loop_state
 from knotica.core.models_config import resolve_models_config
 from knotica.core.operations.doctor_repair import doctor_repair
@@ -379,8 +383,9 @@ def _loop_cadence_payload(
     eval_min_interval_hours: float | None,
     eval_window: str | None,
     eval_num_threads: int | None,
+    arena_scorer: str | None,
 ) -> dict[str, Any]:
-    """Read (no params) or additively write (any param) the ``[loop]`` cadence config."""
+    """Read (no params) or additively write (any param) the ``[loop]`` config."""
     cleaned = topic.strip().strip("/")
     if not cleaned or "/" in cleaned:
         raise TopicNotFoundError(topic or "(empty)")
@@ -388,11 +393,13 @@ def _loop_cadence_payload(
         eval_min_interval_hours is not None
         or eval_window is not None
         or eval_num_threads is not None
+        or arena_scorer is not None
     ):
         _write_loop_cadence_config(
             eval_min_interval_hours=eval_min_interval_hours,
             eval_window=eval_window,
             eval_num_threads=eval_num_threads,
+            arena_scorer=arena_scorer,
         )
     resolved = resolve_loop_cadence_config()
     return envelope.read_ok(
@@ -401,6 +408,7 @@ def _loop_cadence_payload(
             "eval_min_interval_hours": resolved.eval_min_interval_hours,
             "eval_window": resolved.eval_window,
             "eval_num_threads": resolved.eval_num_threads,
+            "arena_scorer": resolved.arena_scorer,
         }
     )
 
@@ -410,15 +418,22 @@ def _write_loop_cadence_config(
     eval_min_interval_hours: float | None,
     eval_window: str | None,
     eval_num_threads: int | None,
+    arena_scorer: str | None,
 ) -> None:
-    """Additively merge cadence keys into ``config.toml``'s ``[loop]`` table.
+    """Additively merge ``[loop]`` keys into ``config.toml``.
 
     Reuses ``core.config_write``'s read/dump/atomic-write primitives (no
     bespoke TOML-dump logic here) -- every sibling top-level key and every
     other table (``[models]``, ``[gapfill]``, ``[vaults.*]``, ...) round-trips
     untouched because only the ``loop`` dict key is mutated before the
     re-serialize.
+
+    ``arena_scorer`` is validated **before** the file is opened: a rejected
+    value must leave the config byte-identical, because a written-then-rejected
+    value would break every unrelated ``[loop]`` reader until a human edited
+    the file by hand.
     """
+    scorer = validate_arena_scorer(arena_scorer) if arena_scorer is not None else None
     path = config_file_path()
     path.parent.mkdir(parents=True, exist_ok=True)
     data = read_config(path)
@@ -429,6 +444,8 @@ def _write_loop_cadence_config(
         section["eval_window"] = eval_window
     if eval_num_threads is not None:
         section["eval_num_threads"] = eval_num_threads
+    if scorer is not None:
+        section["arena_scorer"] = scorer
     data[LOOP_CONFIG_SECTION] = section
     atomic_write(path, dump_config_toml(data))
 

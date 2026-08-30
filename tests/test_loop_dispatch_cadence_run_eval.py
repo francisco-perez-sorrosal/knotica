@@ -5,7 +5,9 @@ Two concerns, tested at the payload-builder layer (`tools_vault._loop_cadence_pa
 to verbatim:
 
 - Cadence config writes are additive: a pre-existing sibling table in
-  `config.toml` (`[gapfill]`) survives a `cadence` write untouched.
+  `config.toml` (`[gapfill]`) survives a `cadence` write untouched. The same
+  rail carries `arena_scorer`, which is validated *before* the write so a
+  rejected value can never land on disk.
 - The `run_eval` two-phase decision envelope never bills on a bare, stale,
   mismatched, or replayed call -- only a fresh, matching, unexpired nonce
   reaches the billing boundary (`_execute_run_eval`), exactly once.
@@ -17,6 +19,7 @@ from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from unittest.mock import patch
 
+import pytest
 
 from knotica.core.config import config_file_path
 from knotica.store.local import LocalFSStore
@@ -51,6 +54,7 @@ def test_cadence_write_preserves_preexisting_gapfill_table(
         eval_min_interval_hours=6.0,
         eval_window=None,
         eval_num_threads=None,
+        arena_scorer=None,
     )
 
     written = path.read_text(encoding="utf-8")
@@ -72,13 +76,124 @@ def test_cadence_read_only_call_does_not_write_config(
     before = path.read_text(encoding="utf-8")
 
     result = _loop_cadence_payload(
-        TOPIC, eval_min_interval_hours=None, eval_window=None, eval_num_threads=None
+        TOPIC,
+        eval_min_interval_hours=None,
+        eval_window=None,
+        eval_num_threads=None,
+        arena_scorer=None,
     )
 
     after = path.read_text(encoding="utf-8")
     assert before == after
     payload = result["data"] if "data" in result else result
     assert payload["eval_min_interval_hours"] == 0.0
+
+
+# ---------------------------------------------------------------------------
+# arena_scorer rides the same cadence rail: readable, validated, additively written
+# ---------------------------------------------------------------------------
+
+
+def test_cadence_read_reports_the_default_arena_scorer(
+    vault_config: Path, template_vault: Path
+) -> None:
+    """A read-only cadence call names the packaged `arena_scorer` default."""
+    from knotica.mcp_server.tools_vault import _loop_cadence_payload
+
+    result = _loop_cadence_payload(
+        TOPIC,
+        eval_min_interval_hours=None,
+        eval_window=None,
+        eval_num_threads=None,
+        arena_scorer=None,
+    )
+
+    payload = result["data"] if "data" in result else result
+    assert payload["arena_scorer"] == "heuristic"
+
+
+def test_writing_the_arena_scorer_persists_and_reads_back(
+    vault_config: Path, template_vault: Path
+) -> None:
+    """Switching to the eval scorer lands in `[loop]` and round-trips on the next read."""
+    from knotica.mcp_server.tools_vault import _loop_cadence_payload
+
+    written = _loop_cadence_payload(
+        TOPIC,
+        eval_min_interval_hours=None,
+        eval_window=None,
+        eval_num_threads=None,
+        arena_scorer="eval",
+    )
+
+    write_payload = written["data"] if "data" in written else written
+    assert write_payload["arena_scorer"] == "eval"
+    assert 'arena_scorer = "eval"' in config_file_path().read_text(encoding="utf-8")
+
+    read_back = _loop_cadence_payload(
+        TOPIC,
+        eval_min_interval_hours=None,
+        eval_window=None,
+        eval_num_threads=None,
+        arena_scorer=None,
+    )
+    read_payload = read_back["data"] if "data" in read_back else read_back
+    assert read_payload["arena_scorer"] == "eval"
+
+
+def test_an_unknown_arena_scorer_is_rejected_and_leaves_the_config_untouched(
+    vault_config: Path, template_vault: Path
+) -> None:
+    """Validation happens before the write -- a bad value never reaches disk."""
+    from knotica.core.errors import ErrorCode, KnoticaError
+    from knotica.mcp_server.tools_vault import _loop_cadence_payload
+
+    path = config_file_path()
+    before = path.read_text(encoding="utf-8")
+
+    with pytest.raises(KnoticaError) as caught:
+        _loop_cadence_payload(
+            TOPIC,
+            eval_min_interval_hours=None,
+            eval_window=None,
+            eval_num_threads=None,
+            arena_scorer="vibes",
+        )
+
+    assert caught.value.code is ErrorCode.NOT_CONFIGURED
+    assert "arena_scorer" in str(caught.value)
+    assert path.read_text(encoding="utf-8") == before
+
+
+def test_an_arena_scorer_write_leaves_sibling_loop_keys_and_tables_intact(
+    vault_config: Path, template_vault: Path
+) -> None:
+    """The scorer write is additive: other `[loop]` keys and sibling tables survive."""
+    from knotica.mcp_server.tools_vault import _loop_cadence_payload
+
+    path = config_file_path()
+    path.write_text(
+        path.read_text(encoding="utf-8")
+        + "\n[loop]\neval_min_interval_hours = 6.0\neval_num_threads = 3\n"
+        + "\n[gapfill]\nmax_gaps = 3\n",
+        encoding="utf-8",
+    )
+
+    result = _loop_cadence_payload(
+        TOPIC,
+        eval_min_interval_hours=None,
+        eval_window=None,
+        eval_num_threads=None,
+        arena_scorer="eval",
+    )
+
+    payload = result["data"] if "data" in result else result
+    assert payload["eval_min_interval_hours"] == 6.0
+    assert payload["eval_num_threads"] == 3
+    assert payload["arena_scorer"] == "eval"
+    written = path.read_text(encoding="utf-8")
+    assert "[gapfill]" in written
+    assert "max_gaps = 3" in written
 
 
 # ---------------------------------------------------------------------------
