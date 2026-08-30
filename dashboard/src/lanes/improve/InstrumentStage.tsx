@@ -7,7 +7,7 @@ import { SectionCard } from "../../SectionCard";
 import { Stat, StatGrid } from "../../Stat";
 import { TermHint } from "../../TermHint";
 import type { ToolClient } from "../../toolClient";
-import type { DatasetsInventory } from "../../types";
+import type { DatasetFileRow, DatasetsInventory } from "../../types";
 
 /**
  * `instrument` stage body. Absorbs `DatasetsPane`'s
@@ -19,7 +19,15 @@ import type { DatasetsInventory } from "../../types";
  * count it creates, `Freeze golden` with the reviewed → held-out counts it
  * moves, `Bootstrap trainset` with the trainset it appends to. `Freeze
  * golden` stays a top-level control, outside any `aria-expanded`; the
- * role/count/ready table is the only thing behind the single disclosure.
+ * per-role breakdown is the only thing behind the single disclosure.
+ *
+ * That breakdown is grouped, not flat. A five-row Role/Count/Ready table
+ * answered neither of the two questions a reader actually has — what each
+ * role *is*, and which role is made out of which — so the rows are split
+ * into the families the wire already declares (`row.group`), ordered as the
+ * pipeline runs rather than as the payload happens to list them, and every
+ * role name carries the wire's own `purpose` string as its `TermHint` body.
+ * The client never restates that copy: one source of truth, server-side.
  *
  * No control carries a `title=` any more. A tooltip is invisible on touch,
  * needs a hover dwell, and is unreachable by keyboard — so the three that
@@ -309,7 +317,7 @@ export function InstrumentStage({
               value={inventory?.overlaps.train_candidates}
             />
           </StatGrid>
-          {expanded && inventory ? filesTable(inventory) : null}
+          {expanded && inventory ? datasetFamilies(inventory) : null}
         </>
       </SectionCard>
     </section>
@@ -332,33 +340,167 @@ function sealChip(inventory: DatasetsInventory | null): JSX.Element {
   );
 }
 
-function filesTable(inventory: DatasetsInventory): JSX.Element {
+/**
+ * Reading order inside a family — the order the pipeline runs in, which is
+ * not the order `gather_datasets_inventory` lists the roles in. `seal` is
+ * ranked so a payload that keeps it as its own row still places it sensibly.
+ */
+const ROLE_ORDER: readonly string[] = [
+  "candidates",
+  "reviewed",
+  "held_out",
+  "seal",
+  "trainset",
+];
+
+/** Production before consumption, so the chain reads top to bottom. */
+const FAMILY_ORDER: readonly string[] = ["golden_pipeline", "loop_corpora"];
+
+/**
+ * The roles that *continue* the candidates → reviewed → held-out chain. The
+ * chain's origin carries no mark, and `trainset` carries none because it is
+ * deliberately disjoint from the chain — which is the whole reason an
+ * overlap above it means contamination.
+ */
+const FLOW_CONTINUATION: readonly string[] = ["reviewed", "held_out"];
+
+/**
+ * Stated once, under the family that owns the chain's origin — never
+ * repeated per row. `held_out` and its seal belong to `loop_corpora` on the
+ * wire even though `Freeze` is what produces them, so this sentence is what
+ * carries the step across the family boundary.
+ */
+const FLOW_NOTE =
+  "Bootstrap synthesises Candidates; you keep the good ones as Reviewed; " +
+  "Freeze writes those into the held-out exam set and seals it. The trainset " +
+  "is a separate corpus the compiler trains on — which is why any overlap " +
+  "above means the exam is scoring the model on something it trained on.";
+
+interface DatasetFamily {
+  readonly key: string;
+  readonly label: string;
+  readonly rows: readonly DatasetFileRow[];
+}
+
+/**
+ * The per-role breakdown, grouped into the wire's own families and drawn as
+ * a chain. The seal is folded onto the held-out row it guards rather than
+ * standing as a peer step, since nothing is ever produced *from* it.
+ */
+function datasetFamilies(inventory: DatasetsInventory): JSX.Element {
+  const seal = inventory.files.find((row) => row.role === "seal") ?? null;
+  const heldOut = inventory.files.find((row) => row.role === "held_out") ?? null;
+  // A seal with no held-out row to guard stays a row of its own — losing it
+  // silently would be worse than an odd-looking one.
+  const guard = seal && heldOut ? seal : null;
+  const listed = guard
+    ? inventory.files.filter((row) => row !== guard)
+    : inventory.files;
+
   return (
-    <table class="data-table">
-      <thead>
-        <tr>
-          <th>Role</th>
-          <th>Count</th>
-          <th>Ready</th>
-        </tr>
-      </thead>
-      <tbody>
-        {inventory.files.map((row) => (
-          <tr key={row.role}>
-            <td>{row.label}</td>
-            <td>{row.exists ? row.count : "—"}</td>
-            <td>
-              <span
-                class="chip"
-                data-tone={row.ready ? "good" : row.exists ? "warn" : "neutral"}
-              >
-                {row.ready ? "ready" : row.exists ? "not ready" : "missing"}
-              </span>
-            </td>
-          </tr>
-        ))}
-      </tbody>
-    </table>
+    <div class="dataset-families">
+      {groupByFamily(listed).map((family) => (
+        <section
+          key={family.key}
+          class="dataset-family"
+          aria-label={family.label}
+        >
+          <p class="microlabel">{family.label}</p>
+          <ul class="dataset-roles">
+            {family.rows.map((row) =>
+              datasetRoleRow(row, row === heldOut ? guard : null),
+            )}
+          </ul>
+          {family.key === "golden_pipeline" ? (
+            <p class="muted dataset-flow-note">{FLOW_NOTE}</p>
+          ) : null}
+        </section>
+      ))}
+    </div>
+  );
+}
+
+/**
+ * Buckets by the wire's `group`. An unrecognised group gets its own family
+ * (labelled from the raw value) rather than being dropped — the wire type
+ * admits any string, so a new server-side family must stay visible here
+ * without a client release.
+ */
+function groupByFamily(files: readonly DatasetFileRow[]): DatasetFamily[] {
+  const buckets = new Map<string, DatasetFileRow[]>();
+  for (const row of files) {
+    const key = row.group || "other";
+    const bucket = buckets.get(key);
+    if (bucket) bucket.push(row);
+    else buckets.set(key, [row]);
+  }
+  // `Array.prototype.sort` is stable, so unranked families and roles keep
+  // the order the payload sent them in.
+  return [...buckets.keys()]
+    .sort((a, b) => rank(FAMILY_ORDER, a) - rank(FAMILY_ORDER, b))
+    .map((key) => ({
+      key,
+      label: key.replace(/_/g, " ").toUpperCase(),
+      rows: [...(buckets.get(key) ?? [])].sort(
+        (a, b) => rank(ROLE_ORDER, a.role) - rank(ROLE_ORDER, b.role),
+      ),
+    }));
+}
+
+function rank(order: readonly string[], value: string): number {
+  const index = order.indexOf(value);
+  return index === -1 ? order.length : index;
+}
+
+function datasetRoleRow(
+  row: DatasetFileRow,
+  guard: DatasetFileRow | null,
+): JSX.Element {
+  return (
+    <li key={row.role} class="dataset-role">
+      {/* Always rendered, glyph or not: the empty cell is what keeps every
+          role name aligned on the same rail. */}
+      <span class="dataset-flow-mark" aria-hidden="true">
+        {FLOW_CONTINUATION.includes(row.role) ? "↳" : ""}
+      </span>
+      <span class="dataset-role-name">{roleTerm(row)}</span>
+      <span class="dataset-role-count">{row.exists ? row.count : "—"}</span>
+      {readyChip(row)}
+      {guard ? (
+        <span class="dataset-role-guard">
+          {roleTerm(guard)}
+          {readyChip(guard)}
+        </span>
+      ) : null}
+    </li>
+  );
+}
+
+function readyChip(row: DatasetFileRow): JSX.Element {
+  return (
+    <span
+      class="chip"
+      data-tone={row.ready ? "good" : row.exists ? "warn" : "neutral"}
+    >
+      {row.ready ? "ready" : row.exists ? "not ready" : "missing"}
+    </span>
+  );
+}
+
+/**
+ * The role name, explained by the server's own `purpose` string. A payload
+ * that carries no purpose falls back to the bare label — the client has no
+ * business inventing an explanation the server declined to give.
+ */
+function roleTerm(row: DatasetFileRow): JSX.Element | string {
+  if (!row.purpose) return row.label;
+  return (
+    <TermHint
+      id={`instrument-file-${row.role}`}
+      term={row.label}
+      title={row.label}
+      body={row.purpose}
+    />
   );
 }
 

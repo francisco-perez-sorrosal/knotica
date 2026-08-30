@@ -194,8 +194,11 @@ bills on an explicit second confirm (the server-nonce two-phase flow) — never 
 
 1. **Instrument** — build the golden set. Three cards: **PIPELINE** (candidates / reviewed /
    held-out counts, a seal chip, and the **Bootstrap** / **Freeze golden** controls), **TRAINSET**
-   (the trainset count and **Bootstrap trainset**), and **FILES & OVERLAPS** (train∩held-out /
-   train∩reviewed / train∩candidates overlap counts, behind a disclosure). **Bootstrap**,
+   (the trainset count and **Bootstrap trainset**), and **FILES & OVERLAPS** (the train∩held-out /
+   train∩reviewed / train∩candidates overlap counts, plus — behind a disclosure — the per-role
+   breakdown, grouped into its `GOLDEN PIPELINE` and `LOOP CORPORA` families, drawn as the
+   candidates → reviewed → held-out chain, each role name explaining itself on click).
+   **Bootstrap**,
    **Bootstrap trainset**, and **Freeze golden** are billed, each behind a `billed` chip and a
    two-click armed→confirm control. **Freeze golden** refuses a reviewed set that overlaps the
    trainset.

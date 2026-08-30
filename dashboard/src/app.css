@@ -3667,6 +3667,8 @@ button.loop-node:focus-visible {
    WCAG 2.2 inline exception and need none. */
 .stat-label .term-hint-trigger,
 .state-list-name .term-hint-trigger,
+.dataset-role-name .term-hint-trigger,
+.dataset-role-guard .term-hint-trigger,
 .chip .term-hint-trigger,
 .status-chip .term-hint-trigger {
   display: inline-flex;
@@ -3774,23 +3776,54 @@ button.loop-node:focus-visible {
 }
 .chip[data-tone="neutral"] { color: var(--muted); }
 
-/* Data table — the Instrument "Files & Overlaps" role/count/ready grid
-   (design §4.2). No consumer yet. */
-.data-table {
-  width: 100%;
-  border-collapse: collapse;
+/* Dataset families — the Instrument "Files & Overlaps" per-role breakdown.
+   Replaces the flat Role/Count/Ready `.data-table` (deleted with its only
+   consumer): a table of five names could show neither what a role IS nor
+   which role is made out of which, which is the pair of questions the view
+   exists to answer. */
+.dataset-families { display: grid; gap: var(--space-4); }
+.dataset-family { display: grid; gap: var(--space-2); }
+.dataset-family .microlabel { margin: 0; }
+.dataset-roles { list-style: none; margin: 0; padding: 0; }
+.dataset-role {
+  display: grid;
+  grid-template-columns: 1rem 1fr auto auto;
+  align-items: baseline;
+  gap: var(--space-1) var(--space-3);
+  padding: var(--space-2) 0;
+}
+.dataset-role + .dataset-role { border-top: 1px solid var(--line); }
+/* The chain, drawn: a step made out of the step above it is notched in by
+   one column. Decoration only — the composition is stated in words under the
+   family, never carried by the glyph alone. */
+.dataset-flow-mark {
+  color: var(--neutral);
   font: var(--fs-sm) var(--mono);
 }
-.data-table th, .data-table td {
-  padding: var(--space-2) var(--space-3);
-  text-align: left;
-  border-bottom: 1px solid var(--line);
+.dataset-role-name {
+  color: var(--heading);
+  font: var(--fs-sm) var(--mono);
 }
-.data-table th {
+.dataset-role-count {
+  color: var(--text);
+  font: var(--fs-sm) var(--mono);
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+}
+/* The seal guards the held-out set rather than being a step of its own, so
+   it rides that row's second line instead of standing as a peer. */
+.dataset-role-guard {
+  grid-column: 2 / -1;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
   color: var(--muted);
-  font: 500 var(--fs-micro) var(--mono);
-  letter-spacing: var(--tracking-micro);
-  text-transform: uppercase;
+  font: var(--fs-xs) var(--mono);
+}
+.dataset-flow-note {
+  margin: 0;
+  font: var(--fs-xs)/1.5 var(--sans);
 }
 
 /* Quiet action button — three equal-weight peers, distinguished by tone
