@@ -1,6 +1,7 @@
 import type { JSX } from "preact";
 import { useEffect, useState } from "preact/hooks";
 
+import { CopyBlock } from "../CopyBlock";
 import { Spinner } from "../icons";
 import type { ToolClient } from "../toolClient";
 import type { SessionStatus } from "../types";
@@ -26,6 +27,22 @@ import { deriveDispatchTier, type DispatchTier } from "./hostCapabilities";
 
 const POLL_INTERVAL_MS = 3000;
 
+/**
+ * Everything an embedding stage needs to render the dispatch affordance
+ * itself, computed once by `HandoffStage`. Passing this rather than the raw
+ * client keeps the dec-091 prose-first payload and the tier derivation in
+ * exactly one place.
+ */
+export interface HandoffDispatch {
+  tier: DispatchTier;
+  /** The literal `/knotica:<command> <suggestion-id> <topic>` line. */
+  dispatchLine: string;
+  /** The prose-first payload a non-slash host routes on. */
+  dispatchText: string;
+  sendMessage: () => Promise<void>;
+  updateModelContext: () => Promise<void>;
+}
+
 export interface HandoffStageProps {
   client: ToolClient;
   topic: string;
@@ -37,8 +54,17 @@ export interface HandoffStageProps {
   ask: string;
   /** Only the expanded/selected item polls (`§3.3`'s cost discipline). */
   active: boolean;
-  /** The in-lane control for every `next.actor === "you"` state. */
-  renderYouControl: (status: SessionStatus) => JSX.Element | null;
+  /**
+   * The in-lane control for every `next.actor === "you"` state. Receives the
+   * dispatch context so a you-state can offer the same dispatch affordance
+   * the `claude` states get -- the user clicking `Open a session` *is* the
+   * `you` actor taking their turn, and `/knotica:fill` branches on the
+   * session state to serve it.
+   */
+  renderYouControl: (
+    status: SessionStatus,
+    dispatch: HandoffDispatch,
+  ) => JSX.Element | null;
 }
 
 export function HandoffStage({
@@ -81,17 +107,16 @@ export function HandoffStage({
   const dispatchLine = `/knotica:${command} ${suggestionId} ${topic}`;
   const dispatchText = `${ask}\n\n${dispatchLine}`;
 
-  function copyInstruction() {
-    void navigator.clipboard?.writeText(dispatchText);
-  }
-
-  async function dispatchViaMessage() {
-    await client.sendMessage(dispatchText);
-  }
-
-  async function dispatchViaModelContext() {
-    await client.updateModelContext(dispatchText);
-  }
+  /* Computed once, here, and handed to both mount points: the embedding
+     stage cannot re-derive the tier or the prose-first payload without
+     duplicating this template. */
+  const dispatch: HandoffDispatch = {
+    tier: deriveDispatchTier(client.hostCapabilities, client.mount),
+    dispatchLine,
+    dispatchText,
+    sendMessage: () => client.sendMessage(dispatchText),
+    updateModelContext: () => client.updateModelContext(dispatchText),
+  };
 
   return (
     <div class="handoff-stage">
@@ -106,16 +131,12 @@ export function HandoffStage({
       {status ? (
         <>
           {status.next.actor === "claude" ? (
-            <DispatchControl
-              tier={deriveDispatchTier(client.hostCapabilities, client.mount)}
-              dispatchLine={dispatchLine}
-              onSendMessage={() => void dispatchViaMessage()}
-              onUpdateModelContext={() => void dispatchViaModelContext()}
-              onCopy={copyInstruction}
-            />
+            <HandoffDispatchPanel dispatch={dispatch} />
           ) : null}
 
-          {status.next.actor === "you" ? renderYouControl(status) : null}
+          {status.next.actor === "you"
+            ? renderYouControl(status, dispatch)
+            : null}
 
           <p class="handoff-status muted">{status.next.do}</p>
 
@@ -139,45 +160,89 @@ export function HandoffStage({
  * Four capability tiers, one honest label each (`INTERFACE_DESIGN.md §3.4`).
  * The literal dispatch line renders at every tier, including A and B -- a
  * user who does not trust the button, or whose host silently drops the
- * request, is never stranded.
+ * request, is never stranded. It is a `CopyBlock` rather than a bare `<pre>`
+ * so "never stranded" is operational and not merely visual: at A and B the
+ * copy sits beside a working button under a distinct, honest label; at C and
+ * D it *is* the affordance.
+ *
+ * Exported because two mount points share it -- `HandoffStage` itself for
+ * `next.actor === "claude"`, and an embedding stage's own you-panel for the
+ * states where the user is the one who acts. One dispatch surface, never a
+ * reimplementation.
  */
-function DispatchControl({
-  tier,
-  dispatchLine,
-  onSendMessage,
-  onUpdateModelContext,
-  onCopy,
+export function HandoffDispatchPanel({
+  dispatch,
+  dispatched = false,
+  onDispatched,
 }: {
-  tier: DispatchTier;
-  dispatchLine: string;
-  onSendMessage: () => void;
-  onUpdateModelContext: () => void;
-  onCopy: () => void;
+  dispatch: HandoffDispatch;
+  /** Replaces the button with the sent-confirmation; the copy stays. */
+  dispatched?: boolean;
+  onDispatched?: () => void;
 }): JSX.Element {
+  const { tier, dispatchLine, dispatchText } = dispatch;
+  const [dispatching, setDispatching] = useState(false);
+  const [failure, setFailure] = useState<string | null>(null);
+  const programmatic = tier === "A" || tier === "B";
+
+  async function run(send: () => Promise<void>): Promise<void> {
+    setDispatching(true);
+    setFailure(null);
+    try {
+      await send();
+      onDispatched?.();
+    } catch (cause) {
+      // A host can reject or silently drop the request; saying so is what
+      // keeps the copy affordance below an honest fallback rather than a
+      // decoration.
+      setFailure(cause instanceof Error ? cause.message : String(cause));
+    } finally {
+      setDispatching(false);
+    }
+  }
+
   return (
     <div class="handoff-dispatch">
-      {tier === "A" ? (
-        <>
-          <p class="muted">Claude may ask you to confirm.</p>
-          <button type="button" onClick={onSendMessage}>
-            Send to Claude
-          </button>
-        </>
-      ) : tier === "B" ? (
+      {dispatched ? (
+        <p class="handoff-dispatched" role="status">
+          <Spinner />
+          <strong>Sent to your Claude session.</strong> Continue there — this
+          list updates as the session writes.
+        </p>
+      ) : programmatic ? (
         <>
           <p class="muted">
-            Then tell Claude to continue — this does not start a turn.
+            {tier === "A"
+              ? "Claude may ask you to confirm."
+              : "Then tell Claude to continue — this does not start a turn."}
           </p>
-          <button type="button" onClick={onUpdateModelContext}>
-            Queue for Claude
+          <button
+            type="button"
+            disabled={dispatching}
+            aria-busy={dispatching || undefined}
+            onClick={() =>
+              void run(
+                tier === "A" ? dispatch.sendMessage : dispatch.updateModelContext,
+              )
+            }
+          >
+            {dispatching ? <Spinner /> : null}
+            {tier === "A" ? "Send to Claude" : "Queue for Claude"}
           </button>
         </>
-      ) : (
-        <button type="button" onClick={onCopy}>
-          Copy the instruction
-        </button>
-      )}
-      <pre class="handoff-dispatch-line">{dispatchLine}</pre>
+      ) : null}
+
+      {failure ? (
+        <p role="alert" class="handoff-dispatch-error">
+          {failure}
+        </p>
+      ) : null}
+
+      <CopyBlock
+        code={dispatchLine}
+        copyText={dispatchText}
+        actionLabel={programmatic ? "Copy it instead" : "Copy the instruction"}
+      />
     </div>
   );
 }

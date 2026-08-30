@@ -393,8 +393,12 @@ describe("the nine states of INTERFACE_DESIGN.md §3.3 — next.actor drives the
         const { renderYouControl } = renderHandoffStage(client);
         await vi.waitFor(() => expect(renderYouControl).toHaveBeenCalled());
 
+        // The second argument is the dispatch context: a you-state may now
+        // offer the same dispatch affordance, since the user clicking the
+        // in-lane control *is* the `you` actor taking their turn.
         expect(renderYouControl).toHaveBeenCalledWith(
           expect.objectContaining({ state: status.state }),
+          expect.anything(),
         );
         expect(dispatchControlPresent()).toBe(false);
         expect(youControlPresent()?.textContent).toBe(
@@ -627,6 +631,7 @@ describe("conditional polling discipline — only the active item polls, only at
     expect(dispatchControlPresent()).toBe(false);
     expect(renderYouControl).toHaveBeenCalledWith(
       expect.objectContaining({ state: "client_wrote" }),
+      expect.anything(),
     );
   });
 });
