@@ -1,6 +1,7 @@
 import { useEffect, useState } from "preact/hooks";
 import type { JSX } from "preact";
 
+import { Spinner } from "../../icons";
 import { ObsidianFileLink, type ObsidianContext } from "../../obsidianLinks";
 import { formatToolFailure, type ToolClient } from "../../toolClient";
 import type {
@@ -375,9 +376,17 @@ function OkfActions({
           type="button"
           data-testid="tend-okf-repair-dry-run"
           disabled={!client || busy !== null}
+          aria-busy={busy === "okf-dry" || undefined}
           onClick={onDryRun}
         >
-          {busy === "okf-dry" ? "Previewing…" : "Repair dry-run"}
+          {busy === "okf-dry" ? (
+            <>
+              <Spinner />
+              Previewing…
+            </>
+          ) : (
+            "Repair dry-run"
+          )}
         </button>
         <ArmedButton
           armed={armed}
@@ -440,7 +449,14 @@ function DoctorPanel({
   if (!report) {
     return (
       <p class="muted empty-check">
-        {busy ? "Running doctor…" : "No doctor result yet."}
+        {busy ? (
+          <>
+            <Spinner />
+            Running doctor…
+          </>
+        ) : (
+          "No doctor result yet."
+        )}
       </p>
     );
   }
@@ -508,7 +524,14 @@ function LintPanel({
   if (!result) {
     return (
       <p class="muted empty-check">
-        {busy ? "Linting…" : "No lint result yet."}
+        {busy ? (
+          <>
+            <Spinner />
+            Linting…
+          </>
+        ) : (
+          "No lint result yet."
+        )}
       </p>
     );
   }
@@ -559,7 +582,14 @@ function OkfStatus({
   if (!okf && !repair) {
     return (
       <p class="muted empty-check">
-        {busy ? "Checking OKF…" : "No OKF result yet."}
+        {busy ? (
+          <>
+            <Spinner />
+            Checking OKF…
+          </>
+        ) : (
+          "No OKF result yet."
+        )}
       </p>
     );
   }

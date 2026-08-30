@@ -1,6 +1,7 @@
 import type { JSX } from "preact";
 import { useEffect, useState } from "preact/hooks";
 
+import { Spinner } from "./icons";
 import type { ToolClient } from "./toolClient";
 
 export interface CreateDrawerProps {
@@ -152,8 +153,16 @@ export function CreateDrawer({
           type="submit"
           class="primary"
           disabled={newKbBusy || !newKbPath.trim()}
+          aria-busy={newKbBusy || undefined}
         >
-          {newKbBusy ? "Creating…" : "Create"}
+          {newKbBusy ? (
+            <>
+              <Spinner />
+              Creating…
+            </>
+          ) : (
+            "Create"
+          )}
         </button>
         <button
           type="button"
@@ -189,8 +198,16 @@ export function CreateDrawer({
           type="submit"
           class="primary"
           disabled={newTopicBusy || !newTopicName.trim()}
+          aria-busy={newTopicBusy || undefined}
         >
-          {newTopicBusy ? "Creating…" : "Create"}
+          {newTopicBusy ? (
+            <>
+              <Spinner />
+              Creating…
+            </>
+          ) : (
+            "Create"
+          )}
         </button>
         <button
           type="button"

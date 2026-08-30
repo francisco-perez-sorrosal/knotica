@@ -13,6 +13,7 @@ import {
   TwoPhaseOutcome,
   useTwoPhaseAction,
 } from "../../TwoPhaseAction";
+import { Spinner } from "../../icons";
 import type { ToolClient } from "../../toolClient";
 import type {
   LoopCadenceConfig,
@@ -200,6 +201,9 @@ export function ObserveStage({
         icon="stage:observe"
         headerActions={
           <output class={`observe-chip ${runnerAlive ? "ok" : "warn"}`}>
+            {/* The word `watching` is the state carrier; the glyph only
+                seconds it, so a reduced-motion reader loses nothing. */}
+            {runnerAlive ? <Spinner /> : null}
             {runnerAlive
               ? `runner: watching · pid ${runner?.pid ?? "?"}`
               : "runner: off"}
@@ -407,9 +411,17 @@ function runEvalFooter(
         type="button"
         class="primary"
         disabled={busy !== null}
+        aria-busy={busy === "preview" || undefined}
         onClick={() => void runEval.preview()}
       >
-        {busy === "preview" ? "Estimating…" : "Run eval now (billed)"}
+        {busy === "preview" ? (
+          <>
+            <Spinner />
+            Estimating…
+          </>
+        ) : (
+          "Run eval now (billed)"
+        )}
       </button>
     </>
   );

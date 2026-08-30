@@ -1,7 +1,7 @@
 import { useEffect, useState } from "preact/hooks";
 import type { JSX } from "preact";
 
-import { Icon } from "../../icons";
+import { Icon, Spinner } from "../../icons";
 import { TermHint } from "../../TermHint";
 import { TwoPhaseConfirm, useTwoPhaseAction } from "../../TwoPhaseAction";
 import type { ToolClient } from "../../toolClient";
@@ -337,9 +337,17 @@ export function QueueStage({
           type="button"
           class="ghost"
           disabled={!client || discoverBusy !== null || discover.state.preview !== null}
+          aria-busy={discoverBusy === "preview" || undefined}
           onClick={previewDiscover}
         >
-          {discoverBusy === "preview" ? "Checking…" : "Discover sources…"}
+          {discoverBusy === "preview" ? (
+            <>
+              <Spinner />
+              Checking…
+            </>
+          ) : (
+            "Discover sources…"
+          )}
         </button>
 
         {discover.state.preview ? (
@@ -489,9 +497,17 @@ export function QueueStage({
             type="button"
             class="ghost sources-load-more"
             disabled={loading}
+            aria-busy={loading || undefined}
             onClick={() => void load(result.next_cursor, true)}
           >
-            {loading ? "Loading…" : "Load more"}
+            {loading ? (
+              <>
+                <Spinner />
+                Loading…
+              </>
+            ) : (
+              "Load more"
+            )}
           </button>
         ) : null}
       </StageShell>
@@ -607,9 +623,11 @@ function QueueToolbar({
             class="queue-icon-button"
             aria-label="Refresh"
             disabled={loading}
+            aria-busy={loading || undefined}
             onClick={onRefresh}
           >
-            <Icon name="refresh" size={16} />
+            {/* The glyph the reader just clicked is the one that turns. */}
+            {loading ? <Spinner /> : <Icon name="refresh" size={16} />}
           </button>
         </div>
 

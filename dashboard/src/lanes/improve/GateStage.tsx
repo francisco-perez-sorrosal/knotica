@@ -6,6 +6,7 @@ import { StateList } from "../../StateList";
 import type { StateListRow } from "../../StateList";
 import { TermHint } from "../../TermHint";
 import { useTwoPhaseAction } from "../../TwoPhaseAction";
+import { Spinner } from "../../icons";
 import type { ToolClient } from "../../toolClient";
 import type {
   LoopOnceResult,
@@ -130,9 +131,17 @@ export function GateStage({
                 data-testid="gate-run-once-confirm"
                 class="heal-freeze-primary"
                 disabled={busy !== null}
+                aria-busy={busy === "confirm" || undefined}
                 onClick={() => void gateOnce.confirm()}
               >
-                {busy === "confirm" ? "Gating…" : "Confirm — run and bill"}
+                {busy === "confirm" ? (
+                  <>
+                    <Spinner />
+                    Gating…
+                  </>
+                ) : (
+                  "Confirm — run and bill"
+                )}
               </button>
               <button
                 type="button"
@@ -154,9 +163,17 @@ export function GateStage({
                 data-testid="gate-run-once-preview"
                 class="primary"
                 disabled={triggerDisabled}
+                aria-busy={busy === "preview" || undefined}
                 onClick={() => void gateOnce.preview()}
               >
-                {busy === "preview" ? "Estimating…" : "Gate next candidate now"}
+                {busy === "preview" ? (
+                  <>
+                    <Spinner />
+                    Estimating…
+                  </>
+                ) : (
+                  "Gate next candidate now"
+                )}
               </button>
               <p class="section-card-note">
                 Nudges the watcher to gate the next candidate now instead of

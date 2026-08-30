@@ -2,6 +2,7 @@ import type { JSX } from "preact";
 import { useState } from "preact/hooks";
 
 import { ArmedButton } from "../ArmedButton";
+import { Spinner } from "../../icons";
 import type { ToolClient } from "../../toolClient";
 import type { LoopCadenceConfig } from "../../types";
 
@@ -110,9 +111,17 @@ export function ArenaScorerSwitch({
             class="ghost"
             data-testid={testId}
             disabled={!client || busy}
+            aria-busy={busy || undefined}
             onClick={() => void applyScorer()}
           >
-            {busy ? "Switching…" : "Use heuristic scorer"}
+            {busy ? (
+              <>
+                <Spinner />
+                Switching…
+              </>
+            ) : (
+              "Use heuristic scorer"
+            )}
           </button>
         )}
       </div>

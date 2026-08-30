@@ -2,7 +2,7 @@ import { useEffect, useState } from "preact/hooks";
 import type { JSX } from "preact";
 
 import { HandoffStage } from "../HandoffStage";
-import type { IconName } from "../../icons";
+import { Spinner, type IconName } from "../../icons";
 import { SectionCard } from "../../SectionCard";
 import type { SectionTone } from "../../SectionCard";
 import { Stat, StatGrid } from "../../Stat";
@@ -149,7 +149,10 @@ export function IngestGateStage({
               </p>
             ) : null}
             {loading && suggestions.length === 0 ? (
-              <p class="muted">Loading approved suggestions…</p>
+              <p class="muted">
+                <Spinner />
+                Loading approved suggestions…
+              </p>
             ) : suggestions.length === 0 ? (
               <p class="muted">No approved suggestions waiting on ingest.</p>
             ) : (

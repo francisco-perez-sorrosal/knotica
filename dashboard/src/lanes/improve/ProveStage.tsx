@@ -7,6 +7,7 @@ import { PromptDiff } from "../../PromptDiff";
 import { SectionCard } from "../../SectionCard";
 import { Stat, StatGrid } from "../../Stat";
 import { TermHint } from "../../TermHint";
+import { Spinner } from "../../icons";
 import type { ToolClient } from "../../toolClient";
 import { findTopicRow } from "../../topicHelpers";
 import type { QueryAnswer, WikiStatus } from "../../types";
@@ -131,9 +132,17 @@ export function ProveStage({
               class="primary"
               data-testid="prove-probe-ask"
               disabled={!client || busy || !question.trim()}
+              aria-busy={busy || undefined}
               onClick={() => void ask()}
             >
-              {busy ? "Asking…" : "Probe it"}
+              {busy ? (
+                <>
+                  <Spinner />
+                  Asking…
+                </>
+              ) : (
+                "Probe it"
+              )}
             </button>
           </>
         }

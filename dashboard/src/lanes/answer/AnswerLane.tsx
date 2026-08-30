@@ -5,6 +5,7 @@ import { AnswerCard } from "../../answerPresentation";
 import type { ObsidianContext } from "../../obsidianLinks";
 import { SectionCard } from "../../SectionCard";
 import { TermHint } from "../../TermHint";
+import { Spinner } from "../../icons";
 import type { ToolClient } from "../../toolClient";
 import type { QueryAnswer, WikiStatus } from "../../types";
 import { deriveSequenceStages, type StageState } from "../laneRailState";
@@ -40,6 +41,9 @@ import { LoopStrip } from "../LoopStrip";
  * The `role="status"` outcome note stays in the footer, unchanged text. Ask
  * and Cite are untouched -- `§5` names only React for this budget.
  */
+
+/** React's four verbs, named so the one in flight can be told from its peers. */
+type ReactVerb = "good" | "bad" | "note" | "gap";
 
 interface AnswerStage {
   readonly id: "ask" | "cite" | "react";
@@ -107,6 +111,10 @@ export function AnswerLane({
 }): JSX.Element {
   const [question, setQuestion] = useState("");
   const [busy, setBusy] = useState(false);
+  /* Which of React's four verbs is in flight. `busy` alone disables all four,
+     which is right -- but four spinners for one action would be a lie, so the
+     glyph goes only on the one actually running. */
+  const [reactBusy, setReactBusy] = useState<ReactVerb | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [result, setResult] = useState<QueryAnswer | null>(null);
   const [reacted, setReacted] = useState(false);
@@ -137,6 +145,7 @@ export function AnswerLane({
   async function curate(verdict: "good" | "bad") {
     if (!client || !result || busy) return;
     setBusy(true);
+    setReactBusy(verdict);
     try {
       await client.curateExample(
         topic,
@@ -154,12 +163,14 @@ export function AnswerLane({
       setReactNote(cause instanceof Error ? cause.message : String(cause));
     } finally {
       setBusy(false);
+      setReactBusy(null);
     }
   }
 
   async function noteIt() {
     if (!client || !result || busy) return;
     setBusy(true);
+    setReactBusy("note");
     try {
       await client.noteCapture(
         topic,
@@ -176,12 +187,14 @@ export function AnswerLane({
       setReactNote(cause instanceof Error ? cause.message : String(cause));
     } finally {
       setBusy(false);
+      setReactBusy(null);
     }
   }
 
   async function reportGap() {
     if (!client || !result || busy) return;
     setBusy(true);
+    setReactBusy("gap");
     try {
       await client.gapReport(
         topic,
@@ -196,6 +209,7 @@ export function AnswerLane({
       setReactNote(cause instanceof Error ? cause.message : String(cause));
     } finally {
       setBusy(false);
+      setReactBusy(null);
     }
   }
 
@@ -226,9 +240,17 @@ export function AnswerLane({
             <button
               type="button"
               disabled={!client || busy || !question.trim()}
+              aria-busy={busy || undefined}
               onClick={() => void ask()}
             >
-              {busy ? "Asking…" : "Ask"}
+              {busy ? (
+                <>
+                  <Spinner />
+                  Asking…
+                </>
+              ) : (
+                "Ask"
+              )}
             </button>
           </div>
           {error ? (
@@ -266,31 +288,39 @@ export function AnswerLane({
                   <button
                     type="button"
                     disabled={busy}
+                    aria-busy={reactBusy === "good" || undefined}
                     onClick={() => void curate("good")}
                   >
+                    {reactBusy === "good" ? <Spinner /> : null}
                     Good example
                   </button>
                   <button
                     type="button"
                     disabled={busy}
+                    aria-busy={reactBusy === "bad" || undefined}
                     onClick={() => void curate("bad")}
                   >
+                    {reactBusy === "bad" ? <Spinner /> : null}
                     Bad example
                   </button>
                   <button
                     type="button"
                     class="ghost"
                     disabled={busy}
+                    aria-busy={reactBusy === "note" || undefined}
                     onClick={() => void noteIt()}
                   >
+                    {reactBusy === "note" ? <Spinner /> : null}
                     Note it
                   </button>
                   <button
                     type="button"
                     class="ghost"
                     disabled={busy}
+                    aria-busy={reactBusy === "gap" || undefined}
                     onClick={() => void reportGap()}
                   >
+                    {reactBusy === "gap" ? <Spinner /> : null}
                     Report gap
                   </button>
                   {reacted && reactNote ? (

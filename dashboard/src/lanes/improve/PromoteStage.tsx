@@ -10,6 +10,7 @@ import { SectionCard } from "../../SectionCard";
 import type { SectionTone } from "../../SectionCard";
 import { Stat, StatGrid } from "../../Stat";
 import { TermHint } from "../../TermHint";
+import { Spinner } from "../../icons";
 import type { ToolClient } from "../../toolClient";
 import type {
   BranchDeleteResult,
@@ -209,9 +210,17 @@ export function PromoteStage({
                   type="button"
                   class="danger"
                   disabled={!client || deleteBusy}
+                  aria-busy={deletePreviewBusy || undefined}
                   onClick={() => void previewDelete()}
                 >
-                  {deletePreviewBusy ? "Previewing…" : "Preview delete"}
+                  {deletePreviewBusy ? (
+                    <>
+                      <Spinner />
+                      Previewing…
+                    </>
+                  ) : (
+                    "Preview delete"
+                  )}
                 </button>
               ) : null}
               {openCompile.promotable ? (
@@ -220,9 +229,17 @@ export function PromoteStage({
                   class="primary"
                   data-testid="promote-preview-trigger"
                   disabled={!client || promoteBusy}
+                  aria-busy={previewBusy || undefined}
                   onClick={() => void previewPromote()}
                 >
-                  {previewBusy ? "Previewing…" : "Preview promote"}
+                  {previewBusy ? (
+                    <>
+                      <Spinner />
+                      Previewing…
+                    </>
+                  ) : (
+                    "Preview promote"
+                  )}
                 </button>
               ) : null}
             </>

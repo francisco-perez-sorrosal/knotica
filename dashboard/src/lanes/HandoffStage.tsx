@@ -1,6 +1,7 @@
 import type { JSX } from "preact";
 import { useEffect, useState } from "preact/hooks";
 
+import { Spinner } from "../icons";
 import type { ToolClient } from "../toolClient";
 import type { SessionStatus } from "../types";
 import { deriveDispatchTier, type DispatchTier } from "./hostCapabilities";
@@ -125,7 +126,10 @@ export function HandoffStage({
           ) : null}
         </>
       ) : (
-        <p class="muted">Watching…</p>
+        <p class="muted">
+          <Spinner />
+          Watching…
+        </p>
       )}
     </div>
   );

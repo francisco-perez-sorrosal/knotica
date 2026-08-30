@@ -1,5 +1,6 @@
 import { useEffect, useState } from "preact/hooks";
 
+import { Spinner } from "./icons";
 import type { ToolClient } from "./toolClient";
 import type { PromptDiffMode, PromptDiffResult } from "./types";
 
@@ -109,9 +110,17 @@ export function PromptDiff({
         class="ghost prompt-diff-toggle"
         disabled={disabled || busy}
         aria-expanded={open}
+        aria-busy={busy || undefined}
         onClick={() => void load()}
       >
-        {busy ? "Loading diff…" : open ? resolvedHideLabel : resolvedLabel}
+        {busy ? (
+          <>
+            <Spinner />
+            Loading diff…
+          </>
+        ) : (
+          open ? resolvedHideLabel : resolvedLabel
+        )}
       </button>
       {!diffAvailable ? (
         <p class="muted prompt-diff-empty">{unavailableMessage}</p>

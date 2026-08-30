@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from "preact/hooks";
 
+import { Spinner } from "./icons";
 import { formatMetadataSize, lookupMetadataCatalog } from "./metadataCatalog";
 import { ObsidianFileLink, type ObsidianContext } from "./obsidianLinks";
 import { formatToolFailure, type ToolClient } from "./toolClient";
@@ -188,7 +189,12 @@ export function MetadataTreePanel({
       {openSection ? (
         <div class="metadata-tree-body">
           {error ? <p role="alert">{error}</p> : null}
-          {!error && busy && !tree ? <p class="muted">Loading metadata tree…</p> : null}
+          {!error && busy && !tree ? (
+            <p class="muted">
+              <Spinner />
+              Loading metadata tree…
+            </p>
+          ) : null}
           {!error && tree && count === 0 ? (
             <p class="muted">No `.knotica` trees or root metadata files on disk yet.</p>
           ) : null}
