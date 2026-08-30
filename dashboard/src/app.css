@@ -4108,3 +4108,69 @@ button.loop-node:focus-visible {
   padding-inline: var(--space-2);
   font: var(--fs-xs) var(--sans);
 }
+
+/* ── HANDOFF (dec-091) ─────────────────────────────────────────────────── */
+/* The whole `.handoff-*` family was unstyled: the shell that carries a
+   lane's most consequential moment rendered as bare flow content. */
+.handoff-stage {
+  display: grid;
+  gap: var(--space-3);
+  margin-top: var(--space-3);
+}
+.handoff-ask { margin: 0; color: var(--text); }
+.handoff-status,
+.handoff-dilution-reason { margin: 0; }
+.handoff-dispatch { display: grid; gap: var(--space-2); }
+.handoff-dispatch-error {
+  margin: 0;
+  padding: var(--space-2) var(--space-3);
+  border-inline-start: 3px solid var(--bad);
+  background: var(--surface-sunken);
+  color: var(--text);
+}
+
+/* The you-panel: an inline disclosure, indented under its trigger so the
+   relationship is positional and not merely semantic. Never a card -- a card
+   is a container, this is a continuation. */
+.handoff-you-panel {
+  display: grid;
+  gap: var(--space-2);
+  margin: var(--space-2) 0 0 var(--space-3);
+  padding-inline-start: var(--space-3);
+  border-inline-start: var(--border) solid var(--line);
+}
+.handoff-panel-why { margin: 0; color: var(--text); }
+.handoff-panel-next { margin: 0; }
+.handoff-dispatched {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-1);
+  margin: 0;
+  color: var(--running);
+}
+.handoff-dispatched strong { color: var(--heading); }
+/* The disclosure marker turns with the panel. Scoped to this trigger rather
+   than widening the lane-rail rule, which owns a different control. */
+.handoff-you-trigger[aria-expanded="true"] .lane-disclosure-icon {
+  transform: rotate(90deg);
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .handoff-you-panel {
+    animation: fade-up var(--dur-enter) var(--ease-out) both;
+  }
+}
+
+/* ── INGEST STAGE ──────────────────────────────────────────────────────── */
+.ingest-row-title {
+  margin: var(--space-4) 0 var(--space-2);
+  font-size: var(--fs-sm);
+}
+.ingest-expand { text-align: start; }
+.fill-ingest-error {
+  margin: 0;
+  padding: var(--space-2) var(--space-3);
+  border-inline-start: 3px solid var(--bad);
+  background: var(--surface-sunken);
+  color: var(--text);
+}
