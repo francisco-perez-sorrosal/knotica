@@ -107,3 +107,90 @@ def test_progress_roundtrip_and_staleness(tmp_path: Path) -> None:
 
     clear_progress(tmp_path, TOPIC)
     assert read_progress(tmp_path, TOPIC) is None
+
+
+def test_watcher_resolves_the_arena_scorer_from_config_not_a_hardcode(
+    template_vault: Path, monkeypatch
+) -> None:
+    """The dashboard's scorer switch writes `[loop] arena_scorer`; the CLI
+    watcher must let the factory resolve it. It once passed the heuristic
+    explicitly, which outranks config -- so the switch could never reach it."""
+    import argparse
+
+    from knotica.core import arena_eval, loop_cadence_config
+    from knotica.cli.loop import _build_runner
+
+    sentinel_info = object()
+
+    def fake_eval_scorer(store, topic, *, num_threads):  # noqa: ANN001, ANN202
+        return (lambda _topic, _root, _body: 0.9), sentinel_info
+
+    monkeypatch.setattr(arena_eval, "build_eval_scorer", fake_eval_scorer)
+    monkeypatch.setattr(
+        loop_cadence_config,
+        "resolve_loop_cadence_config",
+        lambda: loop_cadence_config.LoopCadenceConfig(
+            eval_min_interval_hours=1.0,
+            eval_window="7d",
+            eval_num_threads=4,
+            arena_scorer="eval",
+        ),
+    )
+
+    args = argparse.Namespace(
+        topic=TOPIC,
+        eval_threads=None,
+        fake_scalar=None,
+        branch_prefix="loop/c",
+        push=None,
+        no_arena=False,
+        arena_variants=None,
+        once=True,
+        observe_quiet=0.0,
+    )
+    runner = _build_runner(args, template_vault)
+
+    assert runner._arena_scorer_info is sentinel_info, (
+        "the watcher must reach the config-resolved eval scorer, not a hardcoded heuristic"
+    )
+
+
+def test_watch_mode_rebuilds_the_runner_each_tick(template_vault: Path, monkeypatch) -> None:
+    """A long-lived watcher re-resolves config per tick (the service's own
+    pattern), so a scorer switched mid-watch reaches the next tick."""
+    import knotica.cli.loop as loop_cli
+
+    builds = {"n": 0}
+    real_build = loop_cli._build_runner
+
+    def counting_build(args, vault):  # noqa: ANN001, ANN202
+        builds["n"] += 1
+        return real_build(args, vault)
+
+    ticks = {"n": 0}
+
+    def fake_sleep(_seconds):  # noqa: ANN001, ANN202
+        ticks["n"] += 1
+        if ticks["n"] >= 3:
+            raise KeyboardInterrupt
+
+    monkeypatch.setattr(loop_cli, "_build_runner", counting_build)
+    monkeypatch.setattr(loop_cli.time, "sleep", fake_sleep)
+    monkeypatch.setattr(loop_cli, "_tick", lambda runner, observe: False)
+
+    assert (
+        main(
+            [
+                "loop",
+                "--topic",
+                TOPIC,
+                "--vault",
+                str(template_vault),
+                "--no-observe",
+                "--interval",
+                "0",
+            ]
+        )
+        == 0
+    )
+    assert builds["n"] >= 3, "watch mode must rebuild the runner on every tick"

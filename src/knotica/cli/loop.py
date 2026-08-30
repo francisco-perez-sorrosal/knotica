@@ -32,7 +32,7 @@ from knotica.cli.common import (
     console_from_args,
     unconfigured,
 )
-from knotica.core.arena import VariantSpec, heuristic_arena_score
+from knotica.core.arena import VariantSpec
 from knotica.core.config import diagnose
 from knotica.core.gapfill_config import resolve_gapfill_config
 from knotica.core.loop import (
@@ -270,6 +270,12 @@ def _watch(runner: LoopRunner, args: argparse.Namespace, vault: Path) -> int:
         while True:
             _tick(runner, observe=not args.no_observe)
             time.sleep(interval)
+            # Rebuild per tick, the same pattern the supervised service uses:
+            # loop state lives in the vault, not the runner, and a fresh build
+            # re-resolves `[loop]` config -- so a scorer switched from the
+            # dashboard reaches the very next tick of a long-lived watcher
+            # instead of waiting for a restart.
+            runner = _build_runner(args, vault)
     except KeyboardInterrupt:
         print("loop stopped", file=sys.stderr)
         return EXIT_SUCCESS
@@ -307,7 +313,11 @@ def _build_runner(args: argparse.Namespace, vault: Path) -> LoopRunner:
         branch_prefix=args.branch_prefix,
         push_remote=args.push,
         arena_enabled=not args.no_arena,
-        arena_score=None if args.no_arena else heuristic_arena_score,
+        # No explicit scorer: the factory resolves `[loop] arena_scorer` from
+        # config at each build. Passing `heuristic_arena_score` here (as this
+        # once did) silently outranked the config, so the dashboard's scorer
+        # switch could never reach a CLI watcher.
+        arena_score=None,
         arena_variants=_load_variants(args.arena_variants) if args.arena_variants else None,
         # Opt-in loop-side gap-fill batch, gated by the [gapfill] config table (off
         # by default). The resolved config is always passed; the drain only runs
