@@ -1,7 +1,7 @@
 ---
-id: dec-draft-818b9bd4
+id: dec-108
 title: Discovery dedups against the vault, and URL identity canonicalizes host-known edition permalinks
-status: proposed
+status: accepted
 category: behavioral
 date: 2026-08-30
 summary: One host-aware URL canonicalization rule in the shared identity leaf collapses SEP archive editions everywhere source_key is asked; the service sanitizes candidate URLs (syntactic floor, no reachability probe); and the drain drops candidates the vault already stores, counted as candidates_already_in_vault
