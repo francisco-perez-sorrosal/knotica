@@ -5,6 +5,9 @@ import { Icon, Spinner } from "../../icons";
 import { TermHint } from "../../TermHint";
 import { TwoPhaseConfirm, useTwoPhaseAction } from "../../TwoPhaseAction";
 import type { ToolClient } from "../../toolClient";
+import { ProcessBrief } from "../ProcessBrief";
+import { ProcessOutcome } from "../ProcessOutcome";
+import type { ProcessId } from "../processMeta";
 import { GapOriginBadge } from "./badges";
 import { SuggestionRow } from "./SuggestionRow";
 import { mergeGhosts } from "./suggestionSort";
@@ -98,6 +101,22 @@ const DECISION_ANNOUNCEMENT: Partial<Record<SuggestionAction, string>> = {
   withdraw: "Withdrawn, back to pending",
 };
 
+/**
+ * Which registered process each triage verb runs. One client method backs all
+ * four -- the verb is an argument, not a separate call -- but they are four
+ * processes because they answer four different questions and leave four
+ * different things owed.
+ *
+ * Partial for the same reason `DECIDED_STATUS` is: `mark_ingested` is a
+ * machine transition the gate path stamps, not a control this queue offers.
+ */
+const DECISION_PROCESS: Partial<Record<SuggestionAction, ProcessId>> = {
+  approve: "fill.suggestion_approve",
+  reject: "fill.suggestion_reject",
+  defer: "fill.suggestion_defer",
+  withdraw: "fill.suggestion_withdraw",
+};
+
 const STAGE_ORDER = ["gap", "discover", "approve"] as const;
 type StageId = (typeof STAGE_ORDER)[number];
 
@@ -141,6 +160,13 @@ export function QueueStage({
   const [ghosts, setGhosts] = useState<Map<string, GhostRow>>(new Map());
   /** What the live region last said; the only outcome a screen reader gets. */
   const [announcement, setAnnouncement] = useState("");
+  /**
+   * Which verb produced that sentence, so the outcome can also say what the
+   * decision leaves owed. Held in the stage, not in the row: the row it was
+   * clicked on becomes a ghost and is re-rendered from a fresh read, so an
+   * outcome parked there would vanish at the moment it needed reading.
+   */
+  const [decidedProcess, setDecidedProcess] = useState<ProcessId | null>(null);
   const [reasonDraft, setReasonDraft] = useState<Record<string, string>>({});
   const [rejectOpenId, setRejectOpenId] = useState<string | null>(null);
   const [gaps, setGaps] = useState<GapsReadResult | null>(null);
@@ -265,6 +291,7 @@ export function QueueStage({
       setGhosts((prev) => nextGhosts(prev, suggestionId, action, index, reason, snapshot));
       const [fresh] = await Promise.all([load(), onStatusRefresh?.()]);
       setAnnouncement(announce(action, snapshot, fresh));
+      setDecidedProcess(DECISION_PROCESS[action] ?? null);
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : String(cause));
     } finally {
@@ -332,7 +359,10 @@ export function QueueStage({
           Approve stage below.
         </p>
         {/* Deliberately one control for every open gap, not one per row: the
-            server drains by count (max_gaps), not by gap id. */}
+            server drains by count (max_gaps), not by gap id. The brief is a
+            sibling of it, so `Discover sources…` keeps its accessible name and
+            the two-phase quote is untouched. */}
+        <ProcessBrief process="fill.gapfill_discover" term="why discover" />
         <button
           type="button"
           class="ghost"
@@ -390,6 +420,12 @@ export function QueueStage({
               : ""}
           </p>
         ) : null}
+        {/* The drained/staged counts above are the outcome; this adds the one
+            thing they never said -- that a staged suggestion is a proposal
+            nobody has accepted yet, and where accepting it happens. */}
+        {discover.state.outcome ? (
+          <ProcessOutcome process="fill.gapfill_discover" />
+        ) : null}
       </StageShell>
 
       <StageShell id="approve" state={stateOf("approve")} position={3}>
@@ -397,6 +433,17 @@ export function QueueStage({
           Ranked sources discovered for diagnosed knowledge gaps. Approve queues an ingest
           instruction for the next interactive session; reject requires a reason.
         </p>
+
+        {/* The four verbs explained once for the queue, not once per row: the
+            rows are identical in this respect and run to dozens, and a row
+            sized for scanning cannot carry four explanations without burying
+            the two numbers the decision actually turns on. */}
+        <div class="process-brief-row">
+          <ProcessBrief process="fill.suggestion_approve" term="why queue it" />
+          <ProcessBrief process="fill.suggestion_reject" term="why turn it down" />
+          <ProcessBrief process="fill.suggestion_defer" term="why park it" />
+          <ProcessBrief process="fill.suggestion_withdraw" term="why undo it" />
+        </div>
 
         <QueueToolbar
           filter={filter}
@@ -487,10 +534,20 @@ export function QueueStage({
             Keyed on purpose. Its preceding sibling alternates between a `<ul>`
             and a bare `<p>` ("Loading suggestions…"), and an unkeyed `<p>` here
             is a diff match for that one -- Preact would recycle this very node
-            into the loading line and take the announcement with it. */}
+            into the loading line and take the announcement with it.
+
+            It stays mounted from first paint and stays the only live region
+            here. A region inserted into the DOM in the same commit as its text
+            is not reliably announced -- which is why this one has always
+            rendered empty rather than conditionally -- so the outcome below
+            deliberately adds no second one: these four verbs report themselves
+            through this sentence and the ghost row, and what they were missing
+            was never the outcome but the follow-up. */}
         <p key="queue-live" class="sr-only" role="status">
           {announcement}
         </p>
+
+        {decidedProcess ? <ProcessOutcome process={decidedProcess} /> : null}
 
         {result?.has_more ? (
           <button

@@ -3913,6 +3913,18 @@ button.loop-node:focus-visible {
 }
 .process-outcome-dest { color: var(--text); }
 
+/* Where several briefs annotate a row of verbs rather than a single button --
+   the triage queue's four. The briefs sit together above the rows instead of
+   once per row: the verbs are identical on every row of a queue that runs to
+   dozens, so repeating four explanations per row would bury the two numbers a
+   triage decision actually turns on. */
+.process-brief-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-3);
+  margin-top: var(--space-2);
+}
+
 /* ── FILL APPROVE QUEUE — toolbar + triage rows ────────────────────────── */
 /* One toolbar, two rows: what is listed and what came of it on top, in what
    order underneath. Replaces two visually identical `.sources-filters` rows

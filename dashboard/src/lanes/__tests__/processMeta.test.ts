@@ -198,8 +198,6 @@ const AWAITING_LIFECYCLE_CLIENT_METHODS: readonly string[] = [
   "loopCadence",
   "branchPromote",
   "branchDelete",
-  "gapfillDiscover",
-  "suggestionsReview",
   "createTopic",
   "vaultCreate",
   "vaultUse",

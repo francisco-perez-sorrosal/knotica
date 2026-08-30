@@ -1249,3 +1249,46 @@ describe("the triage row's disclosure", () => {
     expect(within(approve).getByPlaceholderText(/why doesn't this source fit/i)).toBeTruthy();
   });
 });
+
+describe("the lifecycle contract on the triage verbs", () => {
+  it("names what an approved source still owes, and it is not this stage", async () => {
+    // The queue always said *that* a decision landed; it never said the
+    // decision was only half of getting the source into the wiki. Approving
+    // queues an instruction that only a session can run.
+    const { client } = decidingClient([baseSuggestion()]);
+    const container = renderQueueStage(client);
+    await approveRow(container, baseCandidate().title);
+
+    const approve = stageNodes(container)[APPROVE];
+    expect(await within(approve).findByText(/Go to Fill → Ingest\./)).toBeTruthy();
+  });
+
+  it("sends a rejection back to discovery -- the gap outlives the candidate", async () => {
+    const { client } = decidingClient([baseSuggestion()]);
+    const container = renderQueueStage(client);
+    const approve = stageNodes(container)[APPROVE];
+
+    fireEvent.click(await within(approve).findByRole("button", { name: /^✕ reject…$/i }));
+    fireEvent.input(within(approve).getByPlaceholderText(/why doesn't this source fit/i), {
+      target: { value: "wrong topic" },
+    });
+    fireEvent.click(within(approve).getByRole("button", { name: /^confirm reject$/i }));
+
+    expect(await within(approve).findByText(/Go to Fill → Discover\./)).toBeTruthy();
+  });
+
+  it("keeps one live region in the stage -- the outcome adds no second one", async () => {
+    // A region inserted with its text is not reliably announced, so the
+    // stage's own `sr-only` region stays mounted from first paint and stays
+    // the only one.
+    const { client } = decidingClient([baseSuggestion()]);
+    const container = renderQueueStage(client);
+    await approveRow(container, baseCandidate().title);
+
+    await vi.waitFor(() =>
+      expect(
+        stageNodes(container)[APPROVE].querySelectorAll('[role="status"]'),
+      ).toHaveLength(1),
+    );
+  });
+});
