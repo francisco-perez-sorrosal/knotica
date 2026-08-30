@@ -84,6 +84,7 @@ interface LoopCadenceConfigFixture {
   eval_min_interval_hours: number;
   eval_window: string;
   eval_num_threads: number;
+  arena_scorer: string;
 }
 
 interface LoopRunEvalResultFixture {
@@ -179,6 +180,7 @@ function cadenceFixture(
     eval_min_interval_hours: 6,
     eval_window: "7d",
     eval_num_threads: 4,
+    arena_scorer: "heuristic",
     ...overrides,
   };
 }
@@ -357,6 +359,127 @@ describe("the billed `run_eval` control never bills on a single click", () => {
     const [, secondConfirm] = loopRunEvalMock.mock.calls[1];
     expect(firstConfirm).toBe("");
     expect(secondConfirm).toBe("eval-nonce");
+  });
+});
+
+describe("the arena scorer is switchable in place, asymmetrically guarded", () => {
+  it("prints the resolved scorer as a stat", async () => {
+    const client = makeClient();
+    render(
+      <ObserveStage
+        client={client}
+        topic="agentic-systems"
+        vault="main"
+        status={statusFixture()}
+        metrics={metricsFixture()}
+      />,
+    );
+
+    expect(await screen.findByText("heuristic")).toBeTruthy();
+  });
+
+  it("never writes on the first click -- arming only relabels the control", async () => {
+    const client = makeClient();
+    render(
+      <ObserveStage
+        client={client}
+        topic="agentic-systems"
+        vault="main"
+        status={statusFixture()}
+        metrics={metricsFixture()}
+      />,
+    );
+
+    await vi.waitFor(() => expect(client.loopCadence).toHaveBeenCalledTimes(1));
+    fireEvent.click(await screen.findByTestId("observe-arena-scorer"));
+
+    // Still only the read-only mount call.
+    expect(client.loopCadence).toHaveBeenCalledTimes(1);
+    expect(
+      screen.getByRole("button", { name: /future races bill per variant/i }),
+    ).toBeTruthy();
+  });
+
+  it("writes arena_scorer=eval only after the second, explicit confirm", async () => {
+    const client = makeClient();
+    render(
+      <ObserveStage
+        client={client}
+        topic="agentic-systems"
+        vault="main"
+        status={statusFixture()}
+        metrics={metricsFixture()}
+      />,
+    );
+
+    await vi.waitFor(() => expect(client.loopCadence).toHaveBeenCalledTimes(1));
+    fireEvent.click(await screen.findByTestId("observe-arena-scorer"));
+    fireEvent.click(screen.getByTestId("observe-arena-scorer"));
+
+    await vi.waitFor(() => expect(client.loopCadence).toHaveBeenCalledTimes(2));
+    const loopCadenceMock = client.loopCadence as unknown as ReturnType<
+      typeof vi.fn
+    >;
+    expect(loopCadenceMock.mock.calls[1]).toEqual([
+      "agentic-systems",
+      { arenaScorer: "eval" },
+      "main",
+    ]);
+  });
+
+  it("switches back to the heuristic on a single click -- going free needs no guard", async () => {
+    const client = makeClient({
+      loopCadence: vi
+        .fn()
+        .mockResolvedValue(cadenceFixture({ arena_scorer: "eval" })),
+    });
+    render(
+      <ObserveStage
+        client={client}
+        topic="agentic-systems"
+        vault="main"
+        status={statusFixture()}
+        metrics={metricsFixture()}
+      />,
+    );
+
+    // Wait for the mount read to *land*, not merely to fire -- the offered
+    // direction is derived from the resolved value.
+    fireEvent.click(
+      await screen.findByRole("button", { name: /use heuristic scorer/i }),
+    );
+
+    await vi.waitFor(() => expect(client.loopCadence).toHaveBeenCalledTimes(2));
+    const loopCadenceMock = client.loopCadence as unknown as ReturnType<
+      typeof vi.fn
+    >;
+    expect(loopCadenceMock.mock.calls[1][1]).toEqual({
+      arenaScorer: "heuristic",
+    });
+  });
+
+  it("reports a rejected write instead of silently showing the old value", async () => {
+    const loopCadence = vi
+      .fn()
+      .mockResolvedValueOnce(cadenceFixture())
+      .mockRejectedValueOnce(new Error("[loop] arena_scorer must be one of"));
+    const client = makeClient({ loopCadence });
+    render(
+      <ObserveStage
+        client={client}
+        topic="agentic-systems"
+        vault="main"
+        status={statusFixture()}
+        metrics={metricsFixture()}
+      />,
+    );
+
+    await vi.waitFor(() => expect(loopCadence).toHaveBeenCalledTimes(1));
+    fireEvent.click(await screen.findByTestId("observe-arena-scorer"));
+    fireEvent.click(screen.getByTestId("observe-arena-scorer"));
+
+    const alert = await screen.findByRole("alert");
+    expect(alert.textContent).toContain("arena_scorer must be one of");
   });
 });
 

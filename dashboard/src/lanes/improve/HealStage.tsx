@@ -1,8 +1,8 @@
 import type { JSX } from "preact";
 import { useEffect, useState } from "preact/hooks";
 
+import { ArenaScorerSwitch } from "./ArenaScorerSwitch";
 import { ArmedButton } from "../ArmedButton";
-import { CopyBlock } from "../../CopyBlock";
 import { SectionCard } from "../../SectionCard";
 import { Stat, StatGrid } from "../../Stat";
 import { StateList } from "../../StateList";
@@ -30,9 +30,13 @@ import type { ArenaHistory, ArenaStatus, ArenaVariant, WikiStatus } from "../../
  * The open body is two `SectionCard`s — ARENA (what the race is doing) and
  * COMPILE (the one billed action, in the footer of the card that explains it)
  * — plus, only when the race aborted, a warn-toned card between them that
- * carries the server's own abort reason verbatim and the grounded next step
- * (`[loop] arena_scorer = "eval"` in `~/.config/knotica/config.toml`, with
- * its prerequisites). The variant race is a `StateList`, so each variant's
+ * carries the server's own abort reason verbatim and the next step as a
+ * control rather than as instructions: the same two-click `Use eval scorer`
+ * switch `ObserveStage` offers, so the fix is exercised where the problem is
+ * reported. The hand-edit it performs (`arena_scorer = "eval"` under
+ * `[loop]`) stays named on a muted line, and the prerequisites stay, because
+ * a switch made without them falls back to the heuristic and aborts again.
+ * The variant race is a `StateList`, so each variant's
  * state word sits as visible text next to its icon with its scalar in a
  * right-aligned tabular column; each variant's `TermHint` carries the
  * scalar's provenance (`scorer_id` / `n_examples`), which the wire already
@@ -60,6 +64,9 @@ export function HealStage({
   const [error, setError] = useState<string | null>(null);
   const [armed, setArmed] = useState(false);
   const [busy, setBusy] = useState(false);
+  // Bumped to re-run the arena read after something that could change what
+  // the next race does — cheaper and more honest than caching a derived copy.
+  const [arenaReloads, setArenaReloads] = useState(0);
 
   useEffect(() => {
     if (!open || !client) return;
@@ -81,7 +88,7 @@ export function HealStage({
     return () => {
       cancelled = true;
     };
-  }, [open, client, topic, vault]);
+  }, [open, client, topic, vault, arenaReloads]);
 
   useEffect(() => {
     setArmed(false);
@@ -196,14 +203,29 @@ export function HealStage({
             <span class="microlabel">NEXT STEP</span>
             <p class="muted">
               Make races gate-comparable by switching the arena to the
-              eval-backed scorer, in the <code>[loop]</code> table of{" "}
-              <code>~/.config/knotica/config.toml</code>. The next race reads
-              the config automatically — no restart needed.
+              eval-backed scorer. The next race reads the config
+              automatically — no restart needed.
             </p>
-            <CopyBlock
-              code={'[loop]\narena_scorer = "eval"'}
-              label="arena_scorer under [loop] in ~/.config/knotica/config.toml"
+            {/* `current={null}`: this card only exists because the race was
+                scored on an instrument the gate cannot read, so the offered
+                direction is always → eval. */}
+            <ArenaScorerSwitch
+              client={client}
+              topic={topic}
+              vault={vault}
+              current={null}
+              testId="heal-arena-scorer"
+              onSwitched={() => {
+                setArenaReloads((count) => count + 1);
+                return onStatusRefresh?.();
+              }}
             />
+            <p class="muted">
+              The button writes <code>{'arena_scorer = "eval"'}</code> under{" "}
+              <code>[loop]</code> in{" "}
+              <code>~/.config/knotica/config.toml</code> — the same edit by
+              hand does the same thing.
+            </p>
             <p class="muted">
               Prerequisites: a frozen golden set (Instrument → Freeze) and the{" "}
               <code>evals</code> extra (<code>uv sync --extra evals</code>).

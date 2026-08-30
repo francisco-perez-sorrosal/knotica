@@ -440,6 +440,8 @@ export interface LoopCadenceConfig {
   eval_min_interval_hours: number;
   eval_window: string;
   eval_num_threads: number;
+  /** `"heuristic"` (free, not gate-comparable) or `"eval"` (billed per variant). */
+  arena_scorer: string;
 }
 
 /** Discriminated by ``confirm_nonce`` presence: preview (phase 1) vs executed (phase 2). */

@@ -94,6 +94,13 @@ function fakeClient(overrides: Partial<ToolClient> = {}): ToolClient {
     arenaStatus: vi.fn().mockResolvedValue(fakeArenaStatus()),
     arenaHistory: vi.fn().mockResolvedValue(fakeArenaHistory()),
     compileRun: vi.fn(),
+    loopCadence: vi.fn().mockResolvedValue({
+      topic: TOPIC,
+      eval_min_interval_hours: 0,
+      eval_window: "",
+      eval_num_threads: 4,
+      arena_scorer: "eval",
+    }),
     ...overrides,
   } as unknown as ToolClient;
 }
@@ -303,8 +310,9 @@ describe("an aborted race explains itself and names the next step", () => {
     expect(reason.textContent).toContain(
       "does not produce eval-comparable scalars",
     );
-    // The remediation is copyable, not just described: the exact [loop] table
-    // edit, and the prerequisites that stop it silently falling back.
+    // The remediation is a control, with the hand-edit it performs still
+    // named, and the prerequisites that stop it silently falling back.
+    expect(screen.getByTestId("heal-arena-scorer")).toBeTruthy();
     expect(
       screen.getByText(/arena_scorer = "eval"/, { exact: false }),
     ).toBeTruthy();
@@ -327,7 +335,111 @@ describe("an aborted race explains itself and names the next step", () => {
 
     await screen.findByTestId("heal-compile-run");
     expect(screen.queryByTestId("heal-abort-reason")).toBeNull();
+    expect(screen.queryByTestId("heal-arena-scorer")).toBeNull();
     expect(screen.queryByText(/arena_scorer = "eval"/)).toBeNull();
+  });
+
+  it("never writes the config on the first click -- arming only relabels the control", async () => {
+    const loopCadence = vi.fn();
+    const client = fakeClient({
+      arenaStatus: vi.fn().mockResolvedValue(abortedStatus()),
+      loopCadence,
+    });
+
+    render(
+      <HealStage
+        client={client}
+        topic={TOPIC}
+        vault={VAULT}
+        status={baseStatus("fail")}
+      />,
+    );
+
+    fireEvent.click(await screen.findByTestId("heal-arena-scorer"));
+
+    expect(loopCadence).not.toHaveBeenCalled();
+    expect(
+      screen.getByRole("button", { name: /future races bill per variant/i }),
+    ).toBeTruthy();
+  });
+
+  it("writes arena_scorer=eval only after the second, explicit confirm", async () => {
+    const loopCadence = vi.fn().mockResolvedValue({
+      topic: TOPIC,
+      eval_min_interval_hours: 0,
+      eval_window: "",
+      eval_num_threads: 4,
+      arena_scorer: "eval",
+    });
+    const onStatusRefresh = vi.fn();
+    const client = fakeClient({
+      arenaStatus: vi.fn().mockResolvedValue(abortedStatus()),
+      loopCadence,
+    });
+
+    render(
+      <HealStage
+        client={client}
+        topic={TOPIC}
+        vault={VAULT}
+        status={baseStatus("fail")}
+        onStatusRefresh={onStatusRefresh}
+      />,
+    );
+
+    fireEvent.click(await screen.findByTestId("heal-arena-scorer"));
+    fireEvent.click(screen.getByTestId("heal-arena-scorer"));
+
+    await vi.waitFor(() => expect(loopCadence).toHaveBeenCalledTimes(1));
+    expect(loopCadence.mock.calls[0]).toEqual([
+      TOPIC,
+      { arenaScorer: "eval" },
+      VAULT,
+    ]);
+    await vi.waitFor(() => expect(onStatusRefresh).toHaveBeenCalled());
+  });
+
+  it("re-reads the arena once the scorer has been switched", async () => {
+    const arenaStatus = vi.fn().mockResolvedValue(abortedStatus());
+    const client = fakeClient({ arenaStatus });
+
+    render(
+      <HealStage
+        client={client}
+        topic={TOPIC}
+        vault={VAULT}
+        status={baseStatus("fail")}
+      />,
+    );
+
+    fireEvent.click(await screen.findByTestId("heal-arena-scorer"));
+    fireEvent.click(screen.getByTestId("heal-arena-scorer"));
+
+    await vi.waitFor(() => expect(arenaStatus).toHaveBeenCalledTimes(2));
+  });
+
+  it("surfaces a rejected write instead of reporting a switch that did not happen", async () => {
+    const client = fakeClient({
+      arenaStatus: vi.fn().mockResolvedValue(abortedStatus()),
+      loopCadence: vi
+        .fn()
+        .mockRejectedValue(new Error("[loop] arena_scorer must be one of")),
+    });
+
+    render(
+      <HealStage
+        client={client}
+        topic={TOPIC}
+        vault={VAULT}
+        status={baseStatus("fail")}
+      />,
+    );
+
+    fireEvent.click(await screen.findByTestId("heal-arena-scorer"));
+    fireEvent.click(screen.getByTestId("heal-arena-scorer"));
+
+    const alert = await screen.findByRole("alert");
+    expect(alert.textContent).toContain("arena_scorer must be one of");
   });
 });
 

@@ -3,6 +3,7 @@ import { useEffect, useMemo, useRef, useState } from "preact/hooks";
 import uPlot from "uplot";
 import "uplot/dist/uPlot.min.css";
 
+import { ArenaScorerSwitch } from "./ArenaScorerSwitch";
 import { Icon } from "../../icons";
 import { SectionCard } from "../../SectionCard";
 import { Stat, StatGrid } from "../../Stat";
@@ -32,6 +33,12 @@ import type {
  * its label, its class and its two-phase semantics verbatim: the visible
  * `billed` chip is a *sibling* of the button, never a child, so the
  * accessible name is unchanged and a single click still cannot bill.
+ *
+ * EVAL RUN prints all four `[loop]` keys — the three cadence knobs plus
+ * `arena_scorer` — and carries the one control that writes the fourth, in
+ * the card body rather than the footer: the footer belongs to the billed
+ * run, and a config write is not a spend. Every label hosts a `TermHint`
+ * naming what the key does and what it defaults to.
  *
  * `status`/`metrics` are passed down from the lane's own read rather than
  * fetched independently here — the sibling `gate` stage reads the same
@@ -241,10 +248,19 @@ export function ObserveStage({
             />
             <Stat label={hint("window")} value={cadence?.eval_window} />
             <Stat label={hint("threads")} value={cadence?.eval_num_threads} />
+            <Stat label={hint("scorer")} value={cadence?.arena_scorer} />
           </StatGrid>
           <p class="muted">
             Running a cycle costs model tokens. The first click only quotes it.
           </p>
+          <ArenaScorerSwitch
+            client={client}
+            topic={topic}
+            vault={vault}
+            current={cadence?.arena_scorer ?? null}
+            testId="observe-arena-scorer"
+            onSwitched={setCadence}
+          />
         </>
       </SectionCard>
 
@@ -295,18 +311,23 @@ const OBSERVE_HINTS = {
   },
   cadence: {
     term: "CADENCE",
-    title: "Cadence",
-    body: "The shortest gap the background watcher leaves between two eval cycles. It does not stop you running one right now.",
+    title: "Cadence — [loop] eval_min_interval_hours",
+    body: "The shortest gap the background watcher leaves between two eval cycles, counted from when the last one started. It does not stop you running one right now. Defaults to 0 — no throttle, every eligible tick evaluates.",
   },
   window: {
     term: "WINDOW",
-    title: "Window",
-    body: "How much recent history each eval samples from.",
+    title: "Quiet window — [loop] eval_window",
+    body: 'The local-clock window an unattended eval is allowed to start in, written "HH:MM-HH:MM" (a range crossing midnight, like "22:00-02:00", is fine). Defaults to unset — no window restriction. It only gates the watcher; a cycle you start by hand ignores it.',
   },
   threads: {
     term: "DEFAULT THREADS",
-    title: "Default threads",
-    body: "How many eval questions the watcher runs in parallel on its own schedule. The box below overrides it for this run only — the confirm quote will show the number you actually set.",
+    title: "Default threads — [loop] eval_num_threads",
+    body: "How many eval questions run in parallel on the watcher's own schedule. Defaults to 4, bounded 1–8. The box below overrides it for this run only — the confirm quote will show the number you actually set.",
+  },
+  scorer: {
+    term: "SCORER",
+    title: "Arena scorer — [loop] arena_scorer",
+    body: 'What the prompt arena races variants with. Defaults to "heuristic": a free, deterministic keyword scorer whose scalars share no scale with the eval-derived gate baseline, so the arena aborts a race rather than ranking against it. "eval" runs the real golden-set harness per variant — gate-comparable, and billed one full eval per variant on every race, including ones the watcher starts unattended.',
   },
 } as const;
 

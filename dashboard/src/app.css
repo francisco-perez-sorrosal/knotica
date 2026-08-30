@@ -3601,6 +3601,18 @@ button.loop-node:focus-visible {
   gap: var(--space-2);
 }
 
+/* An action row inside a card *body*, not its footer. The footer belongs to
+   the card's own primary control; a secondary control that edits the stats
+   printed just above it belongs next to them. Same flex/wrap shape as
+   `.section-card-actions` minus the footer's border-top and padding. */
+.card-inline-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+  margin-top: var(--space-3);
+}
+
 /* Stat / StatGrid — the readout primitive (design §2.2). `.stat-label` and
    `.microlabel` already carry the uppercase/muted treatment; this section
    only adds the grid and the value styling. */

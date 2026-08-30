@@ -200,18 +200,30 @@ bills on an explicit second confirm (the server-nonce two-phase flow) — never 
    two-click armed→confirm control. **Freeze golden** refuses a reviewed set that overlaps the
    trainset.
 2. **Observe** — baseline and eval cadence. Three cards: **MEASUREMENT** (latest generation,
-   scalar, and the frozen baseline), **EVAL RUN** (cadence settings and the billed eval trigger),
-   and **SCALAR TREND** (the chart, behind a disclosure). **Run eval now (billed)** is a two-phase
-   billed action behind a `billed` chip: the first click only quotes worker, judge, and thread
-   count; the second, explicit confirm executes (**Cancel** discards, nothing bills).
+   scalar, and the frozen baseline), **EVAL RUN** (the four `[loop]` settings and the billed eval
+   trigger), and **SCALAR TREND** (the chart, behind a disclosure). **Run eval now (billed)** is a
+   two-phase billed action behind a `billed` chip: the first click only quotes worker, judge, and
+   thread count; the second, explicit confirm executes (**Cancel** discards, nothing bills).
+   EVAL RUN prints cadence, window, threads, and the arena **SCORER** — each label carries an ⓘ
+   naming the `[loop]` key and its default — and switches the scorer in place: **Use eval scorer**
+   is a two-click armed→confirm control behind an `arms billing` chip (the click itself spends
+   nothing; it arms one golden-set eval per variant on every future race), while switching back to
+   the heuristic is a single click. Both write `[loop] arena_scorer` in
+   `~/.config/knotica/config.toml`; see [configuration](configuration.md#loop-eval-cadence-and-the-arena-scorer).
 3. **Gate** — review pending `loop/c/*` candidate branches. One **PENDING CANDIDATES** card lists
    them as a state list (branch name and a right-aligned sha), each pending row carrying a
    **Show query.md diff** toggle; **Gate next candidate now** is a billed, two-phase action behind
    a `billed` chip. Requires a frozen baseline and a pending candidate.
 4. **Heal** — live arena variant race. Two cards: **ARENA** (the race's stage word, variant count,
-   recent-race count, and the live variant standings as a state list) and **COMPILE** (the billed
-   compile trigger). **Compile now** sits behind a `billed` chip and a two-click armed→confirm
-   control, since a fresh compile has no free preview leg.
+   gate baseline, the scorer that produced the scalars, recent-race count, and the live variant
+   standings as a state list) and **COMPILE** (the billed compile trigger). **Compile now** sits
+   behind a `billed` chip and a two-click armed→confirm control, since a fresh compile has no free
+   preview leg. When a race **aborts** — the heuristic scorer's scalars share no scale with the
+   eval-derived gate baseline, so the arena refuses to rank rather than ranking meaninglessly — a
+   warn-toned **WHY THE RACE ABORTED** card appears between the two, carrying the server's own
+   reason verbatim and the same **Use eval scorer** control Observe offers, so the fix is applied
+   where the problem is reported. The hand-edit it performs and the prerequisites (a frozen golden
+   set, the `evals` extra) stay named below it.
 5. **Promote** — move a merged compile candidate to production. One **BRANCH UNDER REVIEW** card
    shows the branch's identity (name, sha, status), its score / delta / baseline stats, the
    beats-or-misses-baseline verdict, and a prompt diff. **Preview delete** sits left of **Preview
