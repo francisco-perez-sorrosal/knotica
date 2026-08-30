@@ -11,6 +11,7 @@
  * detail.
  */
 
+import { Spinner } from "./icons";
 import type {
   AnchorProjectionStatus,
   NoteDecisionEnvelope,
@@ -123,9 +124,17 @@ export function ActionConfirm({
           type="button"
           class="primary"
           disabled={busy}
+          aria-busy={busy || undefined}
           onClick={onConfirm}
         >
-          {busy ? "…" : applyLabel}
+          {busy ? (
+            <>
+              <Spinner />
+              {applyLabel}
+            </>
+          ) : (
+            applyLabel
+          )}
         </button>
         <button type="button" class="ghost" disabled={busy} onClick={onCancel}>
           Cancel

@@ -1,5 +1,7 @@
 import type { JSX } from "preact";
 
+import { Spinner } from "../icons";
+
 /**
  * The shared armed→confirm control for every nonce-less billed or
  * mutating action (`LEARNINGS.md`'s no-native-dialogs ruling): a sandboxed
@@ -63,9 +65,19 @@ export function ArmedButton({
         data-testid={testId}
         title={title}
         disabled={disabled || busy}
+        aria-busy={busy || undefined}
         onClick={handleClick}
       >
-        {busy ? busyLabel : armed ? armedLabel : label}
+        {busy ? (
+          <>
+            <Spinner />
+            {busyLabel}
+          </>
+        ) : armed ? (
+          armedLabel
+        ) : (
+          label
+        )}
       </button>
       {armed && !busy ? (
         <button

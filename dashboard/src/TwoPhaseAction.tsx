@@ -1,6 +1,8 @@
 import type { ComponentChildren } from "preact";
 import { useRef, useState } from "preact/hooks";
 
+import { Spinner } from "./icons";
+
 /**
  * The one client-side billing boundary, in one place.
  *
@@ -149,9 +151,17 @@ export function TwoPhaseConfirm({
         type="button"
         class="heal-freeze-primary"
         disabled={disabled}
+        aria-busy={busy === "confirm" || undefined}
         onClick={() => void onConfirm()}
       >
-        {busy === "confirm" ? `${busyLabel}…` : "Confirm — run and bill"}
+        {busy === "confirm" ? (
+          <>
+            <Spinner />
+            {`${busyLabel}…`}
+          </>
+        ) : (
+          "Confirm — run and bill"
+        )}
       </button>
       <button type="button" class="ghost" disabled={busy !== null} onClick={onCancel}>
         Cancel

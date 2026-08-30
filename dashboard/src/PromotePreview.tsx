@@ -1,3 +1,4 @@
+import { Spinner } from "./icons";
 import { formatPromotePreview } from "./promoteHelpers";
 import type { CompilePromoteResult } from "./types";
 
@@ -19,8 +20,21 @@ export function PromotePreviewBanner({
     <aside class="promote-preview" role="status" aria-live="polite">
       <p>{formatPromotePreview(preview)}</p>
       <div class="promote-preview-actions">
-        <button type="button" class="primary" disabled={busy} onClick={() => void onApply()}>
-          {busy ? "Applying…" : applyLabel}
+        <button
+          type="button"
+          class="primary"
+          disabled={busy}
+          aria-busy={busy || undefined}
+          onClick={() => void onApply()}
+        >
+          {busy ? (
+            <>
+              <Spinner />
+              Applying…
+            </>
+          ) : (
+            applyLabel
+          )}
         </button>
         <button type="button" class="ghost" disabled={busy} onClick={onDismiss}>
           Dismiss

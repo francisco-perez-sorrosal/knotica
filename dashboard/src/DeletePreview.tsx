@@ -1,4 +1,5 @@
 import { formatDeletePreview } from "./deleteHelpers";
+import { Spinner } from "./icons";
 import type { BranchDeleteResult } from "./types";
 
 export function DeletePreviewBanner({
@@ -17,8 +18,21 @@ export function DeletePreviewBanner({
     <aside class="delete-preview" role="status" aria-live="polite">
       <p>{formatDeletePreview(preview)}</p>
       <div class="promote-preview-actions">
-        <button type="button" class="danger" disabled={busy} onClick={() => void onApply()}>
-          {busy ? "Deleting…" : "Apply delete"}
+        <button
+          type="button"
+          class="danger"
+          disabled={busy}
+          aria-busy={busy || undefined}
+          onClick={() => void onApply()}
+        >
+          {busy ? (
+            <>
+              <Spinner />
+              Deleting…
+            </>
+          ) : (
+            "Apply delete"
+          )}
         </button>
         <button type="button" class="ghost" disabled={busy} onClick={onDismiss}>
           Dismiss
