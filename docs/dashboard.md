@@ -325,8 +325,33 @@ client's own LLM via a slash command. When the command completes, you resume the
 The Handoff Stage carries:
 1. **Narration** — a plain-English explanation of what just happened and what needs to happen next.
 2. **Dispatch button** — if your host supports it (Claude Desktop Chat with the ext-apps bridge),
-   a clickable button that invokes the `/knotica:*` command directly.
+   a clickable button that invokes the `/knotica:*` command directly. It disables and shows the
+   busy spinner while the send is in flight, and reports the failure inline if the host rejects it.
 3. **Copyable command** — the full slash-command text, always copyable, for any client or host.
+   The button copies the command *plus* its one-line narration, because a host without slash
+   commands routes on the prose. Present at every tier: where a dispatch button exists it sits
+   beside it as **Copy it instead**; where none does it is labelled **Copy the instruction**.
+
+### When it is your turn
+
+On the states where the session is waiting on *you* rather than on Claude — a session not yet
+opened, a candidate written and awaiting submission, a refused candidate to rework, a session
+swept after 24 hours — the stage shows the in-lane control for that state (**Open a session**,
+**Submit**, **Rework it**, **Reopen**). Clicking it opens a panel underneath, it does not act:
+
+- it says why the step happens in your Claude session rather than in the dashboard — the dashboard
+  can *read* a candidate session, but only Claude can write into one;
+- it offers the dispatch button your host's tier supports, plus the copyable command;
+- after a dispatch resolves it states **Sent to your Claude session**, and keeps saying so while
+  the 3-second session poll watches for the write. The panel stays open and updates on its own.
+
+Dispatch is always a second, explicit click — opening the panel never sends anything. The command
+is the same for all four states (`/knotica:fill <suggestion-id> <topic>`): it branches on the
+session's own state, so one command serves four entry points.
+
+The one exception is **blocked** — a session with no frozen gate baseline — which gets no control
+at all, because no in-lane click can freeze a baseline. The stage's narration names the fix
+instead: freeze one in `improve` · instrument.
 
 **Handoff targets:**
 - `/knotica:ingest` — continues the `Learn` lane's **Pages** stage: writes the stored source's
