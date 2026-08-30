@@ -1,7 +1,7 @@
 ---
-id: dec-draft-ac066305
+id: dec-107
 title: Gap dismissal cascades to its still-open suggestions, and refusals name the legal exits
-status: proposed
+status: accepted
 category: behavioral
 date: 2026-08-30
 summary: dismiss closes the gap's pending/approved/deferred suggestions as rejected in the same commit, and a refused suggestion transition now names the decisions legal from the record's actual status
