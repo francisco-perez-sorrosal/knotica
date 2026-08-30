@@ -1,7 +1,7 @@
 ---
-id: dec-draft-83863a13
+id: dec-104
 title: A client-owned focus axis on lane rails, orthogonal to server-declared stage state
-status: proposed
+status: accepted
 category: architectural
 date: 2026-08-27
 summary: Lane rails gain a second, client-owned `focus` axis so a user can open any stage, while the server keeps sole ownership of `state` (process position).

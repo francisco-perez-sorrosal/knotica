@@ -1,7 +1,7 @@
 ---
-id: dec-draft-30a462fd
+id: dec-103
 title: A shared presentation-primitives tier for the dashboard
-status: proposed
+status: accepted
 category: architectural
 date: 2026-08-27
 summary: Add icons/InfoPopover/LoopStrip/EmptyState/CopyBlock as a dashboard-wide primitives tier every lane inherits, rather than per-lane ad-hoc markup.

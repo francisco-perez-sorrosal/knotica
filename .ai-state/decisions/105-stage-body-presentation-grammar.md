@@ -1,7 +1,7 @@
 ---
-id: dec-draft-0d6786dd
+id: dec-105
 title: A stage-body presentation grammar for the dashboard
-status: proposed
+status: accepted
 category: architectural
 date: 2026-08-28
 summary: Every stage interior is composed from four shared primitives (SectionCard, Stat/StatGrid, TermHint, StateList) over a shared dismissal hook, rather than each stage formatting its own readouts.

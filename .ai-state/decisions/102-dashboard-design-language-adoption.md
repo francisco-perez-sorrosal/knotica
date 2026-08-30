@@ -1,7 +1,7 @@
 ---
-id: dec-draft-6c4b92df
+id: dec-102
 title: Adopt the exe.dev structural grammar over a retained Solarized semantic palette
-status: proposed
+status: accepted
 category: implementation
 date: 2026-08-27
 summary: Replace the dashboard's neutral ramp, typographic voice and ornament with a flat monospace dark-first language, while keeping Solarized's semantic hues and adding a neutral tone for `unknown`.
