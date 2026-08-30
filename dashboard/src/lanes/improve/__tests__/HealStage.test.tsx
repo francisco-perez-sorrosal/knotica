@@ -94,13 +94,19 @@ function fakeClient(overrides: Partial<ToolClient> = {}): ToolClient {
     arenaStatus: vi.fn().mockResolvedValue(fakeArenaStatus()),
     arenaHistory: vi.fn().mockResolvedValue(fakeArenaHistory()),
     compileRun: vi.fn(),
-    loopCadence: vi.fn().mockResolvedValue({
-      topic: TOPIC,
-      eval_min_interval_hours: 0,
-      eval_window: "",
-      eval_num_threads: 4,
-      arena_scorer: "eval",
-    }),
+    loopCadence: vi.fn().mockImplementation((_topic, writeArgs) =>
+      Promise.resolve({
+        topic: TOPIC,
+        eval_min_interval_hours: 0,
+        eval_window: "",
+        eval_num_threads: 4,
+        // Echo semantics, like the server: a read reports heuristic until a
+        // write lands; a write echoes the resolved value back.
+        arena_scorer:
+          (writeArgs as { arenaScorer?: string } | undefined)?.arenaScorer ??
+          "heuristic",
+      }),
+    ),
     ...overrides,
   } as unknown as ToolClient;
 }
@@ -340,10 +346,8 @@ describe("an aborted race explains itself and names the next step", () => {
   });
 
   it("never writes the config on the first click -- arming only relabels the control", async () => {
-    const loopCadence = vi.fn();
     const client = fakeClient({
       arenaStatus: vi.fn().mockResolvedValue(abortedStatus()),
-      loopCadence,
     });
 
     render(
@@ -357,24 +361,21 @@ describe("an aborted race explains itself and names the next step", () => {
 
     fireEvent.click(await screen.findByTestId("heal-arena-scorer"));
 
-    expect(loopCadence).not.toHaveBeenCalled();
+    // The stage's open READ of the standing config is sanctioned; a write
+    // (any call carrying overrides) is not until the second click.
+    const loopCadence = client.loopCadence as unknown as ReturnType<typeof vi.fn>;
+    expect(
+      loopCadence.mock.calls.filter((call) => call[1] !== undefined),
+    ).toHaveLength(0);
     expect(
       screen.getByRole("button", { name: /future races bill per variant/i }),
     ).toBeTruthy();
   });
 
   it("writes arena_scorer=eval only after the second, explicit confirm", async () => {
-    const loopCadence = vi.fn().mockResolvedValue({
-      topic: TOPIC,
-      eval_min_interval_hours: 0,
-      eval_window: "",
-      eval_num_threads: 4,
-      arena_scorer: "eval",
-    });
     const onStatusRefresh = vi.fn();
     const client = fakeClient({
       arenaStatus: vi.fn().mockResolvedValue(abortedStatus()),
-      loopCadence,
     });
 
     render(
@@ -390,13 +391,74 @@ describe("an aborted race explains itself and names the next step", () => {
     fireEvent.click(await screen.findByTestId("heal-arena-scorer"));
     fireEvent.click(screen.getByTestId("heal-arena-scorer"));
 
-    await vi.waitFor(() => expect(loopCadence).toHaveBeenCalledTimes(1));
-    expect(loopCadence.mock.calls[0]).toEqual([
-      TOPIC,
-      { arenaScorer: "eval" },
-      VAULT,
-    ]);
+    const loopCadence = client.loopCadence as unknown as ReturnType<typeof vi.fn>;
+    await vi.waitFor(() =>
+      expect(
+        loopCadence.mock.calls.filter((call) => call[1] !== undefined),
+      ).toHaveLength(1),
+    );
+    const writeCall = loopCadence.mock.calls.find(
+      (call) => call[1] !== undefined,
+    );
+    expect(writeCall).toEqual([TOPIC, { arenaScorer: "eval" }, VAULT]);
     await vi.waitFor(() => expect(onStatusRefresh).toHaveBeenCalled());
+  });
+
+  it("flips the control and states the standing config once the switch lands", async () => {
+    const client = fakeClient({
+      arenaStatus: vi.fn().mockResolvedValue(abortedStatus()),
+    });
+
+    render(
+      <HealStage
+        client={client}
+        topic={TOPIC}
+        vault={VAULT}
+        status={baseStatus("fail")}
+      />,
+    );
+
+    fireEvent.click(await screen.findByTestId("heal-arena-scorer"));
+    fireEvent.click(screen.getByTestId("heal-arena-scorer"));
+
+    // The click's outcome is visible as CHANGED STATE, not only a note: the
+    // standing-config line appears and the control now offers the revert.
+    const standing = await screen.findByTestId("heal-scorer-configured");
+    expect(standing.textContent).toContain("already configured");
+    expect(
+      screen.getByRole("button", { name: /use heuristic scorer/i }),
+    ).toBeTruthy();
+    expect(
+      screen.queryByRole("button", { name: "Use eval scorer" }),
+    ).toBeNull();
+  });
+
+  it("does not urge a switch that already happened elsewhere", async () => {
+    const client = fakeClient({
+      arenaStatus: vi.fn().mockResolvedValue(abortedStatus()),
+      loopCadence: vi.fn().mockResolvedValue({
+        topic: TOPIC,
+        eval_min_interval_hours: 0,
+        eval_window: "",
+        eval_num_threads: 4,
+        arena_scorer: "eval",
+      }),
+    });
+
+    render(
+      <HealStage
+        client={client}
+        topic={TOPIC}
+        vault={VAULT}
+        status={baseStatus("fail")}
+      />,
+    );
+
+    const standing = await screen.findByTestId("heal-scorer-configured");
+    expect(standing.textContent).toContain("already configured");
+    expect(
+      screen.queryByRole("button", { name: "Use eval scorer" }),
+    ).toBeNull();
   });
 
   it("re-reads the arena once the scorer has been switched", async () => {

@@ -121,12 +121,12 @@ export function ArenaScorerSwitch({
            service and the CLI watcher) rebuild from config every tick, so the
            switch needs no restart — but the numbers already on this card
            belong to the LAST race and will not change until a new one runs. */
-        <p role="status" class="muted">
+        <p role="status" class="saved-note">
           {savedAs === ARENA_SCORER_EVAL
-            ? "Saved — the watcher reads config every tick, so the next race " +
+            ? "✓ Saved — the watcher reads config every tick, so the next race " +
               "scores with the eval scorer and bills per variant. No restart " +
               "needed; this card still shows the last race until then."
-            : "Saved — the next race scores with the free heuristic (not " +
+            : "✓ Saved — the next race scores with the free heuristic (not " +
               "gate-comparable, so it cannot pass the gate). No restart needed."}
         </p>
       ) : null}

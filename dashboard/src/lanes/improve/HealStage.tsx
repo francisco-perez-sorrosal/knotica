@@ -67,6 +67,12 @@ export function HealStage({
   const [error, setError] = useState<string | null>(null);
   const [armed, setArmed] = useState(false);
   const [busy, setBusy] = useState(false);
+  // The CONFIGURED `[loop] arena_scorer` — distinct from the historical
+  // scorer the last race carries. Read when the stage opens (a read, so the
+  // mount-effect audit's reads-only contract holds) and updated from the
+  // server's echo after a switch, so the control and its surrounding copy
+  // reflect the real standing state, not the stale race.
+  const [configuredScorer, setConfiguredScorer] = useState<string | null>(null);
   // Bumped to re-run the arena read after something that could change what
   // the next race does — cheaper and more honest than caching a derived copy.
   const [arenaReloads, setArenaReloads] = useState(0);
@@ -79,13 +85,19 @@ export function HealStage({
     let cancelled = false;
     void (async () => {
       try {
-        const [nextStatus, nextHistory] = await Promise.all([
+        const [nextStatus, nextHistory, cadence] = await Promise.all([
           client.arenaStatus(topic, vault),
           client.arenaHistory(topic, vault, 12),
+          // A read (no overrides): what `[loop] arena_scorer` stands at NOW,
+          // so the abort card's next-step reflects standing config rather
+          // than urging a switch that already happened. Failure is
+          // non-fatal — the switch then simply offers eval.
+          client.loopCadence(topic, undefined, vault).catch(() => null),
         ]);
         if (cancelled) return;
         setArenaStatus(nextStatus);
         setArenaHistory(nextHistory);
+        if (cadence) setConfiguredScorer(cadence.arena_scorer ?? null);
       } catch (cause) {
         if (cancelled) return;
         setError(cause instanceof Error ? cause.message : String(cause));
@@ -216,21 +228,38 @@ export function HealStage({
               promoted and nothing was lost.
             </p>
             <span class="microlabel">NEXT STEP</span>
-            <p class="muted">
-              Make races gate-comparable by switching the arena to the
-              eval-backed scorer. The next race reads the config
-              automatically — no restart needed.
-            </p>
-            {/* `current={null}`: this card only exists because the race was
-                scored on an instrument the gate cannot read, so the offered
-                direction is always → eval. */}
+            {configuredScorer === "eval" ? (
+              /* The switch already happened (here earlier, in Observe, or by
+                 hand) — urging it again would read as the click having done
+                 nothing. State the standing config instead. */
+              <p
+                role="status"
+                class="saved-note"
+                data-testid="heal-scorer-configured"
+              >
+                ✓ The eval scorer is already configured — the next race scores
+                with it and bills per variant. This card still shows the last
+                race until that race runs.
+              </p>
+            ) : (
+              <p class="muted">
+                Make races gate-comparable by switching the arena to the
+                eval-backed scorer. The next race reads the config
+                automatically — no restart needed.
+              </p>
+            )}
+            {/* `current` is the standing config: while it is not `eval` the
+                offered direction is → eval; once switched, the control flips
+                to the quiet revert — the visible state change that makes the
+                click legible. */}
             <ArenaScorerSwitch
               client={client}
               topic={topic}
               vault={vault}
-              current={null}
+              current={configuredScorer}
               testId="heal-arena-scorer"
-              onSwitched={() => {
+              onSwitched={(config) => {
+                setConfiguredScorer(config.arena_scorer ?? null);
                 setArenaReloads((count) => count + 1);
                 return onStatusRefresh?.();
               }}
