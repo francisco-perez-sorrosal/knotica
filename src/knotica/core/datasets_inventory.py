@@ -64,15 +64,21 @@ _ROLE_META: dict[DatasetRole, dict[str, str]] = {
         "filename": "qa.jsonl",
         "purpose": "Compile/DSPy flywheel — curated query Q&A (good/corrected).",
     },
+    # ``group`` is presentation lineage: which family a role is shown under,
+    # by PRODUCER, not consumer. The held-out set and its seal are what the
+    # golden pipeline exists to produce (candidates -> reviewed -> frozen
+    # held-out), so they belong to that family even though the loop is what
+    # reads them -- grouped by consumer, the chain the UI draws had to cross
+    # a family boundary mid-step. What reads a file lives in its ``purpose``.
     "held_out": {
         "label": "Held-out eval",
-        "group": "loop_corpora",
+        "group": "golden_pipeline",
         "filename": "golden.jsonl",
         "purpose": "Frozen exam set for eval scalar and compile post-eval gate.",
     },
     "seal": {
         "label": "Held-out seal",
-        "group": "loop_corpora",
+        "group": "golden_pipeline",
         "filename": "MANIFEST.json",
         "purpose": "Tamper-evident seal (sha256, split=held_out) for golden.jsonl.",
     },

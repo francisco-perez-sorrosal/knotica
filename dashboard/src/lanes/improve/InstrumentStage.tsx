@@ -366,9 +366,9 @@ const FLOW_CONTINUATION: readonly string[] = ["reviewed", "held_out"];
 
 /**
  * Stated once, under the family that owns the chain's origin — never
- * repeated per row. `held_out` and its seal belong to `loop_corpora` on the
- * wire even though `Freeze` is what produces them, so this sentence is what
- * carries the step across the family boundary.
+ * repeated per row. The wire groups roles by producer, so the whole
+ * candidates → reviewed → held-out(+seal) chain lives inside
+ * `golden_pipeline` and this sentence narrates it in place.
  */
 const FLOW_NOTE =
   "Bootstrap synthesises Candidates; you keep the good ones as Reviewed; " +

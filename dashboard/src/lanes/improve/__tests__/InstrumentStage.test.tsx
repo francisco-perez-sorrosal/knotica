@@ -303,7 +303,7 @@ const WIRE_FILES: DatasetFileRowFixture[] = [
   },
   {
     role: "held_out",
-    group: "loop_corpora",
+    group: "golden_pipeline",
     label: "Held-out eval",
     purpose: "PURPOSE-HELD-OUT",
     count: 40,
@@ -312,7 +312,7 @@ const WIRE_FILES: DatasetFileRowFixture[] = [
   },
   {
     role: "seal",
-    group: "loop_corpora",
+    group: "golden_pipeline",
     label: "Held-out seal",
     purpose: "PURPOSE-SEAL",
     count: 1,
@@ -368,9 +368,12 @@ describe("the per-role breakdown groups the roles and shows the composition", ()
 
     expect(within(golden).getByText("Candidates")).toBeTruthy();
     expect(within(golden).getByText("Reviewed")).toBeTruthy();
+    // The wire groups by producer: the held-out set (and its seal) are what
+    // the golden pipeline exists to make, so the whole chain lives here.
+    expect(within(golden).getByText("Held-out eval")).toBeTruthy();
     expect(within(golden).queryByText("Trainset")).toBeNull();
     expect(within(loop).getByText("Trainset")).toBeTruthy();
-    expect(within(loop).getByText("Held-out eval")).toBeTruthy();
+    expect(within(loop).queryByText("Held-out eval")).toBeNull();
   });
 
   it("orders each family as the pipeline runs, not as the payload listed it", async () => {
@@ -384,17 +387,15 @@ describe("the per-role breakdown groups the roles and shows the composition", ()
     expect(golden).toMatchObject([
       expect.stringContaining("Candidates"),
       expect.stringContaining("Reviewed"),
-    ]);
-    expect(loop).toMatchObject([
       expect.stringContaining("Held-out eval"),
-      expect.stringContaining("Trainset"),
     ]);
+    expect(loop).toMatchObject([expect.stringContaining("Trainset")]);
     // The chain's origin carries no notch; a step made out of the one above
     // it does, and the deliberately disjoint trainset never does.
     expect(golden[0]).not.toContain("↳");
     expect(golden[1]).toContain("↳");
-    expect(loop[0]).toContain("↳");
-    expect(loop[1]).not.toContain("↳");
+    expect(golden[2]).toContain("↳");
+    expect(loop[0]).not.toContain("↳");
   });
 
   it("explains a role with the wire's own purpose string", async () => {
@@ -411,12 +412,14 @@ describe("the per-role breakdown groups the roles and shows the composition", ()
     await openDetails();
 
     const rows = within(
-      screen.getByRole("region", { name: "LOOP CORPORA" }),
+      screen.getByRole("region", { name: "GOLDEN PIPELINE" }),
     ).getAllByRole("listitem");
 
-    expect(rows).toHaveLength(2);
+    // Candidates, Reviewed, Held-out — the seal is folded onto the last,
+    // not listed as a fourth step.
+    expect(rows).toHaveLength(3);
     expect(
-      within(rows[0]).getByRole("button", {
+      within(rows[2]).getByRole("button", {
         name: "Held-out seal — what this means",
       }),
     ).toBeTruthy();
