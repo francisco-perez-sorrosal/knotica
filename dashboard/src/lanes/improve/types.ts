@@ -287,6 +287,19 @@ export interface ArenaVariant {
    */
   scorer_id?: string | null;
   n_examples?: number | null;
+  /**
+   * Compact diff-derived line summarizing what this variant changed vs the
+   * base prompt (`core/arena.py::_variant_change_fields`) — e.g. "+3 / -0
+   * lines vs the current prompt — first change: '## Tighter answers'".
+   * `null` on races recorded before this existed, or when the base body was
+   * unavailable at race time.
+   */
+  change_summary?: string | null;
+  /**
+   * Capped unified diff of this variant's body against the base prompt.
+   * `null` under the same conditions as `change_summary`.
+   */
+  diff?: string | null;
 }
 
 export interface ArenaStatus {

@@ -3871,6 +3871,23 @@ button.loop-node:focus-visible {
   text-align: right;
 }
 
+/* An arena variant's raw unified diff, rendered inside the shared
+   `.prompt-diff-panel` shell. Unlike `.prompt-diff-lines`, this text has no
+   per-line add/del structure to grid against gutters — it is the server's
+   plain diff string, so a scrollable monospace block is the honest amount
+   of formatting. */
+.variant-diff-body {
+  margin: 0;
+  padding: .5rem .65rem;
+  max-height: 18rem;
+  overflow: auto;
+  font-family: var(--mono);
+  font-size: .72rem;
+  line-height: 1.45;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
 /* ── FILL APPROVE QUEUE — toolbar + triage rows ────────────────────────── */
 /* One toolbar, two rows: what is listed and what came of it on top, in what
    order underneath. Replaces two visually identical `.sources-filters` rows

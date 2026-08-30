@@ -465,7 +465,7 @@ describe("the arena card carries the race's instrument and each variant's proven
     expect(screen.getByText("eval · 40 q")).toBeTruthy();
   });
 
-  it("opens a variant's overlay onto that variant's own scalar provenance", async () => {
+  it("opens a variant's overlay onto that variant's own scalar provenance, and leads with the honest absent-change copy when change_summary is null", async () => {
     const client = fakeClient({
       arenaStatus: vi.fn().mockResolvedValue(
         fakeArenaStatus({
@@ -477,6 +477,8 @@ describe("the arena card carries the race's instrument and each variant's proven
               status: "scored",
               scorer_id: "eval",
               n_examples: 40,
+              // No `change_summary`/`diff` — this race predates change
+              // tracking (or the current in-flight race that shipped it).
             },
           ],
         }),
@@ -498,7 +500,156 @@ describe("the arena card carries the race's instrument and each variant's proven
     );
     const note = screen.getByRole("note");
     expect(note.textContent).toContain(
+      "Recorded before change tracking — what this variant tried was not kept",
+    );
+    expect(note.textContent).toContain(
       "Scored 0.6421 by eval over 40 golden questions",
     );
+  });
+
+  it("opens a variant's overlay leading with the change_summary when the wire carries one", async () => {
+    // A distinct variant id ("v2") from the sibling test above -- the
+    // `TermHint` open signal is module-level and keyed by
+    // `heal-variant-${id}`, so reusing "v1" here would read the prior
+    // test's still-open panel instead of this test's own click.
+    const client = fakeClient({
+      arenaStatus: vi.fn().mockResolvedValue(
+        fakeArenaStatus({
+          variants: [
+            {
+              id: "v2",
+              label: "variant-2",
+              scalar: 0.82,
+              status: "scored",
+              scorer_id: "eval",
+              n_examples: 40,
+              change_summary:
+                "+3 / -0 lines vs the current prompt — first change: '## Tighter answers'",
+            },
+          ],
+        }),
+      ),
+    });
+
+    render(
+      <HealStage
+        client={client}
+        topic={TOPIC}
+        vault={VAULT}
+        status={baseStatus("fail")}
+      />,
+    );
+
+    await screen.findByTestId("heal-compile-run");
+    fireEvent.click(
+      screen.getByRole("button", { name: "variant-2 — what this means" }),
+    );
+    const note = screen.getByRole("note");
+    expect(note.textContent).toContain(
+      "Tries: +3 / -0 lines vs the current prompt — first change: '## Tighter answers'.",
+    );
+    expect(note.textContent).not.toContain("Recorded before change tracking");
+  });
+
+  it("renders a diff toggle only for variants the wire ships a diff for, and opens the diff text on click", async () => {
+    const client = fakeClient({
+      arenaStatus: vi.fn().mockResolvedValue(
+        fakeArenaStatus({
+          variants: [
+            {
+              id: "v1",
+              label: "variant-1",
+              scalar: 0.82,
+              status: "scored",
+              diff: "--- query.md (current)\n+++ variant\n@@\n+## Tighter answers",
+            },
+            {
+              id: "v2",
+              label: "variant-2",
+              scalar: 0.7,
+              status: "lost",
+              // No `diff` — no toggle should render for this row.
+            },
+          ],
+        }),
+      ),
+    });
+
+    render(
+      <HealStage
+        client={client}
+        topic={TOPIC}
+        vault={VAULT}
+        status={baseStatus("fail")}
+      />,
+    );
+
+    await screen.findByTestId("heal-compile-run");
+
+    expect(
+      screen.getByRole("button", { name: "Show variant-1's diff" }),
+    ).toBeTruthy();
+    expect(
+      screen.queryByRole("button", { name: "Show variant-2's diff" }),
+    ).toBeNull();
+    expect(
+      screen.queryByRole("button", { name: "Hide variant-2's diff" }),
+    ).toBeNull();
+
+    fireEvent.click(
+      screen.getByRole("button", { name: "Show variant-1's diff" }),
+    );
+
+    expect(
+      screen.getByRole("button", { name: "Hide variant-1's diff" }),
+    ).toBeTruthy();
+    expect(screen.getByText(/## Tighter answers/)).toBeTruthy();
+  });
+
+  it("keeps at most one variant's diff panel open at a time", async () => {
+    const client = fakeClient({
+      arenaStatus: vi.fn().mockResolvedValue(
+        fakeArenaStatus({
+          variants: [
+            {
+              id: "v1",
+              label: "variant-1",
+              scalar: 0.82,
+              status: "scored",
+              diff: "+first variant diff",
+            },
+            {
+              id: "v2",
+              label: "variant-2",
+              scalar: 0.7,
+              status: "lost",
+              diff: "+second variant diff",
+            },
+          ],
+        }),
+      ),
+    });
+
+    render(
+      <HealStage
+        client={client}
+        topic={TOPIC}
+        vault={VAULT}
+        status={baseStatus("fail")}
+      />,
+    );
+
+    await screen.findByTestId("heal-compile-run");
+
+    fireEvent.click(
+      screen.getByRole("button", { name: "Show variant-1's diff" }),
+    );
+    expect(screen.getByText(/first variant diff/)).toBeTruthy();
+
+    fireEvent.click(
+      screen.getByRole("button", { name: "Show variant-2's diff" }),
+    );
+    expect(screen.getByText(/second variant diff/)).toBeTruthy();
+    expect(screen.queryByText(/first variant diff/)).toBeNull();
   });
 });

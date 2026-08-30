@@ -39,10 +39,13 @@ import type { ArenaHistory, ArenaStatus, ArenaVariant, WikiStatus } from "../../
  * The variant race is a `StateList`, so each variant's
  * state word sits as visible text next to its icon with its scalar in a
  * right-aligned tabular column; each variant's `TermHint` carries the
- * scalar's provenance (`scorer_id` / `n_examples`), which the wire already
- * ships per variant. The loose "N recent race(s)" counter is a labelled
- * `Stat`, joined by BASELINE and SCORER so the race's measuring stick and
- * instrument are readable without leaving the card.
+ * scalar's provenance (`scorer_id` / `n_examples`) and what it tried
+ * (`change_summary`, a diff-derived line — `null` says so honestly rather
+ * than rendering nothing), which the wire already ships per variant. A row
+ * whose wire also carries a `diff` gets a quiet row action to inspect it
+ * inline. The loose "N recent race(s)" counter is a labelled `Stat`, joined
+ * by BASELINE and SCORER so the race's measuring stick and instrument are
+ * readable without leaving the card.
  */
 
 export function HealStage({
@@ -67,6 +70,9 @@ export function HealStage({
   // Bumped to re-run the arena read after something that could change what
   // the next race does — cheaper and more honest than caching a derived copy.
   const [arenaReloads, setArenaReloads] = useState(0);
+  // At most one variant's diff panel open at a time — a global toggle, not
+  // per-row local state, so opening one closes any other already open.
+  const [openDiffId, setOpenDiffId] = useState<string | null>(null);
 
   useEffect(() => {
     if (!open || !client) return;
@@ -123,6 +129,10 @@ export function HealStage({
   );
   const aborted = arenaStatus?.stage === "aborted";
 
+  function toggleDiff(variantId: string) {
+    setOpenDiffId((current) => (current === variantId ? null : variantId));
+  }
+
   return (
     <div class="heal-stage">
       <SectionCard
@@ -176,7 +186,12 @@ export function HealStage({
               : "Reading the arena…"}
           </p>
           {variants.length > 0 ? (
-            <StateList label="Arena variants" rows={variants.map(variantRow)} />
+            <StateList
+              label="Arena variants"
+              rows={variants.map((variant) =>
+                variantRow(variant, openDiffId, toggleDiff),
+              )}
+            />
           ) : null}
           {error ? (
             <p role="alert" class="ask-error">
@@ -313,9 +328,27 @@ function scorerValue(arenaStatus: ArenaStatus | null): string | null {
 }
 
 /**
- * Each variant's overlay carries the scalar's provenance — the wire ships
- * `scorer_id`/`n_examples` per variant precisely so a bare number stays
- * interpretable — followed by what a variant is at all.
+ * What this variant tried, derived from the server's diff-against-base
+ * summary (`core/arena.py::_variant_change_fields`) — never the variant's
+ * own self-description. `null` on races recorded before change tracking
+ * existed (including a race in flight when this shipped): said plainly
+ * rather than rendered as an empty line.
+ */
+function variantChangeLead(variant: ArenaVariant): string {
+  if (variant.change_summary != null) {
+    return `Tries: ${variant.change_summary}.`;
+  }
+  return (
+    "Recorded before change tracking — what this variant tried was not " +
+    "kept; the next race will record it."
+  );
+}
+
+/**
+ * Each variant's overlay leads with what it tried, then carries the
+ * scalar's provenance — the wire ships `scorer_id`/`n_examples` per variant
+ * precisely so a bare number stays interpretable — followed by what a
+ * variant is at all.
  */
 function variantHintBody(variant: ArenaVariant): string {
   const provenance =
@@ -329,13 +362,17 @@ function variantHintBody(variant: ArenaVariant): string {
             : ""
         }.`;
   return (
-    `One candidate rewrite of the operation prompt. ${provenance} ` +
+    `${variantChangeLead(variant)} ${provenance} ` +
     "The arena races variants against each other and keeps one only if it " +
     "clears the gate baseline — no model weights are ever touched."
   );
 }
 
-function variantRow(variant: ArenaVariant): StateListRow {
+function variantRow(
+  variant: ArenaVariant,
+  openDiffId: string | null,
+  onToggleDiff: (variantId: string) => void,
+): StateListRow {
   const presentation = VARIANT_PRESENTATION[variant.status] ?? {
     icon: "state:unknown" as IconName,
     tone: "neutral" as SectionTone,
@@ -357,5 +394,54 @@ function variantRow(variant: ArenaVariant): StateListRow {
     // A variant with no scalar yet is an absence, not an ellipsis that reads
     // as "still loading" — `StateList` renders it as the neutral `—`.
     value: variant.scalar == null ? null : variant.scalar.toFixed(4),
+    action: variant.diff ? (
+      <VariantDiffToggle
+        label={variant.label}
+        diff={variant.diff}
+        open={openDiffId === variant.id}
+        onToggle={() => onToggleDiff(variant.id)}
+      />
+    ) : undefined,
   };
+}
+
+/**
+ * A quiet row action toggling this variant's diff against the base prompt —
+ * the wire already ships the capped unified diff, so opening the panel costs
+ * no call. Reuses `PromptDiff`'s panel classes (`.prompt-diff`,
+ * `.prompt-diff-toggle`, `.prompt-diff-panel`) for visual consistency and so
+ * the shared `state-list-row:has(.state-list-action .prompt-diff-panel)`
+ * full-width rule applies unmodified; the raw text has no line-by-line
+ * add/del structure to grid, so it renders as a plain monospace block rather
+ * than `PromptDiff`'s hunk grid.
+ */
+function VariantDiffToggle({
+  label,
+  diff,
+  open,
+  onToggle,
+}: {
+  label: string;
+  diff: string;
+  open: boolean;
+  onToggle: () => void;
+}): JSX.Element {
+  return (
+    <div class="prompt-diff">
+      <button
+        type="button"
+        class="ghost prompt-diff-toggle"
+        aria-expanded={open}
+        aria-label={`${open ? "Hide" : "Show"} ${label}'s diff`}
+        onClick={onToggle}
+      >
+        {open ? "▾ diff" : "▸ diff"}
+      </button>
+      {open ? (
+        <div class="prompt-diff-panel" aria-label={`${label}'s diff`}>
+          <pre class="variant-diff-body">{diff}</pre>
+        </div>
+      ) : null}
+    </div>
+  );
 }
