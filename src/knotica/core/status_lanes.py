@@ -234,7 +234,7 @@ def _is_merged(record: SuggestionRecord) -> bool:
 def is_refused(record: SuggestionRecord) -> bool:
     """Whether ``record``'s ``gate_outcome`` (if any) carries a refused verdict.
 
-    Shared with :mod:`knotica.core.status`'s ``_suggestion_block``, which
+    Shared with :mod:`knotica.core.status_counts`'s :func:`~knotica.core.status_counts.suggestion_block`, which
     surfaces the same ``refused_awaiting_rework`` signal.
     """
     outcome = record.gate_outcome
@@ -244,7 +244,7 @@ def is_refused(record: SuggestionRecord) -> bool:
 def read_suggestion_records(store: VaultStore, topic: str) -> list[SuggestionRecord]:
     """Parse ``suggestions.jsonl`` into records, skipping malformed lines.
 
-    Shared with :mod:`knotica.core.status`'s ``_suggestion_block``, so the
+    Shared with :mod:`knotica.core.status_counts`'s :func:`~knotica.core.status_counts.suggestion_block`, so the
     file is parsed once per caller rather than the same loop existing twice.
     """
     path = suggestions_path(topic)

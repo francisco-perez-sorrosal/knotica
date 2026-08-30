@@ -19,7 +19,6 @@ from knotica.core.arena import read_arena_state
 from knotica.core.compiled import load_compiled
 from knotica.core.compile_state import CompileState, empty_compile_state, read_compile_state
 from knotica.core.errors import ErrorCode, KnoticaError
-from knotica.core.links import iter_page_paths
 from knotica.core.lint import LOG_PATH, lint_vault
 from knotica.core.loop import DEFAULT_BRANCH_PREFIX
 from knotica.core.loop_heartbeat import read_runner_liveness
@@ -29,22 +28,16 @@ from knotica.core.metrics import last_eval_summary, read_last_metrics
 from knotica.core.notes.store import ResolvedNote, list_notes
 from knotica.core.notes_config import resolve_notes_config
 from knotica.core.page import TopicNotFoundError
-from knotica.core.gap_classifier import gaps_path
 from knotica.core import process_model
 from knotica.core.records import (
-    GAP_ORIGIN_MEASURED,
-    GAP_ORIGIN_REPORTED,
-    GAP_ORIGIN_RETRACTED,
-    GapRecord,
-    RecordParseError,
     parse_log_entries,
 )
-from knotica.core.schema import overlay_path
-from knotica.core.status_lanes import is_refused, lanes_block, read_suggestion_records
+from knotica.core.status_counts import gap_block, golden_count, page_count, suggestion_block
+from knotica.core.status_lanes import lanes_block
 from knotica.core.topics import is_topic, topic_directories
 from knotica.core.trainset import count_query_train_examples
 from knotica.core.vcs import GitError, VaultVcs
-from knotica.evals.golden import EVAL_MIN_GOLDEN, GoldenSetMissingError, load as load_golden
+from knotica.evals.golden import EVAL_MIN_GOLDEN
 from knotica.store import VaultStore
 
 __all__ = [
@@ -320,8 +313,8 @@ def _attention_row(store: VaultStore, vault_path: Path, topic: str) -> dict[str,
     trainset_n = count_query_train_examples(store, topic)
     return {
         "topic": topic,
-        "suggestions": _suggestion_block(store, topic),
-        "compile_ready": _is_compile_ready(trainset_n, _golden_count(store, topic)),
+        "suggestions": suggestion_block(store, topic),
+        "compile_ready": _is_compile_ready(trainset_n, golden_count(store, topic)),
         "runner": read_runner_liveness(vault_path, topic),
     }
 
@@ -370,7 +363,7 @@ def _topic_status(
     store: VaultStore, vcs: VaultVcs, vault_path: Path, name: str, *, lint_violations: int
 ) -> TopicStatus:
     trainset_n = count_query_train_examples(store, name)
-    golden_n = _golden_count(store, name)
+    golden_n = golden_count(store, name)
     artifact = load_compiled(store, name)
     compiled: dict[str, Any] | None = None
     if artifact is not None:
@@ -387,7 +380,7 @@ def _topic_status(
     last_eval = last_eval_summary(read_last_metrics(store, name))
     return TopicStatus(
         topic=name,
-        pages=_page_count(store, name),
+        pages=page_count(store, name),
         # ``curated`` is the legacy status column; it now means query-train count
         # (ingest-style qa lines are excluded — same as ``trainset_n``).
         curated=trainset_n,
@@ -397,8 +390,8 @@ def _topic_status(
         compiled=compiled,
         lint_violations=lint_violations,
         last_eval=last_eval,
-        suggestions=_suggestion_block(store, name),
-        gaps=_gap_block(store, name),
+        suggestions=suggestion_block(store, name),
+        gaps=gap_block(store, name),
         notes=notes,
         lanes=lanes_block(
             store,
@@ -446,78 +439,6 @@ def _has_drifted_anchor(note: ResolvedNote) -> bool:
     return any(
         projection.status in _DRIFTED_ANCHOR_STATUSES for _, projection in note.resolved_anchors
     )
-
-
-def _suggestion_block(store: VaultStore, topic: str) -> dict[str, Any]:
-    """The per-topic gap-fill queue summary for the ingest handoff (all-zero when empty).
-
-    Counts each lifecycle status and surfaces ``approved_awaiting_ingest`` (the
-    approved-but-not-yet-ingested backlog that matters for the interactive
-    ingest handoff), ``refused_awaiting_rework`` (approved records whose most
-    recent gate pass was refused -- still re-workable, not yet re-submitted),
-    plus the newest ``proposed_at``. A single corrupt record never breaks the
-    status readout (mirrors ``_golden_count``).
-    """
-    counts = Counter[str]()
-    refused_awaiting_rework = 0
-    newest: str | None = None
-    for record in read_suggestion_records(store, topic):
-        counts[record.status] += 1
-        if newest is None or record.proposed_at > newest:
-            newest = record.proposed_at
-        if record.status == "approved" and is_refused(record):
-            refused_awaiting_rework += 1
-    return {
-        "pending": counts.get("pending", 0),
-        "approved_awaiting_ingest": counts.get("approved", 0),
-        "deferred": counts.get("deferred", 0),
-        "rejected": counts.get("rejected", 0),
-        "ingested": counts.get("ingested", 0),
-        "newest_proposed_at": newest,
-        "refused_awaiting_rework": refused_awaiting_rework,
-    }
-
-
-def _gap_block(store: VaultStore, topic: str) -> dict[str, Any]:
-    """The per-topic open-gap summary by provenance origin (all-zero when empty).
-
-    Counts every *open* gap record (any fault_class) bucketed by ``origin``
-    (``measured`` = eval-proven, ``reported`` = conversationally filed,
-    ``retracted`` = guillotine-weakened) plus ``open_total``. Reads
-    ``gaps.jsonl`` line-by-line and skips a malformed line rather than raising,
-    so a single corrupt record never breaks the status readout (mirrors
-    :func:`_suggestion_block`). Honest zeros when the file is absent.
-    """
-    counts = Counter[str]()
-    open_total = 0
-    path = gaps_path(topic)
-    if store.exists(path):
-        for line in store.read_text(path).splitlines():
-            if not line.strip():
-                continue
-            try:
-                record = GapRecord.from_json_line(line)
-            except (ValueError, RecordParseError):
-                continue
-            if record.status != "open":
-                continue
-            counts[record.origin] += 1
-            open_total += 1
-    return {
-        GAP_ORIGIN_MEASURED: counts.get(GAP_ORIGIN_MEASURED, 0),
-        GAP_ORIGIN_REPORTED: counts.get(GAP_ORIGIN_REPORTED, 0),
-        GAP_ORIGIN_RETRACTED: counts.get(GAP_ORIGIN_RETRACTED, 0),
-        "open_total": open_total,
-    }
-
-
-def _golden_count(store: VaultStore, topic: str) -> int:
-    try:
-        return len(load_golden(store, topic))
-    except GoldenSetMissingError:
-        return 0
-    except Exception:  # noqa: BLE001 — status stays readable on corrupt golden
-        return 0
 
 
 def _compile_info(store: VaultStore, topics: list[TopicStatus]) -> dict[str, Any] | None:
@@ -708,15 +629,6 @@ def _pending_loop_candidates(
         return out
     except GitError:
         return []
-
-
-def _page_count(store: VaultStore, topic: str) -> int:
-    """Count content pages under ``topic`` (its schema overlay is not a page)."""
-    overlay = overlay_path(topic)
-    try:
-        return sum(1 for path in iter_page_paths(store, topic) if path != overlay)
-    except NotADirectoryError:
-        return 0
 
 
 def _last_lint(store: VaultStore) -> str | None:

@@ -30,14 +30,14 @@ from mcp.types import CallToolResult
 
 from knotica.core.config import resolve
 from knotica.core.errors import ErrorCode, KnoticaError
-from knotica.core.links import Link, inbound_links, iter_page_paths, outbound_links
+from knotica.core.links import Link, inbound_links, outbound_links
 from knotica.core.lint import lint_vault
 from knotica.core.page import (
     PageNotFoundError,
     TopicNotFoundError,
 )
 from knotica.core.page import read_page as read_page_core
-from knotica.core.schema import overlay_path
+from knotica.core.status_counts import page_count
 from knotica.core.topics import is_topic
 from knotica.core.vault_layout import SCORED_FAMILIES, Family
 from knotica.mcp_server import envelope
@@ -209,17 +209,11 @@ def _read(
 def _collect_topics(store: VaultStore) -> dict[str, Any]:
     """Enumerate topic directories with their content-page counts."""
     topics = [
-        {"name": name, "page_count": _page_count(store, name)}
+        {"name": name, "page_count": page_count(store, name)}
         for name in store.list_dir("")
         if is_topic(store, name)
     ]
     return envelope.read_ok({"topics": topics})
-
-
-def _page_count(store: VaultStore, topic: str) -> int:
-    """Count a topic's content pages -- every ``.md`` under it except its schema overlay."""
-    overlay = overlay_path(topic)
-    return sum(1 for path in iter_page_paths(store, topic) if path != overlay)
 
 
 def _read_one_page(store: VaultStore, topic: str, page: str) -> dict[str, Any]:
