@@ -455,9 +455,13 @@ describe("the gap stage", () => {
     const container = renderQueueStage(client);
 
     await vi.waitFor(() => expect(suggestionsRead).toHaveBeenCalled());
+    // Probes the candidate title rather than the failed question: a triage
+    // row is collapsed by default and carries the source's identity, while
+    // the question it answers sits behind the row's disclosure. The behaviour
+    // asserted -- the suggestion queue survives a gaps failure -- is unchanged.
     expect(
       await within(stageNodes(container)[APPROVE]).findByText(
-        /hyde dense retrieval|no coverage of hyde/i,
+        /precise zero-shot dense retrieval/i,
       ),
     ).toBeTruthy();
   });
@@ -694,6 +698,31 @@ describe("the approve stage's suggestion queue", () => {
     expect(within(stageNodes(container)[APPROVE]).getByText(/refused 2/i)).toBeTruthy();
   });
 
+  it("keeps every triage action on one quiet-button family -- no filled primary among peers", async () => {
+    const { client } = fakeClient();
+    const container = renderQueueStage(client);
+    const approve = await within(stageNodes(container)[APPROVE]).findByRole("button", {
+      name: /^✓ approve$/i,
+    });
+    const reject = within(stageNodes(container)[APPROVE]).getByRole("button", {
+      name: /reject/i,
+    });
+    const defer = within(stageNodes(container)[APPROVE]).getByRole("button", {
+      name: /defer/i,
+    });
+
+    for (const button of [approve, reject, defer]) {
+      expect(button.className).toContain("quiet-action");
+      expect(button.className).not.toContain("primary");
+    }
+    // Distinguished by tone, never by weight.
+    expect([approve, reject, defer].map((b) => b.dataset.tone)).toEqual([
+      "good",
+      "bad",
+      "neutral",
+    ]);
+  });
+
   it("never uses a native confirm dialog for reject -- the reason form is in-DOM", async () => {
     const confirmSpy = vi.spyOn(window, "confirm").mockReturnValue(true);
     const { client } = fakeClient();
@@ -712,5 +741,157 @@ describe("the approve stage's suggestion queue", () => {
 
     expect(confirmSpy).not.toHaveBeenCalled();
     confirmSpy.mockRestore();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// The approve stage — triage ordering, the toolbar, and the row disclosure
+// ---------------------------------------------------------------------------
+
+/** Four records whose *server* order is deliberately none of the sorted ones. */
+function triageFixtures(): SuggestionRecord[] {
+  return [
+    baseSuggestion({
+      suggestion_id: "s_charlie",
+      rank: 1,
+      candidate: baseCandidate({ title: "Charlie", reputability: null }),
+    }),
+    baseSuggestion({
+      suggestion_id: "s_bravo",
+      rank: 2,
+      candidate: baseCandidate({
+        title: "Bravo",
+        reputability: { tier: "established_org", score: 0.7, signals: [] },
+      }),
+    }),
+    baseSuggestion({
+      suggestion_id: "s_alpha",
+      rank: 5,
+      candidate: baseCandidate({
+        title: "Alpha",
+        reputability: { tier: "peer_reviewed", score: 0.9, signals: [] },
+      }),
+    }),
+    baseSuggestion({
+      suggestion_id: "s_delta",
+      rank: 3,
+      candidate: baseCandidate({
+        title: "Delta",
+        reputability: { tier: "peer_reviewed", score: 0.9, signals: [] },
+      }),
+    }),
+  ];
+}
+
+function rowTitles(container: Element): string[] {
+  return Array.from(
+    stageNodes(container)[APPROVE].querySelectorAll<HTMLElement>(".triage-title"),
+  ).map((node) => node.textContent ?? "");
+}
+
+describe("the approve stage's triage ordering", () => {
+  it("defaults to priority: reputability descending, ties broken by rank, unrated last", async () => {
+    const { client } = fakeClient({
+      suggestions: baseSuggestionsResult({ suggestions: triageFixtures() }),
+    });
+    const container = renderQueueStage(client);
+    await vi.waitFor(() => expect(client.suggestionsRead).toHaveBeenCalled());
+
+    // Delta before Alpha: both score 0.90, Delta ranks #3 against Alpha's #5.
+    // Charlie last: no reputability block at all is absence, not a low score.
+    await vi.waitFor(() =>
+      expect(rowTitles(container)).toEqual(["Delta", "Alpha", "Bravo", "Charlie"]),
+    );
+  });
+
+  it("returns the server's own order when the sort is switched to newest", async () => {
+    const { client } = fakeClient({
+      suggestions: baseSuggestionsResult({ suggestions: triageFixtures() }),
+    });
+    const container = renderQueueStage(client);
+    await vi.waitFor(() => expect(rowTitles(container)).toHaveLength(4));
+
+    fireEvent.click(
+      within(stageNodes(container)[APPROVE]).getByRole("button", { name: "newest" }),
+    );
+
+    await vi.waitFor(() =>
+      expect(rowTitles(container)).toEqual(["Charlie", "Bravo", "Alpha", "Delta"]),
+    );
+  });
+
+  it("says so when the priority order only spans the records already loaded", async () => {
+    const { client } = fakeClient({
+      suggestions: baseSuggestionsResult({
+        suggestions: triageFixtures(),
+        has_more: true,
+        next_cursor: "cur-2",
+      }),
+    });
+    const container = renderQueueStage(client);
+
+    expect(
+      await within(stageNodes(container)[APPROVE]).findByText(/sorted across the 4 loaded/i),
+    ).toBeTruthy();
+  });
+});
+
+describe("the approve stage's toolbar", () => {
+  it("names the refresh control, rather than leaving a bare glyph", async () => {
+    const { client, suggestionsRead } = fakeClient();
+    const container = renderQueueStage(client);
+    await vi.waitFor(() => expect(suggestionsRead).toHaveBeenCalledTimes(1));
+
+    fireEvent.click(
+      within(stageNodes(container)[APPROVE]).getByRole("button", { name: "Refresh" }),
+    );
+
+    await vi.waitFor(() => expect(suggestionsRead).toHaveBeenCalledTimes(2));
+  });
+
+  it("prints each filter's own count on its pill, and the whole-topic total on 'all'", async () => {
+    const { client } = fakeClient({
+      suggestions: baseSuggestionsResult({
+        status_counts: { pending: 3, approved: 1, rejected: 2, deferred: 0, ingested: 4 },
+      }),
+    });
+    const container = renderQueueStage(client);
+    const approve = stageNodes(container)[APPROVE];
+
+    // `all` sums status_counts rather than reading `total_count`, which
+    // describes only the currently-filtered slice.
+    expect(await within(approve).findByRole("button", { name: "pending 3" })).toBeTruthy();
+    expect(within(approve).getByRole("button", { name: "accepted 1" })).toBeTruthy();
+    expect(within(approve).getByRole("button", { name: "all 10" })).toBeTruthy();
+  });
+});
+
+describe("the triage row's disclosure", () => {
+  it("hides the failed question until the row is expanded", async () => {
+    const { client } = fakeClient();
+    const container = renderQueueStage(client);
+    const approve = stageNodes(container)[APPROVE];
+    const disclose = await within(approve).findByRole("button", {
+      name: /^details for /i,
+    });
+
+    expect(disclose.getAttribute("aria-expanded")).toBe("false");
+    expect(within(approve).queryByText(/no coverage of hyde/i)).toBeNull();
+
+    fireEvent.click(disclose);
+
+    expect(await within(approve).findByText(/no coverage of hyde/i)).toBeTruthy();
+    expect(disclose.getAttribute("aria-expanded")).toBe("true");
+  });
+
+  it("auto-expands the row when the reject form opens -- a reason needs the evidence", async () => {
+    const { client } = fakeClient();
+    const container = renderQueueStage(client);
+    const approve = stageNodes(container)[APPROVE];
+
+    fireEvent.click(await within(approve).findByRole("button", { name: /reject/i }));
+
+    expect(await within(approve).findByText(/no coverage of hyde/i)).toBeTruthy();
+    expect(within(approve).getByPlaceholderText(/why doesn't this source fit/i)).toBeTruthy();
   });
 });

@@ -258,15 +258,24 @@ misleading `pending` ("nothing has run yet" would be a guess the server cannot b
 2. **Discover** — runs source discovery directly from the dashboard, not a handoff: **Discover
    sources…** is a two-phase billed action (a preview click quotes how many gaps would be drained
    and the estimated cost; a second, explicit confirm runs it and stages ranked suggestions).
-3. **Approve** — review discovered source suggestions. Filter tabs: **pending** / **accepted**
-   (the underlying filter value is `approved`; the label reads "accepted" to avoid colliding with
-   the suggestion card's own `Approve` button) / **all**, with count badges. Each card shows fault
-   class, generation, rank, gap-origin badge (measured / reported / retracted), source
-   reputability, the failed question, and the suggested source (title, link, venue, DOI,
-   open-access signal).
-   - Actions on an undecided suggestion: **Approve**, **Reject…** (requires a reason), **Defer**.
-   - Decided suggestions show the recorded decision; rejected-by-gate outcomes show the score
-     delta and worst-regressed questions.
+3. **Approve** — triage discovered source suggestions. One toolbar carries the filter pills
+   **pending** / **accepted** (the underlying filter value is `approved`; the label reads
+   "accepted" to avoid colliding with the row's own `Approve` button) / **all** with their counts,
+   a **Refresh** control, the topic-wide **refused** and **ingested** outcome chips, and the sort
+   order.
+   - **Sort**: **priority** (the default — reputability score descending, ties broken by discovery
+     rank, unrated sources last) or **newest** (the server's own order). Sorting is client-side
+     over the records already loaded; when the read has more to give, the toolbar says so.
+   - Each suggestion is a collapsed row: a reputability-tier-toned left edge with the tier word,
+     the source title as the link, `rep` and `rank` as tabular values, and one provenance line
+     (venue · citations · open access · gap-origin badge). The row's disclosure expands the failed
+     question, references, snippet, authors, DOI, reputability signals, and fault class /
+     generation / provider.
+   - Actions on an undecided suggestion: **Approve**, **Reject…** (requires a reason), **Defer** —
+     three equal-weight quiet buttons, distinguished by tone rather than by weight. Opening the
+     reject form expands the row, so the reason is written against visible evidence.
+   - Decided suggestions show the recorded decision inline; rejected-by-gate outcomes show the
+     score delta and worst-regressed questions behind the disclosure.
    - The list paginates with a **Load more** cursor.
 
    > [!IMPORTANT]

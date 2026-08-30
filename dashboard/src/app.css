@@ -3792,3 +3792,201 @@ button.loop-node:focus-visible {
   letter-spacing: var(--tracking-micro);
   text-transform: uppercase;
 }
+
+/* Quiet action button — three equal-weight peers, distinguished by tone
+   rather than by weight. A filled `button.primary` beside two outlines reads
+   as "the answer is yes"; approve/reject/defer are a genuine three-way choice
+   and none of them is the house recommendation. Tone is never the only
+   carrier: each button keeps its glyph and its word. */
+.quiet-action {
+  appearance: none;
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  min-height: 28px;
+  padding: var(--space-1) var(--space-3);
+  border: var(--border) solid var(--line-strong);
+  border-radius: var(--radius);
+  background: var(--surface-raised);
+  color: var(--text);
+  font: var(--fs-sm) var(--mono);
+  white-space: nowrap;
+  cursor: pointer;
+  transition: border-color .15s, background .15s;
+}
+.quiet-action:hover:not(:disabled) { background: var(--surface); }
+.quiet-action:disabled { opacity: .45; cursor: default; }
+/* Tone rides on the border, never on the label. `--bad` as *text* measures
+   3.84:1 against `--surface-raised` on the dark theme — under the 4.5:1 AA
+   floor for a 13px label — while `--bad` as a *border* measures 3.84:1
+   against the same surface, over the 3:1 non-text floor. Toning the border
+   and leaving all three labels on `--text` (10.7:1 dark, 12.7:1 light) is
+   what makes the three genuinely equal-weight *and* uniformly legible. The
+   meaning was never in the colour anyway: each button keeps its glyph and
+   its word. */
+.quiet-action[data-tone="good"] { border-color: var(--good); }
+.quiet-action[data-tone="bad"] { border-color: var(--bad); }
+.quiet-action[data-tone="neutral"] { border-color: var(--line-strong); }
+
+/* ── FILL APPROVE QUEUE — toolbar + triage rows ────────────────────────── */
+/* One toolbar, two rows: what is listed and what came of it on top, in what
+   order underneath. Replaces two visually identical `.sources-filters` rows
+   that read as one ragged cluster of seven unrelated controls. */
+.queue-toolbar {
+  display: grid;
+  gap: var(--space-2);
+  margin: var(--space-3) 0;
+  padding: var(--space-2) 0;
+  border-top: var(--border) solid var(--line);
+  border-bottom: var(--border) solid var(--line);
+}
+.queue-toolbar-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2) var(--space-4);
+}
+.queue-pills, .queue-outcomes, .queue-sort {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+}
+.queue-sort .microlabel { margin: 0; }
+.queue-sort-note { margin: 0; font: var(--fs-xs)/1.5 var(--sans); }
+.queue-pill {
+  appearance: none;
+  min-height: 24px;
+  padding: var(--space-1) var(--space-2);
+  border: var(--border) solid var(--line);
+  border-radius: var(--radius);
+  background: transparent;
+  color: var(--muted);
+  font: var(--fs-xs) var(--mono);
+  letter-spacing: var(--tracking-label);
+  text-transform: uppercase;
+  cursor: pointer;
+}
+.queue-pill:hover { color: var(--text); }
+/* Selection lives in `aria-pressed`, so the visual state cannot drift from
+   the announced one — there is no second `.active` class to forget. */
+.queue-pill[aria-pressed="true"] {
+  color: var(--heading);
+  border-color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 10%, var(--surface));
+}
+/* A real 24px target for a glyph-only control; its name is the `aria-label`,
+   never the glyph. */
+.queue-icon-button {
+  appearance: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  border: var(--border) solid var(--line);
+  border-radius: var(--radius);
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+}
+.queue-icon-button:hover:not(:disabled) { color: var(--heading); border-color: var(--accent); }
+.queue-icon-button:disabled { opacity: .45; cursor: default; }
+
+/* The triage list — one line of identity, one of provenance, actions inline.
+   A separator between rows rather than a card each: dozens of bordered,
+   padded cards is what made this queue unreadable at length. */
+.triage-list {
+  display: grid;
+  margin: var(--space-2) 0 0;
+  padding: 0;
+  list-style: none;
+}
+.triage-row {
+  border-left: 3px solid var(--line);
+  padding: var(--space-2) var(--space-3);
+}
+.triage-row + .triage-row { border-top: var(--border) solid var(--line); }
+.triage-row[data-open="true"] { background: var(--surface); }
+/* Reputability tier tones the left edge only. The tier *word* is always
+   rendered in the row's badge, so the colour is redundant reinforcement and
+   never the sole carrier (WCAG 1.4.1). `peer_reviewed` is the only tier the
+   pipeline treats as evidence on its own; the two credible-but-unrefereed
+   tiers share the informational accent; everything else is neutral. */
+.triage-row[data-tier="peer_reviewed"] { border-left-color: var(--good); }
+.triage-row[data-tier="preprint_known_lab"],
+.triage-row[data-tier="established_org"] { border-left-color: var(--accent); }
+.triage-row[data-tier="general_web"] { border-left-color: var(--neutral); }
+.triage-row[data-tier="none"] { border-left-color: var(--line); }
+.triage-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: var(--space-2) var(--space-3);
+}
+.triage-disclose {
+  appearance: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  align-self: center;
+  width: 24px;
+  height: 24px;
+  border: 0;
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+}
+.triage-disclose:hover { color: var(--heading); }
+.triage-disclose svg { transition: transform .15s; }
+.triage-disclose[aria-expanded="true"] svg { transform: rotate(90deg); }
+.triage-identity {
+  flex: 1 1 18rem;
+  min-width: 0;
+}
+.triage-title {
+  margin: 0;
+  font: var(--fs-sm)/1.4 var(--sans);
+}
+.triage-title a { text-decoration: none; }
+.triage-title a:hover { text-decoration: underline; }
+.triage-meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+  margin: var(--space-1) 0 0;
+  font: var(--fs-xs)/1.4 var(--mono);
+}
+.triage-values {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+.triage-metric {
+  color: var(--text);
+  font: var(--fs-xs) var(--mono);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.triage-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+  margin-left: auto;
+}
+.triage-decision {
+  flex: 1 1 100%;
+  font: var(--fs-xs)/1.5 var(--sans);
+}
+.triage-detail {
+  display: grid;
+  gap: var(--space-3);
+  margin-top: var(--space-3);
+  padding-left: 24px;
+  border-top: var(--border) solid var(--line);
+  padding-top: var(--space-3);
+}
+.triage-detail p { margin: var(--space-1) 0; }
