@@ -313,3 +313,27 @@ describe("the merge affordance previews before it mutates", () => {
     expect(branchPromote.mock.calls[0][3]).toBe("dry-run");
   });
 });
+
+describe("the lifecycle contract on the two branch verbs", () => {
+  it("sends a merged branch to the probe -- the scoreboard is a claim, not proof", async () => {
+    const branchPromote = vi.fn(async () => ({
+      mode: "apply" as const,
+      branch: "compile/open",
+      into: "main",
+      merged: true,
+      commit_sha: "abc1234",
+      message: "Merged compile/open into main.",
+    }));
+    const client = fakeClient({ branchPromote });
+    render(
+      <PromoteStage client={client} topic={TOPIC} vault={VAULT} status={null} />,
+    );
+
+    fireEvent.click(
+      await screen.findByTestId("promote-preview-trigger"),
+    );
+    fireEvent.click(await screen.findByRole("button", { name: /apply merge/i }));
+
+    expect(await screen.findByText(/Go to Improve → Prove\./)).toBeTruthy();
+  });
+});

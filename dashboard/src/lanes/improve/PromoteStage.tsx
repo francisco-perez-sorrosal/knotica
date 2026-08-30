@@ -12,6 +12,9 @@ import { Stat, StatGrid } from "../../Stat";
 import { TermHint } from "../../TermHint";
 import { Spinner } from "../../icons";
 import type { ToolClient } from "../../toolClient";
+import { ProcessBrief } from "../ProcessBrief";
+import { ProcessOutcome } from "../ProcessOutcome";
+import type { ProcessId } from "../processMeta";
 import type {
   BranchDeleteResult,
   BranchScoreboard,
@@ -65,6 +68,11 @@ export function PromoteStage({
   const [board, setBoard] = useState<BranchScoreboard | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [note, setNote] = useState<string | null>(null);
+  /* Which verb wrote that note. Merging and dropping leave opposite things
+     owed -- a merged program is a claim that still has to be probed, a
+     dropped branch leaves the topic where it was and needs another
+     compile -- so the follow-up cannot be derived from the note text. */
+  const [noteProcess, setNoteProcess] = useState<ProcessId | null>(null);
   const [previewBusy, setPreviewBusy] = useState(false);
   const [applyBusy, setApplyBusy] = useState(false);
   const [preview, setPreview] = useState<CompilePromoteResult | null>(null);
@@ -135,6 +143,7 @@ export function PromoteStage({
         vault,
       );
       setNote(formatPromoteApplied(result));
+      setNoteProcess("improve.branch_promote");
       setPreview(null);
       await Promise.all([onStatusRefresh?.(), loadBoard()]);
     } catch (cause) {
@@ -177,6 +186,7 @@ export function PromoteStage({
         vault,
       );
       setNote(formatDeleteApplied(result));
+      setNoteProcess("improve.branch_delete");
       setDeletePreview(null);
       await Promise.all([onStatusRefresh?.(), loadBoard()]);
     } catch (cause) {
@@ -194,6 +204,9 @@ export function PromoteStage({
         </p>
       ) : null}
       {note ? <p class="scoreboard-note">{note}</p> : null}
+      {/* The note above states what changed; this states what the change
+          leaves owed -- and the two verbs owe opposite things. */}
+      {note && noteProcess ? <ProcessOutcome process={noteProcess} /> : null}
 
       <SectionCard
         title="BRANCH UNDER REVIEW"
@@ -206,7 +219,12 @@ export function PromoteStage({
                   destructive control is never the rightmost, closest-to-thumb
                   target — Fitts, inverted deliberately. */}
               {openCompile.deletable ? (
-                <button
+                <>
+                  <ProcessBrief
+                    process="improve.branch_delete"
+                    term="why drop it"
+                  />
+                  <button
                   type="button"
                   class="danger"
                   disabled={!client || deleteBusy}
@@ -218,13 +236,20 @@ export function PromoteStage({
                       <Spinner />
                       Previewing…
                     </>
-                  ) : (
-                    "Preview delete"
-                  )}
-                </button>
+                    ) : (
+                      "Preview delete"
+                    )}
+                  </button>
+                </>
               ) : null}
               {openCompile.promotable ? (
-                <button
+                <>
+                  <ProcessBrief
+                    process="improve.branch_promote"
+                    term="why merge it"
+                    align="end"
+                  />
+                  <button
                   type="button"
                   class="primary"
                   data-testid="promote-preview-trigger"
@@ -237,10 +262,11 @@ export function PromoteStage({
                       <Spinner />
                       Previewing…
                     </>
-                  ) : (
-                    "Preview promote"
-                  )}
-                </button>
+                    ) : (
+                      "Preview promote"
+                    )}
+                  </button>
+                </>
               ) : null}
             </>
           ) : undefined

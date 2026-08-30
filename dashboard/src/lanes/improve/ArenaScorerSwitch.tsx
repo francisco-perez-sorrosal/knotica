@@ -2,6 +2,8 @@ import type { JSX } from "preact";
 import { useState } from "preact/hooks";
 
 import { ArmedButton } from "../ArmedButton";
+import { ProcessBrief } from "../ProcessBrief";
+import { ProcessOutcome } from "../ProcessOutcome";
 import { Spinner } from "../../icons";
 import type { ToolClient } from "../../toolClient";
 import type { LoopCadenceConfig } from "../../types";
@@ -89,9 +91,15 @@ export function ArenaScorerSwitch({
             {/* Sibling of the button, never a child: the accessible name
                 stays `Use eval scorer`. `warn`, not `cost` — this click
                 spends nothing; it arms what the *next* race will spend. */}
-            <span class="chip" data-tone="warn">
-              arms billing
-            </span>
+            {/* Sibling of the button, never a child: the accessible name
+                stays `Use eval scorer`. The brief carries the `arms billing`
+                chip -- this click spends nothing; it arms what the *next*
+                race will spend, and the registry states both halves in that
+                order. */}
+            <ProcessBrief
+              process="improve.arena_scorer_switch"
+              term="why swap it"
+            />
             <ArmedButton
               armed={armed}
               busy={busy}
@@ -139,6 +147,10 @@ export function ArenaScorerSwitch({
               "gate-comparable, so it cannot pass the gate). No restart needed."}
         </p>
       ) : null}
+      {/* The saved-note above is the outcome and owns the live region; this
+          adds only the sixth answer, which here is that nothing further is
+          owed -- both runners rebuild from config on their own tick. */}
+      {savedAs ? <ProcessOutcome process="improve.arena_scorer_switch" /> : null}
       {error ? (
         <p role="alert" class="ask-error">
           {error}

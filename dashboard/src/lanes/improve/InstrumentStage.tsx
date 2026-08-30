@@ -2,11 +2,14 @@ import type { JSX } from "preact";
 import { useCallback, useEffect, useState } from "preact/hooks";
 
 import { ArmedButton } from "../ArmedButton";
+import { ProcessBrief } from "../ProcessBrief";
+import { ProcessOutcome } from "../ProcessOutcome";
 import { Icon } from "../../icons";
 import { SectionCard } from "../../SectionCard";
 import { Stat, StatGrid } from "../../Stat";
 import { TermHint } from "../../TermHint";
 import type { ToolClient } from "../../toolClient";
+import type { ProcessId } from "../processMeta";
 import type { DatasetFileRow, DatasetsInventory } from "../../types";
 
 /**
@@ -79,6 +82,11 @@ export function InstrumentStage({
   const [inventory, setInventory] = useState<DatasetsInventory | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [note, setNote] = useState<string | null>(null);
+  /* Which of the three wrote that note. All three print what they did and
+     none of them said which step the numbers they moved are owed to next,
+     and that differs per verb -- so the follow-up is selected by the verb
+     that ran, not by the card it ran in. */
+  const [noteProcess, setNoteProcess] = useState<ProcessId | null>(null);
   const [busy, setBusy] = useState<Busy>(null);
   const [expanded, setExpanded] = useState(false);
   const [armedBootstrap, setArmedBootstrap] = useState(false);
@@ -115,6 +123,7 @@ export function InstrumentStage({
 
   async function runBootstrap() {
     if (!client) return;
+    setNoteProcess("improve.datasets_bootstrap");
     setBusy("bootstrap");
     setError(null);
     setNote(null);
@@ -134,6 +143,7 @@ export function InstrumentStage({
 
   async function runBootstrapTrain() {
     if (!client) return;
+    setNoteProcess("improve.datasets_bootstrap_train");
     setBusy("bootstrap-train");
     setError(null);
     setNote(null);
@@ -157,6 +167,7 @@ export function InstrumentStage({
 
   async function runFreeze() {
     if (!client) return;
+    setNoteProcess("improve.datasets_freeze");
     setBusy("freeze");
     setError(null);
     try {
@@ -191,7 +202,10 @@ export function InstrumentStage({
         headerActions={sealChip(inventory)}
         footer={
           <>
-            <span class="chip cost">billed</span>
+            <ProcessBrief
+              process="improve.datasets_bootstrap"
+              term="why synthesise"
+            />
             <ArmedButton
               armed={armedBootstrap}
               busy={busy === "bootstrap"}
@@ -203,9 +217,17 @@ export function InstrumentStage({
               onConfirm={() => void runBootstrap()}
               onCancel={() => setArmedBootstrap(false)}
             />
+            {/* The `writes files` chip stays: it is not a *cost* chip, and
+                the brief only ever takes over the spend chip. Freeze bills
+                nothing and is still the most consequential click here. */}
             <span class="chip" data-tone="warn">
               writes files
             </span>
+            <ProcessBrief
+              process="improve.datasets_freeze"
+              term="why hold it out"
+              align="end"
+            />
             <ArmedButton
               armed={armedFreeze}
               busy={busy === "freeze"}
@@ -252,6 +274,9 @@ export function InstrumentStage({
               {note}
             </p>
           ) : null}
+          {/* The note above is the outcome and owns the live region; this adds
+              the step the numbers it printed are owed to. */}
+          {note && noteProcess ? <ProcessOutcome process={noteProcess} /> : null}
           {error ? <aside role="alert">{error}</aside> : null}
         </>
       </SectionCard>
@@ -261,7 +286,10 @@ export function InstrumentStage({
         icon="lane:learn"
         footer={
           <>
-            <span class="chip cost">billed</span>
+            <ProcessBrief
+              process="improve.datasets_bootstrap_train"
+              term="why seed it"
+            />
             <ArmedButton
               armed={armedBootstrapTrain}
               busy={busy === "bootstrap-train"}

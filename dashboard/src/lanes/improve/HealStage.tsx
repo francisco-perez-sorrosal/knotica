@@ -2,6 +2,8 @@ import type { JSX } from "preact";
 import { useEffect, useState } from "preact/hooks";
 
 import { ArenaScorerSwitch } from "./ArenaScorerSwitch";
+import { ProcessBrief } from "../ProcessBrief";
+import { ProcessOutcome } from "../ProcessOutcome";
 import { ArmedButton } from "../ArmedButton";
 import { SectionCard } from "../../SectionCard";
 import { Stat, StatGrid } from "../../Stat";
@@ -79,6 +81,12 @@ export function HealStage({
   // At most one variant's diff panel open at a time — a global toggle, not
   // per-row local state, so opening one closes any other already open.
   const [openDiffId, setOpenDiffId] = useState<string | null>(null);
+  /* Whether the last compile actually landed. `compile action=run` returns
+     the branch it wrote and no sentence about it, and the only visible
+     effect was a status re-read -- so a finished compile and a click that
+     did nothing looked identical. Held in the stage so it survives the
+     arena re-read that follows. */
+  const [compiled, setCompiled] = useState(false);
 
   useEffect(() => {
     if (!open || !client) return;
@@ -125,8 +133,10 @@ export function HealStage({
     if (!client || busy) return;
     setBusy(true);
     setError(null);
+    setCompiled(false);
     try {
       await client.compileRun(topic, vault);
+      setCompiled(true);
       await onStatusRefresh?.();
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : String(cause));
@@ -288,8 +298,9 @@ export function HealStage({
           <>
             {/* Sibling of the button, never a child: the accessible name
                 stays `Compile now` and the armed→confirm contract is
-                untouched. */}
-            <span class="chip cost">billed</span>
+                untouched. The brief carries the chip plus the two answers the
+                chip alone cannot give -- why now, and what it writes. */}
+            <ProcessBrief process="improve.compile_run" term="why re-optimise" />
             <ArmedButton
               armed={armed}
               busy={busy}
@@ -306,11 +317,14 @@ export function HealStage({
           </>
         }
       >
-        <p class="muted">
-          A fresh compile re-optimises the prompt program against the trainset
-          and writes a new candidate branch. It is billed, and the first click
-          only arms the control.
-        </p>
+        <>
+          <p class="muted">
+            A fresh compile re-optimises the prompt program against the trainset
+            and writes a new candidate branch. It is billed, and the first click
+            only arms the control.
+          </p>
+          {compiled ? <ProcessOutcome process="improve.compile_run" /> : null}
+        </>
       </SectionCard>
     </div>
   );

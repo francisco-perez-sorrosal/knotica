@@ -166,6 +166,14 @@ const READ_ONLY_CLIENT_METHODS: readonly string[] = [
  * never calls the client method, so a `tend.doctor_repair` row would have
  * described a control the dashboard does not have. The four `loop`/`baseline`
  * methods were already known.
+ *
+ * `compilePromote` and `goldenReviewSave` joined them when the Improve wave
+ * tried to write their rows and found nothing to describe. `PromoteStage`'s
+ * own docblock says it collapsed onto `branchPromote` so there would be
+ * exactly one promote control, and its test asserts `compilePromote` is never
+ * called -- the method survived the collapse. `goldenReviewSave` has no call
+ * site at all, which is why `improve.datasets_bootstrap` ends `terminal`:
+ * candidates need a review this surface cannot perform.
  */
 const UNWIRED_CLIENT_METHODS: readonly string[] = [
   "loopSetBaseline",
@@ -173,6 +181,8 @@ const UNWIRED_CLIENT_METHODS: readonly string[] = [
   "loopBaselinePolicy",
   "baselineProbe",
   "doctorRepair",
+  "compilePromote",
+  "goldenReviewSave",
 ];
 
 /**
@@ -189,15 +199,6 @@ const UNWIRED_CLIENT_METHODS: readonly string[] = [
  * place instead of in a plan document.
  */
 const AWAITING_LIFECYCLE_CLIENT_METHODS: readonly string[] = [
-  "compileRun",
-  "compilePromote",
-  "goldenReviewSave",
-  "datasetsBootstrap",
-  "datasetsBootstrapTrain",
-  "datasetsFreeze",
-  "loopCadence",
-  "branchPromote",
-  "branchDelete",
   "createTopic",
   "vaultCreate",
   "vaultUse",
