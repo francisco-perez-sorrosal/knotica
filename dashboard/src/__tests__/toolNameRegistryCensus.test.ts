@@ -3,6 +3,10 @@ import { beforeAll, describe, expect, it } from "vitest";
 
 import { LANES } from "../processModel";
 import { BridgeToolClient } from "../toolClient";
+import {
+  TRANSPORT_METHODS,
+  collectPrototypeMethodNames,
+} from "./helpers/clientSurface";
 
 /**
  * The net that was missing when the M1 lane rename shipped.
@@ -39,6 +43,11 @@ import { BridgeToolClient } from "../toolClient";
  *   (3) the six lane names inside `REGISTERED_TOOLS` are exactly `LANES` from
  *       the generated `processModel.ts` mirror, so a lane renamed in
  *       `core/process_model.py` cannot leave this fixture quietly stale.
+ *
+ * The prototype walk itself lives in `helpers/clientSurface.ts`, shared with
+ * `lanes/__tests__/processMeta.test.ts` — both censuses are closed over the
+ * same client surface, and two copies of the walk is exactly how the second
+ * one goes stale.
  *
  * `@types/node` is not a project dependency; `fs`/`path`/`url` are loaded via
  * a dynamic `import()` with a variable specifier, the same technique
@@ -112,14 +121,6 @@ const CLIENT_SOURCES = [
   "lanes/tend/client.ts",
 ];
 
-/** Methods every mount implements differently -- not tool calls. */
-const TRANSPORT_METHODS = [
-  "call",
-  "sendMessage",
-  "updateModelContext",
-  "close",
-];
-
 let fsModule: FsModule;
 let pathModule: PathModule;
 let srcDir: string;
@@ -148,21 +149,6 @@ function recordingApp(): {
     },
   } as unknown as App;
   return { app, calls };
-}
-
-/** Every own, function-valued property along `instance`'s prototype chain. */
-function collectPrototypeMethodNames(instance: object): string[] {
-  const names = new Set<string>();
-  let proto: object | null = Object.getPrototypeOf(instance);
-  while (proto && proto !== Object.prototype) {
-    for (const name of Object.getOwnPropertyNames(proto)) {
-      if (name === "constructor") continue;
-      const descriptor = Object.getOwnPropertyDescriptor(proto, name);
-      if (typeof descriptor?.value === "function") names.add(name);
-    }
-    proto = Object.getPrototypeOf(proto);
-  }
-  return [...names];
 }
 
 // ---------------------------------------------------------------------------
