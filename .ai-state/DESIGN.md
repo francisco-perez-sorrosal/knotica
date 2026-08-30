@@ -409,6 +409,20 @@ snippet extraction, and BM25 scoring run in one shared Python pass, so results a
 Locked invariants. Each is stated with the mechanism that holds it — an invariant with no enforcement
 is a wish. Do not violate without updating this section first.
 
+**The process lifecycle contract.** Every user-triggered process — one that spends, mutates the vault,
+or hands work to another agent — surfaces itself, justifies itself, previews its effect and its cost,
+shows its progress, reports its outcome, and names its follow-up as a reachable destination. The six
+answers are declared once per process in `dashboard/src/lanes/processMeta.ts` and consumed by shared
+compositions; no surface authors them inline. The registry is **closed over the `ToolClient` method
+surface** — the dashboard's only route to the server — so a process cannot exist without a row, and its
+`next` anchors are validated against the lane/stage census in `core/process_model.py`, so a follow-up
+cannot point at a destination the process model does not declare. `dec-091`'s anti-dead-end guarantee —
+*every state names who acts next* — is the server-side half of this contract; the registry is the
+client-side half, and the two are the same rule applied at two layers. Held by
+`lanes/__tests__/processMeta.test.ts` (seven groups: completeness against the client surface, trigger
+routing, raw-trigger interdiction, phase completeness and its cross-field invariants, anchor validity,
+Home-acts-on-nothing, copy uniqueness). `dec-106`.
+
 **The `handoff` stage — an amendment that strengthens client-as-brain, not an exception to it.**
 *(Design target; `Status: Planned` until the process-model declaration lands.)* Client-as-brain has
 always meant that some steps of a user-facing process can only be performed by the client's LLM — most

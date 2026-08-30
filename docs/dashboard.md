@@ -15,6 +15,7 @@ and shared tools.
 - [Handoff Stages](#handoff-stages)
 - [Legacy `?pane=` routing](#legacy-pane-routing)
 - [Shared components](#shared-components)
+  - [What every action tells you](#what-every-action-tells-you)
 - [Design language](#design-language)
 - [Obsidian links](#obsidian-links)
 - [Develop / rebuild](#develop--rebuild)
@@ -392,6 +393,32 @@ Embedded inside other lanes, not top-level:
 | Stage-body grammar (`SectionCard`, `Stat` / `StatGrid`, `StateList`, `TermHint`) | Every Improve stage; Answer's React card; Fill's Ingest/Gate stage | The shared layout primitives every stage interior is built from: a titled card with header/footer slots, a label/value stat grid, a list of state-tinted rows, and a click-to-open term explainer that pairs with `InfoPopover`. |
 | Scoreboard, prompt diff, promote/delete preview (`ScoreboardPanel`, `PromptDiff`, `PromotePreview`, `DeletePreview`) | Improve lane (Promote stage mainly; `PromptDiff` also in Gate and Prove) | Per-topic baseline summary, unified prompt diffs, and preview-before-apply confirmation for promoting or deleting a candidate branch. |
 | Note-promote dialog (`NotePromoteDialog`) | Tend lane (Drift stage) | Offers **Training example** always and **Knowledge gap** for dispute/gap/question notes, from `DriftStage`. |
+| Process brief / outcome (`ProcessBrief`, `ProcessOutcome`) | Beside every process trigger, in every lane | The lifecycle contract, rendered — see below. |
+
+### What every action tells you
+
+Every action that spends, changes the wiki, or hands work to your Claude session answers the same
+six questions, in the same order, everywhere on the surface:
+
+| | Question | Where you see it |
+|---|---|---|
+| 1 | *Something here wants me.* | The control, where you are standing — and on Home when it is why a topic is stuck |
+| 2 | *Why is this necessary?* | The **why …** link beside the control, first half |
+| 3 | *What will happen, and what will it cost?* | The same link's second half, plus the spend chip (`billed`, `arms billing`, `costs tokens`) and whichever confirm the action uses |
+| 4 | *What is happening now?* | The control's own spinner and busy state |
+| 5 | *What was done?* | A line that states what changed — never a list that silently re-reads itself |
+| 6 | *What's next, and why?* | A **NEXT STEP** line naming a lane and stage, or saying plainly that nothing follows |
+
+The answers are data, not habit: they live in `dashboard/src/lanes/processMeta.ts`, one row per
+process, and a test suite refuses a build where a mutating action has no row, a row nothing wires,
+a follow-up pointing at a stage that does not exist, or two processes sharing copy. Two consequences
+are worth knowing as a reader. A handoff — Fill's ingest, Learn's pages, `tend migrate` — will only
+ever tell you that the instruction was sent, how often the panel re-reads, and where the work lands;
+it will never claim the work is progressing or done, because the dashboard cannot see it. And
+**Ask** and **Probe it** are the two deliberate exceptions to two-phase billing: both call a model
+on a single click, both wear a `costs tokens` chip, and they are the only two rows in the registry
+that do.
+
 
 ## Design language
 
