@@ -4098,3 +4098,13 @@ button.loop-node:focus-visible {
   .spin { animation: busy-fade 1.6s var(--ease-out) infinite; }
   @keyframes busy-fade { 0%, 100% { opacity: 1; } 50% { opacity: .35; } }
 }
+
+/* A labelled copy action: the icon button widens to carry visible text. The
+   accessible name then comes from that text -- `CopyBlock` drops its
+   `aria-label` in this mode rather than double-labelling the control. */
+.copy-block-action[data-labelled="true"] {
+  width: auto;
+  gap: var(--space-2);
+  padding-inline: var(--space-2);
+  font: var(--fs-xs) var(--sans);
+}
