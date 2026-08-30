@@ -12,12 +12,19 @@ skip steps — this is the client-as-brain choreography the dashboard cannot exe
    nothing else. Take `topic` from `$2`, or infer it from the conversation — the gap-fill
    suggestion just discussed. Only if neither is inferable, call `wiki_status(view="scope")` and
    ask once, offering the vault's topics.
-2. Call `fill action=session_status` with `topic`/`suggestion_id` to read the session's state and
-   `next.actor`. Report the state plainly.
-   - `next.actor` is `you`, `system`, or `none` — there is nothing for you to write. Report the
-     state (waiting on approval, already merged, refused, blocked, or swept) and stop.
-   - Only `next.actor: claude` continues past this point.
-3. If the state is `not_started`, call `fill action=source_ingest_open` with `topic`/
+2. Call `fill action=session_status` with `topic`/`suggestion_id` to read the session's `state`.
+   Report the state plainly, then branch on **the state**, not on `next.actor` — the actor answers
+   "whose turn is it", and a user who dispatched this command is the `you` actor taking their turn.
+   - `not_started` or `swept` — open (or reopen) the candidate session: continue at step 3.
+   - `refused` — reopen the quarantined session and rework it: continue at steps 3-4.
+   - `waiting_on_client` or `rework_in_flight` — keep writing: continue at step 4.
+   - `client_wrote` — the candidate is already written: go straight to the preflight at step 5.
+   - `blocked` — **stop.** Report `gate_eligible_reason` and name the fix: freeze a baseline in
+     `improve` · instrument.
+   - `submitted` — **stop.** The gate is evaluating the candidate; report that and wait.
+   - `merged` — **stop.** Terminal; report the verdict.
+3. If the session is not already open — state `not_started`, `swept`, or `refused` — call
+   `fill action=source_ingest_open` with `topic`/
    `suggestion_id` to open (or resume) the candidate session. It returns the `candidate` handle,
    the provenance to weave into the pages, and a resume block listing what is already written —
    continue from there, never restart.
