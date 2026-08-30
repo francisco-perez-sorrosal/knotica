@@ -866,6 +866,357 @@ describe("the approve stage's toolbar", () => {
   });
 });
 
+// ---------------------------------------------------------------------------
+// The approve stage — a decided row transforms in place, it never vanishes
+// ---------------------------------------------------------------------------
+
+/**
+ * A fake whose suggestions read *reflects* the decisions applied to it: the
+ * server drops a decided record from the `pending` filter, so the reload after
+ * a verdict no longer carries it. That absence is the whole reason the ghost
+ * exists -- a fake that keeps serving the decided row cannot characterize it.
+ *
+ * `withdraw` puts the record back, in its original slot, exactly as the server
+ * returning it to `pending` would.
+ */
+function decidingClient(initial: SuggestionRecord[]) {
+  let live = initial.map((row) => row.suggestion_id);
+  const rows = () => initial.filter((row) => live.includes(row.suggestion_id));
+  const suggestionsRead = vi.fn(async (..._args: unknown[]) =>
+    baseSuggestionsResult({
+      suggestions: rows(),
+      status_counts: {
+        pending: rows().length,
+        approved: initial.length - rows().length,
+        rejected: 0,
+        deferred: 0,
+        ingested: 0,
+      },
+    }),
+  );
+  const suggestionsReview = vi.fn(async (...args: unknown[]) => {
+    const id = args[1] as string;
+    const action = args[2] as string;
+    live =
+      action === "withdraw"
+        ? [...live, id]
+        : live.filter((entry) => entry !== id);
+    return { mode: "apply" as const };
+  });
+  const client = {
+    gapsRead: vi.fn(async (..._args: unknown[]) => baseGapsResult({ gaps: [] })),
+    suggestionsRead,
+    gapfillDiscover: vi.fn(),
+    suggestionsReview,
+  } as unknown as ToolClient;
+  return { client, suggestionsRead, suggestionsReview };
+}
+
+function triageRows(container: Element): HTMLElement[] {
+  return Array.from(
+    stageNodes(container)[APPROVE].querySelectorAll<HTMLElement>(".triage-row"),
+  );
+}
+
+function rowFor(container: Element, title: string): HTMLElement {
+  const row = triageRows(container).find(
+    (node) => (node.querySelector(".triage-title")?.textContent ?? "") === title,
+  );
+  if (!row) throw new Error(`no triage row titled ${title}`);
+  return row;
+}
+
+/** The ghost's own sentence -- glyph and word live in separate spans, so the
+ *  assertion reads the statement's text rather than querying for one string. */
+function ghostStatement(container: Element, title: string): string {
+  return rowFor(container, title).querySelector(".triage-ghost-statement")?.textContent ?? "";
+}
+
+async function approveRow(container: Element, title: string): Promise<void> {
+  await vi.waitFor(() => rowFor(container, title));
+  fireEvent.click(within(rowFor(container, title)).getByRole("button", { name: /^✓ approve$/i }));
+}
+
+describe("a decided row's ghost", () => {
+  it("keeps the approved row on screen, stating what became of it", async () => {
+    const { client } = decidingClient([baseSuggestion()]);
+    const container = renderQueueStage(client);
+    const title = baseCandidate().title;
+    await approveRow(container, title);
+
+    // The row is still there -- a vanish is what made the click look like a no-op.
+    await vi.waitFor(() =>
+      expect(within(rowFor(container, title)).getByText(/queued for ingest/i)).toBeTruthy(),
+    );
+    expect(rowFor(container, title).dataset.decision).toBe("approved");
+    // ...and it is no longer offering the decision it has already taken.
+    expect(
+      within(rowFor(container, title)).queryByRole("button", { name: /^✓ approve$/i }),
+    ).toBeNull();
+  });
+
+  // Titles are deliberately free of the verbs: a row's disclosure is named
+  // "Details for <title>", so a candidate called "Reject me" would collide
+  // with the accessible name of its own reject button.
+  it("states a rejection and a deferral in the same place, each toned to its own decision", async () => {
+    const rows = [
+      baseSuggestion({ suggestion_id: "s_r", candidate: baseCandidate({ title: "Cardinal" }) }),
+      baseSuggestion({ suggestion_id: "s_d", candidate: baseCandidate({ title: "Sparrow" }) }),
+    ];
+    const { client } = decidingClient(rows);
+    const container = renderQueueStage(client);
+    await vi.waitFor(() => expect(triageRows(container)).toHaveLength(2));
+
+    fireEvent.click(
+      within(rowFor(container, "Cardinal")).getByRole("button", { name: /^✕ reject/i }),
+    );
+    fireEvent.input(
+      within(rowFor(container, "Cardinal")).getByPlaceholderText(/why doesn't this source fit/i),
+      { target: { value: "off-topic" } },
+    );
+    fireEvent.click(
+      within(rowFor(container, "Cardinal")).getByRole("button", { name: /confirm reject/i }),
+    );
+    await vi.waitFor(() => expect(rowFor(container, "Cardinal").dataset.decision).toBe("rejected"));
+
+    fireEvent.click(
+      within(rowFor(container, "Sparrow")).getByRole("button", { name: /^⧗ defer$/i }),
+    );
+    await vi.waitFor(() => expect(rowFor(container, "Sparrow").dataset.decision).toBe("deferred"));
+
+    // Word plus glyph, never the left-edge tone alone (WCAG 1.4.1).
+    expect(ghostStatement(container, "Cardinal")).toMatch(/✕\s*rejected/);
+    expect(ghostStatement(container, "Sparrow")).toMatch(/⧗\s*deferred/);
+  });
+
+  it("holds the ghost's own slot under priority order", async () => {
+    const { client } = decidingClient(triageFixtures());
+    const container = renderQueueStage(client);
+    await vi.waitFor(() =>
+      expect(rowTitles(container)).toEqual(["Delta", "Alpha", "Bravo", "Charlie"]),
+    );
+
+    await approveRow(container, "Bravo");
+
+    await vi.waitFor(() =>
+      expect(within(rowFor(container, "Bravo")).getByText(/queued for ingest/i)).toBeTruthy(),
+    );
+    expect(rowTitles(container)).toEqual(["Delta", "Alpha", "Bravo", "Charlie"]);
+  });
+
+  it("holds the ghost's own slot under newest order, which has no comparator to re-derive it", async () => {
+    const { client } = decidingClient(triageFixtures());
+    const container = renderQueueStage(client);
+    await vi.waitFor(() => expect(rowTitles(container)).toHaveLength(4));
+    fireEvent.click(
+      within(stageNodes(container)[APPROVE]).getByRole("button", { name: "newest" }),
+    );
+    await vi.waitFor(() =>
+      expect(rowTitles(container)).toEqual(["Charlie", "Bravo", "Alpha", "Delta"]),
+    );
+
+    await approveRow(container, "Bravo");
+
+    await vi.waitFor(() =>
+      expect(within(rowFor(container, "Bravo")).getByText(/queued for ingest/i)).toBeTruthy(),
+    );
+    expect(rowTitles(container)).toEqual(["Charlie", "Bravo", "Alpha", "Delta"]);
+  });
+
+  it("moves the filter pill counts in the same reload", async () => {
+    const { client } = decidingClient(triageFixtures());
+    const container = renderQueueStage(client);
+    const approve = stageNodes(container)[APPROVE];
+    expect(await within(approve).findByRole("button", { name: "pending 4" })).toBeTruthy();
+
+    await approveRow(container, "Bravo");
+
+    await vi.waitFor(() =>
+      expect(within(approve).getByRole("button", { name: "pending 3" })).toBeTruthy(),
+    );
+    expect(within(approve).getByRole("button", { name: "accepted 1" })).toBeTruthy();
+  });
+});
+
+describe("the ghost's withdraw undo", () => {
+  it("offers Withdraw on an approved ghost only", async () => {
+    const rows = [
+      baseSuggestion({ suggestion_id: "s_a", candidate: baseCandidate({ title: "Cardinal" }) }),
+      baseSuggestion({ suggestion_id: "s_d", candidate: baseCandidate({ title: "Sparrow" }) }),
+    ];
+    const { client } = decidingClient(rows);
+    const container = renderQueueStage(client);
+    await vi.waitFor(() => expect(triageRows(container)).toHaveLength(2));
+
+    await approveRow(container, "Cardinal");
+    await vi.waitFor(() => expect(rowFor(container, "Cardinal").dataset.decision).toBe("approved"));
+    fireEvent.click(
+      within(rowFor(container, "Sparrow")).getByRole("button", { name: /^⧗ defer$/i }),
+    );
+    await vi.waitFor(() => expect(rowFor(container, "Sparrow").dataset.decision).toBe("deferred"));
+
+    expect(
+      within(rowFor(container, "Cardinal")).getByRole("button", { name: /^withdraw$/i }),
+    ).toBeTruthy();
+    expect(
+      within(rowFor(container, "Sparrow")).queryByRole("button", { name: /^withdraw$/i }),
+    ).toBeNull();
+  });
+
+  it("round-trips: withdrawing returns the record to pending and drops its ghost", async () => {
+    const { client, suggestionsReview } = decidingClient([baseSuggestion()]);
+    const container = renderQueueStage(client);
+    const title = baseCandidate().title;
+    await approveRow(container, title);
+    await vi.waitFor(() => expect(rowFor(container, title).dataset.decision).toBe("approved"));
+
+    fireEvent.click(within(rowFor(container, title)).getByRole("button", { name: /withdraw/i }));
+
+    await vi.waitFor(() =>
+      expect(
+        within(rowFor(container, title)).getByRole("button", { name: /^✓ approve$/i }),
+      ).toBeTruthy(),
+    );
+    expect(rowFor(container, title).dataset.decision).toBeUndefined();
+    expect(suggestionsReview.mock.calls[1]).toContain("withdraw");
+    // Still exactly one row -- the live record replaced its own ghost.
+    expect(triageRows(container)).toHaveLength(1);
+  });
+});
+
+describe("the ghost's lifetime", () => {
+  it("clears on a filter switch -- a different filter is a different context", async () => {
+    const { client } = decidingClient([baseSuggestion()]);
+    const container = renderQueueStage(client);
+    const title = baseCandidate().title;
+    await approveRow(container, title);
+    await vi.waitFor(() => expect(rowFor(container, title).dataset.decision).toBe("approved"));
+
+    fireEvent.click(
+      within(stageNodes(container)[APPROVE]).getByRole("button", { name: /^all/i }),
+    );
+
+    await vi.waitFor(() => expect(triageRows(container)).toHaveLength(0));
+  });
+
+  it("clears on the manual refresh -- asking for the truth gets the truth", async () => {
+    const { client } = decidingClient([baseSuggestion()]);
+    const container = renderQueueStage(client);
+    const title = baseCandidate().title;
+    await approveRow(container, title);
+    await vi.waitFor(() => expect(rowFor(container, title).dataset.decision).toBe("approved"));
+
+    fireEvent.click(
+      within(stageNodes(container)[APPROVE]).getByRole("button", { name: "Refresh" }),
+    );
+
+    await vi.waitFor(() => expect(triageRows(container)).toHaveLength(0));
+  });
+
+  it("survives a Load more append -- widening the page is not a context change", async () => {
+    const first = baseSuggestion({
+      suggestion_id: "s_first",
+      candidate: baseCandidate({ title: "First" }),
+    });
+    const second = baseSuggestion({
+      suggestion_id: "s_second",
+      candidate: baseCandidate({ title: "Second" }),
+    });
+    // Keyed on the cursor, not on call order: the reload after a decision
+    // re-reads page one, which by then no longer carries the decided record.
+    let decided = false;
+    const suggestionsRead = vi.fn(async (...args: unknown[]) =>
+      args[2]
+        ? baseSuggestionsResult({ suggestions: [second] })
+        : baseSuggestionsResult({
+            suggestions: decided ? [] : [first],
+            has_more: true,
+            next_cursor: "cur-2",
+          }),
+    );
+    const client = {
+      gapsRead: vi.fn(async () => baseGapsResult({ gaps: [] })),
+      suggestionsRead,
+      gapfillDiscover: vi.fn(),
+      suggestionsReview: vi.fn(async () => {
+        decided = true;
+        return { mode: "apply" as const };
+      }),
+    } as unknown as ToolClient;
+
+    const container = renderQueueStage(client);
+    await approveRow(container, "First");
+    await vi.waitFor(() => expect(rowFor(container, "First").dataset.decision).toBe("approved"));
+
+    fireEvent.click(
+      within(stageNodes(container)[APPROVE]).getByRole("button", { name: /load more/i }),
+    );
+
+    await vi.waitFor(() => expect(rowFor(container, "Second")).toBeTruthy());
+    expect(rowFor(container, "First").dataset.decision).toBe("approved");
+  });
+});
+
+describe("the decision's non-visual feedback", () => {
+  it("announces the outcome and what the queue holds now", async () => {
+    const { client } = decidingClient(triageFixtures());
+    const container = renderQueueStage(client);
+    await vi.waitFor(() => expect(triageRows(container)).toHaveLength(4));
+
+    await approveRow(container, "Bravo");
+
+    const live = stageNodes(container)[APPROVE].querySelector('[role="status"]');
+    await vi.waitFor(() =>
+      expect(live?.textContent ?? "").toMatch(/approved: bravo — 3 pending remaining/i),
+    );
+  });
+
+  it("announces a withdrawal too -- an undo is an outcome", async () => {
+    const { client } = decidingClient([baseSuggestion()]);
+    const container = renderQueueStage(client);
+    const title = baseCandidate().title;
+    await approveRow(container, title);
+    await vi.waitFor(() => expect(rowFor(container, title).dataset.decision).toBe("approved"));
+
+    fireEvent.click(within(rowFor(container, title)).getByRole("button", { name: /withdraw/i }));
+
+    const live = stageNodes(container)[APPROVE].querySelector('[role="status"]');
+    await vi.waitFor(() =>
+      expect(live?.textContent ?? "").toMatch(/withdrawn, back to pending/i),
+    );
+  });
+
+  it("marks the row busy and busies only the control that was clicked", async () => {
+    let release = (): void => {};
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const { client } = decidingClient([baseSuggestion()]);
+    const slow = client as unknown as { suggestionsReview: (...args: unknown[]) => unknown };
+    const inner = slow.suggestionsReview.bind(client);
+    slow.suggestionsReview = async (...args: unknown[]) => {
+      await gate;
+      return inner(...args);
+    };
+
+    const container = renderQueueStage(client);
+    const title = baseCandidate().title;
+    await approveRow(container, title);
+
+    await vi.waitFor(() => expect(rowFor(container, title).getAttribute("aria-busy")).toBe("true"));
+    const row = within(rowFor(container, title));
+    // The clicked control shows its busy form; its peer keeps its own word,
+    // disabled but not pretending to be the one in flight.
+    expect(row.getByRole("button", { name: "…" })).toBeTruthy();
+    expect(isDisabled(row.getByRole("button", { name: /⧗ defer/i }))).toBe(true);
+
+    release();
+    await vi.waitFor(() =>
+      expect(rowFor(container, title).getAttribute("aria-busy")).toBeNull(),
+    );
+  });
+});
+
 describe("the triage row's disclosure", () => {
   it("hides the failed question until the row is expanded", async () => {
     const { client } = fakeClient();

@@ -4050,3 +4050,28 @@ button.loop-node:focus-visible {
   padding-top: var(--space-3);
 }
 .triage-detail p { margin: var(--space-1) 0; }
+
+/* A verdict in flight. The row keeps its size and its slot -- only its weight
+   drops -- so the list does not reflow under a click that has not landed yet.
+   `aria-busy` is the state; there is no second class to forget. */
+.triage-row[aria-busy="true"] { opacity: .55; }
+
+/* The ghost: a row the reader has just decided, held in place after the
+   server dropped it from the filtered payload. The left edge re-tones from
+   the source's reputability tier to the decision, which is what the row is
+   now *about* -- these follow the `data-tier` rules deliberately, so equal
+   specificity resolves to the decision. Tone is never the only carrier: the
+   statement prints the decision word and its glyph. */
+.triage-row[data-decision="approved"] { border-left-color: var(--good); }
+.triage-row[data-decision="rejected"] { border-left-color: var(--bad); }
+.triage-row[data-decision="deferred"] { border-left-color: var(--neutral); }
+.triage-ghost-statement {
+  margin: 0;
+  color: var(--muted);
+  font: var(--fs-xs)/1.5 var(--mono);
+}
+/* Sits where the three actions sat, so the eye finds the outcome exactly
+   where it left the button it pressed. */
+.triage-ghost {
+  gap: var(--space-3);
+}

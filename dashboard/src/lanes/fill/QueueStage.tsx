@@ -7,16 +7,18 @@ import { TwoPhaseConfirm, useTwoPhaseAction } from "../../TwoPhaseAction";
 import type { ToolClient } from "../../toolClient";
 import { GapOriginBadge } from "./badges";
 import { SuggestionRow } from "./SuggestionRow";
-import { sortSuggestions } from "./suggestionSort";
-import type { QueueSortMode } from "./suggestionSort";
+import { mergeGhosts } from "./suggestionSort";
+import type { GhostRow, QueueSortMode } from "./suggestionSort";
 import type {
   GapfillDiscoverResult,
   GapRecord,
   GapsReadResult,
   LaneRailStageState,
   SuggestionAction,
+  SuggestionRecord,
   SuggestionsReadResult,
   SuggestionsStatusFilter,
+  SuggestionStatus,
   WikiStatus,
 } from "../../types";
 
@@ -38,6 +40,14 @@ import type {
  * collapsed `SuggestionRow` -- see that file for the row grammar. Ordering is
  * client-side over the loaded pages, which the toolbar says out loud whenever
  * the read has more to give.
+ *
+ * A decided row never vanishes. The reload after a verdict re-reads under the
+ * active filter, so the record it just decided is absent from the new payload;
+ * the row is therefore snapshotted first and re-rendered in its own slot as a
+ * *ghost* stating what became of it (an approval keeps a quiet Withdraw, the
+ * one reversal that spends nothing). Without this the only feedback for a
+ * click was a row disappearing from a list of dozens of near-identical rows --
+ * indistinguishable from nothing having happened.
  *
  * `review_gap` (the human dismiss/reopen transition on a gap) is out of scope
  * here: it is a flat MCP tool already registered, not a dashboard affordance.
@@ -68,6 +78,25 @@ const SORT_MODES: Array<{ value: QueueSortMode; label: string }> = [
   { value: "priority", label: "priority" },
   { value: "newest", label: "newest" },
 ];
+
+/**
+ * Where each triage verb leaves the record. `withdraw` is deliberately absent:
+ * it returns the suggestion to `pending`, so the reload carries it back as a
+ * live row and its ghost is dropped rather than restated.
+ */
+const DECIDED_STATUS: Partial<Record<SuggestionAction, SuggestionStatus>> = {
+  approve: "approved",
+  reject: "rejected",
+  defer: "deferred",
+};
+
+/** How the live region opens its sentence, per verb. */
+const DECISION_ANNOUNCEMENT: Partial<Record<SuggestionAction, string>> = {
+  approve: "Approved",
+  reject: "Rejected",
+  defer: "Deferred",
+  withdraw: "Withdrawn, back to pending",
+};
 
 const STAGE_ORDER = ["gap", "discover", "approve"] as const;
 type StageId = (typeof STAGE_ORDER)[number];
@@ -102,7 +131,16 @@ export function QueueStage({
   const [result, setResult] = useState<SuggestionsReadResult | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [busyId, setBusyId] = useState<string | null>(null);
+  const [busy, setBusy] = useState<{ id: string; action: SuggestionAction } | null>(null);
+  /**
+   * Rows decided in this session that the current filter no longer returns.
+   * Held so a decision *transforms* its row instead of deleting it: among
+   * dozens of near-identical candidates a vanishing row is indistinguishable
+   * from a click that did nothing, which is the confusion this exists to fix.
+   */
+  const [ghosts, setGhosts] = useState<Map<string, GhostRow>>(new Map());
+  /** What the live region last said; the only outcome a screen reader gets. */
+  const [announcement, setAnnouncement] = useState("");
   const [reasonDraft, setReasonDraft] = useState<Record<string, string>>({});
   const [rejectOpenId, setRejectOpenId] = useState<string | null>(null);
   const [gaps, setGaps] = useState<GapsReadResult | null>(null);
@@ -145,8 +183,9 @@ export function QueueStage({
     }
   }
 
-  async function load(cursor = "", append = false) {
-    if (!client || !topic) return;
+  /** Returns the fresh payload so a caller can announce against its counts. */
+  async function load(cursor = "", append = false): Promise<SuggestionsReadResult | null> {
+    if (!client || !topic) return null;
     setLoading(!append);
     setError(null);
     try {
@@ -162,17 +201,32 @@ export function QueueStage({
           ? { ...next, suggestions: [...prev.suggestions, ...next.suggestions] }
           : next,
       );
+      return next;
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : String(cause));
+      return null;
     } finally {
       setLoading(false);
     }
   }
 
+  /**
+   * Ghosts are session-local to one *context*: a filter, topic or vault switch
+   * is a deliberate change of what the reader is looking at, and carrying rows
+   * decided under the old context into the new one would be a lie about what
+   * the queue contains. Appending a page and re-sorting are not context
+   * changes, so neither clears them.
+   */
   useEffect(() => {
+    setGhosts(new Map());
     void load();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [client, topic, vault, filter]);
+
+  function refresh() {
+    setGhosts(new Map());
+    void load();
+  }
 
   // Not keyed on `filter` -- that selects a *suggestion* status and says
   // nothing about which gaps to show.
@@ -181,9 +235,24 @@ export function QueueStage({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [client, topic, vault]);
 
-  async function decide(suggestionId: string, action: SuggestionAction, reason = "") {
-    if (!client || busyId) return;
-    setBusyId(suggestionId);
+  /**
+   * Apply one verdict, then keep the row on screen saying what became of it.
+   *
+   * The reload re-reads under the active filter, so a decided suggestion is
+   * simply absent from the new payload. Snapshotting it *before* the reload is
+   * what turns a silent deletion into a visible transformation; `index` is the
+   * slot it occupied in the list that was clicked in, so it comes back exactly
+   * there rather than at the end of a fifty-row queue.
+   */
+  async function decide(
+    suggestionId: string,
+    action: SuggestionAction,
+    index: number,
+    reason = "",
+  ) {
+    if (!client || busy) return;
+    const snapshot = suggestions.find((row) => row.suggestion_id === suggestionId);
+    setBusy({ id: suggestionId, action });
     setError(null);
     try {
       await client.suggestionsReview(topic, suggestionId, action, "apply", reason, vault);
@@ -193,11 +262,13 @@ export function QueueStage({
         delete next[suggestionId];
         return next;
       });
-      await Promise.all([load(), onStatusRefresh?.()]);
+      setGhosts((prev) => nextGhosts(prev, suggestionId, action, index, reason, snapshot));
+      const [fresh] = await Promise.all([load(), onStatusRefresh?.()]);
+      setAnnouncement(announce(action, snapshot, fresh));
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : String(cause));
     } finally {
-      setBusyId(null);
+      setBusy(null);
     }
   }
 
@@ -207,7 +278,11 @@ export function QueueStage({
 
   // Re-sorted on every render, including after "Load more" appends -- the
   // ordering is a view over whatever is loaded, never a one-shot decision.
-  const suggestions = sortSuggestions(result?.suggestions ?? [], sort);
+  // Ghosts join the same list through the same ordering, so a decided row
+  // holds its slot instead of jumping anywhere.
+  const loaded = result?.suggestions ?? [];
+  const suggestions = mergeGhosts(loaded, [...ghosts.values()], sort);
+  const loadedIds = new Set(loaded.map((row) => row.suggestion_id));
   const counts = result?.status_counts;
   // Filter-independent: `status_counts` covers every status, so the total is
   // its sum -- `total_count` describes only the *current* filter's slice.
@@ -323,7 +398,7 @@ export function QueueStage({
           sort={sort}
           onSort={setSort}
           loading={loading}
-          onRefresh={() => void load()}
+          onRefresh={refresh}
           refusedCount={refusedCount}
           pageIsPartial={result?.has_more ?? false}
           loadedCount={suggestions.length}
@@ -368,16 +443,18 @@ export function QueueStage({
           </div>
         ) : (
           <ul class="triage-list">
-            {suggestions.map((suggestion) => (
+            {suggestions.map((suggestion, index) => (
               <SuggestionRow
                 key={suggestion.suggestion_id}
                 suggestion={suggestion}
-                busy={busyId === suggestion.suggestion_id}
-                anyBusy={busyId !== null}
+                busyAction={busy?.id === suggestion.suggestion_id ? busy.action : null}
+                anyBusy={busy !== null}
+                ghost={!loadedIds.has(suggestion.suggestion_id)}
                 rejectOpen={rejectOpenId === suggestion.suggestion_id}
                 reasonDraft={reasonDraft[suggestion.suggestion_id] ?? ""}
-                onApprove={() => void decide(suggestion.suggestion_id, "approve")}
-                onDefer={() => void decide(suggestion.suggestion_id, "defer")}
+                onApprove={() => void decide(suggestion.suggestion_id, "approve", index)}
+                onDefer={() => void decide(suggestion.suggestion_id, "defer", index)}
+                onWithdraw={() => void decide(suggestion.suggestion_id, "withdraw", index)}
                 onOpenReject={() => setRejectOpenId(suggestion.suggestion_id)}
                 onCancelReject={() => setRejectOpenId(null)}
                 onReasonChange={(value) =>
@@ -387,6 +464,7 @@ export function QueueStage({
                   void decide(
                     suggestion.suggestion_id,
                     "reject",
+                    index,
                     reasonDraft[suggestion.suggestion_id] ?? "",
                   )
                 }
@@ -394,6 +472,17 @@ export function QueueStage({
             ))}
           </ul>
         )}
+
+        {/* The only outcome a screen reader gets: the row's transformation is
+            silent, and `status_counts` moves without any focus change.
+
+            Keyed on purpose. Its preceding sibling alternates between a `<ul>`
+            and a bare `<p>` ("Loading suggestions…"), and an unkeyed `<p>` here
+            is a diff match for that one -- Preact would recycle this very node
+            into the loading line and take the announcement with it. */}
+        <p key="queue-live" class="sr-only" role="status">
+          {announcement}
+        </p>
 
         {result?.has_more ? (
           <button
@@ -408,6 +497,53 @@ export function QueueStage({
       </StageShell>
     </>
   );
+}
+
+/**
+ * The ghost map after one applied verdict.
+ *
+ * A verdict that decides the record stamps a snapshot -- status, decision time
+ * and reason -- so the row can state its own outcome without a second read. A
+ * `withdraw` decides nothing: it puts the record back in the pending queue, so
+ * its ghost is dropped and the reload's live row takes over.
+ */
+function nextGhosts(
+  prev: Map<string, GhostRow>,
+  suggestionId: string,
+  action: SuggestionAction,
+  index: number,
+  reason: string,
+  snapshot?: SuggestionRecord,
+): Map<string, GhostRow> {
+  const next = new Map(prev);
+  const landed = DECIDED_STATUS[action];
+  if (!landed || !snapshot) {
+    next.delete(suggestionId);
+    return next;
+  }
+  next.set(suggestionId, {
+    index,
+    record: {
+      ...snapshot,
+      status: landed,
+      decided_at: new Date().toISOString(),
+      decided_reason: reason || null,
+    },
+  });
+  return next;
+}
+
+/** One sentence: what was decided, on what, and what the queue holds now. */
+function announce(
+  action: SuggestionAction,
+  snapshot: SuggestionRecord | undefined,
+  fresh: SuggestionsReadResult | null,
+): string {
+  const verb = DECISION_ANNOUNCEMENT[action] ?? "Decided";
+  const title = snapshot?.candidate.title ?? "suggestion";
+  const pending = fresh?.status_counts.pending;
+  const remaining = pending == null ? "" : ` — ${pending} pending remaining`;
+  return `${verb}: ${title}${remaining}`;
 }
 
 /**

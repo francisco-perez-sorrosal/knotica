@@ -40,3 +40,45 @@ export function sortSuggestions(
   if (mode === "newest") return [...rows];
   return [...rows].sort(comparePriority);
 }
+
+/**
+ * A row the reader has just decided, held on screen after the server dropped
+ * it from the filtered payload.
+ *
+ * `index` is the position it occupied in the list that was clicked in. Under
+ * `priority` it is unused -- the comparator re-derives the same slot from the
+ * snapshot's own score and rank -- but `newest` is the wire's order and has no
+ * comparator to re-derive anything from, so the remembered position is the
+ * only anchor that keeps the row where the eye left it.
+ */
+export interface GhostRow {
+  record: SuggestionRecord;
+  index: number;
+}
+
+/**
+ * The rendered list: the loaded page plus every ghost the page no longer
+ * carries, each in the slot it held before it was decided.
+ *
+ * A ghost whose id is back in the payload (a withdrawn approval, a re-read
+ * that returned it) is dropped -- the live record always wins over a snapshot
+ * of it.
+ */
+export function mergeGhosts(
+  loaded: readonly SuggestionRecord[],
+  ghosts: readonly GhostRow[],
+  mode: QueueSortMode,
+): SuggestionRecord[] {
+  const present = new Set(loaded.map((row) => row.suggestion_id));
+  const absent = ghosts.filter((ghost) => !present.has(ghost.record.suggestion_id));
+  if (absent.length === 0) return sortSuggestions(loaded, mode);
+  if (mode === "priority") {
+    return sortSuggestions([...loaded, ...absent.map((ghost) => ghost.record)], mode);
+  }
+  const rows = [...loaded];
+  // Ascending, so splicing an earlier ghost cannot shift a later one's anchor.
+  for (const ghost of [...absent].sort((a, b) => a.index - b.index)) {
+    rows.splice(Math.min(ghost.index, rows.length), 0, ghost.record);
+  }
+  return rows;
+}

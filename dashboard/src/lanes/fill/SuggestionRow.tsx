@@ -3,7 +3,19 @@ import type { JSX } from "preact";
 
 import { Icon } from "../../icons";
 import { GapOriginBadge, ReputabilityBadge, tierKey } from "./badges";
-import type { GateOutcome, SuggestionRecord } from "./types";
+import type { GateOutcome, SuggestionAction, SuggestionRecord, SuggestionStatus } from "./types";
+
+/**
+ * How a just-decided row states its own outcome: a glyph, the decision word,
+ * and -- where the decision commits the vault to something -- what it committed
+ * to. Word and glyph both, so the re-toned left edge is never the only carrier
+ * (WCAG 1.4.1).
+ */
+const GHOST_DECISION: Partial<Record<SuggestionStatus, { glyph: string; text: string }>> = {
+  approved: { glyph: "✓", text: "approved — queued for ingest" },
+  rejected: { glyph: "✕", text: "rejected" },
+  deferred: { glyph: "⧗", text: "deferred" },
+};
 
 /**
  * One suggestion as a collapsed triage row.
@@ -22,11 +34,18 @@ import type { GateOutcome, SuggestionRecord } from "./types";
  * Opening the reject form auto-expands the row: a reason is a considered
  * judgement, and asking for one while the evidence is folded away would be
  * asking for a guess.
+ *
+ * A row the reader has just decided is passed back as a `ghost`: the server has
+ * already dropped it from the filtered payload, but it keeps its slot here and
+ * swaps its actions for the decision it recorded. The transformation *is* the
+ * feedback -- a row that simply vanished among dozens of near-identical ones
+ * was indistinguishable from nothing having happened at all.
  */
 export function SuggestionRow({
   suggestion,
-  busy,
+  busyAction,
   anyBusy,
+  ghost = false,
   rejectOpen,
   reasonDraft,
   onApprove,
@@ -35,10 +54,14 @@ export function SuggestionRow({
   onCancelReject,
   onReasonChange,
   onSubmitReject,
+  onWithdraw,
 }: {
   suggestion: SuggestionRecord;
-  busy: boolean;
+  /** The verb in flight on *this* row, so only the clicked control goes busy. */
+  busyAction: SuggestionAction | null;
   anyBusy: boolean;
+  /** Decided here, and gone from the payload: render the outcome, not actions. */
+  ghost?: boolean;
   rejectOpen: boolean;
   reasonDraft: string;
   onApprove: () => void;
@@ -47,11 +70,14 @@ export function SuggestionRow({
   onCancelReject: () => void;
   onReasonChange: (value: string) => void;
   onSubmitReject: () => void;
+  onWithdraw?: () => void;
 }): JSX.Element {
   const [open, setOpen] = useState(false);
   const candidate = suggestion.candidate;
+  const busy = busyAction !== null;
   const disabled = anyBusy;
   const decided = suggestion.status !== "pending" && suggestion.status !== "deferred";
+  const ghostDecision = ghost ? GHOST_DECISION[suggestion.status] : undefined;
   // Rejecting needs the evidence visible; the disclosure cannot hide it.
   const expanded = open || rejectOpen;
   const detailId = `triage-detail-${suggestion.suggestion_id}`;
@@ -65,7 +91,13 @@ export function SuggestionRow({
     .join(" · ");
 
   return (
-    <li class="triage-row" data-tier={tierKey(candidate.reputability)} data-open={expanded}>
+    <li
+      class="triage-row"
+      data-tier={tierKey(candidate.reputability)}
+      data-open={expanded}
+      data-decision={ghostDecision ? suggestion.status : undefined}
+      aria-busy={busy ? "true" : undefined}
+    >
       <div class="triage-head">
         <button
           type="button"
@@ -100,7 +132,28 @@ export function SuggestionRow({
           <span class="triage-metric">rank #{suggestion.rank}</span>
         </span>
 
-        {decided ? (
+        {ghostDecision ? (
+          <div class="triage-actions triage-ghost">
+            <p class="triage-ghost-statement">
+              <span aria-hidden="true">{ghostDecision.glyph}</span> {ghostDecision.text}
+            </p>
+            {/* Undo, and nothing more: `withdraw` spends nothing, is itself
+                reversible, and only ever applies to an approval -- so it needs
+                no two-phase confirm, and there is nothing to undo on a
+                rejection or a deferral the reader can simply re-decide. */}
+            {suggestion.status === "approved" && onWithdraw ? (
+              <button
+                type="button"
+                class="quiet-action"
+                data-tone="neutral"
+                disabled={disabled}
+                onClick={onWithdraw}
+              >
+                {busyAction === "withdraw" ? "…" : "Withdraw"}
+              </button>
+            ) : null}
+          </div>
+        ) : decided ? (
           <p class="muted sources-decided triage-decision">
             Decision recorded: <strong>{suggestion.status}</strong>
             {suggestion.decided_reason ? ` — ${suggestion.decided_reason}` : ""}
@@ -114,7 +167,7 @@ export function SuggestionRow({
               disabled={disabled}
               onClick={onApprove}
             >
-              {busy ? "…" : "✓ Approve"}
+              {busyAction === "approve" ? "…" : "✓ Approve"}
             </button>
             {!rejectOpen ? (
               <button
@@ -134,7 +187,7 @@ export function SuggestionRow({
               disabled={disabled}
               onClick={onDefer}
             >
-              {busy ? "…" : "⧗ Defer"}
+              {busyAction === "defer" ? "…" : "⧗ Defer"}
             </button>
           </div>
         )}
@@ -198,7 +251,7 @@ export function SuggestionRow({
                   disabled={busy || !reasonDraft.trim()}
                   onClick={onSubmitReject}
                 >
-                  {busy ? "…" : "Confirm reject"}
+                  {busyAction === "reject" ? "…" : "Confirm reject"}
                 </button>
                 <button type="button" class="ghost" disabled={busy} onClick={onCancelReject}>
                   Cancel

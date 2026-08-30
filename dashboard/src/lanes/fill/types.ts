@@ -212,7 +212,15 @@ export interface GapsReadResult {
   skipped_malformed: number;
 }
 
-export type SuggestionAction = "approve" | "reject" | "defer" | "mark_ingested";
+/**
+ * The verbs `suggestions_review` accepts, matching the server's own `_ACTIONS`
+ * tuple. `withdraw` returns an *approved* suggestion to `pending` while
+ * asserting no ingest happened — the undo the approve queue offers on a row it
+ * has just decided, and the reason this union is not merely the three triage
+ * verbs.
+ */
+export type SuggestionAction =
+  "approve" | "reject" | "defer" | "mark_ingested" | "withdraw";
 
 export interface SuggestionReviewResult {
   mode: "dry-run" | "apply";
