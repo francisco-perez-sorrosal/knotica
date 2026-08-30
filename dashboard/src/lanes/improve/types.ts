@@ -279,6 +279,27 @@ export interface ArenaVariant {
   label: string;
   scalar: number | null;
   status: "pending" | "scored" | "winner" | "lost" | string;
+  /**
+   * Provenance of this variant's scalar — the server carries it per variant
+   * (`core/arena.py::ArenaVariant`) so a bare number stays interpretable:
+   * what measured it, and against how many questions. Absent on races
+   * recorded before provenance existed.
+   */
+  scorer_id?: string | null;
+  n_examples?: number | null;
+  /**
+   * Compact diff-derived line summarizing what this variant changed vs the
+   * base prompt (`core/arena.py::_variant_change_fields`) — e.g. "+3 / -0
+   * lines vs the current prompt — first change: '## Tighter answers'".
+   * `null` on races recorded before this existed, or when the base body was
+   * unavailable at race time.
+   */
+  change_summary?: string | null;
+  /**
+   * Capped unified diff of this variant's body against the base prompt.
+   * `null` under the same conditions as `change_summary`.
+   */
+  diff?: string | null;
 }
 
 export interface ArenaStatus {
@@ -292,6 +313,9 @@ export interface ArenaStatus {
   winner_scalar: number | null;
   candidate_branch: string | null;
   message: string | null;
+  /** Race-level scalar provenance — same contract as the per-variant pair. */
+  scorer_id?: string | null;
+  n_examples?: number | null;
   updated_at?: string;
 }
 
@@ -429,6 +453,8 @@ export interface LoopCadenceConfig {
   eval_min_interval_hours: number;
   eval_window: string;
   eval_num_threads: number;
+  /** `"heuristic"` (free, not gate-comparable) or `"eval"` (billed per variant). */
+  arena_scorer: string;
 }
 
 /** Discriminated by ``confirm_nonce`` presence: preview (phase 1) vs executed (phase 2). */

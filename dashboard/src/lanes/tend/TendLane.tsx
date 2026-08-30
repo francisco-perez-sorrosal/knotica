@@ -12,6 +12,7 @@ import type {
 import { ArmedButton } from "../ArmedButton";
 import { deriveChecklistStages } from "../laneRailState";
 import type { StageState } from "../laneRailState";
+import { LoopStrip } from "../LoopStrip";
 import { DriftStage } from "./DriftStage";
 
 /**
@@ -245,6 +246,15 @@ export function TendLane({
           Action failed: {error}
         </aside>
       ) : null}
+
+      <LoopStrip
+        lane="tend"
+        stages={checklist.map(({ id, title, state }) => ({
+          id,
+          title,
+          state,
+        }))}
+      />
 
       <ol class="lane-rail" aria-label="tend stages">
         <StageShell

@@ -88,3 +88,64 @@ def test_race_reverts_when_no_variant_clears_baseline(template_vault: Path) -> N
     loaded = read_arena_state(store, topic)
     assert loaded is not None
     assert loaded.stage == ArenaStage.reverted
+
+
+def test_race_records_what_each_variant_changed_when_given_the_base(
+    template_vault: Path,
+) -> None:
+    """The change summary/diff are DERIVED from the bodies at race start --
+    the only account of a variant that survives once the bodies are gone."""
+    store = LocalFSStore(template_vault)
+    topic = "agentic-systems"
+    base = load_base_query_body(store, topic)
+    variants = [
+        VariantSpec(id="v1", label="tight", body=base + "\n## Tighter answers\nBe brief.\n"),
+        VariantSpec(id="v2", label="cite", body=base + "\n## Cite harder\nAlways cite.\n"),
+    ]
+
+    def score(_topic: str, _root: Path, body: str) -> float:
+        return 0.9 if "Cite harder" in body else 0.1
+
+    state = race_variants(
+        store,
+        template_vault,
+        topic,
+        variants,
+        baseline_scalar=0.5,
+        score=score,
+        scorer=_COMPARABLE_SCORER,
+        base_body=base,
+    )
+
+    by_id = {variant.id: variant for variant in state.variants}
+    assert by_id["v1"].change_summary is not None
+    assert "## Tighter answers" in by_id["v1"].change_summary
+    assert by_id["v1"].diff is not None
+    assert "+Be brief." in by_id["v1"].diff
+    assert "## Cite harder" in (by_id["v2"].change_summary or "")
+    # Round-trips through the persisted state, so history stays interpretable.
+    reread = read_arena_state(store, topic)
+    assert reread is not None
+    assert reread.variants[0].change_summary == by_id["v1"].change_summary
+
+
+def test_race_without_a_base_body_leaves_the_change_fields_honestly_absent(
+    template_vault: Path,
+) -> None:
+    store = LocalFSStore(template_vault)
+    topic = "agentic-systems"
+    base = load_base_query_body(store, topic)
+    variants = [VariantSpec(id="v1", label="a", body=base + "\n# a\n")]
+
+    state = race_variants(
+        store,
+        template_vault,
+        topic,
+        variants,
+        baseline_scalar=0.5,
+        score=lambda _topic, _root, _body: 0.9,
+        scorer=_COMPARABLE_SCORER,
+    )
+
+    assert state.variants[0].change_summary is None
+    assert state.variants[0].diff is None

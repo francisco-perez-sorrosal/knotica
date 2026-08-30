@@ -286,20 +286,31 @@ describe("Home is an inbox, not a rail", () => {
   });
 });
 
-describe("drift row -- default-collapsed, pays its cost only on expand", () => {
-  it("renders unconditionally with a [Check] affordance", async () => {
+describe("drift row -- statement plus an info affordance, no [Check] button", () => {
+  /**
+   * The prior `[Check]` button had no click handler ("an affordance that
+   * lies," `INTERFACE_DESIGN.md §1 F3`) and is removed, not wired -- design
+   * §6's second of exactly two allowed test rewrites. The statement plus
+   * `InfoPopover` replaces it; the popover's remediation slot carries the
+   * CLI command instead of a fake in-app action.
+   */
+  it("renders unconditionally with a not-checked statement and an info affordance", async () => {
     const { container } = await renderHomeLane(
       attentionPayload([BLOCKED_TOPIC]),
     );
     await vi.waitFor(() =>
       expect(container.textContent).toMatch(/drift/i),
     );
+    expect(container.textContent).toMatch(/not checked/i);
     expect(
-      within(container).getByRole("button", { name: /check/i }),
+      within(container).getByRole("button", { name: /about note drift/i }),
     ).toBeTruthy();
+    expect(
+      within(container).queryByRole("button", { name: /^check$/i }),
+    ).toBeNull();
   });
 
-  it("makes no client call and no onOpenLane call beyond the initial fetch, even when every button is clicked", async () => {
+  it("makes no client call and no onOpenLane call beyond the initial fetch, even when the drift info affordance is clicked", async () => {
     const payload = attentionPayload([BLOCKED_TOPIC]);
     const onOpenLane = vi.fn();
     const { client: raw, wikiStatus } = fakeClient(payload);
@@ -322,10 +333,10 @@ describe("drift row -- default-collapsed, pays its cost only on expand", () => {
     ).container as HTMLElement;
     await vi.waitFor(() => expect(wikiStatus).toHaveBeenCalledTimes(1));
 
-    const checkButton = within(container).getByRole("button", {
-      name: /check/i,
+    const infoButton = within(container).getByRole("button", {
+      name: /about note drift/i,
     });
-    fireEvent.click(checkButton);
+    fireEvent.click(infoButton);
 
     expect(offenders).toEqual([]);
     expect(wikiStatus).toHaveBeenCalledTimes(1);

@@ -148,7 +148,7 @@ installToolCallGroups(
 
 /** Standalone client for the dashboard's own stateless streamable-HTTP mount. */
 export class HttpToolClient extends BaseToolClient {
-  private readonly client = new Client({
+  private client = new Client({
     name: "knotica-dashboard",
     version: "0.1.0",
   });
@@ -183,19 +183,44 @@ export class HttpToolClient extends BaseToolClient {
     timeoutMs?: number,
   ): Promise<T> {
     await this.connect();
-    const result = await this.client.callTool(
-      { name, arguments: args },
-      undefined,
-      timeoutMs === undefined ? undefined : { timeout: timeoutMs },
-    );
+    let result;
+    try {
+      result = await this.client.callTool(
+        { name, arguments: args },
+        undefined,
+        timeoutMs === undefined ? undefined : { timeout: timeoutMs },
+      );
+    } catch (cause) {
+      // A rejection here is transport-level (server gone, session dropped by a
+      // restart, aborted deadline) — the session cannot be assumed alive, and
+      // the SDK client offers no reconnect on a dead one. Discard it so the
+      // next poll opens a fresh session instead of erroring forever; the error
+      // still surfaces to this caller, so the banner shows until a poll heals.
+      this.resetConnection();
+      throw cause;
+    }
     return extractToolPayload<T>(result, name);
   }
 
   private connect(): Promise<void> {
-    this.connected ??= this.client.connect(
-      new StreamableHTTPClientTransport(new URL(this.endpoint)),
-    );
+    this.connected ??= this.client
+      .connect(new StreamableHTTPClientTransport(new URL(this.endpoint)))
+      .catch((cause: unknown) => {
+        // A failed connect must never be memoized: the page often boots before
+        // the server (or mid-restart), and caching the rejection would pin
+        // "Failed to fetch" on screen until a manual reload no matter when the
+        // server comes back.
+        this.connected = undefined;
+        throw cause;
+      });
     return this.connected;
+  }
+
+  private resetConnection(): void {
+    const stale = this.client;
+    void stale.close().catch(() => undefined);
+    this.client = new Client({ name: "knotica-dashboard", version: "0.1.0" });
+    this.connected = undefined;
   }
 }
 

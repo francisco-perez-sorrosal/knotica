@@ -419,11 +419,15 @@ describe("one data spine feeds both stage groups", () => {
     renderFillLane(client);
 
     await vi.waitFor(() => expect(suggestionsRead).toHaveBeenCalledTimes(2));
+    // The two stage groups page at different sizes on purpose: the triage
+    // queue reads 50 at a time so its client-side priority sort usually
+    // covers the whole queue, while the ingest list stays at 20 because it
+    // expands one singleton row at a time.
     expect(suggestionsRead).toHaveBeenCalledWith(
       TOPIC,
       "pending",
       "",
-      20,
+      50,
       VAULT,
     );
     expect(suggestionsRead).toHaveBeenCalledWith(

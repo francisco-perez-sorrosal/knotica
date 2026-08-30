@@ -1,12 +1,15 @@
 import { useState } from "preact/hooks";
 import type { JSX } from "preact";
 
+import { Icon } from "../icons";
+import { InfoPopover } from "../InfoPopover";
 import type {
   Actor,
   LaneRail as LaneRailContract,
   LaneStage,
-  StageState,
 } from "./laneRailState";
+import { LoopStrip, StageStatesLegend } from "./LoopStrip";
+import { STATE_ICON, stageMeta } from "./stageMeta";
 
 /**
  * The generic lane-rail shell (`INTERFACE_DESIGN.md §1.2`, `§1.5`) — renders
@@ -36,46 +39,71 @@ function isCurrentStage(
   return rail.watermark !== null && rail.watermark === index;
 }
 
-function stageGlyph(state: StageState, index: number): string {
-  if (state === "complete") return "✓";
-  if (state === "blocked") return "!";
-  return String(index + 1);
-}
-
-export function LaneRail({ rail }: { rail: LaneRailContract }): JSX.Element {
+/**
+ * `focusedId` is the client-owned *focus* axis (design §5.3) — what the user
+ * is looking at — kept strictly orthogonal to the server-declared `state`.
+ * `aria-current="step"` stays bound to the declared watermark alone; focus
+ * surfaces as `data-focus` and the disclosure's `aria-expanded`.
+ */
+export function LaneRail({
+  rail,
+  focusedId,
+  onFocus,
+}: {
+  rail: LaneRailContract;
+  focusedId?: string | null;
+  onFocus?: (stageId: string) => void;
+}): JSX.Element {
   return (
-    <ol class="lane-rail" aria-label={`${rail.lane} stages`}>
-      {rail.stages.map((stage, index) => (
-        <LaneStageRow
-          key={stage.id}
-          stage={stage}
-          index={index}
-          current={isCurrentStage(rail, stage, index)}
-        />
-      ))}
-    </ol>
+    <div class="lane-rail-shell">
+      <LoopStrip
+        lane={rail.lane}
+        stages={rail.stages.map(({ id, title, state }) => ({
+          id,
+          title,
+          state,
+        }))}
+        focusedId={focusedId}
+        onFocus={onFocus}
+      />
+      <ol class="lane-rail" aria-label={`${rail.lane} stages`}>
+        {rail.stages.map((stage, index) => (
+          <LaneStageRow
+            key={stage.id}
+            lane={rail.lane}
+            stage={stage}
+            current={isCurrentStage(rail, stage, index)}
+            focused={focusedId === stage.id}
+          />
+        ))}
+      </ol>
+    </div>
   );
 }
 
 function LaneStageRow({
+  lane,
   stage,
-  index,
   current,
+  focused,
 }: {
+  lane: string;
   stage: LaneStage;
-  index: number;
   current: boolean;
+  focused: boolean;
 }): JSX.Element {
   const [expanded, setExpanded] = useState(false);
+  const meta = stageMeta(lane, stage.id);
 
   return (
     <li
       class="lane-stage"
       data-state={stage.state}
+      data-focus={focused ? "true" : "false"}
       aria-current={current ? "step" : undefined}
     >
       <span class="lane-stage-index" aria-hidden="true">
-        {stageGlyph(stage.state, index)}
+        <Icon name={meta?.icon ?? STATE_ICON[stage.state]} size={16} />
       </span>
       <div class="lane-stage-content">
         <div class="lane-stage-heading">
@@ -85,6 +113,16 @@ function LaneStageRow({
             <span class="lane-stage-actor muted">
               {ACTOR_LABEL[stage.actor]}
             </span>
+          ) : null}
+          {meta ? (
+            <InfoPopover
+              id={`stage:${lane}:${stage.id}`}
+              title={stage.title}
+              ariaLabel={`About ${stage.title}`}
+              whatThisIs={meta.whatThisIs}
+              whatTheStatesMean={<StageStatesLegend />}
+              whatToDoNext={meta.whatToDoNext}
+            />
           ) : null}
         </div>
         <LaneStageBody
@@ -118,7 +156,10 @@ function LaneStageBody({
     );
   }
 
-  if (stage.state === "pending") {
+  // `unknown` sits with `pending` rather than with the interactive states: a
+  // disclosure on a row the server knows nothing about opens onto nothing,
+  // which is exactly the affordance-that-lies this redesign is answering.
+  if (stage.state === "pending" || stage.state === "unknown") {
     return (
       <div class="lane-stage-body">
         <p class="muted">{stage.fact}</p>

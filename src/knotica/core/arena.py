@@ -24,6 +24,7 @@ disguised itself as a fair one that everybody lost.
 
 from __future__ import annotations
 
+import difflib
 import json
 import uuid
 from collections.abc import Callable, Sequence
@@ -129,6 +130,14 @@ class ArenaVariant(BaseModel):
     #: questions.
     scorer_id: str | None = None
     n_examples: int | None = None
+    #: What this variant changes relative to the base prompt -- a compact line
+    #: DERIVED from the two bodies at race start, never a self-description
+    #: (a mutator's account of its own edit is not evidence). ``None`` on races
+    #: recorded before this existed, or when the base body was unavailable.
+    change_summary: str | None = None
+    #: Capped unified diff of the variant body against the base prompt, so the
+    #: full change stays inspectable after the bodies themselves are discarded.
+    diff: str | None = None
 
 
 class ArenaState(BaseModel):
@@ -263,6 +272,7 @@ def race_variants(
     promote_on_win: bool = True,
     scorer: ScorerInfo | None = None,
     baseline_golden_manifest_sha: str | None = None,
+    base_body: str | None = None,
 ) -> ArenaState:
     """Score variants, persist leaderboard, promote winner or mark reverted.
 
@@ -272,12 +282,27 @@ def race_variants(
     Refuses to score at all -- :attr:`ArenaStage.aborted`, no promotion and no
     revert -- when ``scorer`` cannot be ranked against the baseline. See
     :func:`incomparable_reason` for the two ways that happens.
+
+    ``base_body`` (the prompt the variants rewrote) enables the per-variant
+    ``change_summary``/``diff`` fields; without it they stay ``None`` -- the
+    race still runs, it just cannot say what each variant changed.
     """
     cleaned = _clean_topic(topic)
     root = Path(vault_root)
     race_id = uuid.uuid4().hex[:12]
     info = scorer or HEURISTIC_SCORER
-    board = [ArenaVariant(id=spec.id, label=spec.label, status="pending") for spec in variants]
+    board: list[ArenaVariant] = []
+    for spec in variants:
+        change_summary, diff = _variant_change_fields(base_body, spec.body)
+        board.append(
+            ArenaVariant(
+                id=spec.id,
+                label=spec.label,
+                status="pending",
+                change_summary=change_summary,
+                diff=diff,
+            )
+        )
     state = ArenaState(
         topic=cleaned,
         race_id=race_id,
@@ -303,17 +328,20 @@ def race_variants(
     state = write_arena_state(store, root, state, title=f"arena race {race_id} start")
 
     bodies = {spec.id: spec.body for spec in variants}
+    # Scored rows evolve the pending board row rather than being rebuilt, so
+    # fields set at construction (the change summary/diff) survive scoring.
+    pending_by_id = {row.id: row for row in board}
     scored: list[ArenaVariant] = []
     for spec in variants:
         scalar = float(score(cleaned, root, spec.body))
         scored.append(
-            ArenaVariant(
-                id=spec.id,
-                label=spec.label,
-                scalar=scalar,
-                status="scored",
-                scorer_id=info.id,
-                n_examples=info.n_examples,
+            pending_by_id[spec.id].model_copy(
+                update={
+                    "scalar": scalar,
+                    "status": "scored",
+                    "scorer_id": info.id,
+                    "n_examples": info.n_examples,
+                }
             )
         )
         state = state.model_copy(update={"variants": list(scored) + board[len(scored) :]})
@@ -433,6 +461,44 @@ def incomparable_reason(scorer: ScorerInfo, baseline_golden_manifest_sha: str | 
             "the baseline against the current golden set, then race again."
         )
     return None
+
+
+#: Unified-diff cap per variant: generous for a prompt file, but a hard bound
+#: so one runaway mutation cannot bloat the persisted state or the wire.
+_DIFF_MAX_LINES = 400
+
+
+def _variant_change_fields(base_body: str | None, body: str) -> tuple[str | None, str | None]:
+    """Diff-derived ``(change_summary, diff)`` for one variant, or ``(None, None)``.
+
+    Derived from the two bodies -- never from a mutator's account of itself.
+    The summary leads with the first added heading (or first added line) so a
+    reader can tell variants apart without opening the diff.
+    """
+    if base_body is None:
+        return None, None
+    raw = list(
+        difflib.unified_diff(
+            base_body.splitlines(),
+            body.splitlines(),
+            fromfile="query.md (current)",
+            tofile="variant",
+            lineterm="",
+        )
+    )
+    added = [
+        line[1:].strip() for line in raw if line.startswith("+") and not line.startswith("+++")
+    ]
+    removed_n = sum(1 for line in raw if line.startswith("-") and not line.startswith("---"))
+    added_nonempty = [line for line in added if line]
+    lead = next((line for line in added_nonempty if line.startswith("#")), "") or (
+        added_nonempty[0] if added_nonempty else ""
+    )
+    summary = f"+{len(added)} / -{removed_n} lines vs the current prompt"
+    summary += f" — first change: {lead[:120]!r}" if lead else " — no textual change"
+    if len(raw) > _DIFF_MAX_LINES:
+        raw = raw[:_DIFF_MAX_LINES] + [f"… diff truncated at {_DIFF_MAX_LINES} lines"]
+    return summary, "\n".join(raw)
 
 
 def generate_variant_bodies(

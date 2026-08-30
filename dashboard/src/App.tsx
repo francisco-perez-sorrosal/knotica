@@ -3,6 +3,7 @@ import { signal } from "@preact/signals";
 import type { App as ExtApp } from "@modelcontextprotocol/ext-apps";
 import { applyDocumentTheme } from "@modelcontextprotocol/ext-apps";
 
+import { CreateDrawer } from "./CreateDrawer";
 import { AnswerLane } from "./lanes/answer/AnswerLane";
 import { FillLane } from "./lanes/fill/FillLane";
 import { HomeLane } from "./lanes/home/HomeLane";
@@ -19,6 +20,8 @@ import {
   type ToolClient,
 } from "./toolClient";
 import { flywheelLabel, flywheelTone } from "./compileStages";
+import { Icon } from "./icons";
+import { InfoPopover } from "./InfoPopover";
 import { DEFAULT_PANE, resolveLaneFocus, resolvePane } from "./paneRouting";
 import {
   ObsidianLink,
@@ -47,7 +50,18 @@ const initialLane = query.get("lane") || "";
 const initialPane = initialLane
   ? resolveLaneFocus(initialLane, query.get("focus") || "")
   : resolvePane(query.get("pane"));
-const mcpUrl = query.get("mcp") || "http://127.0.0.1:8765/mcp";
+/**
+ * The HTTP mount is normally served by the same process that answers `/mcp`,
+ * so same-origin is the honest default — a hardcoded port polls a *different*
+ * server whenever `--port` isn't 8765, and the stale answers it gets are
+ * indistinguishable from live ones. The fixed fallback remains only for
+ * non-http contexts (e.g. a file:// open of the built artifact).
+ */
+const mcpUrl =
+  query.get("mcp") ||
+  (window.location.protocol === "http:" || window.location.protocol === "https:"
+    ? new URL("/mcp", window.location.origin).toString()
+    : "http://127.0.0.1:8765/mcp");
 
 const catalog = signal<WikiStatus | null>(null);
 const status = signal<WikiStatus | null>(null);
@@ -79,16 +93,7 @@ export function App() {
   const [topic, setTopic] = useState(initialTopic);
   const [vault, setVault] = useState(initialVault);
   const [pane, setPane] = useState<PaneId>(initialPane);
-  const [showNewKb, setShowNewKb] = useState(false);
-  const [newKbPath, setNewKbPath] = useState("");
-  const [newKbName, setNewKbName] = useState("");
-  const [newKbTopic, setNewKbTopic] = useState("");
-  const [showNewTopic, setShowNewTopic] = useState(false);
-  const [newTopicName, setNewTopicName] = useState("");
-  const [newTopicBusy, setNewTopicBusy] = useState(false);
-  const [newTopicError, setNewTopicError] = useState<string | null>(null);
-  const [newKbBusy, setNewKbBusy] = useState(false);
-  const [newKbError, setNewKbError] = useState<string | null>(null);
+  const [showCreateDrawer, setShowCreateDrawer] = useState(false);
   const [mount, setMount] = useState<"http" | "bridge" | "connecting">(
     preferBridgeMount() ? "connecting" : "http",
   );
@@ -350,62 +355,11 @@ export function App() {
     }
   }
 
-  function newKbBasename(path: string): string {
-    const trimmed = path.trim().replace(/\/+$/, "");
-    const parts = trimmed.split("/");
-    return parts[parts.length - 1] || trimmed;
-  }
-
-  async function submitNewKb(event: Event) {
-    event.preventDefault();
-    const path = newKbPath.trim();
-    if (!clientRef.current || !path) return;
-    setNewKbBusy(true);
-    setNewKbError(null);
-    try {
-      const name = newKbName.trim() || newKbBasename(path);
-      await clientRef.current.vaultCreate(name, path, newKbTopic.trim(), true);
-      setShowNewKb(false);
-      setNewKbPath("");
-      setNewKbName("");
-      setNewKbTopic("");
-      await selectVault(name);
-    } catch (cause) {
-      setNewKbError(cause instanceof Error ? cause.message : String(cause));
-    } finally {
-      setNewKbBusy(false);
-    }
-  }
-
   function selectTopic(name: string) {
     setTopic(name);
     const url = new URL(window.location.href);
     url.searchParams.set("topic", name);
     window.history.replaceState({}, "", url);
-  }
-
-  // A knowledge base is normally several topics, but `vault action=create`
-  // seeds only the first — so without this the dashboard could start a KB and
-  // then not grow it. Refresh before selecting: the picker renders from the
-  // status payload, and selecting a topic it has not yet seen shows an entry
-  // that vanishes on the next poll.
-  async function submitNewTopic(event: Event) {
-    event.preventDefault();
-    const name = newTopicName.trim();
-    if (!clientRef.current || !name) return;
-    setNewTopicBusy(true);
-    setNewTopicError(null);
-    try {
-      await clientRef.current.createTopic(name);
-      setShowNewTopic(false);
-      setNewTopicName("");
-      await refreshStatus(true);
-      selectTopic(name);
-    } catch (cause) {
-      setNewTopicError(cause instanceof Error ? cause.message : String(cause));
-    } finally {
-      setNewTopicBusy(false);
-    }
   }
 
   function selectPane(next: PaneId) {
@@ -423,15 +377,13 @@ export function App() {
         <div class="app-chrome-top">
           <div class="brand-block">
             <div class="brand-row">
+              <span class="brand-mark" aria-hidden="true">
+                ◈
+              </span>
               <span class="eyebrow">knotica</span>
               <span class="brand-sep" aria-hidden="true">
                 ·
               </span>
-              <h1 class="vault-title">
-                <ObsidianLink href={vaultOpenUri} className="vault-title-link">
-                  {vaultName}
-                </ObsidianLink>
-              </h1>
               {available.length >= 1 ? (
                 <label class="vault-picker vault-picker-inline">
                   <span class="sr-only">Switch vault</span>
@@ -454,205 +406,171 @@ export function App() {
                     ))}
                   </select>
                 </label>
-              ) : null}
+              ) : (
+                <h1 class="vault-title">
+                  <ObsidianLink href={vaultOpenUri} className="vault-title-link">
+                    {vaultName}
+                  </ObsidianLink>
+                </h1>
+              )}
+              <span class="brand-sep" aria-hidden="true">
+                ›
+              </span>
+              <label class="topic-picker topic-picker-inline">
+                <span class="sr-only">Topic</span>
+                <select
+                  value={topic}
+                  onChange={(event) =>
+                    selectTopic((event.target as HTMLSelectElement).value)
+                  }
+                  aria-label="Topic"
+                >
+                  {(topics.includes(topic) ? topics : [topic, ...topics]).map(
+                    (name) => (
+                      <option value={name} key={name}>
+                        {name}
+                      </option>
+                    ),
+                  )}
+                </select>
+              </label>
               <button
                 type="button"
-                class="toggle"
-                onClick={() => {
-                  setShowNewKb((prev) => !prev);
-                  setNewKbError(null);
-                }}
+                class="chrome-create-trigger"
+                aria-expanded={showCreateDrawer}
+                aria-controls="chrome-create-drawer"
+                aria-label="Create a knowledge base or topic"
+                onClick={() => setShowCreateDrawer((prev) => !prev)}
               >
-                ＋ New KB
+                <Icon name="plus" size={16} />
               </button>
             </div>
-            <p class="vault-path" title={vaultPath}>
-              <ObsidianLink href={vaultOpenUri} className="vault-path-link">
-                {shortenPath(vaultPath) || "resolving vault path…"}
-              </ObsidianLink>
-            </p>
-            {showNewKb ? (
-              <form
-                class="doctor-repair-toolbar"
-                onSubmit={(event) => void submitNewKb(event)}
-              >
-                <label class="heal-inline-field">
-                  <span>path</span>
-                  <input
-                    type="text"
-                    required
-                    value={newKbPath}
-                    placeholder="/path/to/vault"
-                    onInput={(event) =>
-                      setNewKbPath((event.target as HTMLInputElement).value)
-                    }
-                  />
-                </label>
-                <label class="heal-inline-field">
-                  <span>name</span>
-                  <input
-                    type="text"
-                    value={newKbName}
-                    placeholder={newKbBasename(newKbPath) || "vault name"}
-                    onInput={(event) =>
-                      setNewKbName((event.target as HTMLInputElement).value)
-                    }
-                  />
-                </label>
-                <label class="heal-inline-field">
-                  <span>topic</span>
-                  <input
-                    type="text"
-                    value={newKbTopic}
-                    placeholder="optional"
-                    onInput={(event) =>
-                      setNewKbTopic((event.target as HTMLInputElement).value)
-                    }
-                  />
-                </label>
-                <button
-                  type="submit"
-                  class="primary"
-                  disabled={newKbBusy || !newKbPath.trim()}
-                >
-                  {newKbBusy ? "Creating…" : "Create"}
-                </button>
-                <button
-                  type="button"
-                  class="toggle"
-                  onClick={() => {
-                    setShowNewKb(false);
-                    setNewKbError(null);
-                  }}
-                >
-                  Cancel
-                </button>
-                {newKbError ? <p class="tone-bad">{newKbError}</p> : null}
-              </form>
+          </div>
+
+          <div class="chrome-status">
+            {llmChip ? (
+              <span class="chrome-chip">
+                <span class={`llm-chip health-chip ${llmChip.tone}`}>
+                  {llmChip.label}
+                </span>
+                <InfoPopover
+                  id="chrome:llm"
+                  title="Server LLM"
+                  ariaLabel="About the server LLM status"
+                  align="end"
+                  whatThisIs="Server-side LLM powers Ask/query, Compile, Loop/Arena, and live eval."
+                  whatToDoNext="Set CLAUDE_CODE_OAUTH_TOKEN (preferred -- subscription, no metered spend) or ANTHROPIC_API_KEY (metered) in the server environment."
+                />
+              </span>
             ) : null}
+
+            <span class="chrome-chip">
+              <span class={`baseline-chip health-chip ${baselineTone}`}>
+                {baselinePrefix} · {baselineLabel}
+                <span class="baseline-chip-topic"> · {topic}</span>
+              </span>
+              <InfoPopover
+                id="chrome:baseline"
+                title="Gate baseline"
+                ariaLabel="About the gate baseline"
+                align="end"
+                whatThisIs={baselineChipTitle(topic, baselineSource)}
+                whatToDoNext="Freeze a baseline from Improve once a scalar you trust is in hand."
+              />
+            </span>
+
+            <span class="chrome-chip">
+              <span class={`flywheel-chip health-chip ${chipTone}`}>
+                {chipLabel}
+              </span>
+              <InfoPopover
+                id="chrome:flywheel"
+                title="Compile flywheel"
+                ariaLabel="About compile flywheel status"
+                align="end"
+                whatThisIs="Tracks whether the selected topic has curated enough training data to compile a DSPy program, and whether that program is compiled."
+                whatTheStatesMean={
+                  <ul>
+                    <li>
+                      <strong>Curating</strong> -- still gathering training
+                      examples.
+                    </li>
+                    <li>
+                      <strong>Ready</strong> -- enough examples to compile.
+                    </li>
+                    <li>
+                      <strong>Compiling</strong> -- a compile run is in
+                      progress.
+                    </li>
+                    <li>
+                      <strong>Compiled</strong> -- a program exists for this
+                      topic.
+                    </li>
+                  </ul>
+                }
+                whatToDoNext="Curate more pages in Learn, or open Improve to compile once ready."
+              />
+            </span>
+
+            <span class="mount-meta">
+              {mount === "connecting"
+                ? "connecting…"
+                : `${mount} · ${updated.value ? updated.value.toLocaleTimeString() : "waiting…"}`}
+            </span>
           </div>
         </div>
 
+        <CreateDrawer
+          open={showCreateDrawer}
+          client={client}
+          onClose={() => setShowCreateDrawer(false)}
+          onCreatedKb={selectVault}
+          onCreatedTopic={selectTopic}
+          onRefreshStatus={refreshStatus}
+        />
+
         <div class="app-chrome-band">
           <div class="chrome-controls">
-            <label class="topic-picker topic-picker-inline">
-              <span class="sr-only">Topic</span>
-              <select
-                value={topic}
-                onChange={(event) =>
-                  selectTopic((event.target as HTMLSelectElement).value)
-                }
-                aria-label="Topic"
-              >
-                {(topics.includes(topic) ? topics : [topic, ...topics]).map(
-                  (name) => (
-                    <option value={name} key={name}>
-                      {name}
-                    </option>
-                  ),
-                )}
-              </select>
-            </label>
-
-            <button
-              type="button"
-              class="toggle"
-              onClick={() => {
-                setShowNewTopic((prev) => !prev);
-                setNewTopicError(null);
-              }}
-            >
-              ＋ New topic
-            </button>
-
-            {showNewTopic ? (
-              <form
-                class="doctor-repair-toolbar"
-                onSubmit={(event) => void submitNewTopic(event)}
-              >
-                <label class="heal-inline-field">
-                  <span>topic</span>
-                  <input
-                    type="text"
-                    required
-                    value={newTopicName}
-                    placeholder="pretraining"
-                    onInput={(event) =>
-                      setNewTopicName((event.target as HTMLInputElement).value)
-                    }
-                  />
-                </label>
-                <button
-                  type="submit"
-                  class="primary"
-                  disabled={newTopicBusy || !newTopicName.trim()}
-                >
-                  {newTopicBusy ? "Creating…" : "Create"}
-                </button>
-                <button
-                  type="button"
-                  class="toggle"
-                  onClick={() => {
-                    setShowNewTopic(false);
-                    setNewTopicError(null);
-                  }}
-                >
-                  Cancel
-                </button>
-                {newTopicError ? <p class="tone-bad">{newTopicError}</p> : null}
-              </form>
-            ) : null}
-
             <nav class="pane-tabs" aria-label="Dashboard panes">
               <button
                 type="button"
                 class={pane === "home" ? "active" : ""}
                 onClick={() => selectPane("home")}
               >
-                Home
-              </button>
-              <button
-                type="button"
-                class={pane === "improve" ? "active" : ""}
-                onClick={() => selectPane("improve")}
-              >
-                Improve
-              </button>
-              <button
-                type="button"
-                class={pane === "tend" ? "active" : ""}
-                onClick={() => selectPane("tend")}
-              >
-                Tend
-                {notesDriftedCount > 0 ? (
-                  <span
-                    class="pane-tab-badge"
-                    title="Notes whose anchors drifted"
-                  >
-                    {notesDriftedCount}
-                  </span>
-                ) : null}
+                <Icon name="lane:home" size={16} />
+                <span class="pane-tab-label">Home</span>
               </button>
               <button
                 type="button"
                 class={pane === "learn" ? "active" : ""}
                 onClick={() => selectPane("learn")}
               >
-                Learn
+                <Icon name="lane:learn" size={16} />
+                <span class="pane-tab-label">Learn</span>
               </button>
               <button
                 type="button"
                 class={pane === "answer" ? "active" : ""}
                 onClick={() => selectPane("answer")}
               >
-                Answer
+                <Icon name="lane:answer" size={16} />
+                <span class="pane-tab-label">Answer</span>
+              </button>
+              <button
+                type="button"
+                class={pane === "improve" ? "active" : ""}
+                onClick={() => selectPane("improve")}
+              >
+                <Icon name="lane:improve" size={16} />
+                <span class="pane-tab-label">Improve</span>
               </button>
               <button
                 type="button"
                 class={pane === "fill" ? "active" : ""}
                 onClick={() => selectPane("fill")}
               >
-                Fill
+                <Icon name="lane:fill" size={16} />
+                <span class="pane-tab-label">Fill</span>
                 {fillAttentionCount > 0 ? (
                   <span
                     class="pane-tab-badge"
@@ -662,39 +580,30 @@ export function App() {
                   </span>
                 ) : null}
               </button>
+              <button
+                type="button"
+                class={pane === "tend" ? "active" : ""}
+                onClick={() => selectPane("tend")}
+              >
+                <Icon name="lane:tend" size={16} />
+                <span class="pane-tab-label">Tend</span>
+                {notesDriftedCount > 0 ? (
+                  <span
+                    class="pane-tab-badge"
+                    title="Notes whose anchors drifted"
+                  >
+                    {notesDriftedCount}
+                  </span>
+                ) : null}
+              </button>
             </nav>
 
-            <div class="chrome-status">
-              <span
-                class={`flywheel-chip health-chip ${chipTone}`}
-                title="Compile flywheel status for the selected topic"
-              >
-                {chipLabel}
-              </span>
-
-              <span
-                class={`baseline-chip health-chip ${baselineTone}`}
-                title={baselineChipTitle(topic, baselineSource)}
-              >
-                {baselinePrefix} · {baselineLabel}
-                <span class="baseline-chip-topic"> · {topic}</span>
-              </span>
-
-              {llmChip ? (
-                <span
-                  class={`llm-chip health-chip ${llmChip.tone}`}
-                  title="Server-side LLM powers Ask/query, Compile, Loop/Arena, and live eval. OAuth = CLAUDE_CODE_OAUTH_TOKEN (subscription, no metered spend); API key = ANTHROPIC_API_KEY (metered)."
-                >
-                  {llmChip.label}
-                </span>
-              ) : null}
-
-              <span class="mount-meta">
-                {mount === "connecting"
-                  ? "connecting…"
-                  : `${mount} · ${updated.value ? updated.value.toLocaleTimeString() : "waiting…"}`}
-              </span>
-            </div>
+            <p class="vault-path" title={vaultPath}>
+              <ObsidianLink href={vaultOpenUri} className="vault-path-link">
+                {shortenPath(vaultPath) || "resolving vault path…"}
+              </ObsidianLink>
+              <Icon name="external-link" size={16} />
+            </p>
           </div>
         </div>
       </header>

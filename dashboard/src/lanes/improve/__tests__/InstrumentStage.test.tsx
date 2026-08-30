@@ -1,4 +1,10 @@
-import { cleanup, fireEvent, render, screen } from "@testing-library/preact";
+import {
+  cleanup,
+  fireEvent,
+  render,
+  screen,
+  within,
+} from "@testing-library/preact";
 import type { JSX } from "preact";
 import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 
@@ -51,6 +57,12 @@ interface DatasetFileRowFixture {
   role: string;
   count: number;
   exists: boolean;
+  /** Optional so the pre-existing fixtures above stay byte-identical; the
+   * real wire always carries all four (`core/datasets_inventory.py`). */
+  label?: string;
+  group?: string;
+  purpose?: string;
+  ready?: boolean;
 }
 
 interface DatasetsInventoryFixture {
@@ -271,6 +283,173 @@ describe("the spend-immediately billed actions require an explicit second click 
     await vi.waitFor(() =>
       expect(client.datasetsBootstrapTrain).toHaveBeenCalledTimes(1),
     );
+  });
+});
+
+/**
+ * The per-role breakdown behind "Show details". The `purpose` strings are
+ * deliberately unlike any English copy so a passing hint assertion can only
+ * mean the body came off the wire, never out of a client-side table.
+ */
+const WIRE_FILES: DatasetFileRowFixture[] = [
+  {
+    role: "trainset",
+    group: "loop_corpora",
+    label: "Trainset",
+    purpose: "PURPOSE-TRAINSET",
+    count: 62,
+    exists: true,
+    ready: true,
+  },
+  {
+    role: "held_out",
+    group: "golden_pipeline",
+    label: "Held-out eval",
+    purpose: "PURPOSE-HELD-OUT",
+    count: 40,
+    exists: true,
+    ready: true,
+  },
+  {
+    role: "seal",
+    group: "golden_pipeline",
+    label: "Held-out seal",
+    purpose: "PURPOSE-SEAL",
+    count: 1,
+    exists: true,
+    ready: true,
+  },
+  {
+    role: "candidates",
+    group: "golden_pipeline",
+    label: "Candidates",
+    purpose: "PURPOSE-CANDIDATES",
+    count: 12,
+    exists: true,
+    ready: false,
+  },
+  {
+    role: "reviewed",
+    group: "golden_pipeline",
+    label: "Reviewed",
+    purpose: "PURPOSE-REVIEWED",
+    count: 22,
+    exists: true,
+    ready: true,
+  },
+];
+
+async function openDetails(
+  files: DatasetFileRowFixture[] = WIRE_FILES,
+): Promise<void> {
+  const client = makeClient({
+    datasetsInventory: vi.fn().mockResolvedValue(inventoryFixture({ files })),
+  });
+  render(
+    <InstrumentStage client={client} topic="agentic-systems" vault="main" />,
+  );
+  fireEvent.click(
+    await screen.findByRole("button", { name: /show details/i }),
+  );
+}
+
+function rowTexts(family: HTMLElement): string[] {
+  return within(family)
+    .getAllByRole("listitem")
+    .map((row) => row.textContent ?? "");
+}
+
+describe("the per-role breakdown groups the roles and shows the composition", () => {
+  it("splits the roles into the families the wire declares", async () => {
+    await openDetails();
+
+    const golden = screen.getByRole("region", { name: "GOLDEN PIPELINE" });
+    const loop = screen.getByRole("region", { name: "LOOP CORPORA" });
+
+    expect(within(golden).getByText("Candidates")).toBeTruthy();
+    expect(within(golden).getByText("Reviewed")).toBeTruthy();
+    // The wire groups by producer: the held-out set (and its seal) are what
+    // the golden pipeline exists to make, so the whole chain lives here.
+    expect(within(golden).getByText("Held-out eval")).toBeTruthy();
+    expect(within(golden).queryByText("Trainset")).toBeNull();
+    expect(within(loop).getByText("Trainset")).toBeTruthy();
+    expect(within(loop).queryByText("Held-out eval")).toBeNull();
+  });
+
+  it("orders each family as the pipeline runs, not as the payload listed it", async () => {
+    await openDetails([...WIRE_FILES].reverse());
+
+    const golden = rowTexts(
+      screen.getByRole("region", { name: "GOLDEN PIPELINE" }),
+    );
+    const loop = rowTexts(screen.getByRole("region", { name: "LOOP CORPORA" }));
+
+    expect(golden).toMatchObject([
+      expect.stringContaining("Candidates"),
+      expect.stringContaining("Reviewed"),
+      expect.stringContaining("Held-out eval"),
+    ]);
+    expect(loop).toMatchObject([expect.stringContaining("Trainset")]);
+    // The chain's origin carries no notch; a step made out of the one above
+    // it does, and the deliberately disjoint trainset never does.
+    expect(golden[0]).not.toContain("↳");
+    expect(golden[1]).toContain("↳");
+    expect(golden[2]).toContain("↳");
+    expect(loop[0]).not.toContain("↳");
+  });
+
+  it("explains a role with the wire's own purpose string", async () => {
+    await openDetails();
+
+    fireEvent.click(
+      screen.getByRole("button", { name: "Reviewed — what this means" }),
+    );
+
+    expect(await screen.findByText("PURPOSE-REVIEWED")).toBeTruthy();
+  });
+
+  it("renders the seal on the held-out row it guards, never as a peer step", async () => {
+    await openDetails();
+
+    const rows = within(
+      screen.getByRole("region", { name: "GOLDEN PIPELINE" }),
+    ).getAllByRole("listitem");
+
+    // Candidates, Reviewed, Held-out — the seal is folded onto the last,
+    // not listed as a fourth step.
+    expect(rows).toHaveLength(3);
+    expect(
+      within(rows[2]).getByRole("button", {
+        name: "Held-out seal — what this means",
+      }),
+    ).toBeTruthy();
+  });
+
+  it("states the composition once, under the family that starts it", async () => {
+    await openDetails();
+
+    const note = screen.getByText(/Freeze writes those into the held-out/);
+    expect(
+      note.closest("[aria-label='GOLDEN PIPELINE']"),
+    ).not.toBeNull();
+  });
+
+  it("gives an unrecognised group its own family instead of dropping the row", async () => {
+    await openDetails([
+      ...WIRE_FILES,
+      {
+        role: "notes",
+        group: "notes_overlay",
+        label: "Notes",
+        purpose: "PURPOSE-NOTES",
+        count: 3,
+        exists: true,
+        ready: true,
+      },
+    ]);
+
+    const other = screen.getByRole("region", { name: "NOTES OVERLAY" });
+    expect(within(other).getByText("Notes")).toBeTruthy();
   });
 });
 

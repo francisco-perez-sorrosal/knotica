@@ -121,6 +121,7 @@ export interface ImproveToolCalls {
       evalMinIntervalHours?: number;
       evalWindow?: string;
       evalNumThreads?: number;
+      arenaScorer?: string;
     },
     vault?: string,
   ): Promise<LoopCadenceConfig>;
@@ -373,6 +374,7 @@ export const improveToolCalls: ToolCallGroup<ImproveToolCalls> = {
       evalMinIntervalHours?: number;
       evalWindow?: string;
       evalNumThreads?: number;
+      arenaScorer?: string;
     } = {},
     vault = "",
   ): Promise<LoopCadenceConfig> {
@@ -383,6 +385,7 @@ export const improveToolCalls: ToolCallGroup<ImproveToolCalls> = {
       eval_min_interval_hours: overrides.evalMinIntervalHours,
       eval_window: overrides.evalWindow,
       eval_num_threads: overrides.evalNumThreads,
+      arena_scorer: overrides.arenaScorer,
       vault,
     });
   },

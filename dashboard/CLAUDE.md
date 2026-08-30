@@ -23,13 +23,7 @@ A `core/process_model.py` change touches two `git diff --exit-code` gates at onc
 The dashboard is structured as **six process lanes**, each declared once in
 `src/knotica/core/process_model.py` and projected here.
 
-**Lanes** live in `src/lanes/<lane-name>/` with their stage components and per-lane types/client split. The six lanes are:
-- `home/` — cross-topic attention inbox (rail-less)
-- `learn/` — read-only topic exploration
-- `answer/` — question-answering and trainset curation
-- `fill/` — gap-fill workflow (diagnose → discover → approve → ingest)
-- `improve/` — topic-scoped iterative loop (observe → heal → instrument → prove → promote → gate)
-- `tend/` — per-vault maintenance (doctor → lint → okf → migrate → drift)
+**Lanes** live in `src/lanes/<lane-name>/` with their stage components and per-lane types/client split. The six lanes are `home/`, `learn/`, `answer/`, `fill/`, `improve/`, `tend/` — see `src/knotica/core/process_model.py` for the ordered stage id/title/handoff declaration each lane's rail projects (lane vocabulary rule: point here, never restate the stage lists).
 
 Each lane carries its own type and client definitions:
 - `lanes/<lane>/types.ts` — type definitions for that lane's MCP responses and UI state
@@ -37,18 +31,29 @@ Each lane carries its own type and client definitions:
 
 This split from the earlier monolithic `types.ts` and `toolClient.ts` (both over 800 lines) allows the client and types to grow with each lane independently, kept under the ratchet ceiling by construction. Home's types and client live in `lanes/home/{types.ts,client.ts}` alongside its `HomeLane.tsx` and `attentionRows.ts`.
 
+Root-level shared presentation primitives (`src/`):
+- `icons.tsx` — the 26-glyph inline stroke-SVG icon set (`IconName` union + `<Icon>`), CSP-safe, no icon font
+- `InfoPopover.tsx` / `infoPopoverState.ts` — the non-modal `ⓘ` overlay primitive and its module-level "at most one open" signal
+- `CopyBlock.tsx` — a mono code block with a copy-to-clipboard button
+- `EmptyState.tsx` — the shared icon/title/sentence/one-action template for empty and zero states
+- `CreateDrawer.tsx` — the "New knowledge base" / "New topic" panel behind the chrome `⊕` trigger (extracted from `App.tsx`)
+
 Shared infrastructure lives in the lanes root:
 - `laneRailState.ts` — pure state derivation for stage rail (no Preact, no DOM, no fetch)
-- `LaneRail.tsx` — stage-rail rendering, two-phase armed-confirm affordances
+- `LaneRail.tsx` — stage-rail rendering, two-phase armed-confirm affordances (no production consumer today — every railed lane hand-rolls its own rail; exercised only by its own test suite)
+- `LoopStrip.tsx` — the state-icon strip every railed lane mounts above its rail, projecting the same stage state the rail already holds
+- `laneMeta.ts` — per-lane presentation copy (icon, one-line blurb, rail shape: cycle/line/checks), keyed to `PaneId`
+- `stageMeta.ts` — per-stage presentation copy (popover text, optional icon), keyed lane-then-stage-id
+- `stageFocus.ts` — the client-owned "what the user is looking at" focus axis, held orthogonal to server-declared stage state
 - `ArmedButton.tsx` — two-phase action component (preview → confirm, with cancellation)
 - `HandoffStage.tsx` — pauses a lane and dispatches a slash command to the client's own LLM
 - `hostCapabilities.ts` — detects host capabilities (ext-apps bridge support) to decide whether to
   show the dispatch button or only the copyable command
 - `visibilityPausedPoll.ts` — pause polling when the browser tab is hidden, resume on return
 
-Shared supporting views used across lanes:
-- `ScoreboardPanel`, `PromotePreview`, `DeletePreview`, `PromptDiff`, `MetadataTreePanel`,
-  `NotePromoteDialog`
+Shared supporting views, currently consumed from `lanes/improve/PromoteStage.tsx` and (`PromptDiff` only) `GateStage.tsx`/`ProveStage.tsx`, plus `lanes/tend/DriftStage.tsx`:
+- `ScoreboardPanel`, `PromotePreview`, `DeletePreview`, `PromptDiff` — Improve's Promote/Gate/Prove stages
+- `NotePromoteDialog` — Tend's Drift stage
 
 ## Talking to the server
 
@@ -58,7 +63,7 @@ else uses — if a lane needs data, the answer is a tool call, not a new server 
 
 ## Census and enumeration
 
-The five lane names and their ordered stages are declared once in `src/knotica/core/process_model.py`.
+The six lane names and their ordered stages are declared once in `src/knotica/core/process_model.py`.
 The dashboard imports this declaration as `LANES` and `LANE_STAGES`, never restating it. When a
 lane or stage is added, removed, or reordered, that change is made in `process_model.py` and the
 mirror TypeScript is regenerated (`make dashboard-rebuild` updates `dashboard/src/processModel.ts`).

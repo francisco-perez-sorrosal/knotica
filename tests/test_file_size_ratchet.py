@@ -82,7 +82,14 @@ OVER_CEILING_BASELINE: dict[str, int] = {
     # `to_json_line`/`from_json_line` -- not extractable from a frozen record's
     # own (de)serialization pair.
     "core/records.py": 955,
-    # Raised 1115 -> 1138 for `review_gap`'s dismiss-requires-a-reason rule and
+    # Raised 1138 -> 1142 for the synthetic-gap topic guard: `_file_synthetic_gap`
+    # now runs `require_topic` before filing (an unguarded conversational report
+    # once scaffolded a stray topic the loop began tending). The check itself
+    # lives in `core/topics.py`; only the two-line rationale comment and the one
+    # call remain here, at the single entry both `report_gap` and
+    # `file_retracted_gap` share. td-042 still names the real fix.
+    #
+    # Prior raise, 1115 -> 1138, for `review_gap`'s dismiss-requires-a-reason rule and
     # its `decided_reason` persistence: `_plan_gap_decision` grew a reason check
     # and a docstring, and `apply_gap_decision` now threads the cleaned reason
     # onto the record it replaces. Same module as the prior raise below, same
@@ -100,7 +107,7 @@ OVER_CEILING_BASELINE: dict[str, int] = {
     # as the suggestion stamp or the two writes stop being one commit, and the
     # human half is the parameter-for-parameter sibling of `apply_decision`, which
     # lives in this module.
-    "core/gapfill.py": 1138,
+    "core/gapfill.py": 1142,
 }
 
 

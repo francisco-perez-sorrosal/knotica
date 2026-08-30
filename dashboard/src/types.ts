@@ -58,8 +58,18 @@ export interface LlmAvailability {
 
 /** One rail row's already-derived state (`core/process_model.py::derive_stages`,
  * `core/status_lanes.py::lanes_block`) -- the server is the one source of
- * position truth; the client renders this verbatim, never re-derives it. */
-export type LaneRailStageState = "pending" | "active" | "complete" | "blocked";
+ * position truth; the client renders this verbatim, never re-derives it.
+ *
+ * Four of the five are positions. `unknown` is not: it is the honest absence
+ * of one, declared by an adapter that found no evidence either way. `pending`
+ * claims "not reached yet"; `unknown` claims nothing, and the UI must render
+ * the difference rather than collapsing it. */
+export type LaneRailStageState =
+  | "pending"
+  | "active"
+  | "complete"
+  | "blocked"
+  | "unknown";
 
 export interface LaneRailStageStatus {
   id: string;
@@ -291,5 +301,6 @@ export type {
   AttentionTopicRow,
   AttentionStatus,
   AttentionUrgency,
+  AttentionKind,
   AttentionRow,
 } from "./lanes/home/types";

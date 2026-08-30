@@ -4,6 +4,9 @@ import { useState } from "preact/hooks";
 import { AnswerCard } from "../../answerPresentation";
 import type { ObsidianContext } from "../../obsidianLinks";
 import { PromptDiff } from "../../PromptDiff";
+import { SectionCard } from "../../SectionCard";
+import { Stat, StatGrid } from "../../Stat";
+import { TermHint } from "../../TermHint";
 import type { ToolClient } from "../../toolClient";
 import { findTopicRow } from "../../topicHelpers";
 import type { QueryAnswer, WikiStatus } from "../../types";
@@ -76,96 +79,148 @@ export function ProveStage({
 
   return (
     <div class="prove-stage">
-      {compiled?.present ? (
-        <div class="prove-compiled">
+      <SectionCard title="COMPILED PROGRAM" icon="state:complete">
+        {compiled?.present ? (
+          <>
+            <StatGrid>
+              <Stat label={hint("version")} value={compiled.version} />
+              <Stat
+                label={hint("scalar")}
+                value={
+                  compiled.scalar != null ? compiled.scalar.toFixed(4) : null
+                }
+              />
+            </StatGrid>
+            <PromptDiff
+              client={client}
+              topic={topic}
+              vault={vault}
+              mode="compiled"
+            />
+          </>
+        ) : (
           <p class="muted">
-            Compiled <strong>{compiled.version}</strong>
-            {compiled.scalar != null
-              ? ` · scalar ${compiled.scalar.toFixed(4)}`
-              : ""}
+            No compiled artifact yet — Prove activates once Promote merges one.
           </p>
-          <PromptDiff
-            client={client}
-            topic={topic}
-            vault={vault}
-            mode="compiled"
-          />
-        </div>
-      ) : (
-        <p class="muted">
-          No compiled artifact yet — Prove activates once Promote merges one.
-        </p>
-      )}
+        )}
+      </SectionCard>
 
-      <div class="prove-probe">
-        <label class="ask-label">
-          <span>Probe question</span>
-          <textarea
-            rows={2}
-            value={question}
-            data-testid="prove-probe-question"
-            placeholder="Ask the same question the flywheel is meant to improve…"
-            disabled={busy || !client}
-            onInput={(event) =>
-              setQuestion((event.target as HTMLTextAreaElement).value)
-            }
-          />
-        </label>
-        <div class="ask-actions">
-          <button
-            type="button"
-            data-testid="prove-probe-ask"
-            disabled={!client || busy || !question.trim()}
-            onClick={() => void ask()}
-          >
-            {busy ? "Asking…" : "Probe it"}
-          </button>
-          {result ? (
+      <SectionCard
+        title="PROBE"
+        icon="lane:answer"
+        footer={
+          <>
+            {result ? (
+              <button
+                type="button"
+                class="ghost"
+                data-testid="prove-probe-pin"
+                disabled={busy}
+                onClick={pinAsBefore}
+              >
+                Pin as Before
+              </button>
+            ) : null}
+            {/* Sibling of the button, never a child: the accessible name
+                stays `Probe it`. `query` mints no nonce and Answer's own
+                `Ask` is a single click, so this stays single-click too — the
+                chip is the honest marker for that spend, not a gate. */}
+            <span class="chip cost">costs tokens</span>
             <button
               type="button"
-              data-testid="prove-probe-pin"
-              disabled={busy}
-              onClick={pinAsBefore}
+              class="primary"
+              data-testid="prove-probe-ask"
+              disabled={!client || busy || !question.trim()}
+              onClick={() => void ask()}
             >
-              Pin as Before
+              {busy ? "Asking…" : "Probe it"}
             </button>
+          </>
+        }
+      >
+        <>
+          <label class="ask-label">
+            <span>Probe question</span>
+            <textarea
+              rows={2}
+              value={question}
+              data-testid="prove-probe-question"
+              placeholder="Ask the same question the flywheel is meant to improve…"
+              disabled={busy || !client}
+              onInput={(event) =>
+                setQuestion((event.target as HTMLTextAreaElement).value)
+              }
+            />
+          </label>
+          <p class="muted">
+            Asks the compiled program directly,{" "}
+            <TermHint
+              id="prove-probe-cost"
+              term="the same way Answer does"
+              title="What a probe costs"
+              body="A probe calls the model once, right now, and the answer is not stored. It is a read, so there is no two-phase confirm — but it does spend tokens."
+            />
+            .
+          </p>
+          {error ? (
+            <aside role="alert" class="ask-error">
+              {error}
+            </aside>
           ) : null}
-        </div>
-      </div>
-
-      {error ? (
-        <aside role="alert" class="ask-error">
-          {error}
-        </aside>
-      ) : null}
+        </>
+      </SectionCard>
 
       {pinned || result ? (
-        <section
-          class="ask-compare"
-          aria-label="Before and after probe answers"
+        <SectionCard
+          title="BEFORE / AFTER"
+          ariaLabel="Before and after probe answers"
         >
-          {pinned ? (
-            <AnswerCard
-              title="Before"
-              tone="before"
-              answer={pinned}
-              topic={topic}
-              obsidianCtx={obsidianCtx}
-              actions={null}
-            />
-          ) : null}
-          {result ? (
-            <AnswerCard
-              title={after ? "After" : "Latest"}
-              tone={after ? "after" : "latest"}
-              answer={result}
-              topic={topic}
-              obsidianCtx={obsidianCtx}
-              actions={null}
-            />
-          ) : null}
-        </section>
+          <div class="ask-compare">
+            {pinned ? (
+              <AnswerCard
+                title="Before"
+                tone="before"
+                answer={pinned}
+                topic={topic}
+                obsidianCtx={obsidianCtx}
+                actions={null}
+              />
+            ) : null}
+            {result ? (
+              <AnswerCard
+                title={after ? "After" : "Latest"}
+                tone={after ? "after" : "latest"}
+                answer={result}
+                topic={topic}
+                obsidianCtx={obsidianCtx}
+                actions={null}
+              />
+            ) : null}
+          </div>
+        </SectionCard>
       ) : null}
     </div>
   );
+}
+
+/**
+ * The explanatory copy behind each stat label's `TermHint`. Every accessible
+ * name is `<term> — what this means`, which is why none of them can begin
+ * with `open`/`watch` — the shape `ProveStage.test.tsx` forbids.
+ */
+const PROVE_HINTS = {
+  version: {
+    term: "VERSION",
+    title: "Compiled version",
+    body: "Which compiled prompt program this topic is currently answering with. It changes when Promote merges a branch.",
+  },
+  scalar: {
+    term: "SCALAR",
+    title: "Compiled scalar",
+    body: "The held-out score of the program you are probing — the same number Promote merged on.",
+  },
+} as const;
+
+function hint(key: keyof typeof PROVE_HINTS): JSX.Element {
+  return <TermHint id={`prove-${key}`} {...PROVE_HINTS[key]} />;
 }

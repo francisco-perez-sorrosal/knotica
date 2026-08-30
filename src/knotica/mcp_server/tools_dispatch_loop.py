@@ -55,8 +55,10 @@ _LOOP_DISPATCH_DESCRIPTION = (
     "('latest'|'best'). `loop_action=rebaseline` re-freezes from metrics "
     "history using `mode` ('best'|'latest', default 'best'). "
     "`loop_action=cadence` reads (no params) or additively writes (any of "
-    "`eval_min_interval_hours`, `eval_window`, `eval_num_threads`) the `[loop]` "
-    "eval cadence config. "
+    "`eval_min_interval_hours`, `eval_window`, `eval_num_threads`, "
+    "`arena_scorer`) the `[loop]` config. `arena_scorer` ('heuristic'|'eval') "
+    "picks what the prompt arena races with; 'eval' is gate-comparable and "
+    "bills one golden-set eval per variant on every future race. "
     "Does NOT: compile a new prompt when the gate refuses (`improve "
     "action=compile` does), and does NOT touch the live vault — the cycle works "
     "on a clone and returns branches for review. "
@@ -88,6 +90,7 @@ def register_dispatch_loop_tools(mcp: FastMCP) -> None:
         eval_min_interval_hours: float | None = None,
         eval_window: str | None = None,
         eval_num_threads: int | None = None,
+        arena_scorer: str | None = None,
         confirm: str = "",
         num_threads: int | None = None,
         vault: str = "",
@@ -105,6 +108,7 @@ def register_dispatch_loop_tools(mcp: FastMCP) -> None:
                 eval_min_interval_hours=eval_min_interval_hours,
                 eval_window=eval_window,
                 eval_num_threads=eval_num_threads,
+                arena_scorer=arena_scorer,
                 confirm=confirm,
                 num_threads=num_threads,
             ),
@@ -123,6 +127,7 @@ def _dispatch_payload(
     eval_min_interval_hours: float | None,
     eval_window: str | None,
     eval_num_threads: int | None,
+    arena_scorer: str | None,
     confirm: str,
     num_threads: int | None,
 ) -> dict[str, Any]:
@@ -141,6 +146,7 @@ def _dispatch_payload(
             eval_min_interval_hours=eval_min_interval_hours,
             eval_window=eval_window,
             eval_num_threads=eval_num_threads,
+            arena_scorer=arena_scorer,
         )
     return _loop_run_eval_payload(
         store, vault_path, topic, confirm=confirm, num_threads=num_threads

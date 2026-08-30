@@ -2,16 +2,39 @@ import type { JSX } from "preact";
 import { useCallback, useEffect, useState } from "preact/hooks";
 
 import { ArmedButton } from "../ArmedButton";
+import { Icon } from "../../icons";
+import { SectionCard } from "../../SectionCard";
+import { Stat, StatGrid } from "../../Stat";
+import { TermHint } from "../../TermHint";
 import type { ToolClient } from "../../toolClient";
-import type { DatasetsInventory } from "../../types";
+import type { DatasetFileRow, DatasetsInventory } from "../../types";
 
 /**
- * `instrument` stage body (`INTERFACE_DESIGN.md §2.4`). Absorbs
- * `DatasetsPane`'s inventory/bootstrap/bootstrap_train/freeze plus
- * `VaultPane`'s "Bootstrap trainset" action into one stage. `Freeze golden`
- * is the one primary control (§2.4's one-primary-control rule) and stays at
- * the top level, outside the single `▸` disclosure that holds everything
- * else.
+ * `instrument` stage body. Absorbs `DatasetsPane`'s
+ * inventory/bootstrap/bootstrap_train/freeze plus `VaultPane`'s "Bootstrap
+ * trainset" action into one stage.
+ *
+ * The body is three `SectionCard`s, and each control sits in the footer of
+ * the card holding the numbers it changes: `Bootstrap` with the candidate
+ * count it creates, `Freeze golden` with the reviewed → held-out counts it
+ * moves, `Bootstrap trainset` with the trainset it appends to. `Freeze
+ * golden` stays a top-level control, outside any `aria-expanded`; the
+ * per-role breakdown is the only thing behind the single disclosure.
+ *
+ * That breakdown is grouped, not flat. A five-row Role/Count/Ready table
+ * answered neither of the two questions a reader actually has — what each
+ * role *is*, and which role is made out of which — so the rows are split
+ * into the families the wire already declares (`row.group`), ordered as the
+ * pipeline runs rather than as the payload happens to list them, and every
+ * role name carries the wire's own `purpose` string as its `TermHint` body.
+ * The client never restates that copy: one source of truth, server-side.
+ *
+ * No control carries a `title=` any more. A tooltip is invisible on touch,
+ * needs a hover dwell, and is unreachable by keyboard — so the three that
+ * explained what a button does became their card's visible explanation
+ * line, and Freeze's disabled reason became a visible
+ * `.section-card-note`, which is the one place it actually needs to be
+ * readable.
  *
  * All three spend-immediately billed actions (`Bootstrap`, `Bootstrap
  * trainset`, `Freeze golden`) gate on the shared `ArmedButton` two-click
@@ -162,119 +185,373 @@ export function InstrumentStage({
 
   return (
     <section class="pane-main instrument-stage" aria-label="Instrument">
-      <header class="instrument-toolbar">
-        <div class="instrument-facts">
-          <span>
-            Held-out: <strong>{pipeline?.held_out_n ?? 0}</strong>
-          </span>
-          {trainsetRow ? (
-            <span>
-              Trainset: <strong>{trainsetRow.count}</strong>
+      <SectionCard
+        title="PIPELINE"
+        icon="stage:instrument"
+        headerActions={sealChip(inventory)}
+        footer={
+          <>
+            <span class="chip cost">billed</span>
+            <ArmedButton
+              armed={armedBootstrap}
+              busy={busy === "bootstrap"}
+              disabled={busy !== null && busy !== "bootstrap"}
+              label="Bootstrap"
+              armedLabel="Confirm bootstrap — bills"
+              busyLabel="Bootstrapping…"
+              onArm={() => setArmedBootstrap(true)}
+              onConfirm={() => void runBootstrap()}
+              onCancel={() => setArmedBootstrap(false)}
+            />
+            <span class="chip" data-tone="warn">
+              writes files
             </span>
-          ) : null}
-        </div>
-        <div class="instrument-actions">
-          <ArmedButton
-            armed={armedBootstrap}
-            busy={busy === "bootstrap"}
-            disabled={busy !== null && busy !== "bootstrap"}
-            label="Bootstrap"
-            armedLabel="Confirm bootstrap — bills"
-            busyLabel="Bootstrapping…"
-            title="LLM synthesize candidates from entity pages"
-            onArm={() => setArmedBootstrap(true)}
-            onConfirm={() => void runBootstrap()}
-            onCancel={() => setArmedBootstrap(false)}
-          />
-          <ArmedButton
-            armed={armedBootstrapTrain}
-            busy={busy === "bootstrap-train"}
-            disabled={busy !== null && busy !== "bootstrap-train"}
-            label="Bootstrap trainset"
-            armedLabel="Confirm bootstrap trainset — bills"
-            busyLabel="Bootstrapping trainset…"
-            title="LLM crawl and label pages into the trainset"
-            onArm={() => setArmedBootstrapTrain(true)}
-            onConfirm={() => void runBootstrapTrain()}
-            onCancel={() => setArmedBootstrapTrain(false)}
-          />
-          <ArmedButton
-            armed={armedFreeze}
-            busy={busy === "freeze"}
-            disabled={(busy !== null && busy !== "freeze") || !freezeReady}
-            label="Freeze golden"
-            armedLabel="Confirm freeze — writes files"
-            busyLabel="Freezing…"
-            className="primary"
-            title={
-              freezeBlocked
-                ? "Freeze refuses a Reviewed set that overlaps the trainset — clear the overlap first"
-                : reviewedN === 0
-                  ? "No reviewed candidates to freeze"
-                  : "Promote Reviewed → held-out golden.jsonl"
-            }
-            onArm={() => setArmedFreeze(true)}
-            onConfirm={() => void runFreeze()}
-            onCancel={() => setArmedFreeze(false)}
-          />
-        </div>
-      </header>
-
-      {belowFloor ? (
-        <p class="muted freeze-shortfall-warning">
-          Only {reviewedN} reviewed candidate{reviewedN === 1 ? "" : "s"} —
-          below the recommended {floor}. The eval scalar will be noisier until
-          the set grows.
-        </p>
-      ) : null}
-
-      {note ? <p class="saved-note">{note}</p> : null}
-      {error ? <aside role="alert">{error}</aside> : null}
-
-      <button
-        type="button"
-        class="instrument-disclosure"
-        aria-expanded={expanded}
-        onClick={() => setExpanded((wasExpanded) => !wasExpanded)}
+            <ArmedButton
+              armed={armedFreeze}
+              busy={busy === "freeze"}
+              disabled={(busy !== null && busy !== "freeze") || !freezeReady}
+              label="Freeze golden"
+              armedLabel="Confirm freeze — writes files"
+              busyLabel="Freezing…"
+              className="primary"
+              onArm={() => setArmedFreeze(true)}
+              onConfirm={() => void runFreeze()}
+              onCancel={() => setArmedFreeze(false)}
+            />
+            {freezeReady ? null : (
+              <p class="section-card-note">
+                {freezeBlocked
+                  ? "Freeze refuses a Reviewed set that overlaps the trainset — clear the overlap first."
+                  : "No reviewed candidates to freeze yet."}
+              </p>
+            )}
+          </>
+        }
       >
-        <span aria-hidden="true">▸</span>{" "}
-        {expanded ? "Hide details" : "Show details"}
-      </button>
+        <>
+          <StatGrid>
+            <Stat label={hint("candidates")} value={pipeline?.candidates_n} />
+            <Stat label={hint("reviewed")} value={pipeline?.reviewed_n} />
+            <Stat label={hint("heldOut")} value={pipeline?.held_out_n} />
+            <Stat label={hint("floor")} value={inventory?.floor} />
+          </StatGrid>
+          <p class="muted">
+            Candidates are synthesised from this topic's entity pages, reviewed
+            by you, then frozen into the held-out set the eval scores against.
+          </p>
+          {belowFloor ? (
+            <p class="muted section-card-status freeze-shortfall-warning">
+              <Icon name="info" size={16} />
+              {`Only ${reviewedN} reviewed candidate${
+                reviewedN === 1 ? "" : "s"
+              } — below the recommended ${floor}. The eval scalar will be noisier until the set grows.`}
+            </p>
+          ) : null}
+          {note ? (
+            <p class="saved-note" role="status">
+              {note}
+            </p>
+          ) : null}
+          {error ? <aside role="alert">{error}</aside> : null}
+        </>
+      </SectionCard>
 
-      {expanded && inventory ? (
-        <div class="instrument-details">
+      <SectionCard
+        title="TRAINSET"
+        icon="lane:learn"
+        footer={
+          <>
+            <span class="chip cost">billed</span>
+            <ArmedButton
+              armed={armedBootstrapTrain}
+              busy={busy === "bootstrap-train"}
+              disabled={busy !== null && busy !== "bootstrap-train"}
+              label="Bootstrap trainset"
+              armedLabel="Confirm bootstrap trainset — bills"
+              busyLabel="Bootstrapping trainset…"
+              onArm={() => setArmedBootstrapTrain(true)}
+              onConfirm={() => void runBootstrapTrain()}
+              onCancel={() => setArmedBootstrapTrain(false)}
+            />
+          </>
+        }
+      >
+        <>
+          <StatGrid>
+            <Stat label={hint("trainset")} value={trainsetRow?.count} />
+          </StatGrid>
           <p class="muted">
-            Candidates {inventory.pipeline.candidates_n} · Reviewed{" "}
-            {inventory.pipeline.reviewed_n} · Held-out{" "}
-            {inventory.pipeline.held_out_n}
+            Crawled and labelled pages the compiler optimises the prompt
+            program against. Separate from held-out on purpose: a question the
+            model trained on measures nothing.
           </p>
-          <p class="muted">
-            Overlap: {inventory.overlaps.train_held_out} train∩held-out,{" "}
-            {inventory.overlaps.train_reviewed} train∩reviewed,{" "}
-            {inventory.overlaps.train_candidates} train∩candidates
-          </p>
-          <table class="instrument-files">
-            <thead>
-              <tr>
-                <th>Role</th>
-                <th>Count</th>
-                <th>Ready</th>
-              </tr>
-            </thead>
-            <tbody>
-              {inventory.files.map((row) => (
-                <tr key={row.role}>
-                  <td>{row.label}</td>
-                  <td>{row.exists ? row.count : "—"}</td>
-                  <td>
-                    {row.ready ? "ready" : row.exists ? "not ready" : "missing"}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      ) : null}
+        </>
+      </SectionCard>
+
+      <SectionCard
+        title="FILES & OVERLAPS"
+        headerActions={
+          <button
+            type="button"
+            class="instrument-disclosure"
+            aria-expanded={expanded}
+            onClick={() => setExpanded((wasExpanded) => !wasExpanded)}
+          >
+            <span aria-hidden="true">▸</span>{" "}
+            {expanded ? "Hide details" : "Show details"}
+          </button>
+        }
+      >
+        <>
+          <StatGrid>
+            <Stat
+              label={overlapHint("held-out")}
+              value={inventory?.overlaps.train_held_out}
+            />
+            <Stat
+              label={overlapHint("reviewed")}
+              value={inventory?.overlaps.train_reviewed}
+            />
+            <Stat
+              label={overlapHint("candidates")}
+              value={inventory?.overlaps.train_candidates}
+            />
+          </StatGrid>
+          {expanded && inventory ? datasetFamilies(inventory) : null}
+        </>
+      </SectionCard>
     </section>
+  );
+}
+
+/** The seal verdict, as a word — never a colour or a bare number. */
+function sealChip(inventory: DatasetsInventory | null): JSX.Element {
+  if (!inventory) return <span class="chip">reading…</span>;
+  const overlapping =
+    inventory.overlaps.train_held_out +
+    inventory.overlaps.train_reviewed +
+    inventory.overlaps.train_candidates;
+  return inventory.pipeline.seal_ok ? (
+    <span class="chip" data-tone="good">
+      seal clean
+    </span>
+  ) : (
+    <span class="chip" data-tone="bad">{`${overlapping} overlapping`}</span>
+  );
+}
+
+/**
+ * Reading order inside a family — the order the pipeline runs in, which is
+ * not the order `gather_datasets_inventory` lists the roles in. `seal` is
+ * ranked so a payload that keeps it as its own row still places it sensibly.
+ */
+const ROLE_ORDER: readonly string[] = [
+  "candidates",
+  "reviewed",
+  "held_out",
+  "seal",
+  "trainset",
+];
+
+/** Production before consumption, so the chain reads top to bottom. */
+const FAMILY_ORDER: readonly string[] = ["golden_pipeline", "loop_corpora"];
+
+/**
+ * The roles that *continue* the candidates → reviewed → held-out chain. The
+ * chain's origin carries no mark, and `trainset` carries none because it is
+ * deliberately disjoint from the chain — which is the whole reason an
+ * overlap above it means contamination.
+ */
+const FLOW_CONTINUATION: readonly string[] = ["reviewed", "held_out"];
+
+/**
+ * Stated once, under the family that owns the chain's origin — never
+ * repeated per row. The wire groups roles by producer, so the whole
+ * candidates → reviewed → held-out(+seal) chain lives inside
+ * `golden_pipeline` and this sentence narrates it in place.
+ */
+const FLOW_NOTE =
+  "Bootstrap synthesises Candidates; you keep the good ones as Reviewed; " +
+  "Freeze writes those into the held-out exam set and seals it. The trainset " +
+  "is a separate corpus the compiler trains on — which is why any overlap " +
+  "above means the exam is scoring the model on something it trained on.";
+
+interface DatasetFamily {
+  readonly key: string;
+  readonly label: string;
+  readonly rows: readonly DatasetFileRow[];
+}
+
+/**
+ * The per-role breakdown, grouped into the wire's own families and drawn as
+ * a chain. The seal is folded onto the held-out row it guards rather than
+ * standing as a peer step, since nothing is ever produced *from* it.
+ */
+function datasetFamilies(inventory: DatasetsInventory): JSX.Element {
+  const seal = inventory.files.find((row) => row.role === "seal") ?? null;
+  const heldOut = inventory.files.find((row) => row.role === "held_out") ?? null;
+  // A seal with no held-out row to guard stays a row of its own — losing it
+  // silently would be worse than an odd-looking one.
+  const guard = seal && heldOut ? seal : null;
+  const listed = guard
+    ? inventory.files.filter((row) => row !== guard)
+    : inventory.files;
+
+  return (
+    <div class="dataset-families">
+      {groupByFamily(listed).map((family) => (
+        <section
+          key={family.key}
+          class="dataset-family"
+          aria-label={family.label}
+        >
+          <p class="microlabel">{family.label}</p>
+          <ul class="dataset-roles">
+            {family.rows.map((row) =>
+              datasetRoleRow(row, row === heldOut ? guard : null),
+            )}
+          </ul>
+          {family.key === "golden_pipeline" ? (
+            <p class="muted dataset-flow-note">{FLOW_NOTE}</p>
+          ) : null}
+        </section>
+      ))}
+    </div>
+  );
+}
+
+/**
+ * Buckets by the wire's `group`. An unrecognised group gets its own family
+ * (labelled from the raw value) rather than being dropped — the wire type
+ * admits any string, so a new server-side family must stay visible here
+ * without a client release.
+ */
+function groupByFamily(files: readonly DatasetFileRow[]): DatasetFamily[] {
+  const buckets = new Map<string, DatasetFileRow[]>();
+  for (const row of files) {
+    const key = row.group || "other";
+    const bucket = buckets.get(key);
+    if (bucket) bucket.push(row);
+    else buckets.set(key, [row]);
+  }
+  // `Array.prototype.sort` is stable, so unranked families and roles keep
+  // the order the payload sent them in.
+  return [...buckets.keys()]
+    .sort((a, b) => rank(FAMILY_ORDER, a) - rank(FAMILY_ORDER, b))
+    .map((key) => ({
+      key,
+      label: key.replace(/_/g, " ").toUpperCase(),
+      rows: [...(buckets.get(key) ?? [])].sort(
+        (a, b) => rank(ROLE_ORDER, a.role) - rank(ROLE_ORDER, b.role),
+      ),
+    }));
+}
+
+function rank(order: readonly string[], value: string): number {
+  const index = order.indexOf(value);
+  return index === -1 ? order.length : index;
+}
+
+function datasetRoleRow(
+  row: DatasetFileRow,
+  guard: DatasetFileRow | null,
+): JSX.Element {
+  return (
+    <li key={row.role} class="dataset-role">
+      {/* Always rendered, glyph or not: the empty cell is what keeps every
+          role name aligned on the same rail. */}
+      <span class="dataset-flow-mark" aria-hidden="true">
+        {FLOW_CONTINUATION.includes(row.role) ? "↳" : ""}
+      </span>
+      <span class="dataset-role-name">{roleTerm(row)}</span>
+      <span class="dataset-role-count">{row.exists ? row.count : "—"}</span>
+      {readyChip(row)}
+      {guard ? (
+        <span class="dataset-role-guard">
+          {roleTerm(guard)}
+          {readyChip(guard)}
+        </span>
+      ) : null}
+    </li>
+  );
+}
+
+function readyChip(row: DatasetFileRow): JSX.Element {
+  return (
+    <span
+      class="chip"
+      data-tone={row.ready ? "good" : row.exists ? "warn" : "neutral"}
+    >
+      {row.ready ? "ready" : row.exists ? "not ready" : "missing"}
+    </span>
+  );
+}
+
+/**
+ * The role name, explained by the server's own `purpose` string. A payload
+ * that carries no purpose falls back to the bare label — the client has no
+ * business inventing an explanation the server declined to give.
+ */
+function roleTerm(row: DatasetFileRow): JSX.Element | string {
+  if (!row.purpose) return row.label;
+  return (
+    <TermHint
+      id={`instrument-file-${row.role}`}
+      term={row.label}
+      title={row.label}
+      body={row.purpose}
+    />
+  );
+}
+
+/**
+ * The explanatory copy behind each stat label's `TermHint` — the two
+ * retired `title=` tooltips that explained what `Bootstrap` and `Bootstrap
+ * trainset` do now live in their cards' visible explanation lines instead,
+ * so nothing here duplicates them.
+ */
+const INSTRUMENT_HINTS = {
+  candidates: {
+    term: "CANDIDATES",
+    title: "Candidates",
+    body: "Question/answer pairs the model synthesised from this topic's pages. Nothing is measured against them until you review them.",
+  },
+  reviewed: {
+    term: "REVIEWED",
+    title: "Reviewed",
+    body: "Candidates you kept. Freezing promotes these into the held-out set.",
+  },
+  heldOut: {
+    term: "HELD-OUT",
+    title: "Held-out",
+    body: "The frozen golden set every eval scores against. Sealed: nothing the compiler trains on may appear here.",
+  },
+  floor: {
+    term: "FLOOR",
+    title: "Floor",
+    body: "The smallest held-out set that gives a stable scalar. Below it the number still computes — it is just noisier, and the warning says so rather than blocking you.",
+  },
+  trainset: {
+    term: "EXAMPLES",
+    title: "Trainset",
+    body: "The examples the compiler optimises the prompt program against. Overlap with held-out would make the eval meaningless, which is what the seal checks.",
+  },
+} as const;
+
+const OVERLAP_HINT_BODY =
+  "How many items appear in both sets. Anything above zero means the eval is scoring the model on something it trained on. Freeze refuses while train ∩ reviewed is non-zero.";
+
+function hint(key: keyof typeof INSTRUMENT_HINTS): JSX.Element {
+  return <TermHint id={`instrument-${key}`} {...INSTRUMENT_HINTS[key]} />;
+}
+
+function overlapHint(against: string): JSX.Element {
+  return (
+    <TermHint
+      id={`instrument-overlap-${against}`}
+      term={`TRAIN ∩ ${against.toUpperCase()}`}
+      title="Overlap"
+      body={OVERLAP_HINT_BODY}
+    />
   );
 }

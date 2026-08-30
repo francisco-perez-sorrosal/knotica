@@ -52,6 +52,17 @@ export interface AttentionStatus {
 
 export type AttentionUrgency = "blocked" | "waiting" | "running";
 
+/** Which of `deriveAttentionRows`'s four signal branches produced a row --
+ * drives `attentionMeta.ts`'s per-row rationale (why it is queued, what
+ * acting on it unfolds). One kind per branch in `rowsForTopic`, never
+ * derived from `urgency`/`lane` (two kinds share `waiting`, two share
+ * `fill`). */
+export type AttentionKind =
+  | "refused_rework"
+  | "pending_suggestions"
+  | "compile_ready"
+  | "runner_active";
+
 /** One actionable row `deriveAttentionRows` emits -- one per independent
  * signal, not one per topic. `lane` routes the row's `[Open]`/`[Watch]`
  * button to the pane that owns the underlying object. */
@@ -59,6 +70,7 @@ export interface AttentionRow {
   topic: string;
   lane: PaneId;
   urgency: AttentionUrgency;
+  kind: AttentionKind;
   narration: string;
   action: "Open" | "Watch";
 }

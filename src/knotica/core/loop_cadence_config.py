@@ -30,6 +30,7 @@ __all__ = [
     "LOOP_CONFIG_SECTION",
     "LoopCadenceConfig",
     "resolve_loop_cadence_config",
+    "validate_arena_scorer",
 ]
 
 #: The ``[loop]`` table this module reads from ``config.toml``.
@@ -103,7 +104,7 @@ def resolve_loop_cadence_config(
     threads = _resolve_num_threads(raw_threads)
 
     raw_scorer = section.get("arena_scorer", _DEFAULT_ARENA_SCORER)
-    scorer = _resolve_arena_scorer(raw_scorer)
+    scorer = validate_arena_scorer(raw_scorer)
 
     return LoopCadenceConfig(
         eval_min_interval_hours=interval,
@@ -113,7 +114,14 @@ def resolve_loop_cadence_config(
     )
 
 
-def _resolve_arena_scorer(raw_scorer: object) -> str:
+def validate_arena_scorer(raw_scorer: object) -> str:
+    """Normalize an ``arena_scorer`` value, or raise the typed ``NOT_CONFIGURED`` error.
+
+    Public because a *writer* must reject a bad value before it reaches
+    ``config.toml`` -- validating only on the next read would leave a config
+    file the resolver refuses to parse, breaking every unrelated ``[loop]``
+    consumer until a human edits the file by hand.
+    """
     if not isinstance(raw_scorer, str) or raw_scorer.strip().lower() not in ARENA_SCORERS:
         raise _config_error(
             f"[{LOOP_CONFIG_SECTION}] arena_scorer must be one of"

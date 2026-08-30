@@ -94,6 +94,13 @@ function fakeClient(overrides: Partial<ToolClient> = {}): ToolClient {
     arenaStatus: vi.fn().mockResolvedValue(fakeArenaStatus()),
     arenaHistory: vi.fn().mockResolvedValue(fakeArenaHistory()),
     compileRun: vi.fn(),
+    loopCadence: vi.fn().mockResolvedValue({
+      topic: TOPIC,
+      eval_min_interval_hours: 0,
+      eval_window: "",
+      eval_num_threads: 4,
+      arena_scorer: "eval",
+    }),
     ...overrides,
   } as unknown as ToolClient;
 }
@@ -268,5 +275,381 @@ describe("compile is a spend-immediately action gated on an explicit click, neve
 
     expect(compileRun.mock.calls[0][0]).toBe(TOPIC);
     expect(compileRun.mock.calls[0][1]).toBe(VAULT);
+  });
+});
+
+describe("an aborted race explains itself and names the next step", () => {
+  function abortedStatus(): ArenaStatus {
+    return fakeArenaStatus({
+      stage: "aborted",
+      scorer_id: "heuristic-keyword",
+      message:
+        "arena aborted: scorer 'heuristic-keyword' does not produce eval-comparable scalars",
+      variants: [
+        { id: "v1", label: "variant-1", scalar: null, status: "pending" },
+        { id: "v2", label: "variant-2", scalar: null, status: "pending" },
+      ],
+    });
+  }
+
+  it("renders the server's abort reason verbatim and the config next step", async () => {
+    const client = fakeClient({
+      arenaStatus: vi.fn().mockResolvedValue(abortedStatus()),
+    });
+
+    render(
+      <HealStage
+        client={client}
+        topic={TOPIC}
+        vault={VAULT}
+        status={baseStatus("fail")}
+      />,
+    );
+
+    const reason = await screen.findByTestId("heal-abort-reason");
+    expect(reason.textContent).toContain(
+      "does not produce eval-comparable scalars",
+    );
+    // The remediation is a control, with the hand-edit it performs still
+    // named, and the prerequisites that stop it silently falling back.
+    expect(screen.getByTestId("heal-arena-scorer")).toBeTruthy();
+    expect(
+      screen.getByText(/arena_scorer = "eval"/, { exact: false }),
+    ).toBeTruthy();
+    expect(
+      screen.getByText(/frozen golden set/i, { exact: false }),
+    ).toBeTruthy();
+  });
+
+  it("renders no abort card while the race is merely racing", async () => {
+    const client = fakeClient();
+
+    render(
+      <HealStage
+        client={client}
+        topic={TOPIC}
+        vault={VAULT}
+        status={baseStatus("fail")}
+      />,
+    );
+
+    await screen.findByTestId("heal-compile-run");
+    expect(screen.queryByTestId("heal-abort-reason")).toBeNull();
+    expect(screen.queryByTestId("heal-arena-scorer")).toBeNull();
+    expect(screen.queryByText(/arena_scorer = "eval"/)).toBeNull();
+  });
+
+  it("never writes the config on the first click -- arming only relabels the control", async () => {
+    const loopCadence = vi.fn();
+    const client = fakeClient({
+      arenaStatus: vi.fn().mockResolvedValue(abortedStatus()),
+      loopCadence,
+    });
+
+    render(
+      <HealStage
+        client={client}
+        topic={TOPIC}
+        vault={VAULT}
+        status={baseStatus("fail")}
+      />,
+    );
+
+    fireEvent.click(await screen.findByTestId("heal-arena-scorer"));
+
+    expect(loopCadence).not.toHaveBeenCalled();
+    expect(
+      screen.getByRole("button", { name: /future races bill per variant/i }),
+    ).toBeTruthy();
+  });
+
+  it("writes arena_scorer=eval only after the second, explicit confirm", async () => {
+    const loopCadence = vi.fn().mockResolvedValue({
+      topic: TOPIC,
+      eval_min_interval_hours: 0,
+      eval_window: "",
+      eval_num_threads: 4,
+      arena_scorer: "eval",
+    });
+    const onStatusRefresh = vi.fn();
+    const client = fakeClient({
+      arenaStatus: vi.fn().mockResolvedValue(abortedStatus()),
+      loopCadence,
+    });
+
+    render(
+      <HealStage
+        client={client}
+        topic={TOPIC}
+        vault={VAULT}
+        status={baseStatus("fail")}
+        onStatusRefresh={onStatusRefresh}
+      />,
+    );
+
+    fireEvent.click(await screen.findByTestId("heal-arena-scorer"));
+    fireEvent.click(screen.getByTestId("heal-arena-scorer"));
+
+    await vi.waitFor(() => expect(loopCadence).toHaveBeenCalledTimes(1));
+    expect(loopCadence.mock.calls[0]).toEqual([
+      TOPIC,
+      { arenaScorer: "eval" },
+      VAULT,
+    ]);
+    await vi.waitFor(() => expect(onStatusRefresh).toHaveBeenCalled());
+  });
+
+  it("re-reads the arena once the scorer has been switched", async () => {
+    const arenaStatus = vi.fn().mockResolvedValue(abortedStatus());
+    const client = fakeClient({ arenaStatus });
+
+    render(
+      <HealStage
+        client={client}
+        topic={TOPIC}
+        vault={VAULT}
+        status={baseStatus("fail")}
+      />,
+    );
+
+    fireEvent.click(await screen.findByTestId("heal-arena-scorer"));
+    fireEvent.click(screen.getByTestId("heal-arena-scorer"));
+
+    await vi.waitFor(() => expect(arenaStatus).toHaveBeenCalledTimes(2));
+  });
+
+  it("surfaces a rejected write instead of reporting a switch that did not happen", async () => {
+    const client = fakeClient({
+      arenaStatus: vi.fn().mockResolvedValue(abortedStatus()),
+      loopCadence: vi
+        .fn()
+        .mockRejectedValue(new Error("[loop] arena_scorer must be one of")),
+    });
+
+    render(
+      <HealStage
+        client={client}
+        topic={TOPIC}
+        vault={VAULT}
+        status={baseStatus("fail")}
+      />,
+    );
+
+    fireEvent.click(await screen.findByTestId("heal-arena-scorer"));
+    fireEvent.click(screen.getByTestId("heal-arena-scorer"));
+
+    const alert = await screen.findByRole("alert");
+    expect(alert.textContent).toContain("arena_scorer must be one of");
+  });
+});
+
+describe("the arena card carries the race's instrument and each variant's provenance", () => {
+  it("shows the baseline and the scorer as stats", async () => {
+    const client = fakeClient({
+      arenaStatus: vi
+        .fn()
+        .mockResolvedValue(fakeArenaStatus({ scorer_id: "eval", n_examples: 40 })),
+    });
+
+    render(
+      <HealStage
+        client={client}
+        topic={TOPIC}
+        vault={VAULT}
+        status={baseStatus("fail")}
+      />,
+    );
+
+    await screen.findByTestId("heal-compile-run");
+    expect(screen.getByText("0.6200")).toBeTruthy();
+    expect(screen.getByText("eval · 40 q")).toBeTruthy();
+  });
+
+  it("opens a variant's overlay onto that variant's own scalar provenance, and leads with the honest absent-change copy when change_summary is null", async () => {
+    const client = fakeClient({
+      arenaStatus: vi.fn().mockResolvedValue(
+        fakeArenaStatus({
+          variants: [
+            {
+              id: "v1",
+              label: "variant-1",
+              scalar: 0.6421,
+              status: "scored",
+              scorer_id: "eval",
+              n_examples: 40,
+              // No `change_summary`/`diff` — this race predates change
+              // tracking (or the current in-flight race that shipped it).
+            },
+          ],
+        }),
+      ),
+    });
+
+    render(
+      <HealStage
+        client={client}
+        topic={TOPIC}
+        vault={VAULT}
+        status={baseStatus("fail")}
+      />,
+    );
+
+    await screen.findByTestId("heal-compile-run");
+    fireEvent.click(
+      screen.getByRole("button", { name: "variant-1 — what this means" }),
+    );
+    const note = screen.getByRole("note");
+    expect(note.textContent).toContain(
+      "Recorded before change tracking — what this variant tried was not kept",
+    );
+    expect(note.textContent).toContain(
+      "Scored 0.6421 by eval over 40 golden questions",
+    );
+  });
+
+  it("opens a variant's overlay leading with the change_summary when the wire carries one", async () => {
+    // A distinct variant id ("v2") from the sibling test above -- the
+    // `TermHint` open signal is module-level and keyed by
+    // `heal-variant-${id}`, so reusing "v1" here would read the prior
+    // test's still-open panel instead of this test's own click.
+    const client = fakeClient({
+      arenaStatus: vi.fn().mockResolvedValue(
+        fakeArenaStatus({
+          variants: [
+            {
+              id: "v2",
+              label: "variant-2",
+              scalar: 0.82,
+              status: "scored",
+              scorer_id: "eval",
+              n_examples: 40,
+              change_summary:
+                "+3 / -0 lines vs the current prompt — first change: '## Tighter answers'",
+            },
+          ],
+        }),
+      ),
+    });
+
+    render(
+      <HealStage
+        client={client}
+        topic={TOPIC}
+        vault={VAULT}
+        status={baseStatus("fail")}
+      />,
+    );
+
+    await screen.findByTestId("heal-compile-run");
+    fireEvent.click(
+      screen.getByRole("button", { name: "variant-2 — what this means" }),
+    );
+    const note = screen.getByRole("note");
+    expect(note.textContent).toContain(
+      "Tries: +3 / -0 lines vs the current prompt — first change: '## Tighter answers'.",
+    );
+    expect(note.textContent).not.toContain("Recorded before change tracking");
+  });
+
+  it("renders a diff toggle only for variants the wire ships a diff for, and opens the diff text on click", async () => {
+    const client = fakeClient({
+      arenaStatus: vi.fn().mockResolvedValue(
+        fakeArenaStatus({
+          variants: [
+            {
+              id: "v1",
+              label: "variant-1",
+              scalar: 0.82,
+              status: "scored",
+              diff: "--- query.md (current)\n+++ variant\n@@\n+## Tighter answers",
+            },
+            {
+              id: "v2",
+              label: "variant-2",
+              scalar: 0.7,
+              status: "lost",
+              // No `diff` — no toggle should render for this row.
+            },
+          ],
+        }),
+      ),
+    });
+
+    render(
+      <HealStage
+        client={client}
+        topic={TOPIC}
+        vault={VAULT}
+        status={baseStatus("fail")}
+      />,
+    );
+
+    await screen.findByTestId("heal-compile-run");
+
+    expect(
+      screen.getByRole("button", { name: "Show variant-1's diff" }),
+    ).toBeTruthy();
+    expect(
+      screen.queryByRole("button", { name: "Show variant-2's diff" }),
+    ).toBeNull();
+    expect(
+      screen.queryByRole("button", { name: "Hide variant-2's diff" }),
+    ).toBeNull();
+
+    fireEvent.click(
+      screen.getByRole("button", { name: "Show variant-1's diff" }),
+    );
+
+    expect(
+      screen.getByRole("button", { name: "Hide variant-1's diff" }),
+    ).toBeTruthy();
+    expect(screen.getByText(/## Tighter answers/)).toBeTruthy();
+  });
+
+  it("keeps at most one variant's diff panel open at a time", async () => {
+    const client = fakeClient({
+      arenaStatus: vi.fn().mockResolvedValue(
+        fakeArenaStatus({
+          variants: [
+            {
+              id: "v1",
+              label: "variant-1",
+              scalar: 0.82,
+              status: "scored",
+              diff: "+first variant diff",
+            },
+            {
+              id: "v2",
+              label: "variant-2",
+              scalar: 0.7,
+              status: "lost",
+              diff: "+second variant diff",
+            },
+          ],
+        }),
+      ),
+    });
+
+    render(
+      <HealStage
+        client={client}
+        topic={TOPIC}
+        vault={VAULT}
+        status={baseStatus("fail")}
+      />,
+    );
+
+    await screen.findByTestId("heal-compile-run");
+
+    fireEvent.click(
+      screen.getByRole("button", { name: "Show variant-1's diff" }),
+    );
+    expect(screen.getByText(/first variant diff/)).toBeTruthy();
+
+    fireEvent.click(
+      screen.getByRole("button", { name: "Show variant-2's diff" }),
+    );
+    expect(screen.getByText(/second variant diff/)).toBeTruthy();
+    expect(screen.queryByText(/first variant diff/)).toBeNull();
   });
 });

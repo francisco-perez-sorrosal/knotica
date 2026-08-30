@@ -90,17 +90,24 @@ interface AttentionStatus {
 
 type AttentionUrgency = "blocked" | "waiting" | "running";
 type AttentionLane = "learn" | "answer" | "improve" | "fill" | "tend";
+type AttentionKind =
+  | "refused_rework"
+  | "pending_suggestions"
+  | "compile_ready"
+  | "runner_active";
 
 interface AttentionRow {
   topic: string;
   lane: AttentionLane;
   urgency: AttentionUrgency;
+  kind: AttentionKind;
   narration: string;
   action: "Open" | "Watch";
 }
 
 interface AttentionRowsModule {
   deriveAttentionRows(payload: AttentionStatus): AttentionRow[];
+  sortAttentionRows(rows: AttentionRow[]): AttentionRow[];
 }
 
 const ATTENTION_ROWS_MODULE_PATH = "../attentionRows";
@@ -155,6 +162,7 @@ describe("blocked class -- a refused-awaiting-rework suggestion", () => {
     expect(rows[0]).toMatchObject({
       topic: "rag-patterns",
       urgency: "blocked",
+      kind: "refused_rework",
       lane: "fill",
       action: "Open",
     });
@@ -181,6 +189,7 @@ describe("waiting class -- pending suggestions", () => {
     expect(rows[0]).toMatchObject({
       topic: "rag-patterns",
       urgency: "waiting",
+      kind: "pending_suggestions",
       lane: "fill",
       action: "Open",
     });
@@ -206,6 +215,7 @@ describe("waiting class -- compile-ready", () => {
     expect(rows[0]).toMatchObject({
       topic: "agentic-systems",
       urgency: "waiting",
+      kind: "compile_ready",
       lane: "improve",
       action: "Open",
     });
@@ -226,6 +236,7 @@ describe("running class -- an alive runner", () => {
     expect(rows[0]).toMatchObject({
       topic: "agentic-systems",
       urgency: "running",
+      kind: "runner_active",
       lane: "improve",
       action: "Watch",
     });
@@ -270,5 +281,101 @@ describe("a single topic can surface more than one signal", () => {
     );
     expect(rows).toHaveLength(1);
     expect(rows[0].topic).toBe("agentic-systems");
+  });
+});
+
+describe("sortAttentionRows -- urgency-class ordering (blocked < waiting < running)", () => {
+  function row(
+    topic: string,
+    urgency: AttentionUrgency,
+    kind: AttentionKind,
+  ): AttentionRow {
+    return {
+      topic,
+      lane: "improve",
+      urgency,
+      kind,
+      narration: "n",
+      action: urgency === "running" ? "Watch" : "Open",
+    };
+  }
+
+  it("orders a cross-topic interleave into blocked, then waiting, then running", () => {
+    const running = row("topic-c", "running", "runner_active");
+    const blocked = row("topic-a", "blocked", "refused_rework");
+    const waiting = row("topic-b", "waiting", "pending_suggestions");
+
+    const sorted = attentionRows.sortAttentionRows([running, blocked, waiting]);
+
+    expect(sorted.map((r) => r.urgency)).toEqual([
+      "blocked",
+      "waiting",
+      "running",
+    ]);
+    expect(sorted.map((r) => r.topic)).toEqual([
+      "topic-a",
+      "topic-b",
+      "topic-c",
+    ]);
+  });
+
+  it("is stable within a class -- same-urgency rows keep their original relative order", () => {
+    const first = row("topic-a", "blocked", "refused_rework");
+    const second = row("topic-b", "blocked", "refused_rework");
+    const third = row("topic-c", "blocked", "refused_rework");
+
+    const sorted = attentionRows.sortAttentionRows([third, first, second]);
+
+    expect(sorted.map((r) => r.topic)).toEqual([
+      "topic-c",
+      "topic-a",
+      "topic-b",
+    ]);
+  });
+
+  it("does not mutate its input array", () => {
+    const rows = [
+      row("topic-b", "waiting", "pending_suggestions"),
+      row("topic-a", "blocked", "refused_rework"),
+    ];
+    const original = [...rows];
+
+    attentionRows.sortAttentionRows(rows);
+
+    expect(rows).toEqual(original);
+  });
+
+  it("mirrors deriveAttentionRows' own cross-topic output into class order", () => {
+    const blockedTopic: AttentionTopicRow = {
+      topic: "rag-patterns",
+      suggestions: { pending: 0, refused_awaiting_rework: 1 },
+      compile_ready: false,
+      runner: { alive: false },
+    };
+    const runningTopic: AttentionTopicRow = {
+      topic: "agentic-systems",
+      suggestions: { pending: 0, refused_awaiting_rework: 0 },
+      compile_ready: false,
+      runner: { alive: true },
+    };
+    const waitingTopic: AttentionTopicRow = {
+      topic: "gap-fill",
+      suggestions: { pending: 2, refused_awaiting_rework: 0 },
+      compile_ready: false,
+      runner: { alive: false },
+    };
+
+    // Derivation order deliberately not urgency order, so this test proves
+    // sortAttentionRows -- not deriveAttentionRows -- did the reordering.
+    const derived = attentionRows.deriveAttentionRows(
+      payload([runningTopic, waitingTopic, blockedTopic]),
+    );
+    const sorted = attentionRows.sortAttentionRows(derived);
+
+    expect(sorted.map((r) => r.urgency)).toEqual([
+      "blocked",
+      "waiting",
+      "running",
+    ]);
   });
 });

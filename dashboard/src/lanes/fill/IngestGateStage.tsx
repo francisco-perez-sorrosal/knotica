@@ -2,6 +2,12 @@ import { useEffect, useState } from "preact/hooks";
 import type { JSX } from "preact";
 
 import { HandoffStage } from "../HandoffStage";
+import type { IconName } from "../../icons";
+import { SectionCard } from "../../SectionCard";
+import type { SectionTone } from "../../SectionCard";
+import { Stat, StatGrid } from "../../Stat";
+import { StateList } from "../../StateList";
+import type { StateListRow } from "../../StateList";
 import type { ToolClient } from "../../toolClient";
 import type {
   LaneRailStageState,
@@ -29,6 +35,28 @@ import type {
  * expanding a second item unmounts the first `HandoffStage` entirely rather
  * than merely pausing its poll, keeping the 3s poll cost bounded to the one
  * item a person is actually looking at.
+ *
+ * Both stage bodies are rebuilt on the stage-body grammar
+ * (`INTERFACE_DESIGN_2.md §5`, P2-2). `ingest`'s collapsed rows become a
+ * `StateList`, one per not-yet-expanded suggestion, coarsely stated from
+ * `suggestion.gate_outcome` (already loaded by the one `suggestionsRead`
+ * call above -- zero new calls). **Deviation from the design's literal
+ * `row.action = expand` sketch**: `IngestGateStage.test.tsx`'s own pinned
+ * assumption 4 and `FillLane.test.tsx`'s assembly tests both require a
+ * `<button>` whose accessible name is *exactly* the candidate's title, found
+ * within the ingest stage's node -- an `action` slot with a fixed "Expand"
+ * label would not match. The trigger is therefore hosted in `row.name`
+ * itself (a real `<button>`), leaving `action` unused; this also keeps the
+ * title's text node singular per row, which a separate name+action pairing
+ * would have duplicated. The expanded suggestion is excluded from the list
+ * and rendered as its own panel (title + `HandoffStage`) directly below it,
+ * exactly where it rendered before this restructure.
+ *
+ * `gate`'s read-only projection becomes a `SectionCard "GATE VERDICT"`: the
+ * verdict word moves from an inline `<span class="health-chip">` into the
+ * header as a toned chip, and the two numbers that used to read
+ * `scalar 0.62 (baseline 0.60)` inside a sentence become a `StatGrid` of
+ * `SCALAR`/`BASELINE`.
  */
 
 const STAGE_ORDER = ["ingest", "gate"] as const;
@@ -102,57 +130,59 @@ export function IngestGateStage({
     );
   }
 
+  const collapsedRows = suggestions.filter(
+    (suggestion) => suggestion.suggestion_id !== expandedId,
+  );
+
   return (
     <>
       <StageShell id="ingest" state={stateOf("ingest")} position={1}>
-        <p class="muted">
-          Approved sources with an open handoff to Claude -- select one to open
-          its session.
-        </p>
-        {error ? (
-          <p class="fill-ingest-error" role="alert">
-            {error}
-          </p>
-        ) : null}
-        {loading && suggestions.length === 0 ? (
-          <p class="muted">Loading approved suggestions…</p>
-        ) : suggestions.length === 0 ? (
-          <p class="muted">No approved suggestions waiting on ingest.</p>
-        ) : (
-          <ul class="ingest-list">
-            {suggestions.map((suggestion) => (
-              <li key={suggestion.suggestion_id} class="ingest-row">
-                {expandedId === suggestion.suggestion_id ? (
-                  <>
-                    <h4 class="ingest-row-title">
-                      {suggestion.candidate.title}
-                    </h4>
-                    {client ? (
-                      <HandoffStage
-                        client={client}
-                        topic={topic}
-                        vault={vault}
-                        suggestionId={suggestion.suggestion_id}
-                        command="fill"
-                        ask={`Claude writes the pages for "${suggestion.candidate.title}" into ${topic}, using the open candidate session.`}
-                        active
-                        renderYouControl={renderYouControlFor(suggestion)}
-                      />
-                    ) : null}
-                  </>
-                ) : (
-                  <button
-                    type="button"
-                    class="ghost ingest-expand"
-                    onClick={() => toggleExpanded(suggestion.suggestion_id)}
-                  >
-                    {suggestion.candidate.title}
-                  </button>
+        <SectionCard title="APPROVED SOURCES">
+          <>
+            <p class="muted">
+              Approved sources with an open handoff to Claude -- select one to
+              open its session.
+            </p>
+            {error ? (
+              <p class="fill-ingest-error" role="alert">
+                {error}
+              </p>
+            ) : null}
+            {loading && suggestions.length === 0 ? (
+              <p class="muted">Loading approved suggestions…</p>
+            ) : suggestions.length === 0 ? (
+              <p class="muted">No approved suggestions waiting on ingest.</p>
+            ) : (
+              <StateList
+                label="Approved sources"
+                rows={collapsedRows.map((suggestion) =>
+                  ingestRow(suggestion, () =>
+                    toggleExpanded(suggestion.suggestion_id),
+                  ),
                 )}
-              </li>
-            ))}
-          </ul>
-        )}
+              />
+            )}
+            {expandedSuggestion ? (
+              <>
+                <h4 class="ingest-row-title">
+                  {expandedSuggestion.candidate.title}
+                </h4>
+                {client ? (
+                  <HandoffStage
+                    client={client}
+                    topic={topic}
+                    vault={vault}
+                    suggestionId={expandedSuggestion.suggestion_id}
+                    command="fill"
+                    ask={`Claude writes the pages for "${expandedSuggestion.candidate.title}" into ${topic}, using the open candidate session.`}
+                    active
+                    renderYouControl={renderYouControlFor(expandedSuggestion)}
+                  />
+                ) : null}
+              </>
+            ) : null}
+          </>
+        </SectionCard>
       </StageShell>
 
       <StageShell id="gate" state={stateOf("gate")} position={2}>
@@ -160,6 +190,47 @@ export function IngestGateStage({
       </StageShell>
     </>
   );
+}
+
+/**
+ * One collapsed suggestion as a `StateList` row. `state`/`stateLabel`/`tone`
+ * are a coarse read of the suggestion's own already-loaded `gate_outcome` --
+ * not a live session poll, which only the expanded item's `HandoffStage`
+ * makes (zero new calls, `dec-087` clause 1).
+ */
+function ingestRow(
+  suggestion: SuggestionRecord,
+  onExpand: () => void,
+): StateListRow {
+  const outcome = suggestion.gate_outcome;
+  const state = outcome?.verdict ?? "awaiting-gate";
+  const icon: IconName =
+    state === "merged"
+      ? "state:complete"
+      : state === "refused"
+        ? "state:blocked"
+        : "state:pending";
+  const stateLabel =
+    state === "merged"
+      ? "merged"
+      : state === "refused"
+        ? "refused"
+        : "awaiting gate";
+  const tone: SectionTone | undefined =
+    state === "merged" ? "good" : state === "refused" ? "bad" : undefined;
+
+  return {
+    id: suggestion.suggestion_id,
+    state,
+    icon,
+    name: (
+      <button type="button" class="ghost ingest-expand" onClick={onExpand}>
+        {suggestion.candidate.title}
+      </button>
+    ),
+    stateLabel,
+    tone,
+  };
 }
 
 /**
@@ -204,7 +275,10 @@ function renderYouControlFor(
  * Read-only projection of the expanded suggestion's own `gate_outcome` --
  * zero new calls, per `dec-087` clause 1. `merged` narrates that the
  * originating gap is now resolved: the gate closing its gap is Fill's
- * terminal state (`dec-087`), rendered here for the first time.
+ * terminal state (`dec-087`). Rebuilt on the grammar (`INTERFACE_DESIGN_2.md
+ * §5`): the verdict word moves from an inline chip into the card header, and
+ * the scalar/baseline pair -- previously `scalar 0.62 (baseline 0.60)` inside
+ * a sentence -- becomes a `StatGrid`.
  */
 function GateStageBody({
   suggestion,
@@ -213,34 +287,45 @@ function GateStageBody({
 }): JSX.Element {
   if (!suggestion) {
     return (
-      <p class="muted">Select an item in Ingest to see its gate verdict.</p>
+      <SectionCard title="GATE VERDICT">
+        <p class="muted">Select an item in Ingest to see its gate verdict.</p>
+      </SectionCard>
     );
   }
 
   const outcome = suggestion.gate_outcome;
   if (!outcome) {
-    return <p class="muted">Not yet gated -- no verdict recorded.</p>;
-  }
-
-  if (outcome.verdict === "merged") {
     return (
-      <div class="gate-verdict gate-merged">
-        <p>
-          <span class="health-chip">merged</span> scalar{" "}
-          {outcome.scalar.toFixed(2)} (baseline{" "}
-          {outcome.baseline_scalar.toFixed(2)}).
-        </p>
-        <p class="muted">The originating gap is now resolved.</p>
-      </div>
+      <SectionCard title="GATE VERDICT">
+        <p class="muted">Not yet gated -- no verdict recorded.</p>
+      </SectionCard>
     );
   }
 
+  const tone: SectionTone = outcome.verdict === "merged" ? "good" : "bad";
+
   return (
-    <div class="gate-verdict gate-refused">
-      <p>
-        <span class="health-chip warn">refused</span> {outcome.reason}
-      </p>
-    </div>
+    <SectionCard
+      title="GATE VERDICT"
+      tone={tone}
+      headerActions={
+        <span class="chip" data-tone={tone}>
+          {outcome.verdict}
+        </span>
+      }
+    >
+      <>
+        <StatGrid>
+          <Stat label="SCALAR" value={outcome.scalar.toFixed(2)} />
+          <Stat label="BASELINE" value={outcome.baseline_scalar.toFixed(2)} />
+        </StatGrid>
+        {outcome.verdict === "merged" ? (
+          <p class="muted">The originating gap is now resolved.</p>
+        ) : (
+          <p class="muted">{outcome.reason}</p>
+        )}
+      </>
+    </SectionCard>
   );
 }
 

@@ -1,74 +1,73 @@
 import { useEffect, useState } from "preact/hooks";
 import type { JSX } from "preact";
 
+import { Icon } from "../../icons";
+import { TermHint } from "../../TermHint";
 import { TwoPhaseConfirm, useTwoPhaseAction } from "../../TwoPhaseAction";
 import type { ToolClient } from "../../toolClient";
+import { GapOriginBadge } from "./badges";
+import { SuggestionRow } from "./SuggestionRow";
+import { sortSuggestions } from "./suggestionSort";
+import type { QueueSortMode } from "./suggestionSort";
 import type {
   GapfillDiscoverResult,
-  GapOrigin,
   GapRecord,
   GapsReadResult,
-  GateOutcome,
   LaneRailStageState,
   SuggestionAction,
-  SuggestionRecord,
-  SuggestionReputability,
   SuggestionsReadResult,
   SuggestionsStatusFilter,
   WikiStatus,
 } from "../../types";
 
 /**
- * `QueueStage` (`INTERFACE_DESIGN.md §2.5`) -- absorbs `SourcesPane.tsx`'s
- * `gap`/`discover`/`approve` logic into three of Fill's five rail stages, a
- * behaviour-preserving move (not a rewrite), mirroring M3's `TendLane`
- * absorption of `VaultPane`'s Checks tabs. `ingest`/`gate` are genuinely new
- * stage content and live in `IngestGateStage.tsx`; `FillLane.tsx` assembles
- * all five stages under one shared `<ol class="lane-rail">` -- this
- * component renders its three `<li class="lane-stage">` rows unwrapped, the
- * same "no owned `<ol>`" contract `TendLane`'s `StageShell` establishes for
- * a stage tree that is only ever assembled from a parent lane.
+ * `QueueStage` -- Fill's `gap`/`discover`/`approve` rail stages: the diagnosed
+ * gap queue, the billed two-phase discovery drain, and the human triage queue
+ * the drain feeds.
  *
  * Content is **not** gated by a stage's own `data-state` (no progressive
- * disclosure, unlike `ImproveLane`): `SourcesPane` rendered this content
- * unconditionally, and this move must not silently hide it behind a new
- * visibility gate. `data-state` is a wrapper attribute only, sourced
- * verbatim from `status.topics[].lanes.fill` (server-derived,
- * `core/status_lanes.py`) and defaulted to `"pending"` when absent.
+ * disclosure, unlike `ImproveLane`): this content has always rendered
+ * unconditionally and must not be hidden behind a new visibility gate.
+ * `data-state` is a wrapper attribute only, sourced verbatim from
+ * `status.topics[].lanes.fill` (server-derived, `core/status_lanes.py`) and
+ * defaulted to `"pending"` when absent.
  *
- * `review_gap` (the human dismiss/reopen transition on a gap) is out of
- * scope for this milestone (`IMPLEMENTATION_PLAN.md` M4 `## Scope`): it is
- * a flat MCP tool already registered, not a dashboard affordance the design
- * calls for here -- noted, not built.
+ * The approve stage is the dense one. Its queue routinely runs to dozens of
+ * records, so it carries one toolbar (filters + counts on the left, outcome
+ * chips on the right, sort order underneath) and renders each suggestion as a
+ * collapsed `SuggestionRow` -- see that file for the row grammar. Ordering is
+ * client-side over the loaded pages, which the toolbar says out loud whenever
+ * the read has more to give.
+ *
+ * `review_gap` (the human dismiss/reopen transition on a gap) is out of scope
+ * here: it is a flat MCP tool already registered, not a dashboard affordance.
  */
 
 /** The server's "no cap" sentinel for a drain -- it decides how many gaps to take. */
 const DISCOVER_ALL_GAPS = 0;
 
+/**
+ * One read usually covers the whole queue, so priority order is usually the
+ * whole queue's order rather than a page's. Raised from 20 once the rows
+ * became collapsed triage rows: a 50-row page is now shorter on screen than
+ * a 20-card page was.
+ */
+const SUGGESTIONS_PAGE_SIZE = 50;
+
 /** Labels are deliberately never "approved" -- that text collides with the
- * accessible name of the SuggestionCard's own "Approve" action button in
- * this same stage (both would match a `/approve/i` role query), so this
- * filter option is worded to avoid the substring entirely. */
+ * accessible name of the row's own "Approve" action button in this same
+ * stage (both would match a `/approve/i` role query), so this filter option
+ * is worded to avoid the substring entirely. */
 const FILTERS: Array<{ value: SuggestionsStatusFilter; label: string }> = [
   { value: "pending", label: "pending" },
   { value: "approved", label: "accepted" },
   { value: "all", label: "all" },
 ];
 
-/** Tier -> (shape glyph, tone class) -- never color alone (WCAG 1.4.1). */
-const TIER_TREATMENT: Record<string, { glyph: string; tone: string }> = {
-  peer_reviewed: { glyph: "●", tone: "ok" }, // ●
-  preprint_known_lab: { glyph: "◐", tone: "warn" }, // ◐
-  established_org: { glyph: "○", tone: "warn" }, // ○
-  general_web: { glyph: "·", tone: "" }, // ·
-};
-
-/** Gap origin -> (shape glyph, tone class) -- shape + label, never color alone. */
-const ORIGIN_TREATMENT: Record<GapOrigin, { glyph: string; tone: string; label: string }> = {
-  measured: { glyph: "◆", tone: "ok", label: "measured" }, // eval-proven
-  reported: { glyph: "✎", tone: "warn", label: "reported" }, // conversationally filed
-  retracted: { glyph: "⌫", tone: "warn", label: "retracted" }, // guillotine-weakened
-};
+const SORT_MODES: Array<{ value: QueueSortMode; label: string }> = [
+  { value: "priority", label: "priority" },
+  { value: "newest", label: "newest" },
+];
 
 const STAGE_ORDER = ["gap", "discover", "approve"] as const;
 type StageId = (typeof STAGE_ORDER)[number];
@@ -99,6 +98,7 @@ export function QueueStage({
   onStatusRefresh?: () => void | Promise<void>;
 }): JSX.Element {
   const [filter, setFilter] = useState<SuggestionsStatusFilter>("pending");
+  const [sort, setSort] = useState<QueueSortMode>("priority");
   const [result, setResult] = useState<SuggestionsReadResult | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -150,7 +150,13 @@ export function QueueStage({
     setLoading(!append);
     setError(null);
     try {
-      const next = await client.suggestionsRead(topic, filter, cursor, 20, vault);
+      const next = await client.suggestionsRead(
+        topic,
+        filter,
+        cursor,
+        SUGGESTIONS_PAGE_SIZE,
+        vault,
+      );
       setResult((prev) =>
         append && prev
           ? { ...next, suggestions: [...prev.suggestions, ...next.suggestions] }
@@ -199,8 +205,15 @@ export function QueueStage({
   const byId = new Map(declared.map((stage) => [stage.id, stage] as const));
   const stateOf = (id: StageId): LaneRailStageState => byId.get(id)?.state ?? "pending";
 
-  const suggestions = result?.suggestions ?? [];
+  // Re-sorted on every render, including after "Load more" appends -- the
+  // ordering is a view over whatever is loaded, never a one-shot decision.
+  const suggestions = sortSuggestions(result?.suggestions ?? [], sort);
   const counts = result?.status_counts;
+  // Filter-independent: `status_counts` covers every status, so the total is
+  // its sum -- `total_count` describes only the *current* filter's slice.
+  const allCount = counts
+    ? Object.values(counts).reduce((total, value) => total + value, 0)
+    : null;
   const openGaps = gaps?.gaps ?? [];
   const gapCount = gaps?.total_count ?? openGaps.length;
   const gapsPageIsPartial = gaps?.has_more ?? false;
@@ -240,7 +253,7 @@ export function QueueStage({
 
       <StageShell id="discover" state={stateOf("discover")} position={2}>
         <p class="muted">
-          Searches for candidate sources for open gaps; each one that ranks becomes a card in the
+          Searches for candidate sources for open gaps; each one that ranks becomes a row in the
           Approve stage below.
         </p>
         {/* Deliberately one control for every open gap, not one per row: the
@@ -302,41 +315,19 @@ export function QueueStage({
           instruction for the next interactive session; reject requires a reason.
         </p>
 
-        <div class="sources-filters" role="group" aria-label="Filter by status">
-          {FILTERS.map((entry) => (
-            <button
-              type="button"
-              key={entry.value}
-              class={filter === entry.value ? "active" : "ghost"}
-              onClick={() => setFilter(entry.value)}
-            >
-              {entry.label}
-              {counts && entry.value !== "all" ? ` ${counts[entry.value]}` : ""}
-            </button>
-          ))}
-          <button type="button" class="ghost" onClick={() => void load()} disabled={loading}>
-            {loading ? "…" : "⟳"}
-          </button>
-        </div>
-
-        {/* The refused chip reads `status` (a synchronous prop), not `counts`
-            (the async suggestions read) -- it renders on first paint rather
-            than waiting on a page-local fetch, matching the "topic-wide, not
-            a page-local recount" framing above. */}
-        <div
-          class="sources-filters sources-status-badges"
-          role="group"
-          aria-label="Suggestion counts by outcome"
-        >
-          {counts ? <span class="health-chip">approved {counts.approved}</span> : null}
-          <span
-            class="health-chip warn"
-            title="Approved suggestions whose most recent gate pass was refused (topic-wide)"
-          >
-            <span aria-hidden="true">⚠</span> refused {refusedCount}
-          </span>
-          {counts ? <span class="health-chip">ingested {counts.ingested}</span> : null}
-        </div>
+        <QueueToolbar
+          filter={filter}
+          onFilter={setFilter}
+          counts={counts}
+          allCount={allCount}
+          sort={sort}
+          onSort={setSort}
+          loading={loading}
+          onRefresh={() => void load()}
+          refusedCount={refusedCount}
+          pageIsPartial={result?.has_more ?? false}
+          loadedCount={suggestions.length}
+        />
 
         {error ? (
           <p class="sources-error" role="alert">
@@ -376,9 +367,9 @@ export function QueueStage({
             )}
           </div>
         ) : (
-          <ul class="sources-list">
+          <ul class="triage-list">
             {suggestions.map((suggestion) => (
-              <SuggestionCard
+              <SuggestionRow
                 key={suggestion.suggestion_id}
                 suggestion={suggestion}
                 busy={busyId === suggestion.suggestion_id}
@@ -419,6 +410,123 @@ export function QueueStage({
   );
 }
 
+/**
+ * The approve queue's single toolbar: what is listed (left), what came of the
+ * listed records (right), and in what order (below).
+ *
+ * The outcome chips read `status` (a synchronous prop) for `refused` and the
+ * suggestions read for `ingested`, so the topic-wide count renders on first
+ * paint rather than waiting on a page-local fetch. There is deliberately no
+ * `approved` chip: the ACCEPTED filter pill already prints that exact number
+ * from the same `status_counts.approved` field.
+ */
+function QueueToolbar({
+  filter,
+  onFilter,
+  counts,
+  allCount,
+  sort,
+  onSort,
+  loading,
+  onRefresh,
+  refusedCount,
+  pageIsPartial,
+  loadedCount,
+}: {
+  filter: SuggestionsStatusFilter;
+  onFilter: (value: SuggestionsStatusFilter) => void;
+  counts: SuggestionsReadResult["status_counts"] | undefined;
+  allCount: number | null;
+  sort: QueueSortMode;
+  onSort: (value: QueueSortMode) => void;
+  loading: boolean;
+  onRefresh: () => void;
+  refusedCount: number;
+  pageIsPartial: boolean;
+  loadedCount: number;
+}): JSX.Element {
+  const pillCount = (value: SuggestionsStatusFilter): string => {
+    if (value === "all") return allCount == null ? "" : ` ${allCount}`;
+    return counts ? ` ${counts[value]}` : "";
+  };
+
+  return (
+    <div class="queue-toolbar">
+      <div class="queue-toolbar-row">
+        <div class="queue-pills" role="group" aria-label="Filter by status">
+          {FILTERS.map((entry) => (
+            <button
+              type="button"
+              key={entry.value}
+              class="queue-pill"
+              aria-pressed={filter === entry.value}
+              onClick={() => onFilter(entry.value)}
+            >
+              {entry.label}
+              {pillCount(entry.value)}
+            </button>
+          ))}
+          <button
+            type="button"
+            class="queue-icon-button"
+            aria-label="Refresh"
+            disabled={loading}
+            onClick={onRefresh}
+          >
+            <Icon name="refresh" size={16} />
+          </button>
+        </div>
+
+        <div class="queue-outcomes" role="group" aria-label="Suggestion counts by outcome">
+          <span class="chip" data-tone="warn">
+            <span aria-hidden="true">⚠</span>{" "}
+            <TermHint
+              id="fill-outcome-refused"
+              term={`refused ${refusedCount}`}
+              title="Refused at the gate"
+              body="Approved suggestions whose most recent gate pass was refused — re-workable, not re-submitted. Counted topic-wide, not just across the rows on screen."
+              align="end"
+            />
+          </span>
+          {counts ? (
+            <span class="chip">
+              <TermHint
+                id="fill-outcome-ingested"
+                term={`ingested ${counts.ingested}`}
+                title="Ingested"
+                body="Suggestions whose source has been written into the vault and indexed. Nothing further is owed on them."
+                align="end"
+              />
+            </span>
+          ) : null}
+        </div>
+      </div>
+
+      <div class="queue-toolbar-row queue-toolbar-sub">
+        <div class="queue-sort" role="group" aria-label="Sort order">
+          <span class="microlabel">Sort</span>
+          {SORT_MODES.map((mode) => (
+            <button
+              type="button"
+              key={mode.value}
+              class="queue-pill"
+              aria-pressed={sort === mode.value}
+              onClick={() => onSort(mode.value)}
+            >
+              {mode.label}
+            </button>
+          ))}
+        </div>
+        {sort === "priority" && pageIsPartial ? (
+          <p class="muted queue-sort-note">
+            Sorted across the {loadedCount} loaded — Load more to widen.
+          </p>
+        ) : null}
+      </div>
+    </div>
+  );
+}
+
 /** The shared `.lane-stage` shell every row of this queue renders through --
  * matches `TendLane.tsx`'s `StageShell` markup contract exactly, so the two
  * absorbed lanes stay visually consistent under `FillLane`'s shared rail. */
@@ -449,188 +557,6 @@ function StageShell({
   );
 }
 
-function SuggestionCard({
-  suggestion,
-  busy,
-  anyBusy,
-  rejectOpen,
-  reasonDraft,
-  onApprove,
-  onDefer,
-  onOpenReject,
-  onCancelReject,
-  onReasonChange,
-  onSubmitReject,
-}: {
-  suggestion: SuggestionRecord;
-  busy: boolean;
-  anyBusy: boolean;
-  rejectOpen: boolean;
-  reasonDraft: string;
-  onApprove: () => void;
-  onDefer: () => void;
-  onOpenReject: () => void;
-  onCancelReject: () => void;
-  onReasonChange: (value: string) => void;
-  onSubmitReject: () => void;
-}) {
-  const candidate = suggestion.candidate;
-  const disabled = anyBusy;
-  const decided = suggestion.status !== "pending" && suggestion.status !== "deferred";
-
-  return (
-    <li class="sources-card">
-      <div class="sources-card-head">
-        <span class="status-chip">
-          {suggestion.fault_class} · gen-{suggestion.detected_generation} · rank #{suggestion.rank}
-        </span>
-        <span class="sources-card-badges">
-          <GapOriginBadge origin={suggestion.gap_origin} />
-          <ReputabilityBadge reputability={candidate.reputability} />
-        </span>
-      </div>
-
-      <div class="sources-card-question">
-        <span class="stat-label">Failed question</span>
-        <p>“{suggestion.question}”</p>
-        {suggestion.reference_pages.length > 0 ? (
-          <p class="muted">references: {suggestion.reference_pages.join(", ")}</p>
-        ) : null}
-      </div>
-
-      <div class="sources-card-source">
-        <span class="stat-label">Suggested source</span>
-        <p>
-          <a href={candidate.url} target="_blank" rel="noreferrer">
-            {candidate.title}
-          </a>
-        </p>
-        <p class="muted">
-          {[
-            candidate.venue,
-            candidate.authors && candidate.authors.length > 0
-              ? candidate.authors.join(", ")
-              : null,
-            candidate.citation_count != null ? `${candidate.citation_count} citations` : null,
-            candidate.is_open_access ? "open access" : null,
-          ]
-            .filter(Boolean)
-            .join(" · ")}
-        </p>
-        {candidate.doi ? (
-          <p>
-            <a href={`https://doi.org/${candidate.doi}`} target="_blank" rel="noreferrer">
-              doi:{candidate.doi} ↗
-            </a>
-          </p>
-        ) : null}
-        {candidate.reputability && candidate.reputability.signals.length > 0 ? (
-          <p class="muted sources-signals">
-            signals: {candidate.reputability.signals.join(" · ")}
-          </p>
-        ) : null}
-      </div>
-
-      {decided ? (
-        <>
-          <p class="muted sources-decided">
-            Decision recorded: <strong>{suggestion.status}</strong>
-            {suggestion.decided_reason ? ` — ${suggestion.decided_reason}` : ""}
-          </p>
-          <GateOutcomeNote outcome={suggestion.gate_outcome} />
-        </>
-      ) : (
-        <div class="sources-card-actions">
-          <button type="button" class="primary" disabled={disabled} onClick={onApprove}>
-            {busy ? "…" : "✓ Approve"}
-          </button>
-          {!rejectOpen ? (
-            <button type="button" class="danger" disabled={disabled} onClick={onOpenReject}>
-              ✕ Reject…
-            </button>
-          ) : null}
-          <button type="button" class="ghost" disabled={disabled} onClick={onDefer}>
-            {busy ? "…" : "⧗ Defer"}
-          </button>
-          <span class="muted sources-provenance">
-            {candidate.source_provider}
-            {candidate.provider_score != null ? ` · score ${candidate.provider_score.toFixed(2)}` : ""}
-          </span>
-        </div>
-      )}
-
-      {rejectOpen ? (
-        <div class="sources-reject-form">
-          <label>
-            <span>Reason for rejecting</span>
-            <textarea
-              rows={2}
-              value={reasonDraft}
-              disabled={busy}
-              placeholder="Why doesn't this source fit?"
-              onInput={(event) => onReasonChange((event.target as HTMLTextAreaElement).value)}
-            />
-          </label>
-          <div class="sources-reject-actions">
-            <button
-              type="button"
-              class="danger"
-              disabled={busy || !reasonDraft.trim()}
-              onClick={onSubmitReject}
-            >
-              {busy ? "…" : "Confirm reject"}
-            </button>
-            <button type="button" class="ghost" disabled={busy} onClick={onCancelReject}>
-              Cancel
-            </button>
-          </div>
-        </div>
-      ) : null}
-    </li>
-  );
-}
-
-/** Refused-gate note: reason + top regressed questions (already in the record -- no extra call). */
-function GateOutcomeNote({ outcome }: { outcome?: GateOutcome | null }) {
-  const [expanded, setExpanded] = useState(false);
-  if (!outcome || outcome.verdict !== "refused") return null;
-  const regressed = outcome.regressed_questions ?? [];
-  const delta = outcome.scalar - outcome.baseline_scalar;
-
-  return (
-    <div class="sources-gate-refused">
-      <p class="muted">
-        <span class="health-chip warn">
-          <span aria-hidden="true">⚠</span> refused
-        </span>{" "}
-        {delta.toFixed(4)} — {outcome.reason}
-        {regressed.length > 0 ? (
-          <button
-            type="button"
-            class="ghost sources-view-diff"
-            onClick={() => setExpanded((value) => !value)}
-          >
-            {expanded ? "hide diff" : "[view diff]"}
-          </button>
-        ) : null}
-      </p>
-      {expanded ? (
-        <div class="sources-regressed-questions">
-          <p class="muted">quarantined at {outcome.ref}</p>
-          <ul>
-            {regressed.map((row) => (
-              <li key={row.qa_id} class="muted">
-                “{row.question}” {row.baseline_score.toFixed(2)} → {row.candidate_score.toFixed(2)}{" "}
-                ({row.delta.toFixed(2)})
-              </li>
-            ))}
-          </ul>
-        </div>
-      ) : null}
-    </div>
-  );
-}
-
 /**
  * One diagnosed gap, before discovery has found anything for it.
  *
@@ -640,7 +566,7 @@ function GateOutcomeNote({ outcome }: { outcome?: GateOutcome | null }) {
  * finding. What the reader needs here is what was asked and why it went
  * unanswered.
  */
-function GapCard({ gap }: { gap: GapRecord }) {
+function GapCard({ gap }: { gap: GapRecord }): JSX.Element {
   return (
     <li class="sources-card sources-gap-card">
       <div class="sources-card-head">
@@ -667,31 +593,5 @@ function GapCard({ gap }: { gap: GapRecord }) {
         </div>
       ) : null}
     </li>
-  );
-}
-
-function GapOriginBadge({ origin }: { origin?: GapOrigin | null }) {
-  if (!origin) return null; // older records carry no provenance -- omit the badge
-  const treatment = ORIGIN_TREATMENT[origin];
-  if (!treatment) return null;
-  return (
-    <span class={`health-chip sources-origin ${treatment.tone}`} title={`gap origin: ${treatment.label}`}>
-      <span aria-hidden="true">{treatment.glyph}</span> {treatment.label}
-    </span>
-  );
-}
-
-function ReputabilityBadge({
-  reputability,
-}: {
-  reputability: SuggestionReputability | null;
-}) {
-  if (!reputability) return null;
-  const treatment = TIER_TREATMENT[reputability.tier] ?? TIER_TREATMENT.general_web;
-  return (
-    <span class={`health-chip sources-reputability ${treatment.tone}`}>
-      <span aria-hidden="true">{treatment.glyph}</span> {reputability.tier.replace(/_/g, " ")}{" "}
-      {reputability.score.toFixed(2)}
-    </span>
   );
 }

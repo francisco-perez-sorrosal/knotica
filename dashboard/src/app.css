@@ -84,6 +84,9 @@
   animation: fade-up .65s .08s ease-out both;
 }
 .vault-path {
+  display: inline-flex;
+  align-items: center;
+  gap: .3rem;
   margin: 0;
   color: var(--muted);
   font: .68rem/1.35 var(--mono);
@@ -217,6 +220,9 @@
 .pane-tabs button {
   appearance: none;
   position: relative;
+  display: inline-flex;
+  align-items: center;
+  gap: .35rem;
   border: 0;
   border-radius: var(--radius);
   background: transparent;
@@ -251,11 +257,11 @@
   white-space: nowrap;
 }
 
-.eyebrow {
+.eyebrow, .microlabel {
   margin: 0;
-  color: var(--accent);
-  font: .62rem var(--mono);
-  letter-spacing: .12em;
+  color: var(--muted);
+  font: 500 var(--fs-micro)/1.4 var(--mono);
+  letter-spacing: var(--tracking-micro);
   text-transform: uppercase;
 }
 .app-chrome .health-chip {
@@ -268,6 +274,57 @@
 @keyframes fade-up {
   from { opacity: 0; transform: translateY(8px); }
   to { opacity: 1; transform: none; }
+}
+
+.brand-mark {
+  color: var(--accent);
+  font-size: 1rem;
+  line-height: 1;
+}
+.chrome-create-trigger {
+  appearance: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  padding: 0;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--surface-raised);
+  color: var(--muted);
+  cursor: pointer;
+  transition: color .15s, border-color .15s, background .15s;
+}
+.chrome-create-trigger:hover,
+.chrome-create-trigger[aria-expanded="true"] {
+  color: var(--accent);
+  border-color: color-mix(in srgb, var(--accent) 35%, var(--line));
+  background: color-mix(in srgb, var(--accent) 8%, transparent);
+}
+.chrome-create-drawer {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-4);
+  width: 100%;
+  padding-top: .3rem;
+  border-top: 1px solid color-mix(in srgb, var(--line) 72%, transparent);
+}
+.chrome-create-drawer .doctor-repair-toolbar {
+  flex: 1 1 16rem;
+}
+.chrome-create-drawer-title {
+  width: 100%;
+  margin: 0 0 .3rem;
+}
+.chrome-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: .1rem;
+}
+.chrome-chip .info-trigger {
+  width: 20px;
+  height: 20px;
 }
 
 /* ——— Shared pane layout ——— */
@@ -322,7 +379,8 @@ h2, p { margin-top: 0; }
 }
 .gate-pass { border-left-color: var(--good); }
 .gate-fail { border-left-color: var(--bad); }
-.gate-unknown { border-left-color: var(--warn); }
+/* `unknown` is the honest absence of a comparison, not a warning (design §7.3). */
+.gate-unknown { border-left-color: var(--neutral); }
 
 .panel {
   margin-top: 1.75rem;
@@ -335,6 +393,24 @@ output {
   color: var(--accent);
   font: 1.5rem var(--mono);
   font-variant-numeric: tabular-nums;
+}
+/* The runner-liveness readout is a status chip, not a numeric readout — it must
+   not inherit the bare `output` display size above. Mirrors the .chip idiom. */
+output.observe-chip {
+  display: inline-block;
+  padding: .15rem .55rem;
+  border: 1px solid var(--line);
+  background: var(--surface-raised);
+  color: var(--muted);
+  font: .7rem var(--mono);
+}
+output.observe-chip.ok {
+  color: var(--good);
+  border-color: color-mix(in srgb, var(--good) 45%, var(--line));
+}
+output.observe-chip.warn {
+  color: var(--warn);
+  border-color: color-mix(in srgb, var(--warn) 45%, var(--line));
 }
 .chart {
   margin-top: 1rem;
@@ -1009,6 +1085,21 @@ code { font-family: var(--mono); font-size: .9em; }
   color: var(--bad);
   border-color: color-mix(in srgb, var(--bad) 55%, var(--line));
   background: color-mix(in srgb, var(--bad) 12%, var(--surface));
+}
+/* `info` = actionable, `neutral` = the honest absence of a comparison —
+   the two tones `flywheelTone` gained so `Ready` stops reading as a warning
+   and `Curating` stops reading as a failure (design §7.3). */
+.health-chip.info,
+.health-inline.info {
+  color: var(--accent);
+  border-color: color-mix(in srgb, var(--accent) 55%, var(--line));
+  background: color-mix(in srgb, var(--accent) 12%, var(--surface));
+}
+.health-chip.neutral,
+.health-inline.neutral {
+  color: var(--neutral);
+  border-color: var(--line-strong);
+  background: var(--surface-raised);
 }
 .health-inline {
   border: 1px solid transparent;
@@ -1695,12 +1786,6 @@ code { font-family: var(--mono); font-size: .9em; }
   margin-bottom: .35rem;
 }
 .heal-step-body { margin: 0; font-size: .8rem; line-height: 1.45; }
-.heal-step-actions {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: .45rem .65rem;
-}
 .heal-inline-field {
   display: inline-flex;
   align-items: center;
@@ -1716,7 +1801,6 @@ code { font-family: var(--mono); font-size: .9em; }
   color: var(--text);
   font: inherit;
 }
-.heal-step-actions button,
 .heal-stepper button {
   appearance: none;
   border: 1px solid var(--line);
@@ -1726,12 +1810,10 @@ code { font-family: var(--mono); font-size: .9em; }
   font: 600 .78rem var(--display);
   cursor: pointer;
 }
-.heal-step-actions button:disabled,
 .heal-stepper button:disabled {
   opacity: .55;
   cursor: not-allowed;
 }
-.heal-hint { margin: 0; flex-basis: 100%; font-size: .74rem; }
 .heal-freeze-actions {
   flex-direction: column;
   align-items: stretch;
@@ -1888,27 +1970,6 @@ code { font-family: var(--mono); font-size: .9em; }
   background: var(--surface-raised);
   font-size: .78rem;
 }
-.candidate-list {
-  list-style: none;
-  margin: 0;
-  padding: 0;
-  display: grid;
-  gap: .35rem;
-}
-.candidate-list li {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: baseline;
-  gap: .35rem .55rem;
-  font-size: .78rem;
-}
-.candidate-tag {
-  color: var(--muted);
-  font-size: .72rem;
-}
-.candidate-tag.pending { color: var(--warn); }
-.candidate-tag.done { color: var(--good); }
-
 .loop-banner {
   display: grid;
   grid-template-columns: 1fr auto;
@@ -2117,42 +2178,6 @@ code { font-family: var(--mono); font-size: .9em; }
   gap: .5rem;
   margin: .85rem 0;
 }
-.arena-lanes {
-  list-style: none;
-  margin: .75rem 0 0;
-  padding: 0;
-  display: grid;
-  gap: .55rem;
-}
-.arena-lane .lane-meta {
-  display: grid;
-  grid-template-columns: 1fr auto auto;
-  gap: .5rem;
-  font-size: .8rem;
-  margin-bottom: .25rem;
-}
-.arena-lane .lane-track {
-  position: relative;
-  height: .65rem;
-  background: color-mix(in srgb, var(--line) 70%, transparent);
-  overflow: visible;
-}
-.arena-lane .lane-fill {
-  height: 100%;
-  background: var(--accent);
-  transition: width .35s ease-out;
-}
-.arena-lane .lane-baseline {
-  position: absolute;
-  top: -3px;
-  bottom: -3px;
-  width: 2px;
-  background: var(--warn);
-  transform: translateX(-1px);
-  z-index: 1;
-}
-.arena-lane.status-winner .lane-fill { background: var(--good); }
-.arena-lane.status-lost .lane-fill { background: var(--muted); }
 .lane-rank { color: var(--muted); font: .72rem var(--mono); margin-right: .25rem; }
 .lane-badge {
   font-size: .72rem;
@@ -2261,51 +2286,10 @@ code { font-family: var(--mono); font-size: .9em; }
   margin: .65rem 0 0;
   font-size: .8rem;
 }
-.scoreboard-open-card {
-  margin-top: .75rem;
-  padding: .9rem 1rem;
-  border: 1px solid var(--line);
-  background: var(--surface);
-  display: grid;
-  gap: .65rem;
-}
-.scoreboard-open-card.beats-baseline {
-  border-left: 3px solid var(--good);
-}
-.scoreboard-open-card.under-baseline {
-  border-left: 3px solid var(--bad);
-}
-.scoreboard-open-head {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: .45rem .6rem;
-}
-.scoreboard-open-metrics {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(6.5rem, 1fr));
-  gap: .65rem;
-}
-.scoreboard-open-metrics .stat-label {
-  display: block;
-  font-size: .62rem;
-  text-transform: uppercase;
-  letter-spacing: .06em;
-  color: var(--muted);
-  margin-bottom: .15rem;
-}
-.scoreboard-open-metrics strong {
-  font: 600 1rem var(--mono);
-}
 .scoreboard-open-note,
 .scoreboard-open-verdict {
   margin: 0;
   font-size: .78rem;
-}
-.scoreboard-open-actions {
-  display: flex;
-  flex-wrap: wrap;
-  gap: .45rem;
 }
 .scoreboard-history {
   list-style: none;
@@ -2573,10 +2557,6 @@ button.danger:hover:not(:disabled) {
 .prompt-diff-line-del .prompt-diff-text {
   color: var(--bad);
 }
-.candidate-list .prompt-diff {
-  margin-top: .35rem;
-}
-
 @media (max-width: 840px) {
   .pipeline { grid-template-columns: repeat(3, 1fr); }
   .pipeline.workflow-curate { grid-template-columns: repeat(2, minmax(0, 1fr)); }
@@ -2894,7 +2874,7 @@ button.danger:hover:not(:disabled) {
 
 /* ——— Lane rail (M3) ——— */
 :root {
-  --lane-state-pending: var(--muted);
+  --lane-state-pending: var(--neutral);
   --lane-state-active: var(--accent);
   --lane-state-complete: var(--good);
   --lane-state-blocked: var(--bad);
@@ -2904,7 +2884,7 @@ button.danger:hover:not(:disabled) {
 }
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme="light"]) {
-    --lane-state-pending: var(--muted);
+    --lane-state-pending: var(--neutral);
     --lane-state-active: var(--accent);
     --lane-state-complete: var(--good);
     --lane-state-blocked: var(--bad);
@@ -2914,7 +2894,7 @@ button.danger:hover:not(:disabled) {
   }
 }
 :root[data-theme="dark"] {
-  --lane-state-pending: var(--muted);
+  --lane-state-pending: var(--neutral);
   --lane-state-active: var(--accent);
   --lane-state-complete: var(--good);
   --lane-state-blocked: var(--bad);
@@ -2933,13 +2913,24 @@ button.danger:hover:not(:disabled) {
 .lane-stage {
   display: grid;
   grid-template-columns: auto 1fr;
-  gap: .65rem;
-  padding: .65rem .75rem;
-  border: 1px solid var(--line);
+  gap: var(--space-3);
+  padding: var(--space-3);
+  border: var(--border) solid var(--line);
   border-left: 3px solid var(--line);
+  border-radius: var(--radius);
   background: var(--surface);
 }
+/* The client-owned focus axis (design §5.3) -- orthogonal to `data-state`,
+   which stays the server's. Inert until a lane passes `focusedId`. */
+.lane-stage[data-focus="true"] {
+  border-color: var(--line-strong);
+  background: var(--surface-raised);
+}
 .lane-stage[data-state="pending"] { border-left-color: var(--lane-state-pending); }
+/* `unknown` is the honest absence of a position (design §7.3): neutral, never
+   the warn ramp. Declared rather than left to fall through, so the tone is a
+   decision a reader can find. */
+.lane-stage[data-state="unknown"] { border-left-color: var(--neutral); }
 .lane-stage[data-state="active"] {
   border-left-color: var(--lane-state-active);
   background: var(--surface-raised);
@@ -2953,12 +2944,14 @@ button.danger:hover:not(:disabled) {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 1.5rem;
-  height: 1.5rem;
-  border-radius: 999px;
-  font: 600 .72rem var(--display);
-  color: var(--muted);
-  border: 1px solid var(--line);
+  width: 26px;
+  height: 26px;
+  border-radius: var(--radius-pill);
+  font: 600 .72rem var(--mono);
+  /* Neutral is the resting tone for every state that is not a live position
+     -- `pending` and `unknown` both land here. */
+  color: var(--neutral);
+  border: var(--border) solid var(--line-strong);
 }
 .lane-stage[data-state="active"] .lane-stage-index {
   color: var(--lane-state-active);
@@ -2978,15 +2971,37 @@ button.danger:hover:not(:disabled) {
   align-items: baseline;
   gap: .4rem;
 }
-.lane-stage-heading strong { font: 600 .85rem var(--display); }
-.lane-state-label {
-  text-transform: capitalize;
-  font: .68rem var(--mono);
+.lane-stage-heading strong {
+  font: 600 var(--fs-sm) var(--mono);
+  letter-spacing: var(--tracking-label);
+  text-transform: uppercase;
+  color: var(--heading);
 }
+.lane-state-label {
+  font: var(--fs-xs) var(--mono);
+  letter-spacing: var(--tracking-label);
+  text-transform: uppercase;
+  color: var(--neutral);
+}
+.lane-stage[data-state="active"] .lane-state-label { color: var(--lane-state-active); }
+.lane-stage[data-state="complete"] .lane-state-label { color: var(--lane-state-complete); }
+.lane-stage[data-state="blocked"] .lane-state-label { color: var(--lane-state-blocked); }
 .lane-stage-actor { font: .68rem var(--mono); }
 .lane-stage-body { margin: .35rem 0 0; font-size: .8rem; line-height: 1.45; }
 .lane-stage-fact { margin: 0 0 .35rem; }
 .lane-stage-remedy { margin: 0; }
+/* Shown on the first row only while nothing at all is open, so an idle rail
+   still names its entry point rather than reading as six dead boxes (§7.2). */
+.lane-stage-cue {
+  padding: .1rem .4rem;
+  border: var(--border) solid var(--accent);
+  border-radius: var(--radius-pill);
+  font: var(--fs-micro) var(--mono);
+  letter-spacing: var(--tracking-label);
+  text-transform: uppercase;
+  color: var(--accent);
+}
+.lane-stage-explainer { margin: 0 0 var(--space-2); }
 .lane-stage-disclosure {
   appearance: none;
   display: inline-flex;
@@ -3096,3 +3111,942 @@ button.danger:hover:not(:disabled) {
     max-width: 100%;
   }
 }
+
+/* ——— Info popover (M6) ——— */
+.info-popover {
+  position: relative;
+  display: inline-flex;
+}
+.info-trigger {
+  appearance: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  border: 1px solid transparent;
+  border-radius: var(--radius-pill);
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+  transition: color .15s, border-color .15s, background .15s;
+}
+.info-trigger:hover, .info-trigger[aria-expanded="true"] {
+  color: var(--accent);
+  border-color: color-mix(in srgb, var(--accent) 35%, var(--line));
+  background: color-mix(in srgb, var(--accent) 8%, transparent);
+}
+.info-popover-panel {
+  position: absolute;
+  top: calc(100% + var(--space-1));
+  left: 0;
+  z-index: var(--z-popover);
+  width: min(20rem, 80vw);
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius-card);
+  background: var(--surface);
+  box-shadow: var(--shadow-overlay);
+  padding: var(--space-3);
+}
+.info-popover[data-align="end"] .info-popover-panel {
+  left: auto;
+  right: 0;
+}
+.info-popover[data-align="center"] .info-popover-panel {
+  left: 50%;
+  transform: translateX(-50%);
+}
+.info-popover-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+  padding-bottom: var(--space-2);
+  margin-bottom: var(--space-2);
+  border-bottom: 1px solid var(--line);
+}
+.info-popover-close {
+  appearance: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  padding: 0;
+  border: 0;
+  border-radius: var(--radius);
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+}
+.info-popover-close:hover { color: var(--heading); }
+.info-popover-body p {
+  margin: 0 0 var(--space-2);
+  color: var(--text);
+  font: var(--fs-sm)/1.5 var(--sans);
+}
+.info-popover-body p.microlabel {
+  margin: var(--space-3) 0 var(--space-1);
+}
+.info-popover-body p.microlabel:first-child { margin-top: 0; }
+.info-popover-body p:last-child { margin-bottom: 0; }
+
+/* ——— Copy block (M6) ——— */
+.copy-block {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-2) var(--space-3);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--surface-sunken);
+}
+.copy-block-code {
+  flex: 1 1 auto;
+  overflow-x: auto;
+  white-space: pre;
+  color: var(--text);
+  background: transparent;
+  font: var(--fs-sm) var(--mono);
+}
+.copy-block-action {
+  appearance: none;
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--surface);
+  color: var(--muted);
+  cursor: pointer;
+  transition: color .15s, border-color .15s;
+}
+.copy-block-action:hover {
+  color: var(--accent);
+  border-color: color-mix(in srgb, var(--accent) 35%, var(--line));
+}
+.copy-block-status {
+  flex: 0 0 auto;
+  min-width: 3.5rem;
+  color: var(--muted);
+  font: var(--fs-micro) var(--mono);
+  text-transform: uppercase;
+  letter-spacing: var(--tracking-micro);
+}
+
+/* ——— Empty state (M6) ——— */
+.empty-state {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-12) var(--space-4);
+  text-align: center;
+  color: var(--muted);
+}
+.empty-state-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 48px;
+  height: 48px;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius-card);
+  color: var(--muted);
+}
+.empty-state-title {
+  margin: 0;
+  color: var(--heading);
+  font: 600 var(--fs-md) var(--mono);
+  text-transform: uppercase;
+  letter-spacing: var(--tracking-label);
+}
+.empty-state-sentence {
+  margin: 0;
+  max-width: 28rem;
+  color: var(--muted);
+  font: var(--fs-sm)/1.5 var(--sans);
+}
+.empty-state-extra, .empty-state-action {
+  display: inline-flex;
+}
+
+/* ——— Lane card grid (M5) ——— */
+.lane-card-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(9.5rem, 1fr));
+  gap: var(--space-3);
+  margin: 0 0 var(--space-6);
+  padding: 0;
+  list-style: none;
+}
+.lane-card {
+  position: relative;
+}
+.lane-card-open {
+  appearance: none;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: .35rem;
+  width: 100%;
+  min-height: 8.5rem;
+  padding: var(--space-3);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-card);
+  background: var(--surface);
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+  transition: border-color .15s, background .15s;
+}
+.lane-card-open:hover,
+.lane-card-open:focus-visible {
+  border-color: var(--line-strong);
+  background: var(--surface-raised);
+}
+.lane-card-name {
+  margin-top: .15rem;
+  color: var(--heading);
+  font: 600 var(--fs-sm) var(--mono);
+  text-transform: uppercase;
+  letter-spacing: var(--tracking-label);
+}
+.lane-card-blurb {
+  margin: 0;
+  color: var(--muted);
+  font: var(--fs-xs)/1.4 var(--sans);
+}
+.lane-card-stat {
+  margin: auto 0 0;
+  padding-top: .3rem;
+  color: var(--text);
+  font: var(--fs-xs) var(--mono);
+}
+.lane-card .info-popover {
+  position: absolute;
+  top: var(--space-2);
+  right: var(--space-2);
+  z-index: 1;
+}
+
+/* ——— Attention table (M5) ——— */
+.attention-table {
+  width: 100%;
+  border-collapse: collapse;
+  margin: 0 0 var(--space-4);
+  font: var(--fs-sm) var(--mono);
+}
+.attention-table caption {
+  text-align: left;
+  margin-bottom: var(--space-2);
+}
+.attention-table th {
+  padding: var(--space-2) var(--space-3);
+  color: var(--muted);
+  font: 500 var(--fs-micro)/1.4 var(--mono);
+  text-transform: uppercase;
+  letter-spacing: var(--tracking-micro);
+  text-align: left;
+  border-bottom: 1px solid var(--line);
+}
+.attention-table td {
+  padding: var(--space-2) var(--space-3);
+  border-bottom: 1px solid var(--line);
+  vertical-align: middle;
+}
+.attention-table tbody tr {
+  border-left: 3px solid transparent;
+}
+.attention-table tbody tr[data-urgency="blocked"] { border-left-color: var(--bad); }
+.attention-table tbody tr[data-urgency="waiting"] { border-left-color: var(--warn); }
+.attention-table tbody tr[data-urgency="running"] { border-left-color: var(--running); }
+.attention-table-urgency-label {
+  margin-left: .35rem;
+  text-transform: uppercase;
+  font-size: var(--fs-xs);
+}
+.attention-table-topic {
+  color: var(--heading);
+  font-weight: 600;
+}
+.attention-table-lane-cell {
+  display: flex;
+  align-items: center;
+  gap: .5rem;
+}
+.attention-table-lane {
+  color: var(--muted);
+  text-transform: uppercase;
+  font-size: var(--fs-xs);
+}
+.home-drift-row {
+  display: flex;
+  align-items: center;
+  gap: .4rem;
+  margin: var(--space-4) 0 0;
+}
+
+/* ——— Loop strip (M6) ——— */
+.lane-rail-shell {
+  display: grid;
+  gap: var(--space-4);
+}
+.loop-strip {
+  display: grid;
+  gap: var(--space-3);
+  padding: var(--space-4);
+  margin: 0 0 var(--space-4);
+  border: var(--border) solid var(--line);
+  border-radius: var(--radius-card);
+  background: var(--surface);
+}
+.loop-strip-header {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+.loop-strip-headline { color: var(--heading); }
+.loop-strip-track {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  grid-auto-flow: column;
+  grid-auto-columns: 1fr;
+  gap: var(--space-1);
+}
+.loop-strip-item {
+  position: relative;
+  display: grid;
+  justify-items: center;
+  gap: var(--space-1);
+  text-align: center;
+}
+/* The track — a 1px rule joining each node back to its predecessor.
+   Suppressed entirely for the `checks` shape: independent peers have no
+   sequence (`laneRailState.ts::deriveChecklistStages`). */
+.loop-strip-item + .loop-strip-item::before {
+  content: "";
+  position: absolute;
+  top: 14px;
+  right: 50%;
+  left: -50%;
+  border-top: var(--border) solid var(--line);
+}
+.loop-strip-item[data-state="complete"] + .loop-strip-item::before {
+  border-top-color: var(--good);
+}
+.loop-strip-item[data-state="active"]::before {
+  border-top: 2px solid var(--running);
+}
+.loop-strip[data-shape="checks"] .loop-strip-item::before { content: none; }
+.loop-node {
+  position: relative;
+  z-index: 1;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border: var(--border) solid var(--line-strong);
+  border-radius: var(--radius-pill);
+  background: var(--surface);
+  color: var(--neutral);
+}
+button.loop-node {
+  appearance: none;
+  cursor: pointer;
+}
+button.loop-node:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+.loop-strip-item[data-state="active"] .loop-node {
+  border-color: var(--running);
+  color: var(--running);
+}
+.loop-strip-item[data-state="complete"] .loop-node {
+  border-color: var(--good);
+  color: var(--good);
+}
+.loop-strip-item[data-state="blocked"] .loop-node {
+  border-color: var(--bad);
+  color: var(--bad);
+}
+.loop-strip-item[data-focus="true"] .loop-node {
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 28%, transparent);
+}
+.loop-node-title { color: var(--muted); }
+.loop-strip-item[data-focus="true"] .loop-node-title { color: var(--heading); }
+.loop-node-state {
+  font: var(--fs-micro) var(--mono);
+  letter-spacing: var(--tracking-label);
+  text-transform: uppercase;
+  color: var(--neutral);
+}
+.loop-strip-item[data-state="active"] .loop-node-state { color: var(--running); }
+.loop-strip-item[data-state="complete"] .loop-node-state { color: var(--good); }
+.loop-strip-item[data-state="blocked"] .loop-node-state { color: var(--bad); }
+/* The return arc — drawn only for a `cycle`-shaped lane (design §3.3). */
+.loop-strip-arc {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  margin: 0;
+}
+.loop-strip-arc-line {
+  flex: 1;
+  height: 8px;
+  border: var(--border) solid var(--line-strong);
+  border-top: 0;
+  border-radius: 0 0 var(--radius-card) var(--radius-card);
+}
+.stage-state-legend {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: var(--space-1);
+}
+.stage-state-legend li {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+.stage-state-legend strong {
+  text-transform: uppercase;
+  font: 600 var(--fs-micro) var(--mono);
+  letter-spacing: var(--tracking-label);
+  color: var(--heading);
+}
+@media (prefers-reduced-motion: no-preference) {
+  .loop-strip-item[data-state="active"] .loop-node {
+    animation: loop-node-pulse 1.8s var(--ease-out) infinite;
+  }
+  @keyframes loop-node-pulse {
+    0%, 100% { box-shadow: 0 0 0 0 color-mix(in srgb, var(--running) 45%, transparent); }
+    50% { box-shadow: 0 0 0 5px color-mix(in srgb, var(--running) 0%, transparent); }
+  }
+}
+
+/* ── STAGE-BODY GRAMMAR (round 2) ──────────────────────────────────────── */
+/* SectionCard — the stage-interior container (design §2.1). A card is
+   never a disclosure: no rule here targets `[aria-expanded]`. */
+.section-card {
+  border: var(--border) solid var(--line);
+  border-radius: var(--radius-card);
+  background: var(--surface);
+  box-shadow: none;
+}
+.section-card + .section-card { margin-top: var(--space-4); }
+/* `data-tone` sets a 3px left border only — never a fill. */
+.section-card[data-tone="bad"] { border-left: 3px solid var(--bad); }
+.section-card[data-tone="warn"] { border-left: 3px solid var(--warn); }
+.section-card[data-tone="good"] { border-left: 3px solid var(--good); }
+.section-card[data-tone="neutral"] { border-left: 3px solid var(--neutral); }
+.section-card-head {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-3) var(--space-4);
+  border-bottom: var(--border) solid var(--line);
+}
+.section-card-head .microlabel { margin: 0; }
+.section-card-head-actions {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  margin-left: auto;
+}
+.section-card-body {
+  display: grid;
+  gap: var(--space-3);
+  padding: var(--space-4);
+}
+.section-card-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: var(--space-2);
+  padding: var(--space-3) var(--space-4);
+  border-top: var(--border) solid var(--line);
+}
+.section-card-note {
+  margin: var(--space-2) var(--space-4) 0;
+  color: var(--muted);
+  font: var(--fs-xs)/1.5 var(--sans);
+}
+/* A note carried inside the footer (design §4.2's disabled-Freeze reason)
+   takes its own full-width line below the action row, left-aligned against
+   the card's own padding rather than the footer's flex-end. */
+.section-card-actions .section-card-note {
+  flex: 1 0 100%;
+  margin: 0;
+  text-align: left;
+}
+/* An icon-prefixed live line inside a card body (design §4.1's progress
+   row). The grammar had no inline icon+text pairing outside `StateList`,
+   and a bare inline `<svg>` sits on the text baseline with a descender gap. */
+.section-card-status {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+/* An action row inside a card *body*, not its footer. The footer belongs to
+   the card's own primary control; a secondary control that edits the stats
+   printed just above it belongs next to them. Same flex/wrap shape as
+   `.section-card-actions` minus the footer's border-top and padding. */
+.card-inline-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+  margin-top: var(--space-3);
+}
+
+/* Stat / StatGrid — the readout primitive (design §2.2). `.stat-label` and
+   `.microlabel` already carry the uppercase/muted treatment; this section
+   only adds the grid and the value styling. */
+.stat-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(7rem, 1fr));
+  gap: var(--space-3) var(--space-4);
+}
+.stat {
+  display: grid;
+  gap: var(--space-1);
+}
+.stat-value {
+  color: var(--heading);
+  font: var(--fs-md) var(--mono);
+  font-variant-numeric: tabular-nums;
+}
+/* Colours the value only — a bare count is never toned. */
+.stat[data-tone="bad"] .stat-value { color: var(--bad); }
+.stat[data-tone="warn"] .stat-value { color: var(--warn); }
+.stat[data-tone="good"] .stat-value { color: var(--good); }
+/* Neutral TEXT uses --muted, not --neutral: the neutral ramp value is a
+   border/fill tone and sits near 3:1 on the light surfaces — below the AA
+   floor for the small sizes these render at. --muted keeps the same quiet
+   voice and clears it on both themes. */
+.stat[data-tone="neutral"] .stat-value { color: var(--muted); }
+
+/* TermHint — the inline dotted-underline explanatory overlay (design
+   §2.3). Byte-identical dismissal semantics to InfoPopover; a distinct
+   trigger visual (dotted underline, `cursor: help`) since it lives inline
+   in prose or a stat label rather than as a standalone `ⓘ` glyph. */
+.term-hint {
+  position: relative;
+  display: inline-block;
+}
+.term-hint-trigger {
+  appearance: none;
+  border: 0;
+  border-bottom: 1px dotted var(--line-strong);
+  padding: 0;
+  margin: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  cursor: help;
+}
+.term-hint-trigger:hover, .term-hint-trigger[aria-expanded="true"] {
+  border-bottom-color: var(--accent);
+}
+/* WCAG 2.2 §2.5.8 target size — a TermHint hosted by a stat label or a
+   state-list name gets a real hit area; inline-in-prose uses take the
+   WCAG 2.2 inline exception and need none. */
+.stat-label .term-hint-trigger,
+.state-list-name .term-hint-trigger,
+.dataset-role-name .term-hint-trigger,
+.dataset-role-guard .term-hint-trigger,
+.chip .term-hint-trigger,
+.status-chip .term-hint-trigger,
+.attention-table-urgency-label .term-hint-trigger,
+.attention-table th .term-hint-trigger {
+  display: inline-flex;
+  align-items: center;
+  min-height: 24px;
+  padding: 2px 0;
+}
+.term-hint-panel {
+  position: absolute;
+  top: calc(100% + var(--space-1));
+  left: 0;
+  z-index: var(--z-popover);
+  display: block;
+  width: min(18rem, 80vw);
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius-card);
+  background: var(--surface);
+  box-shadow: var(--shadow-overlay);
+  padding: var(--space-3);
+  white-space: normal;
+  font: var(--fs-sm)/1.5 var(--sans);
+  /* Hosted inside uppercase micro-labels — the transform inherits, and two
+     sentences of shouting is not an explanation. The title span keeps its
+     own .microlabel uppercase. */
+  text-transform: none;
+  letter-spacing: normal;
+}
+.term-hint[data-align="end"] .term-hint-panel {
+  left: auto;
+  right: 0;
+}
+.term-hint-panel .microlabel {
+  display: block;
+  margin: 0 0 var(--space-2);
+}
+.term-hint-body {
+  display: block;
+  color: var(--text);
+}
+
+/* StateList — the multi-item live readout primitive (design §2.4). Fixes
+   G1 (the unstyled `.arena-lane` sub-structure below): the state word is
+   always visible text next to the icon, and the value column is
+   tabular-nums, right-aligned. */
+.state-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.state-list-row {
+  display: grid;
+  grid-template-columns: auto 1fr auto auto auto;
+  align-items: baseline;
+  gap: var(--space-2) var(--space-3);
+  padding: var(--space-2) 0;
+}
+.state-list-row + .state-list-row {
+  border-top: 1px solid var(--line);
+}
+.state-list-icon {
+  align-self: center;
+  color: var(--neutral);
+}
+.state-list-name {
+  color: var(--heading);
+  font: var(--fs-sm) var(--mono);
+}
+.state-list-value {
+  color: var(--text);
+  font: var(--fs-sm) var(--mono);
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+}
+.state-list-action { justify-self: end; }
+/* An *opened* row action (a `PromptDiff` panel) would otherwise size its own
+   `auto` column against the whole diff and collapse the `1fr` name column.
+   Spanning the row keeps the panel full-width — the same break the flexbox
+   `.candidate-list li` this replaces already relied on. Collapsed, the
+   toggle stays inline and right-aligned, exactly as the mockup draws it. */
+.state-list-row:has(.state-list-action .prompt-diff-panel) .state-list-action {
+  grid-column: 1 / -1;
+  justify-self: stretch;
+}
+
+/* Billed marker — a sibling of the button it precedes, never a child
+   (design §2.5): the chip must not change the button's accessible name. */
+.chip.cost {
+  color: var(--warn);
+  border-color: color-mix(in srgb, var(--warn) 45%, var(--line));
+}
+/* `data-tone` chip variants — the toned state word in a `StateList` row,
+   distinct from the pre-existing `.chip.ok`/`.chip.bad` class modifiers
+   used by Ask's citation chips. */
+.chip[data-tone="bad"] {
+  color: var(--bad);
+  border-color: color-mix(in srgb, var(--bad) 45%, var(--line));
+}
+.chip[data-tone="warn"] {
+  color: var(--warn);
+  border-color: color-mix(in srgb, var(--warn) 45%, var(--line));
+}
+.chip[data-tone="good"] {
+  color: var(--good);
+  border-color: color-mix(in srgb, var(--good) 45%, var(--line));
+}
+.chip[data-tone="neutral"] { color: var(--muted); }
+
+/* Dataset families — the Instrument "Files & Overlaps" per-role breakdown.
+   Replaces the flat Role/Count/Ready `.data-table` (deleted with its only
+   consumer): a table of five names could show neither what a role IS nor
+   which role is made out of which, which is the pair of questions the view
+   exists to answer. */
+.dataset-families { display: grid; gap: var(--space-4); }
+.dataset-family { display: grid; gap: var(--space-2); }
+.dataset-family .microlabel { margin: 0; }
+.dataset-roles { list-style: none; margin: 0; padding: 0; }
+.dataset-role {
+  display: grid;
+  grid-template-columns: 1rem 1fr auto auto;
+  align-items: baseline;
+  gap: var(--space-1) var(--space-3);
+  padding: var(--space-2) 0;
+}
+.dataset-role + .dataset-role { border-top: 1px solid var(--line); }
+/* The chain, drawn: a step made out of the step above it is notched in by
+   one column. Decoration only — the composition is stated in words under the
+   family, never carried by the glyph alone. */
+.dataset-flow-mark {
+  color: var(--neutral);
+  font: var(--fs-sm) var(--mono);
+}
+.dataset-role-name {
+  color: var(--heading);
+  font: var(--fs-sm) var(--mono);
+}
+.dataset-role-count {
+  color: var(--text);
+  font: var(--fs-sm) var(--mono);
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+}
+/* The seal guards the held-out set rather than being a step of its own, so
+   it rides that row's second line instead of standing as a peer. */
+.dataset-role-guard {
+  grid-column: 2 / -1;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+  color: var(--muted);
+  font: var(--fs-xs) var(--mono);
+}
+.dataset-flow-note {
+  margin: 0;
+  font: var(--fs-xs)/1.5 var(--sans);
+}
+
+/* Quiet action button — three equal-weight peers, distinguished by tone
+   rather than by weight. A filled `button.primary` beside two outlines reads
+   as "the answer is yes"; approve/reject/defer are a genuine three-way choice
+   and none of them is the house recommendation. Tone is never the only
+   carrier: each button keeps its glyph and its word. */
+.quiet-action {
+  appearance: none;
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  min-height: 28px;
+  padding: var(--space-1) var(--space-3);
+  border: var(--border) solid var(--line-strong);
+  border-radius: var(--radius);
+  background: var(--surface-raised);
+  color: var(--text);
+  font: var(--fs-sm) var(--mono);
+  white-space: nowrap;
+  cursor: pointer;
+  transition: border-color .15s, background .15s;
+}
+.quiet-action:hover:not(:disabled) { background: var(--surface); }
+.quiet-action:disabled { opacity: .45; cursor: default; }
+/* Tone rides on the border, never on the label. `--bad` as *text* measures
+   3.84:1 against `--surface-raised` on the dark theme — under the 4.5:1 AA
+   floor for a 13px label — while `--bad` as a *border* measures 3.84:1
+   against the same surface, over the 3:1 non-text floor. Toning the border
+   and leaving all three labels on `--text` (10.7:1 dark, 12.7:1 light) is
+   what makes the three genuinely equal-weight *and* uniformly legible. The
+   meaning was never in the colour anyway: each button keeps its glyph and
+   its word. */
+.quiet-action[data-tone="good"] { border-color: var(--good); }
+.quiet-action[data-tone="bad"] { border-color: var(--bad); }
+.quiet-action[data-tone="neutral"] { border-color: var(--line-strong); }
+
+/* Attention queue rank cell — leading `#N`, right-aligned tabular-nums so a
+   two-digit rank does not shift the row below it out of alignment. */
+.attention-table-rank {
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+}
+
+/* An arena variant's raw unified diff, rendered inside the shared
+   `.prompt-diff-panel` shell. Unlike `.prompt-diff-lines`, this text has no
+   per-line add/del structure to grid against gutters — it is the server's
+   plain diff string, so a scrollable monospace block is the honest amount
+   of formatting. */
+.variant-diff-body {
+  margin: 0;
+  padding: .5rem .65rem;
+  max-height: 18rem;
+  overflow: auto;
+  font-family: var(--mono);
+  font-size: .72rem;
+  line-height: 1.45;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+/* ── FILL APPROVE QUEUE — toolbar + triage rows ────────────────────────── */
+/* One toolbar, two rows: what is listed and what came of it on top, in what
+   order underneath. Replaces two visually identical `.sources-filters` rows
+   that read as one ragged cluster of seven unrelated controls. */
+.queue-toolbar {
+  display: grid;
+  gap: var(--space-2);
+  margin: var(--space-3) 0;
+  padding: var(--space-2) 0;
+  border-top: var(--border) solid var(--line);
+  border-bottom: var(--border) solid var(--line);
+}
+.queue-toolbar-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2) var(--space-4);
+}
+.queue-pills, .queue-outcomes, .queue-sort {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+}
+.queue-sort .microlabel { margin: 0; }
+.queue-sort-note { margin: 0; font: var(--fs-xs)/1.5 var(--sans); }
+.queue-pill {
+  appearance: none;
+  min-height: 24px;
+  padding: var(--space-1) var(--space-2);
+  border: var(--border) solid var(--line);
+  border-radius: var(--radius);
+  background: transparent;
+  color: var(--muted);
+  font: var(--fs-xs) var(--mono);
+  letter-spacing: var(--tracking-label);
+  text-transform: uppercase;
+  cursor: pointer;
+}
+.queue-pill:hover { color: var(--text); }
+/* Selection lives in `aria-pressed`, so the visual state cannot drift from
+   the announced one — there is no second `.active` class to forget. */
+.queue-pill[aria-pressed="true"] {
+  color: var(--heading);
+  border-color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 10%, var(--surface));
+}
+/* A real 24px target for a glyph-only control; its name is the `aria-label`,
+   never the glyph. */
+.queue-icon-button {
+  appearance: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  border: var(--border) solid var(--line);
+  border-radius: var(--radius);
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+}
+.queue-icon-button:hover:not(:disabled) { color: var(--heading); border-color: var(--accent); }
+.queue-icon-button:disabled { opacity: .45; cursor: default; }
+
+/* The triage list — one line of identity, one of provenance, actions inline.
+   A separator between rows rather than a card each: dozens of bordered,
+   padded cards is what made this queue unreadable at length. */
+.triage-list {
+  display: grid;
+  margin: var(--space-2) 0 0;
+  padding: 0;
+  list-style: none;
+}
+.triage-row {
+  border-left: 3px solid var(--line);
+  padding: var(--space-2) var(--space-3);
+}
+.triage-row + .triage-row { border-top: var(--border) solid var(--line); }
+.triage-row[data-open="true"] { background: var(--surface); }
+/* Reputability tier tones the left edge only. The tier *word* is always
+   rendered in the row's badge, so the colour is redundant reinforcement and
+   never the sole carrier (WCAG 1.4.1). `peer_reviewed` is the only tier the
+   pipeline treats as evidence on its own; the two credible-but-unrefereed
+   tiers share the informational accent; everything else is neutral. */
+.triage-row[data-tier="peer_reviewed"] { border-left-color: var(--good); }
+.triage-row[data-tier="preprint_known_lab"],
+.triage-row[data-tier="established_org"] { border-left-color: var(--accent); }
+.triage-row[data-tier="general_web"] { border-left-color: var(--neutral); }
+.triage-row[data-tier="none"] { border-left-color: var(--line); }
+.triage-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: var(--space-2) var(--space-3);
+}
+.triage-disclose {
+  appearance: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  align-self: center;
+  width: 24px;
+  height: 24px;
+  border: 0;
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+}
+.triage-disclose:hover { color: var(--heading); }
+.triage-disclose svg { transition: transform .15s; }
+.triage-disclose[aria-expanded="true"] svg { transform: rotate(90deg); }
+.triage-identity {
+  flex: 1 1 18rem;
+  min-width: 0;
+}
+.triage-title {
+  margin: 0;
+  font: var(--fs-sm)/1.4 var(--sans);
+}
+.triage-title a { text-decoration: none; }
+.triage-title a:hover { text-decoration: underline; }
+.triage-meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+  margin: var(--space-1) 0 0;
+  font: var(--fs-xs)/1.4 var(--mono);
+}
+.triage-values {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+.triage-metric {
+  color: var(--text);
+  font: var(--fs-xs) var(--mono);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.triage-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+  margin-left: auto;
+}
+.triage-decision {
+  flex: 1 1 100%;
+  font: var(--fs-xs)/1.5 var(--sans);
+}
+.triage-detail {
+  display: grid;
+  gap: var(--space-3);
+  margin-top: var(--space-3);
+  padding-left: 24px;
+  border-top: var(--border) solid var(--line);
+  padding-top: var(--space-3);
+}
+.triage-detail p { margin: var(--space-1) 0; }

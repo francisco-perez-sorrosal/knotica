@@ -207,10 +207,15 @@ runs. The next tick after 24 hours have elapsed evaluates normally. Adding `eval
 with it — both constraints must pass, so an observation eval starts only once the interval has
 elapsed **and** the clock sits inside the window.
 
-Read or write the three **cadence** keys without hand-editing the file via MCP `loop
-action=cadence` — called with no parameters it reads the resolved table; called with any of them it
-additively merges them in, leaving every other section of `config.toml` untouched. `arena_scorer`
-is deliberately not on that surface: turning on a billed scorer is an edit worth making by hand.
+Read or write all four keys without hand-editing the file via MCP `loop action=cadence` — called
+with no parameters it reads the resolved table; called with any of them it additively merges them
+in, leaving every other section of `config.toml` untouched. `arena_scorer` is validated *before*
+the write, so a value outside `heuristic|eval` is rejected and the file is left byte-identical.
+
+The dashboard drives that same call: Improve → **Observe** shows the resolved `SCORER` and offers
+the switch, and an aborted race's **WHY THE RACE ABORTED** card offers it in place. Switching *to*
+`eval` is a two-click armed→confirm control, because it arms per-variant billing on every future
+race; switching back to `heuristic` is a single click, because going free needs no guard.
 
 ## `[notes]`: resolution-ladder thresholds
 
