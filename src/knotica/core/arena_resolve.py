@@ -56,8 +56,11 @@ def run_arena_and_resolve(
     pre-set state args that genuinely diverge between the two call sites).
     """
     assert arena_score is not None
+    # Loaded once even when the caller supplied ready-made variants: the base
+    # body is what the per-variant change summary/diff is derived against.
+    base_body = load_base_query_body(store, topic)
     variants = arena_variants or generate_variant_bodies(
-        load_base_query_body(store, topic),
+        base_body,
         n=arena_n,
     )
     arena = race_variants(
@@ -71,6 +74,7 @@ def run_arena_and_resolve(
         promote_on_win=True,
         scorer=arena_scorer_info,
         baseline_golden_manifest_sha=_baseline_manifest_sha(store, topic),
+        base_body=base_body,
     )
     won = arena.stage == ArenaStage.completed and arena.winner_id is not None
     return on_win(arena) if won else on_lose(arena)
