@@ -4075,3 +4075,26 @@ button.loop-node:focus-visible {
 .triage-ghost {
   gap: var(--space-3);
 }
+
+/* ── BUSY AFFORDANCE ───────────────────────────────────────────────────── */
+/* One spinner for the whole dashboard: the `refresh` glyph, rotated by CSS.
+   CSP-safe (no JS animation library). `linear` is deliberate and is the one
+   place the house's ease-out default is wrong -- a continuous rotation on an
+   eased curve stutters visibly at the seam. Sized to sit at text height
+   inside a button; `margin-inline-end` rather than a flex change so no
+   existing button's layout shifts. */
+.spin {
+  display: inline-block;
+  vertical-align: -0.15em;
+  margin-inline-end: var(--space-2);
+  color: var(--running);
+}
+@media (prefers-reduced-motion: no-preference) {
+  .spin { animation: spin 900ms linear infinite; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+}
+/* Vestibular-safe fallback: the glyph stays, the rotation does not. */
+@media (prefers-reduced-motion: reduce) {
+  .spin { animation: busy-fade 1.6s var(--ease-out) infinite; }
+  @keyframes busy-fade { 0%, 100% { opacity: 1; } 50% { opacity: .35; } }
+}

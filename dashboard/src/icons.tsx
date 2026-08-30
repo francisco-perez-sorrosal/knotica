@@ -159,3 +159,15 @@ export function Icon({
     </svg>
   );
 }
+
+/**
+ * The one busy affordance for the whole dashboard. Reuses the `refresh`
+ * glyph rather than adding a 27th -- the inventory above is a census, not a
+ * grab bag. `aria-hidden` like every `Icon`: the accessible name is always
+ * carried by the text the spinner sits beside, and `aria-busy` on the
+ * control is the machine-readable state. Motion is never the sole carrier
+ * of anything, so a reduced-motion or ANSI-less reader loses nothing.
+ */
+export function Spinner({ size = 16 }: { size?: 16 | 20 | 24 } = {}): JSX.Element {
+  return <Icon name="refresh" size={size} class="spin" />;
+}
