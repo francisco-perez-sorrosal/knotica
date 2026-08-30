@@ -1,7 +1,7 @@
 import { useState } from "preact/hooks";
 import type { JSX } from "preact";
 
-import { Icon } from "../../icons";
+import { Icon, Spinner } from "../../icons";
 import { GapOriginBadge, ReputabilityBadge, tierKey } from "./badges";
 import type { GateOutcome, SuggestionAction, SuggestionRecord, SuggestionStatus } from "./types";
 
@@ -11,6 +11,24 @@ import type { GateOutcome, SuggestionAction, SuggestionRecord, SuggestionStatus 
  * to. Word and glyph both, so the re-toned left edge is never the only carrier
  * (WCAG 1.4.1).
  */
+/**
+ * The busy form of one triage verb. The row already carries `aria-busy`, but
+ * the row cannot say *which* verb is running -- so the word is kept and the
+ * spinner is added beside it, rather than the label being swapped for a bare
+ * ellipsis that erases the button's accessible name exactly when a reader
+ * most needs it.
+ */
+function verbLabel(running: boolean, label: string): JSX.Element {
+  return running ? (
+    <>
+      <Spinner />
+      {label}
+    </>
+  ) : (
+    <>{label}</>
+  );
+}
+
 const GHOST_DECISION: Partial<Record<SuggestionStatus, { glyph: string; text: string }>> = {
   approved: { glyph: "✓", text: "approved — queued for ingest" },
   rejected: { glyph: "✕", text: "rejected" },
@@ -147,9 +165,10 @@ export function SuggestionRow({
                 class="quiet-action"
                 data-tone="neutral"
                 disabled={disabled}
+                aria-busy={busyAction === "withdraw" || undefined}
                 onClick={onWithdraw}
               >
-                {busyAction === "withdraw" ? "…" : "Withdraw"}
+                {verbLabel(busyAction === "withdraw", "Withdraw")}
               </button>
             ) : null}
           </div>
@@ -165,9 +184,10 @@ export function SuggestionRow({
               class="quiet-action"
               data-tone="good"
               disabled={disabled}
+              aria-busy={busyAction === "approve" || undefined}
               onClick={onApprove}
             >
-              {busyAction === "approve" ? "…" : "✓ Approve"}
+              {verbLabel(busyAction === "approve", "✓ Approve")}
             </button>
             {!rejectOpen ? (
               <button
@@ -185,9 +205,10 @@ export function SuggestionRow({
               class="quiet-action"
               data-tone="neutral"
               disabled={disabled}
+              aria-busy={busyAction === "defer" || undefined}
               onClick={onDefer}
             >
-              {busyAction === "defer" ? "…" : "⧗ Defer"}
+              {verbLabel(busyAction === "defer", "⧗ Defer")}
             </button>
           </div>
         )}
@@ -249,9 +270,10 @@ export function SuggestionRow({
                   type="button"
                   class="danger"
                   disabled={busy || !reasonDraft.trim()}
+                  aria-busy={busyAction === "reject" || undefined}
                   onClick={onSubmitReject}
                 >
-                  {busyAction === "reject" ? "…" : "Confirm reject"}
+                  {verbLabel(busyAction === "reject", "Confirm reject")}
                 </button>
                 <button type="button" class="ghost" disabled={busy} onClick={onCancelReject}>
                   Cancel

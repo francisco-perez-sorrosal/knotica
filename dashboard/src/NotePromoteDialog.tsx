@@ -1,5 +1,6 @@
 import { useEffect, useState } from "preact/hooks";
 
+import { Spinner } from "./icons";
 import type { ToolClient } from "./toolClient";
 import type {
   NoteDecisionEnvelope,
@@ -159,9 +160,17 @@ export function NotePromoteDialog({
                 type="button"
                 class="primary"
                 disabled={busy}
+                aria-busy={busy || undefined}
                 onClick={() => void apply()}
               >
-                {busy ? "…" : "Promote"}
+                {busy ? (
+                  <>
+                    <Spinner />
+                    Promote
+                  </>
+                ) : (
+                  "Promote"
+                )}
               </button>
               <button
                 type="button"
@@ -259,9 +268,17 @@ export function NotePromoteDialog({
                   !question.trim() ||
                   (target === "trainset" && !answer.trim())
                 }
+                aria-busy={busy || undefined}
                 onClick={() => void preview()}
               >
-                {busy ? "…" : "Continue"}
+                {busy ? (
+                  <>
+                    <Spinner />
+                    Continue
+                  </>
+                ) : (
+                  "Continue"
+                )}
               </button>
               <button
                 type="button"

@@ -1,6 +1,7 @@
 import { useState } from "preact/hooks";
 import type { JSX } from "preact";
 
+import { Spinner } from "../../icons";
 import { NotePromoteDialog } from "../../NotePromoteDialog";
 import {
   ActionConfirm,
@@ -273,9 +274,17 @@ export function DriftStage({
         <button
           type="button"
           disabled={!client || loading}
+          aria-busy={loading || undefined}
           onClick={() => void runCheck()}
         >
-          {loading ? "…" : "Check"}
+          {loading ? (
+            <>
+              <Spinner />
+              Check
+            </>
+          ) : (
+            "Check"
+          )}
         </button>
       </div>
     );

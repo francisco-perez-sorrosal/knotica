@@ -1205,9 +1205,12 @@ describe("the decision's non-visual feedback", () => {
 
     await vi.waitFor(() => expect(rowFor(container, title).getAttribute("aria-busy")).toBe("true"));
     const row = within(rowFor(container, title));
-    // The clicked control shows its busy form; its peer keeps its own word,
+    // The clicked control shows its busy form -- the verb is kept and marked
+    // `aria-busy`, so the row's own busy flag is no longer the only place a
+    // reader can learn *which* verb is running. Its peer keeps its own word,
     // disabled but not pretending to be the one in flight.
-    expect(row.getByRole("button", { name: "…" })).toBeTruthy();
+    const approving = row.getByRole("button", { name: /✓ approve/i });
+    expect(approving.getAttribute("aria-busy")).toBe("true");
     expect(isDisabled(row.getByRole("button", { name: /⧗ defer/i }))).toBe(true);
 
     release();
