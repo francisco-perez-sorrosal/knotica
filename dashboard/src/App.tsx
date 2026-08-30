@@ -4,6 +4,9 @@ import type { App as ExtApp } from "@modelcontextprotocol/ext-apps";
 import { applyDocumentTheme } from "@modelcontextprotocol/ext-apps";
 
 import { CreateDrawer } from "./CreateDrawer";
+import { ProcessBrief } from "./lanes/ProcessBrief";
+import { ProcessOutcome } from "./lanes/ProcessOutcome";
+import type { ProcessId } from "./lanes/processMeta";
 import { AnswerLane } from "./lanes/answer/AnswerLane";
 import { FillLane } from "./lanes/fill/FillLane";
 import { HomeLane } from "./lanes/home/HomeLane";
@@ -94,6 +97,12 @@ export function App() {
   const [vault, setVault] = useState(initialVault);
   const [pane, setPane] = useState<PaneId>(initialPane);
   const [showCreateDrawer, setShowCreateDrawer] = useState(false);
+  /* What the last chrome process did. It is held here rather than in
+     `CreateDrawer` because both of that drawer's forms close on success --
+     an outcome parked inside it would be unmounted by the very click that
+     produced it. Superseded by the next chrome action, never cleared on a
+     timer. */
+  const [chromeOutcome, setChromeOutcome] = useState<ProcessId | null>(null);
   const [mount, setMount] = useState<"http" | "bridge" | "connecting">(
     preferBridgeMount() ? "connecting" : "http",
   );
@@ -342,7 +351,7 @@ export function App() {
               ? { label: "LLM · deps", tone: "bad" }
               : null;
 
-  async function selectVault(name: string) {
+  async function selectVault(name: string, process: ProcessId = "vault.use") {
     setVault(name);
     const url = new URL(window.location.href);
     url.searchParams.set("vault", name);
@@ -350,13 +359,15 @@ export function App() {
     try {
       await clientRef.current?.vaultUse(name);
       await refreshStatus(true);
+      setChromeOutcome(process);
     } catch (cause) {
       error.value = cause instanceof Error ? cause.message : String(cause);
     }
   }
 
-  function selectTopic(name: string) {
+  function selectTopic(name: string, process?: ProcessId) {
     setTopic(name);
+    if (process) setChromeOutcome(process);
     const url = new URL(window.location.href);
     url.searchParams.set("topic", name);
     window.history.replaceState({}, "", url);
@@ -385,7 +396,11 @@ export function App() {
                 ·
               </span>
               {available.length >= 1 ? (
-                <label class="vault-picker vault-picker-inline">
+                <>
+                  {/* Sibling of the picker, never inside its `<label>`: a
+                      button inside a label activates the labelled control. */}
+                  <ProcessBrief process="vault.use" term="why switch" />
+                  <label class="vault-picker vault-picker-inline">
                   <span class="sr-only">Switch vault</span>
                   <select
                     value={vault || vaultName}
@@ -405,7 +420,8 @@ export function App() {
                       </option>
                     ))}
                   </select>
-                </label>
+                  </label>
+                </>
               ) : (
                 <h1 class="vault-title">
                   <ObsidianLink href={vaultOpenUri} className="vault-title-link">
@@ -524,10 +540,16 @@ export function App() {
           open={showCreateDrawer}
           client={client}
           onClose={() => setShowCreateDrawer(false)}
-          onCreatedKb={selectVault}
-          onCreatedTopic={selectTopic}
+          onCreatedKb={(name) => selectVault(name, "vault.create")}
+          onCreatedTopic={(name) => selectTopic(name, "learn.create_topic")}
           onRefreshStatus={refreshStatus}
         />
+
+        {/* The chrome's own outcome line. All three of its processes replace
+            what the rest of the screen means -- a switched vault invalidates
+            every number, a created topic or KB is a surface with nothing in
+            it yet -- so each one names where to go and why. */}
+        {chromeOutcome ? <ProcessOutcome process={chromeOutcome} /> : null}
 
         <div class="app-chrome-band">
           <div class="chrome-controls">

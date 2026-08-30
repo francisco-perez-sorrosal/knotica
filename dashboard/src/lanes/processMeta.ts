@@ -49,6 +49,10 @@ export type ProcessId =
   | "fill.suggestion_withdraw"
   | "fill.ingest_dispatch"
   | "learn.ingest_dispatch"
+  | "learn.create_topic"
+  | "vault.create"
+  | "vault.use"
+  | "tend.migrate"
   | "tend.okf_repair"
   | "tend.note_reanchor"
   | "tend.note_detach"
@@ -734,6 +738,123 @@ export const PROCESS_META: Record<ProcessId, ProcessMeta> = {
         lane: "learn",
         stage: "curate",
         why: "A written page is not yet a training signal — curating is the separate run that turns one into an example the compiler reads.",
+      },
+    },
+  },
+
+  // The three chrome processes. Their triggers live in the app chrome, which
+  // belongs to no lane -- so `lane`/`stage` name the lane each process serves
+  // rather than the surface it is clicked on, and all three carry `stage:
+  // null` to say so. It is the one place in the registry where `lane` is not
+  // literally where the control is, and the alternative -- inventing a
+  // seventh lane for the chrome -- would put a lane in `processModel.ts` that
+  // no rail renders.
+  "learn.create_topic": {
+    lane: "learn",
+    stage: null,
+    title: "Create",
+    spend: "free",
+    mutates: true,
+    dispatch: "client",
+    clientMethod: "createTopic",
+    why: "A knowledge base is normally several topics and creating a vault seeds only the first, so without this the dashboard could start a wiki and then never grow it.",
+    willDo:
+      "Creates the topic and its schema in the active vault and selects it. Nothing is billed. It adds a topic; it never touches the ones already there.",
+    previewMode: "none",
+    progressMode: "busy",
+    outcomeMode: "refresh",
+    outcomeFallback: "The topic is created in this vault and selected.",
+    next: {
+      kind: "always",
+      go: {
+        lane: "learn",
+        stage: "source",
+        why: "A topic with no source has nothing to answer from — storing one is the first step that gives it any content at all.",
+      },
+    },
+  },
+
+  "vault.create": {
+    lane: "learn",
+    stage: null,
+    // Ships under the same `Create` label as the topic form beside it; they
+    // are two forms in one drawer, told apart by which fields they carry.
+    title: "Create",
+    spend: "free",
+    mutates: true,
+    dispatch: "client",
+    clientMethod: "vaultCreate",
+    why: "A wiki lives in its own git repository at a path you choose, and until one exists there is nowhere for a topic, a page, a note or an eval to be written.",
+    willDo:
+      "Creates the vault at the path you gave, seeds its first topic if you named one, and switches the dashboard to it. Nothing is billed. It writes a new repository and never touches a vault that already exists.",
+    previewMode: "none",
+    progressMode: "busy",
+    outcomeMode: "refresh",
+    outcomeFallback: "The knowledge base is created and the dashboard is now reading it.",
+    next: {
+      kind: "always",
+      go: {
+        lane: "learn",
+        stage: "source",
+        why: "A new knowledge base has no pages — storing a source is what gives it something to be a wiki about.",
+      },
+    },
+  },
+
+  "vault.use": {
+    // Per-vault and mechanical, which is Tend's half of the lane
+    // discriminator; the switch itself sits in the chrome.
+    lane: "tend",
+    stage: null,
+    title: "Switch vault",
+    spend: "free",
+    // Rewrites which vault is active in the config; no wiki content changes.
+    mutates: false,
+    dispatch: "client",
+    clientMethod: "vaultUse",
+    why: "Every number on screen — the baseline, the queues, the drift count, the flywheel chip — was read from one vault, and switching replaces all of them at once with another vault's without saying so.",
+    willDo:
+      "Points the server at the vault you picked and re-reads everything for it. Nothing is billed and no wiki content changes — switching back is the same control.",
+    previewMode: "none",
+    progressMode: "busy",
+    outcomeMode: "refresh",
+    outcomeFallback: "The dashboard is now reading the vault you picked; every number on screen belongs to it.",
+    next: {
+      kind: "always",
+      go: {
+        lane: "home",
+        // Home is the only lane with no stages, and the only surface that
+        // re-reads every topic at once -- which is exactly what a vault
+        // switch invalidates.
+        stage: null,
+        why: "Everything you knew a moment ago belonged to the other vault, and Home is the one surface that re-reads every topic so you can see what this one is asking for.",
+      },
+    },
+  },
+
+  "tend.migrate": {
+    lane: "tend",
+    stage: "migrate",
+    title: "Copy",
+    spend: "free",
+    mutates: true,
+    // The one `cli` row. There is no MCP surface for migrate, so the honest
+    // affordance is the command itself -- and like a handoff, this surface
+    // cannot see the run and may not claim to.
+    dispatch: "cli",
+    clientMethod: null,
+    why: "A vault's on-disk layout can fall behind the schema this build expects, and one that has fallen behind is reported against by every later check without any of them being able to fix it.",
+    willDo:
+      "Nothing from here: this copies the CLI dry run for you to paste. The dry run only reports what would change — applying it is a second command you run yourself.",
+    previewMode: "dry-run",
+    progressMode: "external",
+    outcomeMode: "external",
+    next: {
+      kind: "always",
+      go: {
+        lane: "tend",
+        stage: "doctor",
+        why: "A migration rewrites the layout every other check reads, so the health report is what confirms it landed clean.",
       },
     },
   },

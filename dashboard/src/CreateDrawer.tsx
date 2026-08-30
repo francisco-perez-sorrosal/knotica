@@ -2,6 +2,7 @@ import type { JSX } from "preact";
 import { useEffect, useState } from "preact/hooks";
 
 import { Spinner } from "./icons";
+import { ProcessBrief } from "./lanes/ProcessBrief";
 import type { ToolClient } from "./toolClient";
 
 export interface CreateDrawerProps {
@@ -114,6 +115,9 @@ export function CreateDrawer({
       >
         <p class="microlabel chrome-create-drawer-title">
           New knowledge base
+          {/* Two forms, one `Create` label each -- the brief is what tells
+              them apart in words as well as by their fields. */}
+          <ProcessBrief process="vault.create" term="why a new one" />
         </p>
         <label class="heal-inline-field">
           <span>path</span>
@@ -181,7 +185,10 @@ export function CreateDrawer({
         class="doctor-repair-toolbar"
         onSubmit={(event) => void submitNewTopic(event)}
       >
-        <p class="microlabel chrome-create-drawer-title">New topic</p>
+        <p class="microlabel chrome-create-drawer-title">
+          New topic
+          <ProcessBrief process="learn.create_topic" term="why another topic" />
+        </p>
         <label class="heal-inline-field">
           <span>topic</span>
           <input

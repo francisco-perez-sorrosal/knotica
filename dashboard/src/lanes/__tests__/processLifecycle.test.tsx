@@ -95,6 +95,18 @@ describe("ProcessOutcome says what was done and where it leads", () => {
     expect(screen.getByText(/Go to Improve → Observe\./)).toBeTruthy();
   });
 
+  it("sends a vault switch to the one surface that re-reads every topic", () => {
+    // Switching the vault replaces every number on screen at once. Home has
+    // no stages, so this also pins that a lane-only anchor reads bare rather
+    // than inventing a stage name for it.
+    const { container } = render(<ProcessOutcome process="vault.use" />);
+
+    expect(screen.getByRole("status").textContent).toBe(
+      PROCESS_META["vault.use"].outcomeFallback,
+    );
+    expect(container.textContent).toContain("Go to Home.");
+  });
+
   it("lets a handoff name its destination without claiming the work happened", () => {
     // Once a payload leaves for another agent's turn this surface has no
     // channel into the work. Naming where the work lands is a fact about the

@@ -197,12 +197,15 @@ const UNWIRED_CLIENT_METHODS: readonly string[] = [
  * that grew silently would satisfy the second and lose the first. Naming the
  * remainder keeps both true and keeps the size of the void in one countable
  * place instead of in a plan document.
+ *
+ * **It is empty.** Every mutating or billing client method the dashboard can
+ * trigger now has a row, so the migration this fixture was created to measure
+ * is finished. It stays -- as an empty array with this docblock -- because it
+ * is also the landing place for the *next* such method: a new mutating method
+ * lands in none of the four partitions and fails G1, and putting it here is
+ * the one classification that admits the copy is still owed.
  */
-const AWAITING_LIFECYCLE_CLIENT_METHODS: readonly string[] = [
-  "createTopic",
-  "vaultCreate",
-  "vaultUse",
-];
+const AWAITING_LIFECYCLE_CLIENT_METHODS: readonly string[] = [];
 
 const PROCESS_IDS = Object.keys(PROCESS_META) as ProcessId[];
 const ROWS: ReadonlyArray<readonly [ProcessId, ProcessMeta]> = PROCESS_IDS.map(
@@ -257,6 +260,17 @@ describe("G1 — every client method is accounted for exactly once", () => {
       )
       .sort();
     expect(phantom).toEqual([]);
+  });
+
+  /**
+   * The ratchet. Reaching empty was the migration's finish line; asserting it
+   * is what stops the fixture becoming a place to park the next void quietly.
+   * Adding a name back is now a deliberate, single-line, reviewable act with a
+   * failing test attached to it -- which is exactly the visibility the fixture
+   * existed to provide in the first place.
+   */
+  it("has finished the migration -- no wired method is still awaiting its copy", () => {
+    expect(AWAITING_LIFECYCLE_CLIENT_METHODS).toEqual([]);
   });
 
   it("gives every non-handoff process a client method", () => {

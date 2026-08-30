@@ -424,6 +424,11 @@ function MigrateHandoff(): JSX.Element {
       <p class="muted">
         No dashboard surface yet — run the CLI directly to preview a migration.
       </p>
+      {/* The one `cli` process: nothing here dispatches, so the brief is the
+          whole of the preview and the outcome stays `external` -- this
+          surface cannot see a terminal and never claims to. */}
+      <ProcessBrief process="tend.migrate" term="why migrate" />
+      <ProcessOutcome process="tend.migrate" />
       <div class="tend-cli">
         <code>{MIGRATE_DRY_RUN_COMMAND}</code>
         <button
