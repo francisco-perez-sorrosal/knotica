@@ -22,6 +22,8 @@ LLM's job), never from the implementation:
 
 from pathlib import Path
 
+import pytest
+
 from knotica.core import vault_layout
 from knotica.core import lint as lint_module
 from knotica.core.lint import LintCheck, Violation, lint_vault
@@ -471,3 +473,33 @@ def test_a_core_read_path_completes_while_the_write_lock_is_held(template_vault:
     assert isinstance(violations, list)
     assert git_commit_count(template_vault) == commits_before
     assert git_status_porcelain(template_vault) == ""
+
+
+# ---------------------------------------------------------------------------
+# topic_of_violation -- THE per-topic counting rule, shared by status + harness
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    ("path", "expected"),
+    [
+        ("agentic-systems/page.md", "agentic-systems"),
+        ("agentic-systems/.knotica/SCHEMA.md", "agentic-systems"),
+        ("sources/agentic-systems/wheeler-sep.md", "agentic-systems"),
+        ("log.md", None),
+        ("index.md", None),
+        (".knotica/schema.md", None),
+        ("sources", None),
+        ("", None),
+    ],
+)
+def test_topic_of_violation_attributes_topic_and_source_paths_and_no_others(
+    path: str, expected: str | None
+) -> None:
+    """The rule both counters share. The eval harness and wiki_status once
+    disagreed structurally (0 vs 12 on one generation): the harness counted
+    vault-level findings its scoped run returned, the status walk dropped them
+    and mis-bucketed stored-source paths under a non-topic."""
+    from knotica.core.lint import topic_of_violation
+
+    assert topic_of_violation(path) == expected

@@ -70,7 +70,7 @@ from typing import Any, Unpack, cast
 
 from knotica.core.config import resolve
 from knotica.core.errors import ErrorCode, KnoticaError
-from knotica.core.lint import lint_vault
+from knotica.core.lint import lint_vault, topic_of_violation
 from knotica.core.links import iter_page_paths
 from knotica.core.metrics import BASELINE_PROBE_ARTIFACT_PREFIX
 from knotica.core.records import (
@@ -856,7 +856,14 @@ def _compose_scalar(
     generation 0.
     """
     quality_answers = statistics.mean(item.quality for item in breakdown)
-    lint_violations = len(lint_vault(store, topic))
+    # Topic-attributable findings only (v2 counting rule -- the reason for the
+    # SCALAR_FORMULA_VERSION bump): a scoped lint run also returns vault-level
+    # findings (log.md, index.md, root schema), and counting those scored every
+    # topic's cleanliness down for defects no page of the topic carries -- while
+    # wiki_status, bucketing per topic, reported zero for the same generation.
+    lint_violations = sum(
+        1 for violation in lint_vault(store, topic) if topic_of_violation(violation.path) == topic
+    )
     n_content_pages = _count_content_pages(store, topic)
     per_item_tokens = statistics.median(item.total_tokens for item in breakdown)
     budget = _resolve_budget(store, topic, per_item_tokens, config)

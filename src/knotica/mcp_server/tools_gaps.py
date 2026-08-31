@@ -131,7 +131,11 @@ _DISCOVER_DESCRIPTION = (
     "turns a gap into something `fill action=suggestions_read` can show. "
     "Candidate URLs are canonicalized (archive-edition permalinks collapse to "
     "the living entry) and a candidate whose URL the vault already stores as an "
-    "ingested source is skipped, counted as candidates_already_in_vault. "
+    "ingested source is skipped, counted as candidates_already_in_vault. Each "
+    "drain also heals the existing queue: open records whose source is already "
+    "in the vault, and per-gap duplicates of one source (archive editions), "
+    "close as rejected with the reason recorded, counted as "
+    "stale_suggestions_closed. "
     "BILLED and two-phase: a bare call previews (how many gaps would drain, "
     "whether a provider is configured, the cost) and returns a short-lived "
     "confirm_nonce WITHOUT spending anything; only a second call passing that "
@@ -573,6 +577,7 @@ def _execute_discover(
             "gaps_drained": result.gaps_drained,
             "suggestions_staged": result.suggestions_written,
             "candidates_already_in_vault": result.candidates_already_in_vault,
+            "stale_suggestions_closed": result.stale_suggestions_closed,
         }
     )
 

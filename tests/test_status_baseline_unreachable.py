@@ -162,3 +162,41 @@ def test_reads_the_corpus_scalar_not_a_refused_candidates_score(
     write_loop_state(store, template_vault, state, title="refused candidate")
 
     assert _unreachable(template_vault, store) is None
+
+
+# ---------------------------------------------------------------------------
+# The Home attention inbox carries the finding too (field report: a jammed
+# topic read "nothing needs you" unless someone was standing in Improve→Gate)
+# ---------------------------------------------------------------------------
+
+
+def _attention_gate(vault: Path, store: LocalFSStore) -> dict | None:
+    payload = gather_wiki_status(store, vault, view="attention")
+    row = next(r for r in payload["topics"] if r["topic"] == TOPIC)
+    return row["gate"]["baseline_unreachable"]
+
+
+def test_the_attention_view_reports_an_unreachable_baseline(template_vault: Path) -> None:
+    store = _seed(template_vault, _record(0.6562), baseline=0.9548)
+
+    finding = _attention_gate(template_vault, store)
+
+    assert finding is not None
+    assert finding["baseline"] == 0.9548
+    assert finding["last_scalar"] == 0.6562
+
+
+def test_the_attention_view_stays_null_when_the_bar_is_reachable(template_vault: Path) -> None:
+    store = _seed(template_vault, _record(0.72), baseline=0.65)
+
+    assert _attention_gate(template_vault, store) is None
+
+
+def test_the_attention_view_withholds_the_finding_across_a_harness_change(
+    template_vault: Path,
+) -> None:
+    """Same withholding rules as the full view: cross-instrument scalars are
+    unknown, not unreachable."""
+    store = _seed(template_vault, _record(0.60), baseline=0.95, baseline_harness="older-instrument")
+
+    assert _attention_gate(template_vault, store) is None

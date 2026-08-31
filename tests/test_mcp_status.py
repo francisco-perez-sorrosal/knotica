@@ -407,3 +407,46 @@ def test_llm_availability_distinguishes_missing_deps_from_missing_creds(
         "mode": "api_key",
         "reason": None,
     }
+
+
+# ---------------------------------------------------------------------------
+# One lint-counting rule on both surfaces (field report: 0 here vs 12 in eval)
+# ---------------------------------------------------------------------------
+
+
+def test_lint_counts_bucket_by_the_shared_attribution_rule(
+    vault_config: Path, template_vault: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A topic's count holds only what the topic owns; vault-level findings
+    (log.md, root schema) surface as their own total instead of vanishing --
+    the structural half of the 0-vs-12 disagreement with the eval scalar."""
+    from knotica.core import status as status_module
+    from knotica.core.lint import LintCheck, Violation
+
+    del vault_config, template_vault
+
+    def canned(store: object, scope: str = "", **kwargs: object) -> list[Violation]:
+        del store, scope, kwargs
+        return [
+            Violation(
+                check=LintCheck.FRONTMATTER_MISSING, path=f"{TOPIC}/page.md", message="m", fix="f"
+            ),
+            Violation(
+                check=LintCheck.CITATION_UNRESOLVED,
+                path=f"sources/{TOPIC}/wheeler-sep.md",
+                message="m",
+                fix="f",
+            ),
+            Violation(check=LintCheck.LOG_MISSING_PATH, path="log.md", message="m", fix="f"),
+        ]
+
+    monkeypatch.setattr(status_module, "lint_vault", canned)
+
+    body = assert_success(call_tool("wiki_status", {}))
+
+    row = next(t for t in body["topics"] if t["topic"] == TOPIC)
+    assert row["lint_violations"] == 2, "topic dir + its stored sources, nothing else"
+    assert body["totals"]["lint_violations"] == 2
+    assert body["totals"]["lint_violations_vault_level"] == 1, (
+        "a vault-level finding is reported, never silently dropped between buckets"
+    )

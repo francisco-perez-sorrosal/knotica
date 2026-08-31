@@ -68,6 +68,13 @@ export const ATTENTION_KIND_META: Record<AttentionKind, AttentionKindMeta> = {
     // Discovery is the stalled step, so Discover is where the user must land.
     anchor: { lane: "fill", stage: "discover" },
   },
+  baseline_unreachable: {
+    why: "The frozen gate baseline sits above what the default branch itself measures, so no candidate, source, or arena variant can pass — every refusal blames the content for a shortfall the bar created.",
+    unlocks:
+      "Rebaselining to the current measurement (loop rebaseline mode=latest) unjams the gate; the Gate stage shows both numbers and the exact command.",
+    // GateStage renders the full unreachable alert with the fix; land there.
+    anchor: { lane: "improve", stage: "gate" },
+  },
   arena_aborted: {
     why: "A prompt race was refused before scoring because the arena scorer and the gate baseline are not the same instrument, so no ranking between them would mean anything.",
     unlocks:

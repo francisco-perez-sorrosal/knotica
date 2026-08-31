@@ -88,7 +88,11 @@ for up to 10 results. New candidates are deduped against **every** existing sugg
 on `(gap_id, source_key)`: a source you rejected is never proposed again. They are also checked
 against the vault's own stored sources by canonical URL (the `origin_url` each
 `sources/<topic>/*.md` provenance records): a source an earlier ingest already holds is skipped and
-counted as `candidates_already_in_vault` in the drain summary, never re-proposed.
+counted as `candidates_already_in_vault` in the drain summary, never re-proposed. Each drain also
+heals the queue it already holds: still-open records whose source the vault now stores, and per-gap
+duplicates of one source (archive editions staged before canonicalization), close as `rejected` with
+the reason recorded — the winner being the human-decided, best-ranked record — counted as
+`stale_suggestions_closed`.
 
 **`dilution` gaps are never drained** — a dilution gap's reference page still exists, so there is
 nothing to go find, and those records sit in the queue inert. **Under a cap**, gaps carrying a

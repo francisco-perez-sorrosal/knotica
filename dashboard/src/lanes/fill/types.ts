@@ -187,6 +187,10 @@ export interface GapfillDiscoverResult {
    *  canonical URL against `sources/<topic>/` provenance) — the honest reason
    *  a drain can stage little while having found plenty. */
   candidates_already_in_vault?: number;
+  /** Pre-existing open queue records this drain closed: sources already in the
+   *  vault, plus per-gap duplicates (archive editions of one page) collapsed
+   *  to their best record. The queue shrinking is an outcome, not a glitch. */
+  stale_suggestions_closed?: number;
 }
 
 /** ``gap_report``'s result -- the flat Tier-1 tool Answer's ``react`` stage calls for "Report gap". */

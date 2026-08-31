@@ -58,6 +58,7 @@ __all__ = [
     "LintCheck",
     "Violation",
     "lint_vault",
+    "topic_of_violation",
 ]
 
 #: Vault-relative path of the global catalog.
@@ -184,6 +185,28 @@ def lint_vault(
         violations.extend(_check_orphans(content_pages, vault_links))
     violations.extend(_check_log(store, scope))
     return violations
+
+
+def topic_of_violation(path: str) -> str | None:
+    """The topic a violation is attributable to, or ``None`` for a vault-level one.
+
+    THE counting rule for per-topic lint numbers, shared by the eval harness
+    (the scalar's ``lint_violations`` input) and ``wiki_status`` -- the two once
+    disagreed structurally (0 vs 12 on one generation) because the harness
+    counted everything its scoped run returned, vault-level findings included,
+    while the status walk bucketed by first path segment, dropping vault-level
+    findings *and* mis-bucketing ``sources/<topic>/…`` under a non-topic. A
+    topic owns what lives under its directory and its stored sources; findings
+    on ``log.md``, ``index.md``, root schema, or reserved names belong to the
+    vault, not to any topic's cleanliness score.
+    """
+    first, _, rest = path.partition("/")
+    if first == _SOURCES_DIR:
+        topic = rest.partition("/")[0]
+        return topic or None
+    if first and rest and not first.startswith("."):
+        return first
+    return None
 
 
 def _vault_link_map(store: VaultStore) -> dict[str, list[Link]]:

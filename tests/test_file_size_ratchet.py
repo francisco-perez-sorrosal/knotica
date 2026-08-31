@@ -72,8 +72,14 @@ OVER_CEILING_BASELINE: dict[str, int] = {
     # that could live elsewhere. The one part that was -- the ~50-line
     # `hold_preview` -- moved to `core/loop_holds.py`, which is why `core/loop.py`
     # lands at 1168 rather than 1211.
-    "evals/harness.py": 1234,
-    "core/loop.py": 1168,
+    # Raised 1234 -> 1241 (harness) and 1168 -> 1189 (loop) for the
+    # lint-attribution instrument fix and the rebaseline freeze guard: the
+    # harness's scalar input filter must sit beside the scalar composition it
+    # feeds, and the guard must sit inside `rebaseline` -- the one freeze-time
+    # entry point that could create an unreachable bar. td-042/td-008 still
+    # name the real fixes.
+    "evals/harness.py": 1241,
+    "core/loop.py": 1189,
     "evals/golden.py": 975,
     # Raised 947 -> 955 for `GapRecord.decided_reason`: an additive optional
     # field (mirrors `SuggestionRecord.decided_reason`) so the human gap
@@ -82,7 +88,15 @@ OVER_CEILING_BASELINE: dict[str, int] = {
     # `to_json_line`/`from_json_line` -- not extractable from a frozen record's
     # own (de)serialization pair.
     "core/records.py": 955,
-    # Raised 1221 -> 1252 for the vault-dedup half of the discovery-dedup fix:
+    # Raised 1252 -> 1320 for the drain's queue healing: still-open records
+    # whose source the vault now stores, and per-gap duplicates one canonical
+    # identity now collapses, close on every drain instead of one manual
+    # withdraw at a time (the field report held fourteen). `_heal_queue` writes
+    # inside the drain's own transaction against the same records the staging
+    # pass dedups on -- the one-commit argument again. td-042 still names the
+    # real fix.
+    #
+    # Prior raise, 1221 -> 1252, for the vault-dedup half of the discovery-dedup fix:
     # the drain now drops candidates the vault already stores (the set itself
     # lives in the new `core/source_inventory.py`; only the drain-loop skip,
     # the RefreshResult count, and the URL-identity key stay here, each bound
@@ -123,7 +137,7 @@ OVER_CEILING_BASELINE: dict[str, int] = {
     # as the suggestion stamp or the two writes stop being one commit, and the
     # human half is the parameter-for-parameter sibling of `apply_decision`, which
     # lives in this module.
-    "core/gapfill.py": 1252,
+    "core/gapfill.py": 1320,
 }
 
 

@@ -381,13 +381,14 @@ def test_scalar_is_always_bounded_to_the_unit_interval(
 # ---------------------------------------------------------------------------
 
 
-def test_scalar_formula_version_is_the_locked_v1_value() -> None:
-    # harness_version fingerprints this constant; a shape change to the formula
-    # must bump it so scalars from different formula generations are never
-    # silently compared.
-    assert SCALAR_FORMULA_VERSION == 1, (
-        "the locked v1 policy must expose scalar_formula_version == 1; "
-        f"got {SCALAR_FORMULA_VERSION!r}"
+def test_scalar_formula_version_is_the_locked_current_value() -> None:
+    # harness_version fingerprints this constant; a change to the formula's
+    # shape -- or to what one of its inputs measures -- must bump it so scalars
+    # from different formula generations are never silently compared. v2:
+    # lint_violations counts topic-attributable findings only
+    # (core.lint.topic_of_violation); the expression itself is unchanged.
+    assert SCALAR_FORMULA_VERSION == 2, (
+        f"the locked policy must expose scalar_formula_version == 2; got {SCALAR_FORMULA_VERSION!r}"
     )
 
 

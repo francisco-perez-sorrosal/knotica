@@ -99,6 +99,23 @@ function rowsForTopic(topic: AttentionTopicRow): AttentionRow[] {
     });
   }
 
+  // A bar above what the default branch itself measures fails every candidate
+  // and every arena variant by construction -- the pipeline is jammed, not
+  // merely waiting, which is why this ranks `blocked`. The server withholds
+  // the finding (null) when it cannot honestly assert it (cross-instrument,
+  // probe anchor, no eval yet), so a rendered row is always a real jam.
+  const unreachable = topic.gate?.baseline_unreachable ?? null;
+  if (unreachable) {
+    rows.push({
+      topic: topic.topic,
+      lane: "improve",
+      urgency: "blocked",
+      kind: "baseline_unreachable",
+      narration: `Gate baseline ${unreachable.baseline.toFixed(4)} is above the corpus's own ${unreachable.last_scalar.toFixed(4)} — nothing can pass.`,
+      action: "Open",
+    });
+  }
+
   if (topic.compile_ready) {
     rows.push({
       topic: topic.topic,

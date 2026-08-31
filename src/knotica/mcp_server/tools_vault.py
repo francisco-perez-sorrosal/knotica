@@ -340,12 +340,14 @@ def _loop_rebaseline_payload(
         vault_path, cleaned, evaluate=harness_evaluate, store=store, runner_cls=LoopRunner
     )
     # Captured before the write so the caller can see whether the bar actually
-    # moved. ``mode="best"`` re-picks the high-water mark, so on a topic whose
-    # newest score is a regression it re-freezes the value already in place --
-    # a legitimate outcome that is indistinguishable from a failed call unless
-    # the response says so. Note that ``mode`` is this operation's own argument,
-    # NOT the topic's ongoing ``baseline_policy``; they are named alike and mean
-    # different things, which is the misreading this field exists to prevent.
+    # moved. ``mode="best"`` re-picks the high-water mark *among reachable
+    # bars*: when that mark sits above the newest measurement the runner now
+    # refuses with a typed error rather than freezing a bar the corpus cannot
+    # clear (the ``baseline_unreachable`` misconfiguration, caught at its one
+    # freeze-time entry point). Note that ``mode`` is this operation's own
+    # argument, NOT the topic's ongoing ``baseline_policy``; they are named
+    # alike and mean different things, which is the misreading this field
+    # exists to prevent.
     previous = read_loop_state(store, cleaned)
     previous_scalar = previous.baseline_scalar if previous is not None else None
     try:

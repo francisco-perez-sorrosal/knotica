@@ -405,6 +405,11 @@ export function QueueStage({
                   discover.state.outcome.candidates_already_in_vault === 1 ? "" : "s"
                 } skipped — already ingested in the vault.`
               : ""}
+            {(discover.state.outcome.stale_suggestions_closed ?? 0) > 0
+              ? ` ${discover.state.outcome.stale_suggestions_closed} stale suggestion${
+                  discover.state.outcome.stale_suggestions_closed === 1 ? "" : "s"
+                } closed (already in the vault, or duplicates of one source).`
+              : ""}
             {discover.state.outcome.suggestions_staged === 0
               ? (discover.state.outcome.candidates_already_in_vault ?? 0) > 0
                 ? " The gap stays open."

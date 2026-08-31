@@ -39,6 +39,12 @@ export interface AttentionTopicRow {
    * "no race we can speak for", never a guessed stage. The server returns the
    * stage word; whether `aborted` needs a human is derived here. */
   arena: { stage: string | null };
+  /** `baseline_unreachable` is the server's finding that the frozen gate
+   * baseline exceeds what the default branch itself measures -- a bar nothing
+   * can clear, so the topic's whole pipeline is jammed. `null` when the bar is
+   * reachable (or unknowable: cross-instrument, probe-anchored, unevaluated).
+   * Optional so a pre-field server payload still derives every other row. */
+  gate?: { baseline_unreachable: { baseline: number; last_scalar: number } | null };
 }
 
 /** The `view="attention"` payload -- every topic's actionable signals plus
@@ -64,7 +70,7 @@ export interface AttentionStatus {
 
 export type AttentionUrgency = "blocked" | "waiting" | "running";
 
-/** Which of `deriveAttentionRows`'s six signal branches produced a row --
+/** Which of `deriveAttentionRows`'s signal branches produced a row --
  * drives `attentionMeta.ts`'s per-row rationale (why it is queued, what
  * acting on it unfolds). One kind per branch in `rowsForTopic`, never
  * derived from `urgency`/`lane` (two kinds share `waiting`, two share
@@ -75,6 +81,7 @@ export type AttentionKind =
   | "gaps_awaiting_discovery"
   | "compile_ready"
   | "arena_aborted"
+  | "baseline_unreachable"
   | "runner_active";
 
 /** One actionable row `deriveAttentionRows` emits -- one per independent

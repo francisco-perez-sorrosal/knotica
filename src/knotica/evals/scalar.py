@@ -40,7 +40,14 @@ __all__ = [
 #: Version of the scalar *shape*. Bumped when the formula's structure changes
 #: (not when the packaged constant values are merely retuned), so a stored
 #: scalar stays interpretable against the formula that produced it.
-SCALAR_FORMULA_VERSION = 1
+#:
+#: v2: ``lint_violations`` counts only violations attributable to the scored
+#: topic (``core.lint.topic_of_violation``) -- vault-level findings (log.md,
+#: index.md, root schema) no longer shade a topic's cleanliness. The formula
+#: expression is unchanged; what changed is the meaning of one input, which is
+#: still an instrument change, so the bump rotates ``harness_version`` and the
+#: gate treats pre-v2 scalars as cross-instrument rather than comparing them.
+SCALAR_FORMULA_VERSION = 2
 
 #: v1 weight of topic lint-cleanliness within the quality composite ``Q``; the
 #: complement ``1 - W_LINT`` weights the mean per-example answer quality.

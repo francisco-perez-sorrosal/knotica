@@ -65,6 +65,7 @@ interface AttentionTopicRow {
   /** Optional for the same back-compat reason as `suggestions.total`. */
   gaps?: { open_total: number };
   arena?: { stage: string | null };
+  gate?: { baseline_unreachable: { baseline: number; last_scalar: number } | null };
 }
 
 interface AttentionTotals {
@@ -522,5 +523,44 @@ describe("the new signals sort into their classes with the old ones", () => {
       "arena_aborted",
       "gaps_awaiting_discovery",
     ]);
+  });
+});
+
+describe("blocked class -- a gate baseline the corpus cannot reach", () => {
+  const JAMMED: AttentionTopicRow = {
+    topic: "agentic-systems",
+    suggestions: { pending: 0, refused_awaiting_rework: 0, total: 0 },
+    gaps: { open_total: 0 },
+    compile_ready: false,
+    runner: { alive: false },
+    arena: { stage: null },
+    gate: { baseline_unreachable: { baseline: 0.9581, last_scalar: 0.8923 } },
+  };
+
+  it("produces exactly one blocked row routed to improve", () => {
+    const rows = rowsFor(JAMMED);
+
+    expect(rows).toHaveLength(1);
+    expect(rows[0].urgency).toBe("blocked");
+    expect(rows[0].lane).toBe("improve");
+    expect(rows[0].kind).toBe("baseline_unreachable");
+    expect(rows[0].action).toBe("Open");
+  });
+
+  it("narrates both scalars, so the row proves the jam instead of asserting it", () => {
+    const narration = rowsFor(JAMMED)[0].narration;
+
+    expect(narration).toContain("0.9581");
+    expect(narration).toContain("0.8923");
+  });
+
+  it("stays silent when the server withholds the finding", () => {
+    expect(rowsFor({ ...JAMMED, gate: { baseline_unreachable: null } })).toEqual([]);
+  });
+
+  it("stays silent against a server that does not send the gate block yet", () => {
+    const { gate: _gate, ...preField } = JAMMED;
+
+    expect(rowsFor(preField as AttentionTopicRow)).toEqual([]);
   });
 });

@@ -331,3 +331,56 @@ def test_signals_are_a_human_readable_rationale_tuple_of_strings():
     assert isinstance(result.signals, tuple)
     assert all(isinstance(signal, str) for signal in result.signals)
     assert len(result.signals) > 0
+
+
+# ---------------------------------------------------------------------------
+# Reference works: refereed, continuously revised -- tiered and dated honestly
+# ---------------------------------------------------------------------------
+
+
+def test_a_reference_work_domain_tiers_peer_reviewed_not_known_lab():
+    """`plato.stanford.edu` is a subdomain of the `stanford.edu` lab entry, and
+    a field report caught the SEP -- a refereed encyclopedia -- scored as a lab
+    preprint (preprint_known_lab / 0.42). The reference-work class must win
+    before the lab-domain match."""
+    reputability = _reputability_module()
+    records = _records_module()
+    scorer = reputability.ReputabilityScorer()
+    candidate = _candidate(records, url="https://plato.stanford.edu/entries/bounded-rationality/")
+
+    result = scorer.score(candidate, reference_date=REFERENCE_DATE)
+
+    assert result.tier == reputability.ReputabilityTier.PEER_REVIEWED
+    assert "domain=plato.stanford.edu" in result.signals
+
+
+def test_a_reference_work_is_recency_exempt_because_providers_stamp_first_publication():
+    """Every SEP archive edition carries the entry's first-publication date, so
+    a continuously revised 2024 entry read as an 8-year-old source. A living
+    reference work's recency is exempt, and the signal says so honestly."""
+    reputability = _reputability_module()
+    records = _records_module()
+    scorer = reputability.ReputabilityScorer()
+    stale_dated = _candidate(
+        records,
+        url="https://plato.stanford.edu/entries/bounded-rationality/",
+        published_date="2018-11-30",
+    )
+
+    result = scorer.score(stale_dated, reference_date=REFERENCE_DATE)
+
+    assert "recency=living-reference-work" in result.signals
+    assert not any(signal == "year=2018" for signal in result.signals)
+    # tier 1.0 * 0.6 + citations-unknown 0.0 * 0.25 + recency 1.0 * 0.15
+    assert result.score == 0.75
+
+
+def test_a_non_reference_stanford_subdomain_still_tiers_as_a_known_lab():
+    reputability = _reputability_module()
+    records = _records_module()
+    scorer = reputability.ReputabilityScorer()
+    candidate = _candidate(records, url="https://ai.stanford.edu/some-report")
+
+    result = scorer.score(candidate, reference_date=REFERENCE_DATE)
+
+    assert result.tier == reputability.ReputabilityTier.PREPRINT_KNOWN_LAB

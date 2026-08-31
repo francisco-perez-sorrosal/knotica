@@ -204,3 +204,154 @@ def test_a_drain_with_nothing_in_the_vault_counts_zero_skips(template_vault: Pat
 
     assert result.candidates_already_in_vault == 0
     assert result.suggestions_written == 1
+
+
+# ---------------------------------------------------------------------------
+# Queue healing -- every drain converges the existing queue, no manual sweeps
+# ---------------------------------------------------------------------------
+
+
+def _staged_suggestion(suggestion_id: str, url: str, *, status: str, rank: int = 1):
+    from knotica.core.records import SuggestionRecord
+
+    return SuggestionRecord(
+        suggestion_id=suggestion_id,
+        topic=TOPIC,
+        gap_id="gap-editions",
+        qa_id="golden-gap-editions",
+        fault_class="genuine_gap",
+        question="What is bounded rationality?",
+        reference_pages=(),
+        rank=rank,
+        query_text="What is bounded rationality?",
+        candidate={"url": url, "title": "Bounded Rationality"},
+        status=status,
+        proposed_at=f"2026-08-0{rank}T00:00:00Z",
+        decided_at=None,
+        decided_reason=None,
+        ingested_at=None,
+        detected_generation=5,
+        gap_origin="measured",
+    )
+
+
+def _seed_queue(store: LocalFSStore, vault: Path, records) -> None:
+    with VaultTransaction(store, vault, "test_seed", TOPIC, "seed suggestions") as txn:
+        txn.write(
+            gapfill.suggestions_path(TOPIC),
+            "".join(r.to_json_line() + "\n" for r in records),
+        )
+
+
+def test_a_drain_collapses_per_gap_editions_of_one_source_keeping_the_human_decision(
+    template_vault: Path,
+) -> None:
+    """The field report's queue: many approved archive editions of one entry.
+    The canonical identity sees them as one source; each drain keeps a single
+    winner (a human decision outranks the undecided, then the better rank) and
+    closes the rest naming the winner."""
+    store = LocalFSStore(template_vault)
+    with VaultTransaction(store, template_vault, "test_seed", TOPIC, "seed gaps") as txn:
+        txn.write(
+            f"{TOPIC}/.knotica/gaps/gaps.jsonl",
+            _gap_record(gap_id="gap-editions").to_json_line() + "\n",
+        )
+    base = "https://plato.stanford.edu"
+    _seed_queue(
+        store,
+        template_vault,
+        [
+            _staged_suggestion(
+                "sug-2018",
+                f"{base}/archives/win2018/entries/bounded-rationality/",
+                status="pending",
+                rank=1,
+            ),
+            _staged_suggestion(
+                "sug-2024",
+                f"{base}/archIves/win2024/entries/bounded-rationality/",
+                status="approved",
+                rank=3,
+            ),
+            _staged_suggestion(
+                "sug-live", f"{base}/entries/bounded-rationality/", status="pending", rank=2
+            ),
+        ],
+    )
+
+    result = gapfill.refresh_suggestions_for_gaps(
+        store, template_vault, TOPIC, service=_FakeDiscoveryService([])
+    )
+
+    from knotica.core.records import parse_suggestions_jsonl
+
+    parsed = {
+        r.suggestion_id: r
+        for r in parse_suggestions_jsonl(store.read_text(gapfill.suggestions_path(TOPIC)))
+    }
+    assert parsed["sug-2024"].status == "approved", "the human-approved edition survives"
+    assert parsed["sug-2018"].status == "rejected"
+    assert parsed["sug-live"].status == "rejected"
+    assert "duplicate of sug-2024" in (parsed["sug-2018"].decided_reason or "")
+    assert result.stale_suggestions_closed == 2
+
+
+def test_a_drain_closes_open_records_whose_source_the_vault_now_stores(
+    template_vault: Path,
+) -> None:
+    store = LocalFSStore(template_vault)
+    _store_sep_source(store, template_vault)
+    with VaultTransaction(store, template_vault, "test_seed", TOPIC, "seed gaps") as txn:
+        txn.write(
+            f"{TOPIC}/.knotica/gaps/gaps.jsonl",
+            _gap_record(gap_id="gap-editions").to_json_line() + "\n",
+        )
+    _seed_queue(
+        store,
+        template_vault,
+        [
+            _staged_suggestion("sug-stale", _SEP_EDITION, status="approved"),
+            _staged_suggestion(
+                "sug-other", "https://example.com/unrelated", status="pending", rank=2
+            ),
+        ],
+    )
+
+    result = gapfill.refresh_suggestions_for_gaps(
+        store, template_vault, TOPIC, service=_FakeDiscoveryService([])
+    )
+
+    from knotica.core.records import parse_suggestions_jsonl
+
+    parsed = {
+        r.suggestion_id: r
+        for r in parse_suggestions_jsonl(store.read_text(gapfill.suggestions_path(TOPIC)))
+    }
+    assert parsed["sug-stale"].status == "rejected"
+    assert parsed["sug-stale"].decided_reason == "source already stored in the vault"
+    assert parsed["sug-other"].status == "pending", "an unrelated open record is untouched"
+    assert result.stale_suggestions_closed == 1
+
+
+def test_healing_never_touches_a_terminal_record(template_vault: Path) -> None:
+    """`ingested` is history and `rejected` already carries a decision; the
+    healing pass may close only what is still waiting on a human."""
+    store = LocalFSStore(template_vault)
+    _store_sep_source(store, template_vault)
+    with VaultTransaction(store, template_vault, "test_seed", TOPIC, "seed gaps") as txn:
+        txn.write(
+            f"{TOPIC}/.knotica/gaps/gaps.jsonl",
+            _gap_record(gap_id="gap-editions").to_json_line() + "\n",
+        )
+    ingested = _staged_suggestion("sug-history", _SEP_CANONICAL, status="ingested")
+    _seed_queue(store, template_vault, [ingested])
+
+    result = gapfill.refresh_suggestions_for_gaps(
+        store, template_vault, TOPIC, service=_FakeDiscoveryService([])
+    )
+
+    from knotica.core.records import parse_suggestions_jsonl
+
+    parsed = parse_suggestions_jsonl(store.read_text(gapfill.suggestions_path(TOPIC)))
+    assert parsed[0].status == "ingested"
+    assert result.stale_suggestions_closed == 0

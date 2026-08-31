@@ -107,6 +107,16 @@ class TierTable:
             }
         )
     )
+    #: Refereed, continuously revised reference works -> peer-reviewed tier,
+    #: recency-exempt. Checked *before* the lab domains: ``plato.stanford.edu``
+    #: is a subdomain of ``stanford.edu``, and without this class the SEP -- a
+    #: peer-reviewed encyclopedia -- scored as a lab preprint (a field report
+    #: caught it at 0.42). Recency is exempt because providers stamp a living
+    #: entry with its *first-publication* date, so a 2024 revision reads as
+    #: years stale through no fault of the source.
+    reference_work_domains: frozenset[str] = field(
+        default_factory=lambda: frozenset({"plato.stanford.edu"})
+    )
     #: Established organization / documentation hosts -> established-org tier.
     established_org_domains: frozenset[str] = field(
         default_factory=lambda: frozenset(
@@ -142,9 +152,14 @@ class ReputabilityScorer:
         """
         tier, tier_signal = _classify_tier(candidate, self._table)
         citation_component, citation_signal = _citation_component(candidate.citation_count)
-        recency_component, recency_signal = _recency_component(
-            candidate.published_date, reference_date
-        )
+        if _domain_matches(_host(candidate.url), self._table.reference_work_domains):
+            # A living reference work is continuously revised; the provider's
+            # first-publication date measures nothing about its staleness.
+            recency_component, recency_signal = 1.0, "recency=living-reference-work"
+        else:
+            recency_component, recency_signal = _recency_component(
+                candidate.published_date, reference_date
+            )
         composite = (
             _TIER_BASE[tier] * _TIER_WEIGHT
             + citation_component * _CITATION_WEIGHT
@@ -182,6 +197,8 @@ def _classify_tier(candidate: SourceCandidate, table: TierTable) -> tuple[Reputa
         return ReputabilityTier.PEER_REVIEWED, f"venue={venue}"
 
     host = _host(candidate.url)
+    if _domain_matches(host, table.reference_work_domains):
+        return ReputabilityTier.PEER_REVIEWED, f"domain={host}"
     if venue is not None and _has_marker(venue, table.preprint_venue_markers):
         return ReputabilityTier.PREPRINT_KNOWN_LAB, f"venue={venue}"
     if _domain_matches(host, table.preprint_domains):

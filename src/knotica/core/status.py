@@ -19,7 +19,7 @@ from knotica.core.arena import read_arena_state
 from knotica.core.compiled import load_compiled
 from knotica.core.compile_state import CompileState, empty_compile_state, read_compile_state
 from knotica.core.errors import ErrorCode, KnoticaError
-from knotica.core.lint import LOG_PATH, lint_vault
+from knotica.core.lint import LOG_PATH, lint_vault, topic_of_violation
 from knotica.core.loop import DEFAULT_BRANCH_PREFIX
 from knotica.core.loop_heartbeat import read_runner_liveness
 from knotica.core.loop_progress import read_progress
@@ -173,7 +173,7 @@ def gather_wiki_status(
         return _attention_status(store, vault_path, name)
 
     vcs = VaultVcs(vault_path)
-    topics = _topic_statuses(store, vcs, vault_path, scope=scope or None)
+    topics, vault_lint = _topic_statuses(store, vcs, vault_path, scope=scope or None)
     last_lint = _last_lint(store)
     unpushed = _unpushed(vault_path)
     gate, loop = _gate_and_loop(store, vault_path, topics)
@@ -194,6 +194,11 @@ def gather_wiki_status(
             "pages": sum(t.pages for t in topics),
             "curated": sum(t.curated for t in topics),
             "lint_violations": sum(t.lint_violations for t in topics),
+            # Findings no topic owns (log.md, index.md, root schema, reserved
+            # names) -- reported here so they cannot vanish between the
+            # per-topic buckets, which is how status once read 0 while the
+            # eval harness counted 12 on the same corpus.
+            "lint_violations_vault_level": vault_lint,
             "notes": {
                 "total": sum(t.notes["total"] for t in topics),
                 "drifted": sum(t.notes["drifted"] for t in topics),
@@ -312,16 +317,21 @@ def _attention_row(store: VaultStore, vault_path: Path, topic: str) -> dict[str,
     """One topic's attention row -- small file reads only, no git, no lint.
 
     ``gaps`` and ``arena`` add **one small file read each** (``gaps.jsonl`` and
-    the arena state file), taking the row from four reads to six. Both stay
-    inside the dec-092 budget: no git subprocess, no lint walk, no note-anchor
+    the arena state file), and ``gate`` two more (loop state + the metrics
+    tail), taking the row from four reads to eight. All stay inside the
+    dec-092 budget: no git subprocess, no lint walk, no note-anchor
     resolution, and cost still linear in topic count.
 
-    They exist because two "needs a human" conditions reached Home through no
+    They exist because "needs a human" conditions reached Home through no
     signal at all. A topic with open gaps and no suggestions -- because
-    discovery never ran against them -- tripped none of the four existing
+    discovery never ran against them -- tripped none of the four original
     branches, so Home reported "nothing needs you" while the gap queue rotted.
-    And an arena race refused before scoring is a *stopped* pipeline that was
+    An arena race refused before scoring is a *stopped* pipeline that was
     visible only to someone already standing in Improve -> Heal on that topic.
+    And a baseline the default branch cannot measure up to fails every
+    candidate by construction while Home stayed silent -- a field report found
+    exactly that topic reading "nothing needs you" as its whole pipeline
+    jammed.
 
     Only the honest numbers are returned; whether they *mean* a row is the
     client's call, exactly as every other attention signal is derived
@@ -335,6 +345,13 @@ def _attention_row(store: VaultStore, vault_path: Path, topic: str) -> dict[str,
         "compile_ready": _is_compile_ready(trainset_n, golden_count(store, topic)),
         "runner": read_runner_liveness(vault_path, topic),
         "arena": _attention_arena_block(store, topic),
+        "gate": {
+            "baseline_unreachable": _baseline_unreachable(
+                topic,
+                last_eval_summary(read_last_metrics(store, topic)),
+                read_loop_state(store, topic),
+            )
+        },
     }
 
 
@@ -375,8 +392,8 @@ def _is_compile_ready(trainset_n: int, golden_n: int) -> bool:
 
 def _topic_statuses(
     store: VaultStore, vcs: VaultVcs, vault_path: Path, *, scope: str | None
-) -> list[TopicStatus]:
-    """Gather per-topic status rows (optionally one topic)."""
+) -> tuple[list[TopicStatus], int]:
+    """Per-topic status rows (optionally one topic), plus the vault-level lint count."""
     if scope:
         if not is_topic(store, scope):
             raise TopicNotFoundError(scope)
@@ -384,11 +401,12 @@ def _topic_statuses(
     else:
         names = topic_directories(store)
 
-    lint_counts = _lint_counts_by_topic(store, scope=scope)
-    return [
+    lint_counts, vault_level = _lint_counts_by_topic(store, scope=scope)
+    rows = [
         _topic_status(store, vcs, vault_path, name, lint_violations=lint_counts.get(name, 0))
         for name in names
     ]
+    return rows, vault_level
 
 
 def _topic_status(
@@ -480,17 +498,27 @@ def _compile_info(store: VaultStore, topics: list[TopicStatus]) -> dict[str, Any
     return state.render()
 
 
-def _lint_counts_by_topic(store: VaultStore, *, scope: str | None) -> Counter[str]:
-    """Run mechanical lint once and bucket violations by topic directory."""
+def _lint_counts_by_topic(store: VaultStore, *, scope: str | None) -> tuple[Counter[str], int]:
+    """Run mechanical lint once; per-topic counts plus the vault-level remainder.
+
+    Attribution is ``core.lint.topic_of_violation`` -- the same rule the eval
+    harness counts the scalar's ``lint_violations`` input with, so the two
+    surfaces can no longer disagree structurally (the old first-segment
+    bucketing dropped vault-level findings and filed ``sources/<topic>/…``
+    under a non-topic; a scoped call even attributed root findings to the
+    scope). Vault-level findings are returned as their own count rather than
+    silently vanishing.
+    """
     violations = lint_vault(store, scope or "")
     counts: Counter[str] = Counter()
+    vault_level = 0
     for violation in violations:
-        topic = violation.path.split("/", 1)[0] if violation.path else ""
-        if topic and not topic.startswith("."):
+        topic = topic_of_violation(violation.path)
+        if topic is not None:
             counts[topic] += 1
-        elif scope:
-            counts[scope] += 1
-    return counts
+        else:
+            vault_level += 1
+    return counts, vault_level
 
 
 def _gate_and_loop(
@@ -560,14 +588,16 @@ def _gate_and_loop(
         # outranks the corpus. A condition that refuses every future candidate
         # must not have to be inferred by comparing `baseline_scalar` against a
         # metrics record on another surface.
-        "baseline_unreachable": _baseline_unreachable(row, state),
+        "baseline_unreachable": _baseline_unreachable(row.topic, row.last_eval, state),
         "pending_candidates": pending,
         "metrics_hint": metrics_hint,
     }
     return gate, loop
 
 
-def _baseline_unreachable(row: TopicStatus, state: LoopState | None) -> dict[str, Any] | None:
+def _baseline_unreachable(
+    topic: str, last_eval: dict[str, Any] | None, state: LoopState | None
+) -> dict[str, Any] | None:
     """A bar the default branch's own corpus cannot clear -- always a misconfiguration.
 
     When the baseline sits above the default branch's *measured* scalar, nothing
@@ -591,28 +621,28 @@ def _baseline_unreachable(row: TopicStatus, state: LoopState | None) -> dict[str
     * **Probe anchors.** A ``baseline-probe`` record carries ``n_examples: 0``
       and measures nothing; ranking a real baseline against it is meaningless.
     """
-    if state is None or state.baseline_scalar is None or row.last_eval is None:
+    if state is None or state.baseline_scalar is None or last_eval is None:
         return None
-    if not int(row.last_eval.get("n_examples") or 0):
+    if not int(last_eval.get("n_examples") or 0):
         return None
-    harness = row.last_eval.get("harness_version")
+    harness = last_eval.get("harness_version")
     if state.baseline_harness_version and harness and harness != state.baseline_harness_version:
         return None
     baseline = float(state.baseline_scalar)
-    measured = float(row.last_eval["scalar"])
+    measured = float(last_eval["scalar"])
     if baseline <= measured:
         return None
     return {
         "baseline": baseline,
         "last_scalar": measured,
-        "generation": row.last_eval.get("generation"),
+        "generation": last_eval.get("generation"),
         "message": (
             f"gate baseline {baseline:.4f} exceeds the default branch's own scalar "
             f"{measured:.4f}, so no candidate and no arena variant can pass the gate"
         ),
         "fix": (
             f"Lower the bar to what the corpus actually measures: "
-            f"`loop action=rebaseline mode=latest topic={row.topic}`."
+            f"`loop action=rebaseline mode=latest topic={topic}`."
         ),
     }
 

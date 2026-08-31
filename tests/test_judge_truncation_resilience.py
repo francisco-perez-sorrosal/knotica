@@ -84,7 +84,10 @@ def test_the_judge_instrument_hash_is_unaffected_by_the_budget() -> None:
     from knotica.evals.config import harness_version
     from knotica.evals.judge import JUDGE_PROMPT_HASH
 
-    assert harness_version(JUDGE_PROMPT_HASH).startswith("c1d10c168a193fbd")
+    # Current-instrument snapshot; rotates only on a deliberate instrument
+    # change (the 6d9a19b5 rotation was scalar formula v2, the lint-attribution
+    # fix). The budget must never be a rotation cause -- that is this test.
+    assert harness_version(JUDGE_PROMPT_HASH).startswith("6d9a19b55b55b897")
 
 
 # ---------------------------------------------------------------------------

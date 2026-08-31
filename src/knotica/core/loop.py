@@ -852,7 +852,15 @@ class LoopRunner:
         both restricted to records from the *current instrument* (the harness
         version of the newest record), because cross-instrument scalars are
         never comparable.
+
+        A ``best`` pick that exceeds the newest measurement is **refused**: a
+        bar above what the default branch currently measures fails every
+        candidate and arena variant by construction (the exact state
+        ``status._baseline_unreachable`` calls "always a misconfiguration"),
+        so freezing one knowingly is not a legitimate outcome — a field
+        report proved the queue it silently jams.
         """
+        from knotica.core.errors import ErrorCode, KnoticaError
         from knotica.core.metrics import read_metrics_window
 
         cleaned = mode.strip().lower()
@@ -867,6 +875,19 @@ class LoopRunner:
         chosen = (
             max(comparable, key=lambda r: float(r.scalar)) if cleaned == "best" else comparable[-1]
         )
+        newest = comparable[-1]
+        if float(chosen.scalar) > float(newest.scalar):
+            raise KnoticaError(
+                ErrorCode.INVALID_ARGUMENT,
+                f"refusing to freeze baseline {float(chosen.scalar):.4f}: the newest "
+                f"measurement on this instrument is {float(newest.scalar):.4f}, so that "
+                "bar would be unreachable and every candidate would fail by construction",
+                fix=(
+                    "Rebaseline with mode='latest' to freeze what the corpus currently "
+                    "measures, or restore the corpus and re-run an eval before re-picking "
+                    "the high-water mark."
+                ),
+            )
         state = read_loop_state(self._store, self._topic) or empty_loop_state(self._topic)
         return write_loop_state(
             self._store,

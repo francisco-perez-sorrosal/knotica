@@ -341,7 +341,38 @@ def _dispatch(lane: str, actions: tuple[str, ...], arguments: dict[str, Any]) ->
                 fix=f"Use one of the implemented actions: {', '.join(_implemented(actions))}.",
             )
         )
-    return handler(**_forwarded(verb, arguments))
+    forwarded = _forwarded(verb, arguments)
+    missing = _missing_required(verb, forwarded)
+    if missing:
+        return envelope.error_envelope(
+            KnoticaError(
+                ErrorCode.INVALID_ARGUMENT,
+                f"{lane} action={verb} is missing required argument"
+                f"{'s' if len(missing) > 1 else ''}: {', '.join(missing)}",
+                fix=f"Pass {' and '.join(missing)} with the call.",
+            )
+        )
+    return handler(**forwarded)
+
+
+def _missing_required(verb: str, forwarded: Mapping[str, Any]) -> list[str]:
+    """The wrapped verb's unmet required parameters, under their *lane* names.
+
+    Without this check a call like ``improve action=loop`` (no ``loop_action``)
+    reached the handler with the argument absent and surfaced as a raw Python
+    ``TypeError`` -- the one path on the lane surface that broke the
+    structured-envelope contract. Named after the lane-side parameter
+    (``loop_action``, not ``action``) because that is the name the caller can
+    actually pass.
+    """
+    return [
+        _lane_parameter_name(verb, name)
+        for name, parameter in _handler_parameters(verb).items()
+        if parameter.default is inspect.Parameter.empty
+        and parameter.kind
+        in (inspect.Parameter.POSITIONAL_OR_KEYWORD, inspect.Parameter.KEYWORD_ONLY)
+        and name not in forwarded
+    ]
 
 
 def _implemented(actions: tuple[str, ...]) -> tuple[str, ...]:

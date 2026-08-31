@@ -50,6 +50,7 @@ from support.dispatch import (
     list_tool_names,
     list_tools,
     payload_of,
+    rendered_error_text,
 )
 from support.vault import run_git
 
@@ -594,3 +595,23 @@ def test_a_json_shaped_string_argument_survives_the_lane_it_is_passed_through(
     )
 
     assert new == old, "tend(action=vault_health) mangled a JSON-shaped string argument"
+
+
+def test_a_missing_required_verb_argument_is_a_structured_error_not_a_type_error(
+    vault_config: Path,
+) -> None:
+    """`improve action=loop` without `loop_action` once escaped as a raw Python
+    TypeError ("missing 1 required positional argument: 'action'") -- the one
+    path on the lane surface that broke the structured-envelope contract. The
+    refusal must name the *lane-side* parameter (`loop_action`), because that
+    is the name the caller can actually pass."""
+    del vault_config
+
+    result = call_tool(
+        _lane_dispatch_server("improve"), "improve", {"action": "loop", "topic": "agentic-systems"}
+    )
+
+    text = rendered_error_text(result)
+    assert "INVALID_ARGUMENT" in text
+    assert "loop_action" in text, "the fix must name the lane-side parameter"
+    assert "TypeError" not in text and "positional argument" not in text

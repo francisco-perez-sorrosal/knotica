@@ -676,6 +676,7 @@ selectors:
       - tests/test_loop_flock_contention.py
       - tests/test_loop_noop_attempt_characterization.py
       - tests/test_loop_progress.py
+      - tests/test_loop_rebaseline.py
       - tests/test_loop_runner.py
       - tests/test_loop_runner_factory_characterization.py
       - tests/test_gapfill_session_status.py

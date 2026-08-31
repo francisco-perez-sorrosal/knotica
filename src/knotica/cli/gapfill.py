@@ -100,7 +100,8 @@ def _run_discover(console: Console, args: argparse.Namespace) -> int:
     console.data(
         f"gapfill discover topic={args.topic} gaps_considered={result.gaps_considered} "
         f"gaps_drained={result.gaps_drained} suggestions_staged={result.suggestions_written} "
-        f"candidates_already_in_vault={result.candidates_already_in_vault}"
+        f"candidates_already_in_vault={result.candidates_already_in_vault} "
+        f"stale_suggestions_closed={result.stale_suggestions_closed}"
     )
     return EXIT_SUCCESS
 

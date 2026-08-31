@@ -377,55 +377,6 @@ def test_best_policy_ratchets_baseline_upward(template_vault: Path) -> None:
     assert state.baseline_scalar == 0.70, "latest policy leaves the bar where it was"
 
 
-def _seed_metrics_history(vault: Path, scalars: list[float], harness: str = "fake-m2") -> None:
-    """Write a metrics.jsonl history directly (generation = list order)."""
-    path = vault / TOPIC / ".knotica" / "metrics.jsonl"
-    path.parent.mkdir(parents=True, exist_ok=True)
-    lines = []
-    for generation, scalar in enumerate(scalars, start=1):
-        record = MetricsRecord(
-            topic=TOPIC,
-            timestamp=f"2026-07-18T00:0{generation}:00Z",
-            generation=generation,
-            harness_version=harness,
-            scalar=scalar,
-            components=MetricsComponents(
-                qa_accuracy=scalar, citation_validity=1.0, lint_violations=0.0, token_cost=0.0
-            ),
-            n_examples=1,
-            corpus_ref="git:seeded",
-            artifact_ref=None,
-        )
-        lines.append(record.to_json_line())
-    path.write_text("".join(line + "\n" for line in lines), encoding="utf-8")
-    run_git(vault, "add", "-A")
-    run_git(vault, "commit", "-m", "test: seed metrics history")
-
-
-def test_rebaseline_freezes_high_water_mark_from_history(template_vault: Path) -> None:
-    _seed_metrics_history(template_vault, [0.60, 0.90, 0.70])
-    runner = LoopRunner(template_vault, TOPIC, evaluate=_fake_evaluate(0.50), arena_enabled=False)
-
-    state = runner.rebaseline("best")
-    assert state.baseline_scalar == 0.90, "rebaseline best freezes the high-water mark"
-
-    state = runner.rebaseline("latest")
-    assert state.baseline_scalar == 0.70, "rebaseline latest freezes the newest record"
-
-
-def test_rebaseline_ignores_records_from_previous_instruments(template_vault: Path) -> None:
-    # A stale 0.99 under an old instrument must never become the bar.
-    path = template_vault / TOPIC / ".knotica" / "metrics.jsonl"
-    _seed_metrics_history(template_vault, [0.99], harness="old-instrument")
-    old_line = path.read_text(encoding="utf-8")
-    _seed_metrics_history(template_vault, [0.60, 0.80])
-    path.write_text(old_line + path.read_text(encoding="utf-8"), encoding="utf-8")
-
-    runner = LoopRunner(template_vault, TOPIC, evaluate=_fake_evaluate(0.50), arena_enabled=False)
-    state = runner.rebaseline("best")
-    assert state.baseline_scalar == 0.80, "only current-instrument records are comparable"
-
-
 def test_merged_result_branches_are_pruned_beyond_keep(template_vault: Path) -> None:
     runner = LoopRunner(template_vault, TOPIC, evaluate=_fake_evaluate(0.50), arena_enabled=False)
     runner.observe_default()
@@ -763,26 +714,3 @@ def test_gap_record_commit_does_not_retrigger_a_fresh_observation(
     assert second.acted is False, (
         "a gap-record commit is bookkeeping and must not trigger a fresh eval cycle"
     )
-
-
-def test_the_rebaseline_payload_reports_when_the_bar_did_not_move(template_vault: Path) -> None:
-    # `best` re-picks the high-water mark, so on a topic whose newest score is a
-    # regression it re-freezes the value already in place. A legitimate outcome
-    # that, without `changed`, is indistinguishable from a call that failed --
-    # which is exactly how it got read in the field.
-    from knotica.mcp_server.tools_vault import _loop_rebaseline_payload
-
-    _seed_metrics_history(template_vault, [0.95, 0.65])
-    store = LocalFSStore(template_vault)
-
-    first = _loop_rebaseline_payload(store, template_vault, TOPIC, "best")
-    assert first["baseline_scalar"] == 0.95
-    assert first["changed"] is True
-
-    again = _loop_rebaseline_payload(store, template_vault, TOPIC, "best")
-    assert again["changed"] is False, "re-selecting the same record is not a change"
-    assert "unchanged" in again["message"]
-
-    lowered = _loop_rebaseline_payload(store, template_vault, TOPIC, "latest")
-    assert lowered["previous_scalar"] == 0.95
-    assert lowered["baseline_scalar"] == 0.65, "latest lowers the bar to the newest record"

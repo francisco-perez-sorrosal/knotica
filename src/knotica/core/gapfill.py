@@ -188,6 +188,11 @@ class RefreshResult:
     gaps_drained: int
     suggestions_written: int
     candidates_already_in_vault: int = 0
+    #: Pre-existing open queue records the drain closed: sources the vault
+    #: already stores, plus per-gap duplicates the canonical identity now
+    #: collapses (see :func:`_heal_queue`). Counted so a queue that shrank
+    #: explains itself.
+    stale_suggestions_closed: int = 0
 
 
 @dataclass(frozen=True)
@@ -373,8 +378,10 @@ def refresh_suggestions_for_gaps(
         )
 
     selected = _select_gaps(open_gaps, max_gaps)
-    seen = _existing_dedup_keys(store, topic)
     vault_urls = stored_source_url_keys(store, topic)
+    stamp = clock or _utc_now_iso
+    healed, healed_count = _heal_queue(_read_suggestions(store, topic), vault_urls, stamp=stamp)
+    seen = {(record.gap_id, _source_key(record.candidate)) for record in healed}
     in_vault = 0
     new_records: list[SuggestionRecord] = []
     for gap in selected:
@@ -389,14 +396,22 @@ def refresh_suggestions_for_gaps(
             seen.add(key)
             new_records.append(record)
 
-    if new_records:
-        _write_suggestions(store, root, topic, new_records)
+    if new_records or healed_count:
+        _write_suggestions(
+            store,
+            root,
+            topic,
+            list(healed) + new_records,
+            staged=len(new_records),
+            closed=healed_count,
+        )
     return RefreshResult(
         service_available=True,
         gaps_considered=considered,
         gaps_drained=len(selected),
         suggestions_written=len(new_records),
         candidates_already_in_vault=in_vault,
+        stale_suggestions_closed=healed_count,
     )
 
 
@@ -1038,17 +1053,70 @@ def _select_gaps(gaps: Sequence[GapRecord], max_gaps: int | None) -> list[GapRec
     return fill + reserved
 
 
-def _existing_dedup_keys(store: VaultStore, topic: str) -> set[tuple[str, str]]:
-    """Every ``(gap_id, source_key)`` already staged, at any status.
+#: Statuses the queue-healing pass may close; ``ingested``/``rejected`` are
+#: terminal and a healed record must never overwrite a decision already made.
+_HEALABLE: frozenset[str] = frozenset({"pending", "approved", "deferred"})
+#: Precedence when several editions of one source survive per gap: a human
+#: decision outranks the undecided, then the better-ranked candidate wins.
+_HEAL_STATUS_RANK: Mapping[str, int] = {"approved": 2, "deferred": 1, "pending": 0}
 
-    Dedup is against *all* existing suggestions (not just non-terminal ones): a
-    source already surfaced for a gap -- pending, approved, ingested, deferred, or
-    already rejected -- is never re-proposed, so a persistent regression cannot
-    spam the queue and a human's rejection is respected. This is a superset of the
-    ``pending``/``approved``/``ingested`` dedup the acceptance criterion names.
+
+def _heal_queue(
+    records: Sequence[SuggestionRecord],
+    vault_urls: frozenset[str],
+    *,
+    stamp: Callable[[], str],
+) -> tuple[list[SuggestionRecord], int]:
+    """Close stale queue records the identity rule now sees through (pure).
+
+    Two sweeps over the still-open (pending/approved/deferred) records, run on
+    every drain so the queue converges without a manual decision per record --
+    a field report held *fourteen* approved editions of one already-ingested
+    SEP entry, one ``withdraw`` at a time being the only exit:
+
+    * a record whose canonical URL the vault already stores closes as
+      ``rejected`` (``source already stored in the vault``);
+    * within one gap, records sharing a canonical source identity collapse to
+      a single winner (human decision first, then best rank, then newest);
+      the losers close as ``rejected`` naming the winner.
+
+    Returns the full record list (order preserved) and how many were closed.
     """
-    records = _read_suggestions(store, topic)
-    return {(record.gap_id, _source_key(record.candidate)) for record in records}
+    now = stamp()
+    healed: dict[str, SuggestionRecord] = {}
+    open_records = [record for record in records if record.status in _HEALABLE]
+    for record in open_records:
+        if _candidate_url_key(record.candidate) in vault_urls:
+            healed[record.suggestion_id] = replace(
+                record,
+                status="rejected",
+                decided_at=now,
+                decided_reason="source already stored in the vault",
+            )
+
+    groups: dict[tuple[str, str], list[SuggestionRecord]] = {}
+    for record in open_records:
+        if record.suggestion_id in healed:
+            continue
+        groups.setdefault((record.gap_id, _source_key(record.candidate)), []).append(record)
+    for group in groups.values():
+        if len(group) < 2:
+            continue
+        winner = max(
+            group,
+            key=lambda r: (_HEAL_STATUS_RANK[r.status], -r.rank, r.proposed_at),
+        )
+        for loser in group:
+            if loser.suggestion_id == winner.suggestion_id:
+                continue
+            healed[loser.suggestion_id] = replace(
+                loser,
+                status="rejected",
+                decided_at=now,
+                decided_reason=f"duplicate of {winner.suggestion_id} (same source)",
+            )
+
+    return [healed.get(record.suggestion_id, record) for record in records], len(healed)
 
 
 def _write_suggestions(
@@ -1056,14 +1124,14 @@ def _write_suggestions(
     root: str | Path,
     topic: str,
     records: Sequence[SuggestionRecord],
+    *,
+    staged: int,
+    closed: int,
 ) -> None:
-    """Append staged suggestions to ``suggestions.jsonl`` in one own commit."""
-    path = suggestions_path(topic)
-    existing = store.read_text(path) if store.exists(path) else ""
-    body = _append_jsonl_lines(existing, [record.to_json_line() for record in records])
-    title = f"{len(records)} gap-fill suggestions for {topic}"
+    """Rewrite ``suggestions.jsonl`` as the full healed+staged list, one commit."""
+    title = f"refresh suggestions for {topic} ({staged} staged, {closed} closed)"
     with VaultTransaction(store, Path(root), _PROPOSE_OP, topic, title) as txn:
-        txn.write(path, body)
+        txn.write(suggestions_path(topic), _serialize(records))
 
 
 # ---------------------------------------------------------------------------

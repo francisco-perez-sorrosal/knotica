@@ -131,6 +131,13 @@ The baseline is the frozen scalar the gate defends, stored per topic in
 | `latest` | The baseline tracks reality. It moves on exactly two events: the first-observation auto-freeze, and an instrument-change re-freeze. A better observation does **not** raise it |
 | `best` | High-water mark. Any observation with `scalar > baseline` raises the bar to that scalar |
 
+`loop action=rebaseline mode=best` re-picks the high-water mark from metrics history — but **refuses
+to freeze a bar above the newest measurement** on the current instrument: such a bar fails every
+candidate and arena variant by construction (the `baseline_unreachable` state `wiki_status` reports
+and the Home attention inbox surfaces as a blocked row). The refusal names both scalars and points
+at `mode=latest`. Drift *after* a legitimate freeze still requires a human rebaseline — lowering the
+bar forgives a regression, so it is never automatic.
+
 An **instrument change** means the harness fingerprint rotated. That fingerprint hashes the judge
 prompt, the judge and worker model snapshots, the scalar formula version, and a runner config hash
 folding the installed `dspy` version and the failure score — so a judge-prompt edit, a model
@@ -249,7 +256,10 @@ install via `[models].judge`, which rotates the harness fingerprint — drawn **
 and scored by the **median** (the count is odd so the median is a real drawn sample; Sonnet 5 rejects
 the `temperature` argument, so the samples are not temperature-pinned and the median is the
 mitigation). `citation_validity` is deterministic with no model — if the golden reference carries
-citations and the candidate cites nothing, that leg is `0.0`, not a vacuous `1.0`. Across the run:
+citations and the candidate cites nothing, that leg is `0.0`, not a vacuous `1.0`. Across the run
+(`lint_violations` counts only findings attributable to the scored topic — its directory plus its
+`sources/<topic>/` — never vault-level findings like `log.md` or the root schema; formula v2, the
+same attribution rule `wiki_status` buckets with):
 
 ```text
 lint_cleanliness = max(0, 1 - lint_violations / max(1, n_content_pages))
