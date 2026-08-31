@@ -384,6 +384,21 @@ def test_future_suggestion_schema_version_with_unknown_fields_still_parses():
     assert record.suggestion_id == "a1b2c3d4e5f60718"
 
 
+def test_an_unknown_field_survives_a_full_rewrite_of_the_record():
+    """Tolerance on ingress is only half the contract. Every drain and every
+    gap dismissal now rewrites the WHOLE queue through parse->serialize, so a
+    field dropped on re-emit is erased from every record in the topic by a
+    routine refresh -- with no decision taken and no error raised."""
+    payload = json.loads(_suggestion_record().to_json_line())
+    payload["novel_field"] = "added by a future proposer_version bump"
+
+    record = _records_module().SuggestionRecord.from_json_line(json.dumps(payload))
+    round_tripped = json.loads(record.to_json_line())
+
+    assert round_tripped["novel_field"] == "added by a future proposer_version bump"
+    assert record.extra == {"novel_field": "added by a future proposer_version bump"}
+
+
 # ---------------------------------------------------------------------------
 # parse_suggestions_jsonl -- whole-file parse (mirrors parse_gaps_jsonl)
 # ---------------------------------------------------------------------------

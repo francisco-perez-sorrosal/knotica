@@ -378,6 +378,31 @@ def test_a_candidate_whose_url_is_not_a_web_source_is_dropped_before_staging():
     assert [c.url for c in results] == [good.url]
 
 
+def test_a_provider_whose_whole_yield_fails_the_floor_falls_through_to_the_next():
+    """The syntactic floor is applied per provider, before the "did this one
+    yield anything?" test. Otherwise a primary whose adapter regressed into
+    relative or ``mailto:`` URLs wins the race with ten hits, loses all ten,
+    and returns ``[]`` -- with the healthy secondary never consulted, which
+    defeats the entire point of a fallback chain."""
+    service_module = _service_module()
+    good = _candidate(url="https://example.com/from-secondary", doi=None)
+    broken = FakeSearchProvider(
+        [
+            _candidate(url="/entries/frame-problem", doi=None),
+            _candidate(url="mailto:editors@example.com", doi=None),
+        ],
+        name="broken-primary",
+    )
+    healthy = FakeSearchProvider([good], name="secondary")
+    scorer = _FakeScorer({good.url: _score(ReputabilityTier.GENERAL_WEB, 0.4)})
+
+    service = service_module.DiscoveryService(
+        providers=[broken, healthy], enricher=None, scorer=scorer
+    )
+
+    assert [c.url for c in service.discover(SearchQuery(text="frame problem"))] == [good.url]
+
+
 def test_a_drop_of_every_candidate_is_the_ordinary_empty_result_not_an_error():
     service_module = _service_module()
     provider = FakeSearchProvider([_candidate(url="", doi=None)], name="junk")

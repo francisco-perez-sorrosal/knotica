@@ -3,19 +3,26 @@
 Composes every stage of the discovery pipeline behind one call,
 :meth:`DiscoveryService.discover`:
 
-1. **search** -- try each configured :class:`~knotica.discovery.provider.SearchProvider`
-   in order (Decision C -- first-non-empty-wins, skip-on-hard-failure): a
-   provider that raises (missing key, exhausted retries, a hard 5xx) is
-   skipped, not fatal; the first provider yielding at least one candidate
-   wins; if every provider raises or returns nothing, ``discover`` returns
-   ``[]`` -- never an error.
-2. **sanitize** -- drop candidates whose URL is not a plausible web source
+1. **search + sanitize** -- try each configured
+   :class:`~knotica.discovery.provider.SearchProvider` in order (Decision C --
+   first-non-empty-wins, skip-on-hard-failure): a provider that raises
+   (missing key, exhausted retries, a hard 5xx) is skipped, not fatal; the
+   first provider yielding at least one candidate wins; if every provider
+   raises or returns nothing, ``discover`` returns ``[]`` -- never an error.
+
+   **Sanitize** -- dropping candidates whose URL is not a plausible web source
    (:func:`~knotica.discovery.normalize.is_http_url` -- syntactic only, no
-   reachability probe) and rewrite each survivor's URL to its host's
-   canonical form (:func:`~knotica.discovery.normalize.canonicalize_url`),
-   so what the pipeline stages is the URL a reader can actually reach. One
-   seam here covers every provider, present and future, rather than each
-   adapter re-validating its own wire shape.
+   reachability probe) and rewriting each survivor's URL to its host's
+   canonical form (:func:`~knotica.discovery.normalize.canonicalize_url`) --
+   runs **inside** the chain, per provider, *before* the "did this provider
+   yield anything?" test. That ordering is load-bearing: applied only to the
+   winner's results, a primary whose adapter regressed into emitting relative
+   or ``mailto:`` URLs would win the race with ten hits, lose all ten to the
+   floor, and return ``[]`` indistinguishably from "nothing found" -- with the
+   healthy secondary never consulted. Sanitizing first lets such a provider
+   fall through, which is the entire point of having a chain. One seam here
+   covers every provider, present and future, rather than each adapter
+   re-validating its own wire shape.
 3. **dedup** -- by normalized DOI, falling back to normalized URL when no DOI
    is present, preferring the candidate with richer metadata when two
    providers surface the same source.
@@ -30,6 +37,7 @@ Composes every stage of the discovery pipeline behind one call,
 
 from __future__ import annotations
 
+import logging
 from collections.abc import Callable, Sequence
 from dataclasses import replace
 from datetime import date
@@ -41,6 +49,8 @@ from knotica.discovery.records import ReputabilityTier, SearchQuery, SourceCandi
 from knotica.discovery.reputability import ReputabilityScorer
 
 __all__ = ["DiscoveryService"]
+
+_LOGGER = logging.getLogger(__name__)
 
 #: Ascending rank per tier -- lower sorts first, so the highest tier (peer
 #: reviewed) ranks ahead of everything else. A candidate with no reputability
@@ -77,7 +87,7 @@ class DiscoveryService:
 
     def discover(self, query: SearchQuery) -> list[SourceCandidate]:
         """Run the full pipeline for ``query``; ``[]`` when nothing is found."""
-        candidates = _sanitize(self._search(query))
+        candidates = self._search(query)
         if not candidates:
             return []
         deduped = _dedup(candidates)
@@ -86,12 +96,18 @@ class DiscoveryService:
         return _rank(scored)
 
     def _search(self, query: SearchQuery) -> list[SourceCandidate]:
-        """First provider yielding >=1 candidate wins; a raiser is skipped."""
+        """First provider yielding >=1 *sanitized* candidate wins; a raiser is skipped.
+
+        The floor is applied per provider so a provider whose entire yield is
+        un-ingestable falls through to the next one rather than winning the
+        race and returning nothing (see the module docstring's step 1).
+        """
         for provider in self._providers:
             try:
-                candidates = provider.search(query)
+                raw = provider.search(query)
             except KnoticaError:
                 continue
+            candidates = _sanitize(raw, provider=type(provider).__name__)
             if candidates:
                 return candidates
         return []
@@ -102,22 +118,38 @@ class DiscoveryService:
 # ---------------------------------------------------------------------------
 
 
-def _sanitize(candidates: Sequence[SourceCandidate]) -> list[SourceCandidate]:
+def _sanitize(
+    candidates: Sequence[SourceCandidate], *, provider: str = ""
+) -> list[SourceCandidate]:
     """Drop un-ingestable URLs; rewrite the rest to their canonical form.
 
-    Runs *before* dedup so archive-edition permalinks of one source collapse in
-    the stored form too, not only in the identity key -- the queue then holds
-    one canonical URL instead of nine edition snapshots a reviewer has to
-    recognize as the same entry. A dropped candidate was never a source (no
-    scheme, non-web scheme, or no host), so nothing counts it.
+    Runs per provider inside the fallback chain and *before* dedup, so
+    archive-edition permalinks of one source collapse in the stored form too,
+    not only in the identity key -- the queue then holds one canonical URL
+    instead of nine edition snapshots a reviewer has to recognize as the same
+    entry. A dropped candidate was never a source (no scheme, non-web scheme,
+    or no host), so nothing downstream counts it; the drops are logged at
+    debug level with their provider and URLs instead, because a provider whose
+    wire shape has drifted is otherwise indistinguishable from one that found
+    nothing.
     """
     sanitized: list[SourceCandidate] = []
+    dropped: list[str] = []
     for candidate in candidates:
         if not is_http_url(candidate.url):
+            dropped.append(candidate.url)
             continue
         canonical = canonicalize_url(candidate.url)
         sanitized.append(
             candidate if canonical == candidate.url else replace(candidate, url=canonical)
+        )
+    if dropped:
+        _LOGGER.debug(
+            "discovery sanitize dropped %d of %d candidate(s) from %s: %s",
+            len(dropped),
+            len(candidates),
+            provider or "an unnamed provider",
+            ", ".join(dropped),
         )
     return sanitized
 

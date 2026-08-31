@@ -87,8 +87,25 @@ OVER_CEILING_BASELINE: dict[str, int] = {
     # one-shot tool result. One field, one docstring, one line each in
     # `to_json_line`/`from_json_line` -- not extractable from a frozen record's
     # own (de)serialization pair.
-    "core/records.py": 955,
-    # Raised 1252 -> 1320 for the drain's queue healing: still-open records
+    #
+    # Raised 955 -> 981 for `SuggestionRecord.extra`: unknown top-level fields
+    # are now carried and re-emitted, not just tolerated on read. Every drain
+    # and every gap dismissal rewrites the whole queue through
+    # parse->serialize, so a dropped field was erased from every record in the
+    # topic by a routine refresh. The carrier field, its partition on parse and
+    # its merge on emit live inside the frozen record's own (de)serialization
+    # pair and are not extractable from it.
+    "core/records.py": 981,
+    # Raised 1320 -> 1532 for queue-lifecycle integrity: the drain now does all
+    # network work first and reads/writes the queue inside one span lock (a
+    # pre-discovery snapshot was reverting decisions taken during a drain), a
+    # cascade closure is marked so it stops deduping a reopened gap's re-drain,
+    # and both queue writers skip an approved record whose candidate branch is
+    # already published. None of it is extractable: the ordering constraint is
+    # the drain function's own shape, and the cascade marker must be written and
+    # read by the two writers that live here.
+    #
+    # Prior raise, 1252 -> 1320, for the drain's queue healing: still-open records
     # whose source the vault now stores, and per-gap duplicates one canonical
     # identity now collapses, close on every drain instead of one manual
     # withdraw at a time (the field report held fourteen). `_heal_queue` writes
@@ -137,7 +154,7 @@ OVER_CEILING_BASELINE: dict[str, int] = {
     # as the suggestion stamp or the two writes stop being one commit, and the
     # human half is the parameter-for-parameter sibling of `apply_decision`, which
     # lives in this module.
-    "core/gapfill.py": 1320,
+    "core/gapfill.py": 1532,
 }
 
 

@@ -294,6 +294,51 @@ def test_a_drain_collapses_per_gap_editions_of_one_source_keeping_the_human_deci
     assert parsed["sug-live"].status == "rejected"
     assert "duplicate of sug-2024" in (parsed["sug-2018"].decided_reason or "")
     assert result.stale_suggestions_closed == 2
+    assert parsed["sug-2024"].candidate["url"] == _SEP_CANONICAL, (
+        "the survivor's STORED url must be canonicalized too -- keeping the broken-case "
+        "archIves edition while closing the correct living entry as its duplicate hands "
+        "the operator a URL SEP serves 404 for"
+    )
+
+
+def test_a_drain_heals_a_topic_with_no_open_gaps_and_no_provider(template_vault: Path) -> None:
+    """Healing is local work: it needs neither a discovery provider nor an open
+    gap. The state it exists to converge -- stale approvals left behind after
+    the last gap resolved -- is exactly the state with no open gap in it."""
+    store = LocalFSStore(template_vault)
+    _store_sep_source(store, template_vault)
+    _seed_queue(
+        store, template_vault, [_staged_suggestion("sug-orphan", _SEP_EDITION, status="approved")]
+    )
+
+    result = gapfill.refresh_suggestions_for_gaps(store, template_vault, TOPIC, service=None)
+
+    from knotica.core.records import parse_suggestions_jsonl
+
+    parsed = parse_suggestions_jsonl(store.read_text(gapfill.suggestions_path(TOPIC)))
+    assert parsed[0].status == "rejected"
+    assert result.stale_suggestions_closed == 1
+    assert result.service_available is False
+
+
+def test_a_drain_reports_which_gap_the_vault_already_answers(template_vault: Path) -> None:
+    """A gap whose whole candidate yield is already stored can never resolve
+    (only a merged source or a dismissal closes one) yet costs a search every
+    drain. The topic-level counter cannot say WHICH gap; this names it."""
+    store = LocalFSStore(template_vault)
+    _store_sep_source(store, template_vault)
+    with VaultTransaction(store, template_vault, "test_seed", TOPIC, "seed gaps") as txn:
+        txn.write(
+            f"{TOPIC}/.knotica/gaps/gaps.jsonl",
+            _gap_record(gap_id="gap-inert").to_json_line() + "\n",
+        )
+
+    result = gapfill.refresh_suggestions_for_gaps(
+        store, template_vault, TOPIC, service=_FakeDiscoveryService([_candidate(_SEP_EDITION)])
+    )
+
+    assert result.candidates_already_in_vault == 1
+    assert result.gaps_fully_in_vault == ("gap-inert",)
 
 
 def test_a_drain_closes_open_records_whose_source_the_vault_now_stores(

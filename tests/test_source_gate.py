@@ -378,6 +378,48 @@ def test_a_passing_source_candidate_merges_and_auto_transitions_the_suggestion_t
     assert arena_calls == [], "a passing source candidate must never race the arena"
 
 
+def test_a_suggestion_moved_out_of_approved_is_refused_before_the_merge_not_after(
+    template_vault: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """``apply_gate_outcome`` refuses a merge verdict on a non-approved record,
+    but it runs AFTER the fast-forward -- leaving the source in the vault, the
+    record un-stamped, and the gap unclosed: exactly the merged-but-unstamped
+    state the gate says cannot happen. The status check must precede ``_keep``."""
+    from knotica.core.errors import KnoticaError
+
+    store = LocalFSStore(template_vault)
+    suggestion_id = _approved_suggestion(
+        template_vault, store, qa_id="golden-withdrawn", gap_id="gap-withdrawn"
+    )
+    published_branch = _open_and_publish_source_candidate(template_vault, store, suggestion_id)
+    _arena_spy(monkeypatch)
+    _stub_headless_trainset_grower(monkeypatch)
+    # Another writer releases the approval while the candidate is in flight.
+    gapfill.apply_decision(
+        store, template_vault, TOPIC, suggestion_id, decision="withdraw", reason="changed my mind"
+    )
+    runner = LoopRunner(
+        template_vault,
+        TOPIC,
+        evaluate=_fake_evaluate(0.95),
+        branch_prefix="loop/c/",
+        arena_enabled=True,
+        arena_score=lambda *_a, **_k: 0.0,
+    )
+    runner.set_baseline(0.80, harness_version="fake-source-gate")
+
+    with pytest.raises(KnoticaError):
+        runner.poll_once()
+
+    vcs = VaultVcs(template_vault)
+    live_candidates = {branch for branch, _ in vcs.list_branch_tips("loop/c/")}
+    assert published_branch in live_candidates, (
+        "the refusal must come before the fast-forward, so the candidate branch is "
+        "still there to re-gate once the record is approved again"
+    )
+    assert _suggestion_record(store, suggestion_id).gate_outcome is None
+
+
 # ---------------------------------------------------------------------------
 # Post-merge trainset grower: scoped to exactly what the merge changed, and
 # never load-bearing for the merge or the suggestion's ingested status.

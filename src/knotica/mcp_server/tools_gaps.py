@@ -117,8 +117,9 @@ _REVIEW_GAP_DESCRIPTION = (
     "(pending/approved/deferred become rejected, reason recorded) in the same "
     "commit, returning their ids as cascaded_suggestion_ids. decision='reopen' "
     "is legal only from a dismissed gap and 'reason' is optional; it resurrects "
-    "no suggestion -- re-run `fill action=gapfill_discover` to re-propose "
-    "sources. A resolved gap -- already answered by a merged source -- accepts "
+    "no suggestion directly, but the records the dismissal closed no longer "
+    "dedup discovery -- re-run `fill action=gapfill_discover` to re-propose "
+    "those sources. A resolved gap -- already answered by a merged source -- accepts "
     "neither: undoing a merge is a vault operation, not a queue edit; a source "
     "status refuses with an INVALID_ARGUMENT error. The reason is persisted on "
     "the gap record and survives a re-read. One commit; requires a lock."
@@ -131,7 +132,11 @@ _DISCOVER_DESCRIPTION = (
     "turns a gap into something `fill action=suggestions_read` can show. "
     "Candidate URLs are canonicalized (archive-edition permalinks collapse to "
     "the living entry) and a candidate whose URL the vault already stores as an "
-    "ingested source is skipped, counted as candidates_already_in_vault. Each "
+    "ingested source is skipped, counted as candidates_already_in_vault; a gap "
+    "whose WHOLE candidate yield was already stored is named in "
+    "gaps_fully_in_vault -- the vault already answers it, so the problem is "
+    "retrieval or linking, not acquisition, and it will keep costing a search "
+    "every drain until it is dismissed or reclassified. Each "
     "drain also heals the existing queue: open records whose source is already "
     "in the vault, and per-gap duplicates of one source (archive editions), "
     "close as rejected with the reason recorded, counted as "
@@ -578,6 +583,7 @@ def _execute_discover(
             "suggestions_staged": result.suggestions_written,
             "candidates_already_in_vault": result.candidates_already_in_vault,
             "stale_suggestions_closed": result.stale_suggestions_closed,
+            "gaps_fully_in_vault": list(result.gaps_fully_in_vault),
         }
     )
 

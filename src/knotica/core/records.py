@@ -23,7 +23,8 @@ import hashlib
 import json
 import re
 from collections.abc import Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, field
+from dataclasses import fields as dataclass_fields
 
 from knotica.core.page import parse_page, serialize_frontmatter
 
@@ -504,7 +505,13 @@ class SuggestionRecord:
     ``status`` is a bare tagged string read out-of-process (round-trips without
     enum coercion). Only the outer ``schema_version`` and ``status`` enum are
     validated; the nested candidate is validated only as "is a JSON object".
-    Parsing tolerates unknown extra fields (additive-only evolution).
+
+    Unknown top-level fields are not merely tolerated on read -- they are
+    **carried** on :attr:`extra` and re-emitted verbatim by
+    :meth:`to_json_line`, so a full-file rewrite (the drain and the dismiss
+    cascade both rewrite every line) round-trips a field this version does not
+    know about instead of erasing it. That is what makes "additive-only
+    evolution" true across versions rather than only on ingress.
     """
 
     schema_version: int = SUGGESTION_SCHEMA_VERSION
@@ -536,6 +543,11 @@ class SuggestionRecord:
     #: opaque JSON object (mirrors ``candidate``) -- validated only as "is a
     #: JSON object or null". Additive-only optional field (schema stays v1).
     gate_outcome: dict[str, object] | None = None
+    #: Top-level fields this version does not model, carried verbatim from the
+    #: parsed line so a rewrite re-emits them (see the class docstring). Never
+    #: contains a known field name -- :meth:`from_json_line` partitions on
+    #: :data:`_SUGGESTION_KNOWN_FIELDS`.
+    extra: Mapping[str, object] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
         _validate_schema_version(self.schema_version)
@@ -570,6 +582,9 @@ class SuggestionRecord:
             "gap_origin": self.gap_origin,
             "gate_outcome": self.gate_outcome,
         }
+        # Unknown fields trail the schema-ordered block so the known prefix of
+        # every line stays byte-stable regardless of what a newer writer added.
+        payload.update({key: value for key, value in self.extra.items() if key not in payload})
         return json.dumps(payload, ensure_ascii=False)
 
     @classmethod
@@ -600,7 +615,18 @@ class SuggestionRecord:
             ),
             gap_origin=_optional_str_absent(data, "gap_origin", record="suggestions.jsonl"),
             gate_outcome=_optional_object_absent(data, "gate_outcome", record="suggestions.jsonl"),
+            extra={
+                key: value for key, value in data.items() if key not in _SUGGESTION_KNOWN_FIELDS
+            },
         )
+
+
+#: The top-level keys this version models, derived from the dataclass itself so
+#: adding a field can never leave it double-counted as an "unknown" extra.
+#: ``extra`` is the carrier, not a wire field, so it is excluded.
+_SUGGESTION_KNOWN_FIELDS: frozenset[str] = frozenset(
+    spec.name for spec in dataclass_fields(SuggestionRecord)
+) - {"extra"}
 
 
 def parse_suggestions_jsonl(text: str) -> list[SuggestionRecord]:

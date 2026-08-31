@@ -86,7 +86,10 @@ def canonicalize_url(url: str) -> str:
     editions — is returned unchanged.
     """
     parsed = urlsplit(url)
-    if parsed.netloc.lower() not in _SEP_HOSTS:
+    # ``hostname``, not ``netloc``: it is already lowercased and port-stripped,
+    # so an explicit ``:443`` cannot smuggle an archive edition past the rule
+    # (``reputability`` matches hosts the same way -- one host rule, not two).
+    if (parsed.hostname or "") not in _SEP_HOSTS:
         return url
     match = _SEP_ARCHIVE_RE.match(parsed.path)
     if match is None:

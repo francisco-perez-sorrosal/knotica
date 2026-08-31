@@ -142,6 +142,16 @@ def test_an_archives_path_on_another_host_is_not_rewritten() -> None:
     assert canonicalize_url(url) == url
 
 
+def test_an_explicit_default_port_does_not_hide_an_archive_edition() -> None:
+    """The host rule matches on ``hostname`` (lowercased, port-stripped), the
+    same way reputability scores hosts. Matching the raw netloc let
+    ``plato.stanford.edu:443`` stage as an independent source while the very
+    same URL still scored as a reference work -- two host rules in one lane."""
+    url = "https://plato.stanford.edu:443/archives/win2018/entries/bounded-rationality/"
+
+    assert canonicalize_url(url) == "https://plato.stanford.edu/entries/bounded-rationality/"
+
+
 def test_canonicalization_preserves_the_query() -> None:
     url = "https://plato.stanford.edu/archives/win2018/entries/frame-problem?lang=en"
     assert canonicalize_url(url) == "https://plato.stanford.edu/entries/frame-problem?lang=en"

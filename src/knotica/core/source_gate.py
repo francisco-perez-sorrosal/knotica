@@ -128,13 +128,20 @@ def handle_source_pass(
     Reuses the loop's own ``_keep`` flow (fetch eval tip -> FF-merge onto the
     default branch -> drop the candidate -> prune), then stamps the linked
     suggestion ``approved -> ingested`` with a ``merged`` ``gate_outcome``. The
-    suggestion id is resolved *before* the merge so a missing record fails fast,
-    without leaving a merged-but-unstamped source behind. After the stamp, a
+    suggestion id is resolved *and re-checked for ``approved``* before the
+    merge, so neither a missing record nor one another writer moved out of
+    ``approved`` (a dismiss cascade, a heal) can leave a merged-but-unstamped
+    source behind: ``apply_gate_outcome``'s own status check runs after the
+    fast-forward and would refuse too late. After the stamp, a
     best-effort trainset grower (:func:`_grow_trainset_from_merge`) seeds
     examples for exactly the pages this merge landed -- never load-bearing for
     the merge itself.
     """
-    from knotica.core.gapfill import GATE_VERDICT_MERGED, apply_gate_outcome
+    from knotica.core.gapfill import (
+        GATE_VERDICT_MERGED,
+        apply_gate_outcome,
+        require_gate_mergeable,
+    )
 
     topic, id8 = _parse_candidate_branch(branch)
     suggestion_id = _resolve_suggestion_id(runner, topic, id8)
@@ -146,6 +153,9 @@ def handle_source_pass(
     # (``_keep`` opens its own span, which reuses this one reentrantly). The
     # best-effort trainset grower may call an LLM and runs *outside* the span.
     with runner._mutation_span():
+        # Inside the span so the status the merge is authorized against cannot
+        # change between the check and the fast-forward.
+        require_gate_mergeable(runner._store, topic, suggestion_id)
         result = runner._keep(state, branch, sha, outcome)
         # ``_keep`` checks out the default branch (or raises); re-verify before
         # the load-bearing record commit so it can never land on the wrong branch.

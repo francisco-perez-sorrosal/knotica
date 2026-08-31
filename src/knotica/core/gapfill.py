@@ -46,8 +46,15 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import TYPE_CHECKING
 
+from knotica.core.branch_namespaces import (
+    CANDIDATE_BRANCH_PREFIX,
+    WIP_BRANCH_PREFIX,
+    _ID_INFIX_LENGTH,
+    _SOURCE_INFIX,
+)
 from knotica.core.errors import ErrorCode, KnoticaError
 from knotica.core.gap_classifier import FaultClass, gaps_path, write_gap_records
+from knotica.core.lock import vault_span_lock
 from knotica.core.records import (
     GAP_ORIGIN_REPORTED,
     GAP_ORIGIN_RETRACTED,
@@ -85,6 +92,7 @@ __all__ = [
     "plan_decision",
     "refresh_suggestions_for_gaps",
     "report_gap",
+    "require_gate_mergeable",
     "suggestions_path",
 ]
 
@@ -160,7 +168,10 @@ _GATE_VERDICTS: frozenset[str] = frozenset({GATE_VERDICT_MERGED, GATE_VERDICT_RE
 #: the whole legality table. ``resolved`` is the *machine's* terminal state
 #: (:func:`apply_gate_outcome` stamps it on a merge) and is deliberately the
 #: source of neither: undoing a merge is a vault operation, not a queue edit.
-_GAP_ALLOWED_FROM: Mapping[str, str] = {"dismiss": "open", "reopen": "dismissed"}
+_GAP_ALLOWED_FROM: Mapping[str, frozenset[str]] = {
+    "dismiss": frozenset({"open"}),
+    "reopen": frozenset({"dismissed"}),
+}
 #: The status each gap decision moves the record to (the mapping's mirror image).
 _GAP_TARGET_STATUS: Mapping[str, str] = {"dismiss": "dismissed", "reopen": "open"}
 #: Which gap decisions require a non-empty reason. ``dismiss`` must say why the
@@ -193,6 +204,12 @@ class RefreshResult:
     #: collapses (see :func:`_heal_queue`). Counted so a queue that shrank
     #: explains itself.
     stale_suggestions_closed: int = 0
+    #: Gaps whose *entire* candidate yield was dropped as already-in-vault.
+    #: ``candidates_already_in_vault`` is a topic-level total and cannot say
+    #: which gap is inert; such a gap can never be resolved (only a merged
+    #: source or a human dismissal closes one) yet costs a billed search on
+    #: every drain, so it is named rather than folded into the count.
+    gaps_fully_in_vault: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -361,57 +378,108 @@ def refresh_suggestions_for_gaps(
     formulates one query per surviving gap, runs ``service.discover``, drops
     candidates whose URL identity the vault already stores as an ingested source
     (``core.source_inventory`` -- counted on the result, never silent), dedups
-    the rest against every existing suggestion on ``(gap_id, source_key)``, and
+    the rest against every existing suggestion on ``(gap_id, source_key)`` --
+    every one **but** a record a gap dismissal closed
+    (:func:`_is_cascade_rejection`), so a reopened gap can be re-sourced -- and
     writes the survivors once in an own ``VaultTransaction``. A ``None`` service
-    (no key configured) or zero survivors is a clean no-op -- no transaction, no
-    commit. A failure raised by ``service.discover`` is **not** caught (failure
-    isolation is the loop hook's boundary).
+    (no key configured) or zero survivors stages nothing -- but the queue-healing
+    pass still runs, because healing is local work that needs neither a provider
+    nor an open gap (a topic whose last gap just resolved is precisely where
+    stale ``approved`` records pile up). Nothing to write is still a clean no-op:
+    no transaction, no commit. A failure raised by ``service.discover`` is **not**
+    caught (failure isolation is the loop hook's boundary).
+
+    **Ordering is load-bearing.** Every network call happens first, on gap
+    records alone; only then is the vault state read and written, under the
+    :func:`~knotica.core.lock.vault_span_lock` the write's own transaction
+    reuses reentrantly. Reading the queue *before* a discovery run that takes
+    seconds-to-minutes and then rewriting the whole file from that snapshot
+    silently reverted every decision an operator took meanwhile.
     """
     open_gaps = _open_genuine_gaps(store, topic)
-    considered = len(open_gaps)
-    if service is None or not open_gaps:
-        return RefreshResult(
-            service_available=service is not None,
-            gaps_considered=considered,
-            gaps_drained=0,
-            suggestions_written=0,
-        )
+    selected = _select_gaps(open_gaps, max_gaps) if service is not None else []
+    # Network first, outside the lock: the results are pure data, so nothing
+    # read here can be invalidated by a concurrent decision.
+    discovered = [
+        (gap, build_suggestion_records(gap, service.discover(formulate_query(gap)), clock=clock))
+        for gap in selected
+        if service is not None
+    ]
+    with vault_span_lock(Path(root)):
+        staged = _stage_discovered(store, root, topic, discovered, stamp=clock or _utc_now_iso)
+    return replace(
+        staged,
+        service_available=service is not None,
+        gaps_considered=len(open_gaps),
+        gaps_drained=len(selected),
+    )
 
-    selected = _select_gaps(open_gaps, max_gaps)
+
+def _stage_discovered(
+    store: VaultStore,
+    root: str | Path,
+    topic: str,
+    discovered: Sequence[tuple[GapRecord, Sequence[SuggestionRecord]]],
+    *,
+    stamp: Callable[[], str],
+) -> RefreshResult:
+    """Heal the queue, stage the new candidates, write once (lock already held).
+
+    Every vault read happens here so it is bracketed by the caller's span lock
+    together with the write -- see :func:`refresh_suggestions_for_gaps`. The
+    ``gaps_considered``/``gaps_drained``/``service_available`` slots are the
+    caller's to fill; this returns the queue-derived half of the result.
+    """
     vault_urls = stored_source_url_keys(store, topic)
-    stamp = clock or _utc_now_iso
-    healed, healed_count = _heal_queue(_read_suggestions(store, topic), vault_urls, stamp=stamp)
-    seen = {(record.gap_id, _source_key(record.candidate)) for record in healed}
+    protected = _published_source_id8s(root, topic)
+    healed, healed_count = _heal_queue(
+        _read_suggestions(store, topic), vault_urls, stamp=stamp, protected=protected
+    )
+    # A cascade-rejected record is the gap's dismissal speaking, not a human's
+    # judgement of the source, so it must not dedup a re-drain of the reopened
+    # gap -- that is the contract ``_plan_dismiss_cascade`` documents.
+    seen = {
+        (record.gap_id, _source_key(record.candidate))
+        for record in healed
+        if not _is_cascade_rejection(record)
+    }
+    known_ids = {record.suggestion_id for record in healed}
     in_vault = 0
+    inert_gaps: list[str] = []
+    # A re-staged record keeps its deterministic id, so it must REPLACE the
+    # cascade-rejected line rather than append a second one under that id.
+    revived: dict[str, SuggestionRecord] = {}
     new_records: list[SuggestionRecord] = []
-    for gap in selected:
-        built = build_suggestion_records(gap, service.discover(formulate_query(gap)), clock=clock)
+    for gap, built in discovered:
+        gap_in_vault = 0
         for record in built:
             if _candidate_url_key(record.candidate) in vault_urls:
-                in_vault += 1
+                gap_in_vault += 1
                 continue
             key = (record.gap_id, _source_key(record.candidate))
             if key in seen:
                 continue
             seen.add(key)
-            new_records.append(record)
+            if record.suggestion_id in known_ids:
+                revived[record.suggestion_id] = record
+            else:
+                new_records.append(record)
+        in_vault += gap_in_vault
+        if built and gap_in_vault == len(built):
+            inert_gaps.append(gap.gap_id)
 
-    if new_records or healed_count:
-        _write_suggestions(
-            store,
-            root,
-            topic,
-            list(healed) + new_records,
-            staged=len(new_records),
-            closed=healed_count,
-        )
+    written = len(new_records) + len(revived)
+    records = [revived.get(record.suggestion_id, record) for record in healed] + new_records
+    if written or healed_count:
+        _write_suggestions(store, root, topic, records, staged=written, closed=healed_count)
     return RefreshResult(
         service_available=True,
-        gaps_considered=considered,
-        gaps_drained=len(selected),
-        suggestions_written=len(new_records),
+        gaps_considered=0,
+        gaps_drained=0,
+        suggestions_written=written,
         candidates_already_in_vault=in_vault,
         stale_suggestions_closed=healed_count,
+        gaps_fully_in_vault=tuple(inert_gaps),
     )
 
 
@@ -624,13 +692,36 @@ def _stamp_gate_outcome(
     """
     if verdict == GATE_VERDICT_MERGED:
         if record.status != "approved":
-            raise _invalid(
-                f"suggestion {record.suggestion_id!r} is {record.status!r}; the gate can only "
-                "merge (auto-ingest) an approved source candidate",
-                "Only an approved suggestion's source candidate is auto-ingested on a gate pass.",
-            )
+            raise _not_mergeable(record.suggestion_id, record.status)
         return replace(record, status="ingested", ingested_at=stamp(), gate_outcome=gate_outcome)
     return replace(record, gate_outcome=gate_outcome)
+
+
+def require_gate_mergeable(store: VaultStore, topic: str, suggestion_id: str) -> None:
+    """Raise unless ``suggestion_id`` is still ``approved`` -- the pre-merge check.
+
+    :func:`apply_gate_outcome` refuses a ``merged`` verdict on a non-``approved``
+    record, but it runs *after* the branch has been fast-forwarded onto the
+    default branch, so that refusal alone leaves the source merged and the
+    record unstamped. The gate calls this before the merge, where the same
+    refusal costs nothing. Raises ``ValueError`` when no record has
+    ``suggestion_id`` (the same signal :func:`apply_gate_outcome` gives).
+    """
+    records = _read_suggestions(store, topic)
+    index = _index_of(records, suggestion_id)
+    if index is None:
+        raise ValueError(f"no suggestion {suggestion_id!r} in topic {topic!r}")
+    if records[index].status != "approved":
+        raise _not_mergeable(suggestion_id, records[index].status)
+
+
+def _not_mergeable(suggestion_id: str, status: str) -> KnoticaError:
+    """The refusal both gate checkpoints raise, worded once."""
+    return _invalid(
+        f"suggestion {suggestion_id!r} is {status!r}; the gate can only "
+        "merge (auto-ingest) an approved source candidate",
+        "Only an approved suggestion's source candidate is auto-ingested on a gate pass.",
+    )
 
 
 def apply_gap_decision(
@@ -655,13 +746,37 @@ def apply_gap_decision(
     :class:`VaultTransaction`. A ``dismiss`` also closes the gap's still-open
     suggestions in the same transaction (see :func:`_plan_dismiss_cascade`) --
     the human mirror of the gate's merge closing its originating gap; a
-    ``reopen`` resurrects nothing (re-drain to re-propose sources).
+    ``reopen`` resurrects nothing, but it does un-block re-sourcing: a
+    cascade-rejected record no longer dedups discovery, so re-draining the
+    reopened gap re-proposes its sources.
     ``dismiss`` requires a non-empty ``reason``;
     ``reopen``'s is optional (see :class:`GapDecisionResult`). ``clock`` injects
     the reported ``decided_at`` stamp for deterministic tests. Raises
     ``ValueError`` when no record has ``gap_id``.
+
+    Both queue reads happen inside the same
+    :func:`~knotica.core.lock.vault_span_lock` the write's transaction reuses,
+    so a concurrent ``suggestions_review`` commit landing mid-plan cannot be
+    overwritten by the full-file body this rewrites.
     """
     stamp = clock or _utc_now_iso
+    with vault_span_lock(Path(root)):
+        return _apply_gap_decision_locked(
+            store, root, topic, gap_id, decision=decision, reason=reason, stamp=stamp
+        )
+
+
+def _apply_gap_decision_locked(
+    store: VaultStore,
+    root: str | Path,
+    topic: str,
+    gap_id: str,
+    *,
+    decision: str,
+    reason: str | None,
+    stamp: Callable[[], str],
+) -> GapDecisionResult:
+    """Plan and commit one gap transition; the vault lock is already held."""
     gaps = _read_gaps(store, topic)
     index = _gap_index_of(gaps, gap_id)
     if index is None:
@@ -678,6 +793,7 @@ def apply_gap_decision(
         gap_id,
         reason=decided_reason or "",
         decided_at=decided_at,
+        protected=_published_source_id8s(root, topic),
     )
     title = f"{decision} gap {gap_id[:8]}"
     with VaultTransaction(store, Path(root), _GAP_REVIEW_OP, topic, title) as txn:
@@ -703,6 +819,11 @@ def apply_gap_decision(
 #: human. ``ingested`` is history and keeps its status; ``rejected`` is already
 #: terminal.
 _CASCADE_SOURCES: frozenset[str] = frozenset({"pending", "approved", "deferred"})
+#: Prefix of the ``decided_reason`` a cascade writes. Load-bearing, not
+#: cosmetic: it is also how the drain tells a cascade closure (the gap speaking)
+#: from a human's rejection of the source itself, and only the latter dedups a
+#: later re-drain. Writer and reader share this one declaration.
+_CASCADE_REASON_PREFIX = "gap dismissed: "
 
 
 def _plan_dismiss_cascade(
@@ -711,6 +832,7 @@ def _plan_dismiss_cascade(
     *,
     reason: str,
     decided_at: str,
+    protected: frozenset[str] = frozenset(),
 ) -> tuple[tuple[str, ...], str | None]:
     """Close the dismissed gap's still-open suggestions as ``rejected`` (pure).
 
@@ -718,15 +840,23 @@ def _plan_dismiss_cascade(
     deferred suggestions in the queue strands them: ``approved`` in particular
     has no human exit but ``withdraw``, and nothing would ever take it. Each
     closed record carries ``gap dismissed: <reason>`` so the rejection explains
-    itself, and a rejected record does not dedup future discovery -- reopening
-    the gap and re-draining re-proposes its sources. Returns the closed ids and
-    the rewritten ``suggestions.jsonl`` body, or ``(), None`` when nothing
-    matches (the file is then left out of the commit entirely).
+    itself, and a record closed *that* way does not dedup future discovery --
+    reopening the gap and re-draining re-proposes its sources
+    (:func:`_is_cascade_rejection` is the reader of that marker).
+
+    ``protected`` holds the ``id8`` infixes of live source-candidate branches;
+    an ``approved`` record already published as one is skipped, because the
+    gate merges its branch before stamping the record and would otherwise land
+    a merged-but-unstamped source. Returns the closed ids and the rewritten
+    ``suggestions.jsonl`` body, or ``(), None`` when nothing matches (the file
+    is then left out of the commit entirely).
     """
     matched = [
         record
         for record in records
-        if record.gap_id == gap_id and record.status in _CASCADE_SOURCES
+        if record.gap_id == gap_id
+        and record.status in _CASCADE_SOURCES
+        and not _is_protected(record, protected)
     ]
     if not matched:
         return (), None
@@ -736,13 +866,26 @@ def _plan_dismiss_cascade(
             record,
             status="rejected",
             decided_at=decided_at,
-            decided_reason=f"gap dismissed: {reason}",
+            decided_reason=f"{_CASCADE_REASON_PREFIX}{reason}",
         )
         if record.suggestion_id in matched_ids
         else record
         for record in records
     ]
     return tuple(record.suggestion_id for record in matched), _serialize(updated)
+
+
+def _is_cascade_rejection(record: SuggestionRecord) -> bool:
+    """Whether ``record`` was closed by a gap dismissal rather than by a human.
+
+    The dedup set a re-drain builds excludes these: the gap's dismissal said
+    nothing about the source's worth, so a reopened gap must be able to re-stage
+    the very candidates its dismissal closed. A genuine human ``reject`` stays
+    in the set -- respecting that judgement is the point of deduping at all.
+    """
+    return record.status == "rejected" and (record.decided_reason or "").startswith(
+        _CASCADE_REASON_PREFIX
+    )
 
 
 def _plan_gap_decision(
@@ -761,10 +904,11 @@ def _plan_gap_decision(
             f"decision must be one of {'|'.join(sorted(_GAP_ALLOWED_FROM))}, got {decision!r}",
             "Pass a valid gap decision: dismiss or reopen.",
         )
-    if gap.status != allowed_from:
+    if gap.status not in allowed_from:
         raise _invalid(
             f"gap {gap.gap_id!r} is {gap.status!r}; cannot {decision}",
-            f"Only an {allowed_from} gap can be {decision}ed.",
+            f"Only an {'/'.join(sorted(allowed_from))} gap can be {decision}ed. "
+            + _legal_exits_hint(gap.status, _GAP_ALLOWED_FROM, noun="gap"),
         )
     cleaned = (reason or "").strip()
     if decision in _GAP_REASON_REQUIRED and not cleaned:
@@ -1066,6 +1210,7 @@ def _heal_queue(
     vault_urls: frozenset[str],
     *,
     stamp: Callable[[], str],
+    protected: frozenset[str] = frozenset(),
 ) -> tuple[list[SuggestionRecord], int]:
     """Close stale queue records the identity rule now sees through (pure).
 
@@ -1078,13 +1223,27 @@ def _heal_queue(
       ``rejected`` (``source already stored in the vault``);
     * within one gap, records sharing a canonical source identity collapse to
       a single winner (human decision first, then best rank, then newest);
-      the losers close as ``rejected`` naming the winner.
+      the losers close as ``rejected`` naming the winner, and the winner's own
+      stored URL is rewritten to its canonical form -- otherwise the survivor
+      of a pre-canonicalization queue can be the broken-case edition while the
+      correct living entry is the one closed as its duplicate.
+
+    ``protected`` holds the ``id8`` branch infixes of suggestions with a live
+    source-candidate branch: an ``approved`` record already published as
+    ``loop/c/...`` is untouchable here, because the gate merges its branch and
+    *then* stamps the record, so un-approving it behind the gate's back is how
+    a merged-but-unstamped source happens.
 
     Returns the full record list (order preserved) and how many were closed.
     """
     now = stamp()
     healed: dict[str, SuggestionRecord] = {}
-    open_records = [record for record in records if record.status in _HEALABLE]
+    rewritten: dict[str, SuggestionRecord] = {}
+    open_records = [
+        record
+        for record in records
+        if record.status in _HEALABLE and not _is_protected(record, protected)
+    ]
     for record in open_records:
         if _candidate_url_key(record.candidate) in vault_urls:
             healed[record.suggestion_id] = replace(
@@ -1106,6 +1265,9 @@ def _heal_queue(
             group,
             key=lambda r: (_HEAL_STATUS_RANK[r.status], -r.rank, r.proposed_at),
         )
+        canonical = _canonicalized(winner)
+        if canonical is not None:
+            rewritten[winner.suggestion_id] = canonical
         for loser in group:
             if loser.suggestion_id == winner.suggestion_id:
                 continue
@@ -1116,7 +1278,48 @@ def _heal_queue(
                 decided_reason=f"duplicate of {winner.suggestion_id} (same source)",
             )
 
-    return [healed.get(record.suggestion_id, record) for record in records], len(healed)
+    updated = {**rewritten, **healed}
+    return [updated.get(record.suggestion_id, record) for record in records], len(healed)
+
+
+def _is_protected(record: SuggestionRecord, protected: frozenset[str]) -> bool:
+    """Whether ``record`` is an approved suggestion with a live candidate branch."""
+    return record.status == "approved" and record.suggestion_id[:_ID_INFIX_LENGTH] in protected
+
+
+def _canonicalized(record: SuggestionRecord) -> SuggestionRecord | None:
+    """``record`` with its candidate URL rewritten canonically, or ``None`` if unchanged."""
+    from knotica.discovery.normalize import canonicalize_url
+
+    url = record.candidate.get("url")
+    if not isinstance(url, str):
+        return None
+    canonical = canonicalize_url(url)
+    if canonical == url:
+        return None
+    return replace(record, candidate={**record.candidate, "url": canonical})
+
+
+def _published_source_id8s(root: str | Path, topic: str) -> frozenset[str]:
+    """The ``id8`` infixes of ``topic``'s live source-candidate branches.
+
+    A suggestion whose ingest has published ``loop/c/<topic>/source-<id8>`` (or
+    still holds its private ``loop/wip/`` session branch) has work in flight
+    that the gate will merge and only then stamp. Both queue writers -- the
+    dismiss cascade and the heal -- use this to leave such a record alone; the
+    gate is what dispositions it. Skipping is deliberate: the alternative,
+    refusing the whole dismissal, would punish an operator for an ingest they
+    may not know exists.
+    """
+    from knotica.core.vcs import VaultVcs
+
+    vcs = VaultVcs(root)
+    leaf_prefix = f"{topic}/{_SOURCE_INFIX}"
+    return frozenset(
+        name.removeprefix(prefix).removeprefix(leaf_prefix)
+        for prefix in (CANDIDATE_BRANCH_PREFIX, WIP_BRANCH_PREFIX)
+        for name, _sha in vcs.list_branch_tips(f"{prefix}{leaf_prefix}")
+    )
 
 
 def _write_suggestions(
@@ -1294,16 +1497,25 @@ def _invalid(message: str, fix: str) -> KnoticaError:
     return KnoticaError(ErrorCode.INVALID_ARGUMENT, message, fix=fix)
 
 
-def _legal_exits_hint(status: str) -> str:
+def _legal_exits_hint(
+    status: str,
+    table: Mapping[str, frozenset[str]] = _ALLOWED_FROM,
+    *,
+    noun: str = "suggestion",
+) -> str:
     """The decisions legal from ``status``, for a refused transition's fix text.
 
     A refusal that names only the attempted decision's legal sources leaves the
     caller stuck when the record's *actual* status has a different exit --
-    ``approved`` has ``withdraw``, but a refused ``reject`` never said so.
+    ``approved`` has ``withdraw``, but a refused ``reject`` never said so. Kept
+    generic over the ``decision -> legal source statuses`` shape so both
+    lifecycle tables (:data:`_ALLOWED_FROM` for suggestions,
+    :data:`_GAP_ALLOWED_FROM` for gaps) derive their hint from the machine
+    rather than a hand-written string that can drift from it.
     """
-    exits = sorted(decision for decision, sources in _ALLOWED_FROM.items() if status in sources)
+    exits = sorted(decision for decision, sources in table.items() if status in sources)
     if not exits:
-        return f"A {status!r} suggestion accepts no further decision."
+        return f"A {status!r} {noun} accepts no further decision."
     return f"From {status!r} the legal decisions are: {', '.join(exits)}."
 
 
