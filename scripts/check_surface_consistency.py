@@ -56,6 +56,14 @@ tool"; it is three shapes that can only be tool references:
   * `knotica <cmd>` and `/knotica:<alias>` -- resolved against `COMMAND_NAMES`
     and `commands/`.
 
+**Code position includes a fenced block and an `allowed-tools:` entry**, not just
+an inline span. A slash command's canonical invocation usually lives in exactly
+one fence, and `commands/guillotine.md` published `knotica guillotine` in both
+its fence and its frontmatter for months after the CLI nested its lanes, with
+this gate green throughout. Inside a fence only the *call-form* rules run: a
+fence often carries output rather than an invocation, and a bare identifier there
+is as likely to be a JSON key as a tool name.
+
 It will not catch a wholly-removed tool whose name has no dispatcher shape. That
 is a stated limit, not an oversight: a rule wide enough to catch it flags
 `next_cursor` too, and a gate that cries wolf gets muted.
@@ -75,7 +83,8 @@ is a stated limit, not an oversight: a rule wide enough to catch it flags
    `tests/test_fix_text_call_forms.py`'s discipline rather than duplicating its
    corpora (that test covers `src/`'s `fix=` text, the vault-template prompts
    and `commands/`; this covers `docs/` and `DESIGN.md`). Only a backticked span
-   is a candidate, and only two shapes inside one are inspected:
+   or a fenced line is a candidate, and only two shapes inside one are inspected
+   (the second, needing call-position prose, cannot occur in a fence):
 
      * a span carrying ``action=`` -- the head must be a registered tool, the
        action one of *its* actions, and any ``<verb>_action`` must both belong to
@@ -278,6 +287,44 @@ _SLASH_CALL = re.compile(r"/knotica:(?P<alias>[a-z][a-z-]*)")
 #: Shell comments, stripped before scanning: the hook's prose says "knotica is
 #: not configured", and `is` is not a subcommand.
 _SH_COMMENT = re.compile(r"^\s*#.*$", re.M)
+#: A fenced block's body. `[^`]` on the info string so an inline span cannot be
+#: mistaken for an opening fence.
+_FENCE = re.compile(r"^ *(?P<ticks>```|~~~)[^\n`]*\n(?P<body>.*?)^ *(?P=ticks) *$", re.M | re.S)
+#: An `allowed-tools:` frontmatter entry, inline or as an indented list.
+_ALLOWED_TOOLS = re.compile(
+    r"^allowed-tools:(?P<inline>[^\n]*)\n(?P<items>(?:[ \t]+-[^\n]*\n)*)", re.M
+)
+#: The region markers that exempt a deliberately-historical name (a migration
+#: mapping table, a breaking-change note). Scoped, greppable, visible in source.
+#: Shared by checks 3 and 4 -- both now read fenced blocks, and a migration note
+#: prints its dead invocation in a fence as often as in a span.
+_HISTORY_REGION = re.compile(
+    r"<!--\s*surface-history-begin.*?-->.*?<!--\s*surface-history-end\s*-->", re.S
+)
+
+
+def _fenced_and_frontmatter(text: str) -> list[str]:
+    """Invocation-bearing lines that live outside every inline backtick span.
+
+    A fenced block is code position by this gate's own rule -- the
+    ordinary-English trap that forces the backtick requirement everywhere else
+    cannot apply inside one -- and a slash command's canonical invocation
+    usually lives in exactly one fence. `allowed-tools:` frontmatter is code
+    position for the same reason: every entry names a command the runtime is
+    being told to permit. Neither was scanned, which is how
+    `commands/guillotine.md` shipped `knotica guillotine` in *both* long after
+    the CLI nested its lanes, with this gate green throughout.
+
+    One line per fragment, so a call-form is resolved against the line that
+    published it rather than against a whole block of unrelated output.
+    """
+    lines: list[str] = []
+    for block in _FENCE.finditer(text):
+        lines.extend(block.group("body").splitlines())
+    for allowed in _ALLOWED_TOOLS.finditer(text):
+        lines.append(allowed.group("inline"))
+        lines.extend(item.lstrip(" \t-") for item in allowed.group("items").splitlines())
+    return [stripped for line in lines if (stripped := line.strip())]
 
 
 def _actions() -> dict[str, tuple[str, ...]]:
@@ -339,18 +386,28 @@ def _description_prose() -> list[tuple[str, str]]:
 def _scan(where: str, text: str, live: _Surface, *, shell: bool = False) -> list[str]:
     """Every dead tool reference in one blob of published prose.
 
-    Invocations are only recognised **in code position** -- inside a backtick span
-    for prose, or bare in a shell script. "knotica" is used adjectivally all over
-    this project ("a knotica vault", "your knotica wiki", "knotica so that..."),
-    so matching `knotica <word>` in running prose reports the English word after
-    it as a subcommand. Measured: that mistake produced 17 false findings and 0
-    real ones.
+    Invocations are only recognised **in code position** -- inside a backtick span,
+    a fenced block or an `allowed-tools:` entry for prose, or bare in a shell
+    script. "knotica" is used adjectivally all over this project ("a knotica
+    vault", "your knotica wiki", "knotica so that..."), so matching
+    `knotica <word>` in running prose reports the English word after it as a
+    subcommand. Measured: that mistake produced 17 false findings and 0 real ones.
+
+    Only the **call-form** rules run over a fence, never the bare-identifier one:
+    a fence often carries output rather than an invocation, and a bare token
+    there is as likely to be a JSON key or a filename as a tool name.
     """
     failures: list[str] = []
-    # Code position: a shell script is all code; prose is code only inside backticks.
-    code = [text] if shell else [span.strip() for span in _BACKTICKED.findall(text)]
+    # Code position: a shell script is all code; prose is code inside backticks,
+    # plus the fences and `allowed-tools:` entries a reader also executes verbatim.
+    if shell:
+        spans, blocks = [text], []
+    else:
+        scannable = _HISTORY_REGION.sub("", text)
+        spans = [span.strip() for span in _BACKTICKED.findall(scannable)]
+        blocks = _fenced_and_frontmatter(scannable)
 
-    for token in code:
+    for token in spans:
         if token in live.tools or "_" not in token or " " in token:
             continue
         head, _, tail = token.partition("_")
@@ -361,7 +418,7 @@ def _scan(where: str, text: str, live: _Surface, *, shell: bool = False) -> list
                 f"`{head}` was consolidated, so this is `{head} action={tail}`"
             )
 
-    for fragment in code:
+    for fragment in spans + blocks:
         for match in _DISPATCH_CALL.finditer(fragment):
             tool, action = match.group("tool"), match.group("action")
             if tool not in live.actions:
@@ -482,11 +539,6 @@ def _check_routing_contract(live: _Surface) -> list[str]:
 # Check 4 -- published call-forms in the rest of docs/ and in DESIGN.md
 # ---------------------------------------------------------------------------
 
-#: The region markers that exempt a deliberately-historical name (a migration
-#: mapping table, a breaking-change note). Scoped, greppable, visible in source.
-_HISTORY_REGION = re.compile(
-    r"<!--\s*surface-history-begin.*?-->.*?<!--\s*surface-history-end\s*-->", re.S
-)
 #: A bare snake_case identifier -- the only bare shape that can name a tool.
 _IDENTIFIER = re.compile(r"^[a-z][a-z0-9_]*$")
 #: A placeholder inside a call-form: an ellipsis or an angle-bracket slot. A form
@@ -564,7 +616,10 @@ def _published_form_failures(where: str, text: str, live: _Surface) -> list[str]
     scannable = _HISTORY_REGION.sub("", text)
     in_call_position = set(_CALL_POSITION.findall(scannable))
     failures: list[str] = []
-    for span in _BACKTICKED.findall(scannable):
+    # A fenced line is code position too, and a doc's canonical call-form usually
+    # lives in one. Only the `action=` rule runs over it: the bare-name rule needs
+    # `_CALL_POSITION` prose, which by construction cannot occur inside a fence.
+    for span in _BACKTICKED.findall(scannable) + _fenced_and_frontmatter(scannable):
         cleaned = span.strip()
         if "action=" in cleaned:
             problem = _call_form_problem(cleaned, live)

@@ -1,3 +1,10 @@
+# Actions are SHA-pinned rather than tag-pinned, for the reason `ci.yml` states:
+# a tag is mutable, a commit is not — and this job runs `npm ci`, which executes
+# install scripts from the whole dependency tree. The trailing `# vN.N.N` comment
+# is what lets Dependabot's github-actions updater (.github/dependabot.yml) bump
+# the pin and the version together. `actions/checkout` is pinned to the same
+# digest `ci.yml` and `release.yml` already use, so the repo has one checkout.
+
 name: Dashboard
 
 # Each trigger lists this file among its paths: a change to the gate must re-run
@@ -14,12 +21,20 @@ on:
       - "src/knotica/dashboard/app.html"
       - ".github/workflows/dashboard.yml"
 
+permissions: {}  # least-privilege; the job below grants only what it needs
+
 jobs:
   build:
     runs-on: ubuntu-latest
+
+    # The job reads the tree and writes nothing back: `npm ci`, `npm test`,
+    # `npm run build` and a `git diff` need the checkout and nothing else.
+    permissions:
+      contents: read
+
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020  # v4.4.0
         with:
           node-version: 22
           cache: npm

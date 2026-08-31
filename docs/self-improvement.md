@@ -177,7 +177,7 @@ Three operator levers, none of which runs an eval:
 |---|---|---|
 | Switch policy | `knotica improve loop --baseline-policy latest\|best` | `improve action=loop loop_action=baseline_policy policy=…` |
 | Re-freeze from history | `knotica improve loop --rebaseline best\|latest` | `improve action=loop loop_action=rebaseline mode=…` (default `best`) |
-| Adopt HEAD as observed | `knotica loop --mark-observed` | — |
+| Adopt HEAD as observed | `knotica improve loop --mark-observed` | — |
 
 `--rebaseline` re-freezes from `metrics.jsonl`, restricted to records sharing the *newest* record's
 harness version, and raises if the topic has no metrics history. `--mark-observed` is the recovery

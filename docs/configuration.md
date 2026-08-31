@@ -300,7 +300,7 @@ Two independent `.env` fallback readers exist, each scoped narrowly:
   process environment at startup, for any variable not already set. This is the only path by
   which `CLAUDE_CODE_OAUTH_TOKEN` or `ANTHROPIC_API_KEY` can come from a file — launchd/systemd
   start the daemon with a near-empty environment, so this bootstrap exists specifically for
-  unattended runs. A foreground `knotica loop` or an MCP tool call never consults this file for
+  unattended runs. A foreground `knotica improve loop` or an MCP tool call never consults this file for
   LLM credentials; only the daemon does.
 
 Both readers use the same minimal grammar: blank lines and `#` comments are skipped, one optional

@@ -355,6 +355,93 @@ def test_a_history_marked_region_may_publish_a_dead_name(tree: Path) -> None:
     assert _run(tree).returncode == 0
 
 
+# ---------------------------------------------------------------------------
+# Fenced blocks and `allowed-tools:` frontmatter -- code position the inline
+# backtick rule cannot see
+# ---------------------------------------------------------------------------
+
+
+def test_a_stale_invocation_inside_a_fenced_block_is_rejected(tree: Path) -> None:
+    """The blind spot itself: a command's canonical invocation lives in one fence.
+
+    `commands/guillotine.md` really did publish `knotica guillotine` here, months
+    after the CLI nested its lanes, with this gate green -- the scanner matched
+    inline spans only, and a slash command's one executable line is never one.
+    """
+    _edit(
+        tree,
+        "commands/guillotine.md",
+        lambda text: text.replace('knotica tend guillotine "$1"', 'knotica guillotine "$1"', 1),
+    )
+
+    result = _run(tree)
+
+    assert result.returncode == 1
+    assert "`knotica guillotine` is not a CLI subcommand" in result.stderr
+
+
+def test_a_stale_allowed_tools_entry_is_rejected(tree: Path) -> None:
+    """The same command's frontmatter carried the same dead form, equally unscanned."""
+    _edit(
+        tree,
+        "commands/guillotine.md",
+        lambda text: text.replace(
+            "Bash(knotica tend guillotine:*)", "Bash(knotica guillotine:*)", 1
+        ),
+    )
+
+    result = _run(tree)
+
+    assert result.returncode == 1
+    assert "`knotica guillotine` is not a CLI subcommand" in result.stderr
+
+
+def test_a_dead_call_form_in_a_fenced_block_of_a_doc_is_rejected(tree: Path) -> None:
+    """Check 4 reads fences too: a doc's canonical call-form usually lives in one."""
+    _edit(
+        tree,
+        "docs/gap-fill.md",
+        lambda text: text + "\n```text\nloop action=run_eval\n```\n",
+    )
+
+    result = _run(tree)
+
+    assert result.returncode == 1
+    assert "is not a registered tool" in result.stderr
+
+
+def test_an_output_shaped_fence_is_not_flagged(tree: Path) -> None:
+    """The rule that keeps the widening usable: a fence often carries output.
+
+    A bare identifier inside one is as likely to be a JSON key as a tool name, so
+    only the *call-form* rules run over a fence -- never the bare-identifier rule
+    that resolves `compile_run` against the dispatcher tables.
+    """
+    _edit(
+        tree,
+        "commands/status.md",
+        lambda text: text + '\n```json\n{"compile_run": 3, "loop_run_once": 1}\n```\n',
+    )
+
+    assert _run(tree).returncode == 0
+
+
+def test_a_history_marked_region_may_publish_a_dead_invocation_in_a_fence(tree: Path) -> None:
+    """The marker keeps working now that the region can contain executable lines."""
+    _edit(
+        tree,
+        "commands/guillotine.md",
+        lambda text: (
+            text
+            + "\n<!-- surface-history-begin: v0.2.0 migration -->\n"
+            + "```\nknotica guillotine <claim>\n```\n"
+            + "<!-- surface-history-end -->\n"
+        ),
+    )
+
+    assert _run(tree).returncode == 0
+
+
 def test_the_history_marker_is_scoped_to_its_own_region(tree: Path) -> None:
     """It exempts a region, never the file -- otherwise one marker silences a document."""
     _edit(
