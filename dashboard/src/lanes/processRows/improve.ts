@@ -256,13 +256,10 @@ export const IMPROVE_PROCESSES: Record<
     },
   },
 
-  // The two single-click spends. Both call the same billed `query` tool, and
-  // both are `acknowledged` -- the one named exception to "billed actions are
-  // two-phase". The exemption is deliberately *legible*: it appears in exactly
-  // these two rows out of the whole registry, the census machine-requires each
-  // to state its cost in `willDo`, and flipping either to `armed` is a
-  // two-field edit with no schema change. Nothing about the shipped behaviour
-  // changed when they were written down.
+  // The probe and Answer's `Ask` call the same billed `query` tool. `query`
+  // mints no `confirm_nonce`, so both preview client-side (`armed`) rather
+  // than on a server quote -- the last two single-click spends, closed. The
+  // spend grammar now has no exception: every billed click arms first.
   "improve.probe": {
     lane: "improve",
     stage: "prove",
@@ -274,8 +271,8 @@ export const IMPROVE_PROCESSES: Record<
     clientMethod: "query",
     why: "A promoted program is only actually better if it answers better, and a scoreboard delta cannot tell you whether the questions this topic exists for improved.",
     willDo:
-      "Asks the compiled program this question now and renders the answer beside the one you pinned. It costs tokens on a single click; the answer is not stored, so nothing in the vault changes.",
-    previewMode: "acknowledged",
+      "Asks the compiled program this question and renders the answer beside the one you pinned. It costs tokens, so only a second, explicit click sends it; the answer is not stored, so nothing in the vault changes.",
+    previewMode: "armed",
     progressMode: "busy",
     outcomeMode: "result",
     next: {

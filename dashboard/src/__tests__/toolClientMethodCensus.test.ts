@@ -105,6 +105,12 @@ const MOVED_METHODS: Record<string, readonly string[]> = {
     "loopBaselinePolicy",
     "loopRebaseline",
     "baselineProbe",
+    // Post-split addition (`td-059`): the read-only half of the dual-mode
+    // `loop action=cadence`, added so a mount effect cannot become a config
+    // write by acquiring a default. Counted here for the same reason
+    // `reviewGap` is -- groups (1)/(2) gate the live surface, not the
+    // historical transcription.
+    "loopCadenceRead",
     "loopCadence",
     "loopRunEval",
     "branchScoreboard",
@@ -214,8 +220,8 @@ beforeAll(() => {
 });
 
 describe("the fixture's own bookkeeping matches the recorded split plus later additions", () => {
-  it("49 lane methods (48 moved + reviewGap) plus 3 shell methods totals 52", () => {
-    expect(PRE_SPLIT_TOOL_CALL_METHODS).toHaveLength(52);
+  it("50 lane methods (48 moved + reviewGap + loopCadenceRead) plus 3 shell methods totals 53", () => {
+    expect(PRE_SPLIT_TOOL_CALL_METHODS).toHaveLength(53);
   });
 });
 

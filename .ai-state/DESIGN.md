@@ -178,7 +178,9 @@ The lane-rail redesign has replaced the standalone pane surface with a `dashboar
 under the `dashboard/` leaf above. Shared at the tree root: `laneRailState.ts`, a pure,
 framework-free derivation module (no Preact, no DOM, no fetch) turning a lane's process position
 into the four-state rail vocabulary (`pending`/`active`/`complete`/`blocked`) every rendered rail
-reads from; `LaneRail.tsx` and `ArmedButton.tsx`, its render and armed-confirm counterparts;
+reads from (each railed lane renders that vocabulary itself — there is no shared rail component,
+because every lane needs a different rule for which stage swaps in a real body); `ArmedButton.tsx`,
+the armed-confirm affordance every billed control arms through;
 `hostCapabilities.ts`, which decides what the embedding host can dispatch; `HandoffStage.tsx`,
 the stage that makes client-as-brain visible by handing a billed cognitive step back to the client's
 own LLM as a slash command rather than calling one server-side; and `visibilityPausedPoll.ts`, a

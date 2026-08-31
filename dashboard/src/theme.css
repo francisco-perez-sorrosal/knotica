@@ -39,12 +39,18 @@
   /* Light values are darkened, hue-preserved variants of the Solarized accents:
      these tokens are used as text at small sizes (chips, loop-node states), and
      the raw accents sit at ~2.8–3.9:1 on the light surfaces — below the 4.5:1
-     floor. Both dark blocks restore the raw accents, which clear it there. */
+     floor. Both dark blocks restore the raw accents wherever the raw accent
+     clears the floor on the dark surfaces, and carry their own text-grade
+     variant where it does not (`--bad`, `--neutral`). Every (tone, surface)
+     pair is machine-checked on both themes by `themeContrast.test.ts`. */
   --accent:  #1a6ba6;
   --good:    #5f7000;
-  --bad:     #c22823;
+  --bad:     #bd2521;
   --warn:    #8a6400;
-  --neutral: var(--n-5);
+  /* `--n-5` (#8a8a84) reads at 3.10:1 on `--surface-raised`; this is the same
+     ramp one step darker, chosen for the 4.5:1 text floor rather than for the
+     ramp's own spacing. */
+  --neutral: #6a6a63;
   --running: #1d7a72;
 
   /* ── typography ───────────────────────────────────────────────────────────── */
@@ -102,10 +108,16 @@
     --text:           #c6c9cd;
     --heading:        #eceef0;
     --muted:          #8d9298;
-    --neutral:        #6f757b;
+    /* Two dark-theme text-grade variants, for the same reason the light block
+       darkens its accents: raw `--red` reads 3.84:1 and `#6f757b` 3.81:1 on
+       `--surface-raised`, both under the 4.5:1 floor for small text. Hue
+       preserved, lightness moved only as far as the floor requires -- with
+       `--bad` also clearing it on `button.danger`'s own tinted hover fill,
+       which is the tightest surface either tone lands on. */
+    --neutral:        #868d94;
     --accent:         var(--blue);
     --good:           var(--green);
-    --bad:            var(--red);
+    --bad:            #ee6b66;
     --warn:           var(--yellow);
     --running:        var(--cyan);
     --shadow-overlay: 0 4px 24px rgb(0 0 0 / 55%);
@@ -130,10 +142,16 @@
   --text:           #c6c9cd;
   --heading:        #eceef0;
   --muted:          #8d9298;
-  --neutral:        #6f757b;
+  /* Two dark-theme text-grade variants, for the same reason the light block
+     darkens its accents: raw `--red` reads 3.84:1 and `#6f757b` 3.81:1 on
+     `--surface-raised`, both under the 4.5:1 floor for small text. Hue
+     preserved, lightness moved only as far as the floor requires -- with
+     `--bad` also clearing it on `button.danger`'s own tinted hover fill,
+     which is the tightest surface either tone lands on. */
+  --neutral:        #868d94;
   --accent:         var(--blue);
   --good:           var(--green);
-  --bad:            var(--red);
+  --bad:            #ee6b66;
   --warn:           var(--yellow);
   --running:        var(--cyan);
   --shadow-overlay: 0 4px 24px rgb(0 0 0 / 55%);

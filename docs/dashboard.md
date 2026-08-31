@@ -135,10 +135,11 @@ default view when opening the dashboard or navigating to an unrecognized lane.
    lane. When there is nothing to show, the queue is replaced by an empty state ("Nothing needs
    you") with a button into `Improve`.
 3. **Drift row** — a fixed statement below the queue ("Note drift — not checked...") with a `ⓘ`
-   explaining what drift means and offering a copyable `knotica notes drift --topic <topic>`
-   command. There is no button that runs the check from Home — resolving anchors is the one cost
-   the attention view does not pay unconditionally, so the honest affordance is the CLI command,
-   not a client-side action with nothing wired behind it.
+   explaining what drift means and offering a copyable `tend action=notes notes_action=drift
+   topic=<topic>` call for your Claude client (there is no CLI subcommand for the drift scan).
+   There is no button that runs the check from Home — resolving anchors is the one cost the
+   attention view does not pay unconditionally, so the honest affordance is the copy-for-Claude
+   call, not a client-side action with nothing wired behind it.
 
 **Poll behavior**: Home polls `wiki_status(view="attention")` every 10 seconds (paused while the
 browser tab is hidden, resuming on return) — independent of the other lanes' 2-second

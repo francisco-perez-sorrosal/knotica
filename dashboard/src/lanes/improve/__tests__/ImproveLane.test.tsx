@@ -73,8 +73,8 @@ import type { MetricsWindow, WikiStatus } from "../../../types";
  *   4. Each stage row renders as `<li class="lane-stage" data-state="...">`
  *      inside `<ol aria-label="improve stages">` -- the "Class contract" and
  *      accessibility floor `INTERFACE_DESIGN.md` §1.5 states for *every* new
- *      lane rail (both the generic `LaneRail.tsx` and the hand-rolled
- *      `TendLane.tsx` already honor this), not a guess about `ImproveLane`'s
+ *      lane rail (`TendLane.tsx` already honors this), not a guess about
+ *      `ImproveLane`'s
  *      internal composition. The watermark stage additionally carries
  *      `aria-current="step"`.
  *

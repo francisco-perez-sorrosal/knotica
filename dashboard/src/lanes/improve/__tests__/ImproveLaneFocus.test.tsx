@@ -197,7 +197,20 @@ describe("focus opens a stage the server declares pending (the F1 fix)", () => {
     expect(container.querySelector('[data-testid="stub-observe"]')).toBeNull();
   });
 
-  it("opening a stage bills nothing -- mounting is a read, the confirm grammar is untouched", () => {
+  /**
+   * NOT the mount-effect guard, despite what it looks like. The six stage
+   * bodies are boundary-mocked in this suite (see the file docblock), so a
+   * real stage's `useEffect` never reaches this fake client -- what is
+   * asserted is that `ImproveLane` **itself** calls nothing billed while
+   * routing focus, which is a claim about the rail, not about the stages.
+   *
+   * The stage-level guarantee is pinned where a real component actually
+   * mounts: `ObserveStage.test.tsx`'s "a focus-mount writes nothing" case,
+   * which renders the real `ObserveStage` against a recording client
+   * (`td-059`). Do not add mount-safety assertions here -- they would pass
+   * vacuously.
+   */
+  it("routes focus without the rail itself calling any billed method", () => {
     const client = fakeClient();
     const { container } = render(<ImproveLane {...props({ client })} />);
 

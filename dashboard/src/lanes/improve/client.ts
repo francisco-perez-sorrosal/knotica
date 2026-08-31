@@ -39,6 +39,7 @@ import type {
   GoldenReview,
   GoldenSaveResult,
   LoopBaselinePolicyResult,
+  LoopCadenceConfig,
   LoopCadenceResult,
   LoopOnceResult,
   LoopRebaselineResult,
@@ -116,11 +117,33 @@ export interface ImproveToolCalls {
   ): Promise<LoopRebaselineResult>;
   baselineProbe(topic: string, vault?: string): Promise<BaselineProbeResult>;
   /**
-   * Reads with no overrides; writes additively with them. One override —
+   * The **read** half of `loop action=cadence`, split out so a read cannot
+   * become a write by accident.
+   *
+   * `loopCadence` below is dual-mode: it reads when it passes no overrides and
+   * writes `config.toml` when it passes any. That made the read-safety of
+   * every mount effect a property of its *arguments* — a default value added
+   * to one override parameter would silently turn every focus-mount of
+   * `ObserveStage` into a config write (`td-059`). This signature has no
+   * override and no `confirm` parameter, so there is nothing to default: the
+   * read mode is structural. Its return type is narrowed to
+   * `LoopCadenceConfig` for the same reason — the preview branch is
+   * unreachable without an override, so callers need no `confirm_nonce`
+   * narrowing.
+   *
+   * Every read-mount site calls this. `loopCadence` is for writes only.
+   */
+  loopCadenceRead(topic: string, vault?: string): Promise<LoopCadenceConfig>;
+  /**
+   * The **write** half. Writes additively; one override —
    * `arenaScorer: "eval"` — is spend-gated server-side: the bare call returns
    * a `LoopCadencePreview` (nothing written) and the call must be repeated
    * with that envelope's `confirm_nonce` as `confirm` to apply. Every other
    * write, `arenaScorer: "heuristic"` included, applies in one call.
+   *
+   * Passing no overrides still reads, because the server endpoint is what it
+   * is — but a caller that wants a read should say so with
+   * `loopCadenceRead`.
    */
   loopCadence(
     topic: string,
@@ -374,6 +397,16 @@ export const improveToolCalls: ToolCallGroup<ImproveToolCalls> = {
 
   baselineProbe(topic: string, vault = ""): Promise<BaselineProbeResult> {
     return this.call(LANE, { action: "baseline_probe", topic, vault });
+  },
+
+  loopCadenceRead(topic: string, vault = ""): Promise<LoopCadenceConfig> {
+    return this.call(LANE, {
+      action: "loop",
+      loop_action: "cadence",
+      topic,
+      confirm: "",
+      vault,
+    });
   },
 
   loopCadence(

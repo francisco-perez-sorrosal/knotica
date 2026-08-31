@@ -90,6 +90,16 @@ afterEach(cleanup);
 const TOPIC = "agentic-systems";
 const VAULT = "main";
 
+/**
+ * Takes **both** clicks of the probe's spend gate. `query` bills, so the
+ * first click only arms the control -- the same grammar every other billed
+ * control on this surface uses.
+ */
+function clickProbe(): void {
+  fireEvent.click(screen.getByTestId("prove-probe-ask"));
+  fireEvent.click(screen.getByTestId("prove-probe-ask"));
+}
+
 function answer(text: string, question = "q"): QueryAnswer {
   return {
     topic: TOPIC,
@@ -172,7 +182,7 @@ describe("the probe calls query directly -- the same tool AskPane calls", () => 
     fireEvent.input(screen.getByTestId("prove-probe-question"), {
       target: { value: "Does compile improve grounding?" },
     });
-    fireEvent.click(screen.getByTestId("prove-probe-ask"));
+    clickProbe();
 
     await vi.waitFor(() => expect(query).toHaveBeenCalledTimes(1));
     expect(query).toHaveBeenCalledWith(
@@ -180,6 +190,53 @@ describe("the probe calls query directly -- the same tool AskPane calls", () => 
       "Does compile improve grounding?",
       VAULT,
     );
+  });
+});
+
+describe("the probe bills, so one click never sends it", () => {
+  it("arms on the first click and only calls query on the confirm", () => {
+    const query = vi.fn().mockResolvedValue(answer("a1"));
+
+    render(
+      <ProveStage
+        client={fakeClient({ query })}
+        topic={TOPIC}
+        vault={VAULT}
+        status={baseStatus()}
+        obsidianCtx={{}}
+      />,
+    );
+
+    fireEvent.input(screen.getByTestId("prove-probe-question"), {
+      target: { value: "q" },
+    });
+    fireEvent.click(screen.getByTestId("prove-probe-ask"));
+    expect(query).not.toHaveBeenCalled();
+
+    fireEvent.click(screen.getByTestId("prove-probe-ask"));
+    expect(query).toHaveBeenCalledTimes(1);
+  });
+
+  it("un-arms on Cancel without spending anything", () => {
+    const query = vi.fn().mockResolvedValue(answer("a1"));
+
+    render(
+      <ProveStage
+        client={fakeClient({ query })}
+        topic={TOPIC}
+        vault={VAULT}
+        status={baseStatus()}
+        obsidianCtx={{}}
+      />,
+    );
+
+    fireEvent.input(screen.getByTestId("prove-probe-question"), {
+      target: { value: "q" },
+    });
+    fireEvent.click(screen.getByTestId("prove-probe-ask"));
+    fireEvent.click(screen.getByTestId("prove-probe-cancel"));
+
+    expect(query).not.toHaveBeenCalled();
   });
 });
 
@@ -207,13 +264,13 @@ describe("the probe renders its own before/after answer cards in-lane", () => {
     fireEvent.input(screen.getByTestId("prove-probe-question"), {
       target: { value: "q" },
     });
-    fireEvent.click(screen.getByTestId("prove-probe-ask"));
+    clickProbe();
     await screen.findByText(
       "Before this improvement, retrieval misses the demo.",
     );
 
     fireEvent.click(screen.getByTestId("prove-probe-pin"));
-    fireEvent.click(screen.getByTestId("prove-probe-ask"));
+    clickProbe();
     await screen.findByText(
       "After this improvement, retrieval cites the demo.",
     );

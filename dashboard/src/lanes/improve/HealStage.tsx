@@ -96,11 +96,11 @@ export function HealStage({
         const [nextStatus, nextHistory, cadence] = await Promise.all([
           client.arenaStatus(topic, vault),
           client.arenaHistory(topic, vault, 12),
-          // A read (no overrides): what `[loop] arena_scorer` stands at NOW,
-          // so the abort card's next-step reflects standing config rather
-          // than urging a switch that already happened. Failure is
-          // non-fatal — the switch then simply offers eval.
-          client.loopCadence(topic, undefined, vault).catch(() => null),
+          // The read-only seam: what `[loop] arena_scorer` stands at NOW, so
+          // the abort card's next-step reflects standing config rather than
+          // urging a switch that already happened. Failure is non-fatal —
+          // the switch then simply offers eval.
+          client.loopCadenceRead(topic, vault).catch(() => null),
         ]);
         if (cancelled) return;
         setArenaStatus(nextStatus);

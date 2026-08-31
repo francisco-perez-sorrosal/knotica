@@ -94,6 +94,15 @@ function fakeClient(overrides: Partial<ToolClient> = {}): ToolClient {
     arenaStatus: vi.fn().mockResolvedValue(fakeArenaStatus()),
     arenaHistory: vi.fn().mockResolvedValue(fakeArenaHistory()),
     compileRun: vi.fn(),
+    // The mount read goes through the read-only seam; `loopCadence` below is
+    // the write the scorer switch clicks (`td-059`).
+    loopCadenceRead: vi.fn().mockResolvedValue({
+      topic: TOPIC,
+      eval_min_interval_hours: 0,
+      eval_window: "",
+      eval_num_threads: 4,
+      arena_scorer: "heuristic",
+    }),
     loopCadence: vi
       .fn()
       .mockImplementation((_topic, writeArgs, _vault, confirm) => {
@@ -377,9 +386,10 @@ describe("an aborted race explains itself and names the next step", () => {
 
     fireEvent.click(await screen.findByTestId("heal-arena-scorer"));
 
-    // The stage's open READ of the standing config is sanctioned, and so is
-    // the arm click's FREE leg -- what must not happen before the second
-    // click is a call carrying the nonce, which is the only thing that writes.
+    // The stage's open read does not even reach this method any more (it is
+    // `loopCadenceRead`'s), and the arm click's FREE leg is sanctioned --
+    // what must not happen before the second click is a call carrying the
+    // nonce, which is the only thing that writes.
     const loopCadence = client.loopCadence as unknown as ReturnType<typeof vi.fn>;
     expect(loopCadence.mock.calls.filter((call) => call[3])).toHaveLength(0);
     expect(
@@ -465,7 +475,7 @@ describe("an aborted race explains itself and names the next step", () => {
   it("does not urge a switch that already happened elsewhere", async () => {
     const client = fakeClient({
       arenaStatus: vi.fn().mockResolvedValue(abortedStatus()),
-      loopCadence: vi.fn().mockResolvedValue({
+      loopCadenceRead: vi.fn().mockResolvedValue({
         topic: TOPIC,
         eval_min_interval_hours: 0,
         eval_window: "",

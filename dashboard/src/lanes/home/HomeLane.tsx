@@ -15,9 +15,9 @@ import { LaneCardGrid } from "./LaneCardGrid";
 
 /**
  * `HomeLane` (`INTERFACE_DESIGN.md §2.1`, `dec-092`; redesigned per
- * `INTERFACE_DESIGN.md §3.2`) -- the cross-topic attention inbox. No
- * `LaneRail`, no per-stage state: a lane-card grid plus a flat attention
- * queue (or a success state), not a process rail.
+ * `INTERFACE_DESIGN.md §3.2`) -- the cross-topic attention inbox. No stage
+ * rail, no per-stage state: a lane-card grid plus a flat attention queue (or
+ * a success state), not a process rail.
  *
  * Self-fetches `client.wikiStatus("", vault, "attention")` on mount and on
  * every tick of its own `startVisibilityPausedPoll` (`§4.2` rule 3, `dec-092`)
@@ -123,9 +123,14 @@ function DriftRow(): JSX.Element {
         align="end"
         whatThisIs="Drift means a note's citation anchor moved, or the page underneath it changed. Checking means re-resolving every note's anchor -- the one cost the attention view does not pay unconditionally."
         whatToDoNext={
+          // The MCP call-form, not a CLI command: no `knotica` subcommand runs
+          // the drift scan (tend's CLI carries doctor/okf/migrate/guillotine
+          // only), so the honest affordance is the read-only call a Claude
+          // client can make -- the same copy-for-Claude handoff the ingest
+          // panel uses.
           <CopyBlock
-            code="knotica notes drift --topic <topic>"
-            label="the drift check command"
+            code="tend action=notes notes_action=drift topic=<topic>"
+            label="the drift check call for your Claude client"
           />
         }
       />

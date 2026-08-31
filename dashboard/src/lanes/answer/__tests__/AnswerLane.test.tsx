@@ -184,11 +184,20 @@ function stageNodes(container: Element): HTMLElement[] {
   return Array.from(container.querySelectorAll<HTMLElement>(".lane-stage"));
 }
 
-async function askAndAwaitAnswer(): Promise<void> {
+/**
+ * Types a question and takes **both** clicks of the spend gate. `Ask` bills,
+ * so the first click only arms the control; every flow below has to confirm.
+ */
+function submitQuestion(text: string = QUESTION): void {
   fireEvent.input(screen.getByPlaceholderText("Ask the wiki…"), {
-    target: { value: QUESTION },
+    target: { value: text },
   });
   fireEvent.click(screen.getByRole("button", { name: "Ask" }));
+  fireEvent.click(screen.getByRole("button", { name: /^Confirm ask/ }));
+}
+
+async function askAndAwaitAnswer(): Promise<void> {
+  submitQuestion();
   await screen.findByRole("button", { name: "Good example" });
 }
 
@@ -209,6 +218,70 @@ describe("the rail container (INTERFACE_DESIGN.md §1.5 accessibility floor)", (
     expect(nodes[ASK].getAttribute("aria-current")).toBe("step");
     expect(nodes[CITE].getAttribute("aria-current")).toBeNull();
     expect(nodes[REACT].getAttribute("aria-current")).toBeNull();
+  });
+});
+
+describe("Ask bills, so one click never sends it", () => {
+  it("arms on the first click and only calls query on the confirm", () => {
+    const { query } = deferredQuery();
+    const { client } = fakeClient({ query });
+    renderAnswerLane(client);
+
+    fireEvent.input(screen.getByPlaceholderText("Ask the wiki…"), {
+      target: { value: QUESTION },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Ask" }));
+    expect(query).not.toHaveBeenCalled();
+
+    fireEvent.click(screen.getByRole("button", { name: /^Confirm ask/ }));
+    expect(query).toHaveBeenCalledTimes(1);
+  });
+
+  it("un-arms on Cancel without spending anything", () => {
+    const { query } = deferredQuery();
+    const { client } = fakeClient({ query });
+    renderAnswerLane(client);
+
+    fireEvent.input(screen.getByPlaceholderText("Ask the wiki…"), {
+      target: { value: QUESTION },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Ask" }));
+    fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
+
+    expect(query).not.toHaveBeenCalled();
+    expect(screen.getByRole("button", { name: "Ask" })).toBeTruthy();
+  });
+
+  /**
+   * The `state is never colour-alone` accessibility floor, pinned on a live
+   * lane. It used to be pinned only by `LaneRail.test.tsx`, which exercised a
+   * shell no lane mounted; every railed lane hand-rolls its own rail, so the
+   * assertion has to live over one of those to gate anything shipped.
+   */
+  it("writes each stage's state as a visible word beside its glyph, not as colour", async () => {
+    const { client } = fakeClient();
+    const container = renderAnswerLane(client);
+
+    const pending = stageNodes(container)[REACT];
+    expect(pending.dataset.state).toBe("pending");
+    expect(
+      pending.querySelector(".lane-state-label")?.textContent,
+    ).toBe("pending");
+    expect(pending.querySelector(".lane-stage-index")).toBeTruthy();
+
+    await askAndAwaitAnswer();
+
+    const nodes = stageNodes(container);
+    for (const [index, state] of [
+      [ASK, "complete"],
+      [CITE, "complete"],
+      [REACT, "active"],
+    ] as const) {
+      expect(nodes[index].dataset.state).toBe(state);
+      expect(nodes[index].querySelector(".lane-state-label")?.textContent).toBe(
+        state,
+      );
+    }
   });
 });
 
@@ -234,10 +307,7 @@ describe("while awaiting an answer -- cite is the loading stage, not ask", () =>
     const { client } = fakeClient({ query });
     const container = renderAnswerLane(client);
 
-    fireEvent.input(screen.getByPlaceholderText("Ask the wiki…"), {
-      target: { value: QUESTION },
-    });
-    fireEvent.click(screen.getByRole("button", { name: "Ask" }));
+    submitQuestion();
 
     const nodes = stageNodes(container);
     expect(nodes[ASK].dataset.state).toBe("complete");

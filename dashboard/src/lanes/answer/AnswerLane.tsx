@@ -8,6 +8,7 @@ import { TermHint } from "../../TermHint";
 import { Spinner } from "../../icons";
 import type { ToolClient } from "../../toolClient";
 import type { QueryAnswer, WikiStatus } from "../../types";
+import { ArmedButton } from "../ArmedButton";
 import { deriveSequenceStages, type StageState } from "../laneRailState";
 import { LoopStrip } from "../LoopStrip";
 import { ProcessBrief } from "../ProcessBrief";
@@ -131,6 +132,10 @@ export function AnswerLane({
 }): JSX.Element {
   const [question, setQuestion] = useState("");
   const [busy, setBusy] = useState(false);
+  /* `query` mints no server nonce, so `Ask`'s preview is the client-side
+     arm→confirm every other billed control already uses: one uniform spend
+     grammar, no single click that bills. */
+  const [armed, setArmed] = useState(false);
   /* Which of React's four verbs is in flight. `busy` alone disables all four,
      which is right -- but four spinners for one action would be a lie, so the
      glyph goes only on the one actually running. */
@@ -153,6 +158,7 @@ export function AnswerLane({
 
   async function ask() {
     if (!client || !question.trim() || busy) return;
+    setArmed(false);
     setBusy(true);
     setError(null);
     setResult(null);
@@ -260,32 +266,31 @@ export function AnswerLane({
               value={question}
               placeholder="Ask the wiki…"
               disabled={busy || !client}
-              onInput={(event) =>
-                setQuestion((event.target as HTMLTextAreaElement).value)
-              }
+              onInput={(event) => {
+                setQuestion((event.target as HTMLTextAreaElement).value);
+                // Editing the question invalidates what was armed.
+                setArmed(false);
+              }}
             />
           </label>
           <div class="ask-actions">
             {/* Sibling of the button, never a child: the accessible name
-                stays `Ask`. The chip is the whole of an `acknowledged`
-                preview -- this click bills on its own, which the brief says
-                in words as well as on the chip. */}
+                stays `Ask`. The chip prices the spend; the armed label names
+                what the second click costs. */}
             <ProcessBrief process="answer.ask" term="why ask" />
-            <button
-              type="button"
-              disabled={!client || busy || !question.trim()}
-              aria-busy={busy || undefined}
-              onClick={() => void ask()}
-            >
-              {busy ? (
-                <>
-                  <Spinner />
-                  Asking…
-                </>
-              ) : (
-                "Ask"
-              )}
-            </button>
+            <ArmedButton
+              armed={armed}
+              busy={busy}
+              disabled={!client || !question.trim()}
+              label="Ask"
+              armedLabel="Confirm ask — costs tokens"
+              busyLabel="Asking…"
+              testId="answer-ask"
+              cancelTestId="answer-ask-cancel"
+              onArm={() => setArmed(true)}
+              onConfirm={() => void ask()}
+              onCancel={() => setArmed(false)}
+            />
           </div>
           {error ? (
             <aside role="alert" class="ask-error">

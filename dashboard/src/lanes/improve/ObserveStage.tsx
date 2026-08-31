@@ -76,7 +76,16 @@ interface ObserveMetrics {
   records: ObserveMetricsRecord[];
 }
 
-type ObserveToolClient = Pick<ToolClient, "loopCadence" | "loopRunEval">;
+/**
+ * `loopCadenceRead` is what the mount effect uses; `loopCadence` (the write)
+ * is here only because `ArenaScorerSwitch` -- a user-clicked control, never a
+ * mount effect -- is handed this same client. Two names for the two modes is
+ * the point: the read path cannot reach the write one (`td-059`).
+ */
+type ObserveToolClient = Pick<
+  ToolClient,
+  "loopCadenceRead" | "loopCadence" | "loopRunEval"
+>;
 
 const DEFAULT_EVAL_THREADS = "1";
 
@@ -111,11 +120,10 @@ export function ObserveStage({
     let cancelled = false;
     void (async () => {
       try {
-        const result = await client.loopCadence(topic, {}, vault);
-        // A read carries no overrides, so the spend gate cannot fire and the
-        // preview branch is unreachable here -- narrowed rather than asserted,
-        // because a payload that surprises us should leave the default alone.
-        if (cancelled || "confirm_nonce" in result) return;
+        // The read-only seam: no override parameter exists to default, so
+        // this mount effect cannot become a `config.toml` write.
+        const result = await client.loopCadenceRead(topic, vault);
+        if (cancelled) return;
         setCadence(result);
         setRunEvalThreads(String(result.eval_num_threads));
       } catch {

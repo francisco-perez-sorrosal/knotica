@@ -2574,22 +2574,6 @@ button.danger:hover:not(:disabled) {
   font: .6rem/1.4 var(--mono);
 }
 
-.sources-header {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 1rem;
-  flex-wrap: wrap;
-}
-.sources-filters {
-  display: flex;
-  gap: .3rem;
-  align-items: center;
-}
-.sources-filters button.active {
-  color: var(--heading);
-  border-color: var(--cyan);
-}
 .sources-error { color: var(--bad); }
 .sources-partial-note { margin-top: .25rem; }
 
@@ -2645,12 +2629,6 @@ button.danger:hover:not(:disabled) {
   margin: .15rem 0;
 }
 .sources-signals { font-size: .78rem; }
-.sources-card-actions {
-  display: flex;
-  align-items: center;
-  gap: .5rem;
-  flex-wrap: wrap;
-}
 .sources-provenance {
   margin-left: auto;
   font-size: .78rem;
@@ -3393,10 +3371,6 @@ button.danger:hover:not(:disabled) {
 }
 
 /* ——— Loop strip (M6) ——— */
-.lane-rail-shell {
-  display: grid;
-  gap: var(--space-4);
-}
 .loop-strip {
   display: grid;
   gap: var(--space-3);
@@ -3960,8 +3934,9 @@ button.process-outcome-go:hover { color: var(--accent); }
 
 /* ── FILL APPROVE QUEUE — toolbar + triage rows ────────────────────────── */
 /* One toolbar, two rows: what is listed and what came of it on top, in what
-   order underneath. Replaces two visually identical `.sources-filters` rows
-   that read as one ragged cluster of seven unrelated controls. */
+   order underneath. Replaces the two visually identical filter rows the
+   pre-overhaul queue carried, which read as one ragged cluster of seven
+   unrelated controls. */
 .queue-toolbar {
   display: grid;
   gap: var(--space-2);

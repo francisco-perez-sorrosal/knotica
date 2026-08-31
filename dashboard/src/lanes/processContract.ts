@@ -73,13 +73,13 @@ export type Spend = "billed" | "arms-billing" | "free";
  *   consequence in words (`ArmedButton.tsx`).
  * - `dry-run` — the server computes the change and returns it; the user
  *   reads a diff before applying.
- * - `acknowledged` — **named exception**: billed, single click. The cost is
- *   stated in `willDo` (machine-required, see the census) and on a visible
- *   chip, and the user has accepted that this class sits below the
- *   confirmation threshold. Only ever where a decision put it.
  * - `none` — free **and** reversible. `willDo` alone is the preview.
+ *
+ * There is no billed single-click mode. The `query`-class spends that once
+ * held one (`answer.ask`, `improve.probe`) now arm like everything else, so
+ * the grammar has no exception for the census to police.
  */
-export type PreviewMode = "nonce" | "armed" | "dry-run" | "acknowledged" | "none";
+export type PreviewMode = "nonce" | "armed" | "dry-run" | "none";
 
 /**
  * Phase 4 — how progress is carried. Declared, never defaulted: `instant` is

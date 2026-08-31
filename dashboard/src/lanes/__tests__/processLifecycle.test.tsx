@@ -41,14 +41,12 @@ describe("ProcessBrief shows why a click is necessary and what it will do", () =
     ).not.toMatch(/billed/i);
   });
 
-  it("prices an acknowledged spend as what it costs, not as a confirm to come", () => {
-    // `acknowledged` is the one billed mode with no second click, so the chip
-    // is the whole of its preview -- it has to say the price, not promise a
-    // gate that is not there.
+  it("prices the query-class spends like every other billed one", () => {
+    // `answer.ask` and `improve.probe` arm client-side rather than on a server
+    // nonce, but they bill, so they wear the same chip as the nonce-gated
+    // spends -- one spend grammar, no exempt vocabulary.
     const { container } = render(<ProcessBrief process="answer.ask" />);
-    expect(container.querySelector(".chip.cost")?.textContent).toBe(
-      "costs tokens",
-    );
+    expect(container.querySelector(".chip.cost")?.textContent).toBe("billed");
   });
 
   it("says nothing about cost for a free process", () => {

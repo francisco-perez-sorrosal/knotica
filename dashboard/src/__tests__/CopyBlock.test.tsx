@@ -19,14 +19,14 @@ beforeEach(() => {
 
 describe("CopyBlock", () => {
   it("renders the code and copies it to the clipboard on click", async () => {
-    render(<CopyBlock code="knotica notes drift --topic decision-making" />);
+    render(<CopyBlock code="tend action=notes notes_action=drift topic=decision-making" />);
 
-    expect(screen.getByText("knotica notes drift --topic decision-making")).toBeTruthy();
+    expect(screen.getByText("tend action=notes notes_action=drift topic=decision-making")).toBeTruthy();
 
     await fireEvent.click(screen.getByRole("button", { name: /copy/i }));
 
     expect(navigator.clipboard.writeText).toHaveBeenCalledWith(
-      "knotica notes drift --topic decision-making",
+      "tend action=notes notes_action=drift topic=decision-making",
     );
     expect(await screen.findByText("Copied")).toBeTruthy();
   });

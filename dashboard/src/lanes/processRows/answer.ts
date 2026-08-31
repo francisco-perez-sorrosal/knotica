@@ -25,8 +25,8 @@ export const ANSWER_PROCESSES: Record<
     clientMethod: "query",
     why: "You have a question this topic is supposed to cover, and until it is asked nothing knows whether the wiki can cite an answer or is missing the pages for one.",
     willDo:
-      "Sends the question to the server's model, which answers only from this topic's pages and cites them. It costs tokens on a single click. Nothing is written to the vault, so there is nothing to undo.",
-    previewMode: "acknowledged",
+      "Sends the question to the server's model, which answers only from this topic's pages and cites them. It costs tokens, so only a second, explicit click sends it. Nothing is written to the vault, so there is nothing to undo.",
+    previewMode: "armed",
     progressMode: "busy",
     // The answer and its citations are the server's own payload, rendered by
     // `AnswerCard` in the Cite stage.

@@ -7,10 +7,10 @@ import { PromptDiff } from "../../PromptDiff";
 import { SectionCard } from "../../SectionCard";
 import { Stat, StatGrid } from "../../Stat";
 import { TermHint } from "../../TermHint";
-import { Spinner } from "../../icons";
 import type { ToolClient } from "../../toolClient";
 import { findTopicRow } from "../../topicHelpers";
 import type { QueryAnswer, WikiStatus } from "../../types";
+import { ArmedButton } from "../ArmedButton";
 import { ProcessBrief } from "../ProcessBrief";
 import { ProcessOutcome } from "../ProcessOutcome";
 
@@ -25,10 +25,10 @@ import { ProcessOutcome } from "../ProcessOutcome";
  * citation-linking behavior.
  *
  * `query` carries no `confirm`/nonce parameter (unlike `run_once`/
- * `run_eval`), and the established UX for the same tool is a
- * single "Ask" click — this probe matches that precedent rather than
- * inventing an armed→confirm dialog for a call that isn't two-phase
- * anywhere else on this surface.
+ * `run_eval`), so the probe's preview is the client-side `ArmedButton`
+ * arm→confirm rather than a server-minted quote. It is two-phase all the
+ * same: the spend grammar is uniform across every billed control, and
+ * `AnswerLane`'s own `Ask` arms identically.
  */
 
 export function ProveStage({
@@ -49,6 +49,9 @@ export function ProveStage({
   const [error, setError] = useState<string | null>(null);
   const [result, setResult] = useState<QueryAnswer | null>(null);
   const [pinned, setPinned] = useState<QueryAnswer | null>(null);
+  /* The probe bills, so the first click only arms it — same grammar as every
+     other billed control on this surface. */
+  const [armed, setArmed] = useState(false);
 
   const after =
     pinned &&
@@ -63,6 +66,7 @@ export function ProveStage({
 
   async function ask() {
     if (!client || !question.trim() || busy) return;
+    setArmed(false);
     setBusy(true);
     setError(null);
     try {
@@ -125,30 +129,24 @@ export function ProveStage({
               </button>
             ) : null}
             {/* Sibling of the button, never a child: the accessible name
-                stays `Probe it`. `query` mints no nonce and Answer's own
-                `Ask` is a single click, so this stays single-click too — the
-                chip is the honest marker for that spend, not a gate. It is
-                the registry's chip now: `acknowledged` is the named
-                exception, and it carries this exact word wherever it
-                appears. */}
+                stays `Probe it`. `query` mints no nonce, so the second click
+                is client-side — the chip prices the spend and the armed
+                label names what confirming costs. */}
             <ProcessBrief process="improve.probe" term="why probe" align="end" />
-            <button
-              type="button"
-              class="primary"
-              data-testid="prove-probe-ask"
-              disabled={!client || busy || !question.trim()}
-              aria-busy={busy || undefined}
-              onClick={() => void ask()}
-            >
-              {busy ? (
-                <>
-                  <Spinner />
-                  Asking…
-                </>
-              ) : (
-                "Probe it"
-              )}
-            </button>
+            <ArmedButton
+              armed={armed}
+              busy={busy}
+              disabled={!client || !question.trim()}
+              label="Probe it"
+              armedLabel="Confirm probe — costs tokens"
+              busyLabel="Asking…"
+              className="primary"
+              testId="prove-probe-ask"
+              cancelTestId="prove-probe-cancel"
+              onArm={() => setArmed(true)}
+              onConfirm={() => void ask()}
+              onCancel={() => setArmed(false)}
+            />
           </>
         }
       >
@@ -161,9 +159,11 @@ export function ProveStage({
               data-testid="prove-probe-question"
               placeholder="Ask the same question the flywheel is meant to improve…"
               disabled={busy || !client}
-              onInput={(event) =>
-                setQuestion((event.target as HTMLTextAreaElement).value)
-              }
+              onInput={(event) => {
+                setQuestion((event.target as HTMLTextAreaElement).value);
+                // Editing the question invalidates what was armed.
+                setArmed(false);
+              }}
             />
           </label>
           <p class="muted">
@@ -172,7 +172,7 @@ export function ProveStage({
               id="prove-probe-cost"
               term="the same way Answer does"
               title="What a probe costs"
-              body="A probe calls the model once, right now, and the answer is not stored. It is a read, so there is no two-phase confirm — but it does spend tokens."
+              body="A probe calls the model once, right now, and the answer is not stored. It spends tokens, so the first click only arms the control and the second one confirms."
             />
             .
           </p>

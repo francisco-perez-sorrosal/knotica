@@ -44,12 +44,13 @@ import { ProveStage } from "./ProveStage";
  * declared state is `active` or `blocked`) mounts its real, interactive
  * body. Every other stage — `pending` or `complete` — renders a one-line
  * summary instead, never a disabled control. This is why `ImproveLane`
- * cannot reuse the generic `LaneRail.tsx` shell unchanged: that shell always
- * renders a disclosure toggle for `active`/`complete` rows, whereas this
- * lane needs to swap in one of six different real components at exactly one
- * position. The `.lane-stage`/`aria-current="step"` markup contract is kept
- * identical to `LaneRail.tsx`/`TendLane.tsx` by hand, matching both's own
- * "Class contract" (`§1.5`).
+ * hand-rolls its rail rather than sharing one: a generic shell renders a
+ * disclosure toggle for every `active`/`complete` row, whereas this lane
+ * needs to swap in one of six different real components at exactly one
+ * position. Every railed lane hand-rolls for its own such reason, which is
+ * why no shared shell survives. The `.lane-stage`/`aria-current="step"`
+ * markup contract is kept identical to `TendLane.tsx`'s by hand, matching
+ * its "Class contract" (`§1.5`).
  *
  * `status`/`metrics` arrive as props from the app-level poll (mirroring
  * `LoopPane.tsx`'s own shape) — this lane never calls `client.wikiStatus`

@@ -138,6 +138,10 @@ const READ_ONLY_CLIENT_METHODS: readonly string[] = [
   "datasetsRecords",
   "branchScoreboard",
   "promptDiff",
+  // The read-only half of `loop action=cadence`. Its dual-mode sibling
+  // `loopCadence` is a write and carries a registry row; this signature takes
+  // no override and no `confirm`, so there is nothing it could write.
+  "loopCadenceRead",
   "suggestionsRead",
   "gapsRead",
   "sessionStatus",
@@ -299,24 +303,16 @@ describe("G4 — every row answers all six questions", () => {
 
   /**
    * The house rule from `dashboard/CLAUDE.md` — "billed actions are two-phase,
-   * a single click must never bill" — machine-checked for the first time.
-   * `acknowledged` is the one legal single-click billed mode and it is a named
-   * exception, not a default: the next assertion makes it pay for itself.
+   * a single click must never bill" — machine-checked with no exemption left
+   * in it. The `query`-class spends that used to be exempt (`answer.ask`,
+   * `improve.probe`) now arm client-side, so `nonce` and `armed` are the only
+   * two previews a billed row may carry.
    */
-  it("never bills without a preview", () => {
+  it("never bills without a two-phase preview", () => {
     const offenders = ROWS.filter(
       ([, meta]) =>
-        meta.spend === "billed" &&
-        !["nonce", "armed", "acknowledged"].includes(meta.previewMode),
-    ).map(([id]) => id);
-    expect(offenders).toEqual([]);
-  });
-
-  it("makes an acknowledged single-click spend state its cost in willDo", () => {
-    const offenders = ROWS.filter(
-      ([, meta]) =>
-        meta.previewMode === "acknowledged" &&
-        !/costs? tokens|bills\b/i.test(meta.willDo),
+        (meta.spend === "billed" || meta.spend === "arms-billing") &&
+        !["nonce", "armed"].includes(meta.previewMode),
     ).map(([id]) => id);
     expect(offenders).toEqual([]);
   });

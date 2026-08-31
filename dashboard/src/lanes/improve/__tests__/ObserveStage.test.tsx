@@ -27,7 +27,7 @@ import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
  *      prop shape) rather than fetched independently by this stage, since
  *      the sibling `gate` stage (Step 71) reads the same `status.loop`
  *      object.
- *   2. Cadence is self-fetched via `client.loopCadence(topic, {}, vault)` on
+ *   2. Cadence is self-fetched via `client.loopCadenceRead(topic, vault)` on
  *      mount, exactly as `LoopPane.tsx` does today (a `useEffect`-driven
  *      read independent of the `status`/`metrics` props).
  *   3. The billed `run_eval` two-phase shape from `TwoPhaseAction.tsx` is
@@ -117,6 +117,11 @@ interface LoopRunEvalResultFixture {
 }
 
 interface ObserveClientFixture {
+  /** The read-only seam (`td-059`): no override, no `confirm`, no preview. */
+  loopCadenceRead: (
+    topic: string,
+    vault?: string,
+  ) => Promise<LoopCadenceConfigFixture>;
   loopCadence: (
     topic: string,
     overrides?: Record<string, unknown>,
@@ -244,6 +249,7 @@ function cadenceGate(current = "heuristic") {
 
 function makeClient(overrides: Partial<ObserveClientFixture> = {}) {
   return {
+    loopCadenceRead: vi.fn().mockResolvedValue(cadenceFixture()),
     loopCadence: cadenceGate(),
     loopRunEval: vi.fn().mockResolvedValue({
       action: "run_eval",
@@ -284,9 +290,9 @@ describe("observe renders its facts from the mocked status, metrics, and cadence
    * deleted outright. All three cadence facts are checked, so a regression
    * that drops the window or the default-thread count fails here too.
    */
-  it("shows the cadence once client.loopCadence resolves", async () => {
+  it("shows the cadence once client.loopCadenceRead resolves", async () => {
     const client = makeClient({
-      loopCadence: vi
+      loopCadenceRead: vi
         .fn()
         .mockResolvedValue(cadenceFixture({ eval_min_interval_hours: 6 })),
     });
@@ -300,7 +306,7 @@ describe("observe renders its facts from the mocked status, metrics, and cadence
       />,
     );
 
-    await vi.waitFor(() => expect(client.loopCadence).toHaveBeenCalled());
+    await vi.waitFor(() => expect(client.loopCadenceRead).toHaveBeenCalled());
     expect(await screen.findByText("every 6h")).toBeTruthy();
     expect(await screen.findByText("7d")).toBeTruthy();
     expect(await screen.findByText("4")).toBeTruthy();
@@ -349,6 +355,52 @@ describe("observe renders its facts from the mocked status, metrics, and cadence
     );
 
     expect(await screen.findByText(/runner: off/i)).toBeTruthy();
+  });
+});
+
+/**
+ * `td-059`'s real guard. `ImproveLaneFocus.test.tsx` boundary-mocks the six
+ * stage bodies, so the mount effect under test here never runs there and no
+ * assertion in that suite can observe a regression. This one renders the
+ * **real** `ObserveStage` against a client that records every call, and
+ * asserts the mount reached only the read seam -- not `loopCadence` (the
+ * dual-mode write), not `loopRunEval`, and never with an override or a
+ * `confirm` argument.
+ */
+describe("focus-mounting the real stage writes nothing", () => {
+  it("calls only the read seam, with no override and no confirm", async () => {
+    const calls: { method: string; args: unknown[] }[] = [];
+    const record =
+      (method: string, result: unknown) =>
+      (...args: unknown[]) => {
+        calls.push({ method, args });
+        return Promise.resolve(result);
+      };
+    const client = {
+      loopCadenceRead: vi
+        .fn()
+        .mockImplementation(record("loopCadenceRead", cadenceFixture())),
+      loopCadence: vi
+        .fn()
+        .mockImplementation(record("loopCadence", cadenceFixture())),
+      loopRunEval: vi.fn().mockImplementation(record("loopRunEval", {})),
+    };
+
+    render(
+      <ObserveStage
+        client={client}
+        topic="agentic-systems"
+        vault="main"
+        status={statusFixture()}
+        metrics={metricsFixture()}
+      />,
+    );
+
+    await vi.waitFor(() => expect(calls).toHaveLength(1));
+    expect(calls.map((call) => call.method)).toEqual(["loopCadenceRead"]);
+    // `(topic, vault)` and nothing else: no third slot an override could
+    // occupy, no fourth a `confirm` could.
+    expect(calls[0].args).toEqual(["agentic-systems", "main"]);
   });
 });
 
@@ -441,13 +493,17 @@ describe("the arena scorer is switchable in place, asymmetrically guarded", () =
       />,
     );
 
-    await vi.waitFor(() => expect(client.loopCadence).toHaveBeenCalledTimes(1));
+    await vi.waitFor(() =>
+      expect(client.loopCadenceRead).toHaveBeenCalledTimes(1),
+    );
     fireEvent.click(await screen.findByTestId("observe-arena-scorer"));
 
     // The arm click DOES reach the server -- but on the free leg: no nonce is
     // sent, so the server writes nothing and returns the quote instead. That
     // is the two-phase protocol, not a client-side dialog over one call.
-    await vi.waitFor(() => expect(client.loopCadence).toHaveBeenCalledTimes(2));
+    // The mount read went through `loopCadenceRead`, so this is the write
+    // method's FIRST call, not its second.
+    await vi.waitFor(() => expect(client.loopCadence).toHaveBeenCalledTimes(1));
     const mock = client.loopCadence as unknown as ReturnType<typeof vi.fn>;
     expect(mock.mock.calls.filter((call) => call[3])).toHaveLength(0);
     expect(
@@ -472,7 +528,9 @@ describe("the arena scorer is switchable in place, asymmetrically guarded", () =
       />,
     );
 
-    await vi.waitFor(() => expect(client.loopCadence).toHaveBeenCalledTimes(1));
+    await vi.waitFor(() =>
+      expect(client.loopCadenceRead).toHaveBeenCalledTimes(1),
+    );
     fireEvent.click(await screen.findByTestId("observe-arena-scorer"));
     // The arm click is a server round trip now (the free quote leg), so the
     // confirm is only clickable once that envelope has landed.
@@ -481,19 +539,20 @@ describe("the arena scorer is switchable in place, asymmetrically guarded", () =
     });
     fireEvent.click(screen.getByTestId("observe-arena-scorer"));
 
-    // Three calls: the mount read, the free arm, and the confirm that writes.
-    await vi.waitFor(() => expect(client.loopCadence).toHaveBeenCalledTimes(3));
+    // Two calls on the WRITE method: the free arm and the confirm. The mount
+    // read is not among them -- it goes through `loopCadenceRead`.
+    await vi.waitFor(() => expect(client.loopCadence).toHaveBeenCalledTimes(2));
     const loopCadenceMock = client.loopCadence as unknown as ReturnType<
       typeof vi.fn
     >;
-    expect(loopCadenceMock.mock.calls[1]).toEqual([
+    expect(loopCadenceMock.mock.calls[0]).toEqual([
       "agentic-systems",
       { arenaScorer: "eval" },
       "main",
       "",
     ]);
     // The write leg is the arm leg plus the server's nonce -- nothing else.
-    expect(loopCadenceMock.mock.calls[2]).toEqual([
+    expect(loopCadenceMock.mock.calls[1]).toEqual([
       "agentic-systems",
       { arenaScorer: "eval" },
       "main",
@@ -513,7 +572,9 @@ describe("the arena scorer is switchable in place, asymmetrically guarded", () =
       />,
     );
 
-    await vi.waitFor(() => expect(client.loopCadence).toHaveBeenCalledTimes(1));
+    await vi.waitFor(() =>
+      expect(client.loopCadenceRead).toHaveBeenCalledTimes(1),
+    );
     fireEvent.click(await screen.findByTestId("observe-arena-scorer"));
     // The arm click is a server round trip now (the free quote leg), so the
     // confirm is only clickable once that envelope has landed.
@@ -533,7 +594,12 @@ describe("the arena scorer is switchable in place, asymmetrically guarded", () =
   });
 
   it("switches back to the heuristic on a single click -- going free needs no guard", async () => {
-    const client = makeClient({ loopCadence: cadenceGate("eval") });
+    const client = makeClient({
+      loopCadenceRead: vi
+        .fn()
+        .mockResolvedValue(cadenceFixture({ arena_scorer: "eval" })),
+      loopCadence: cadenceGate("eval"),
+    });
     render(
       <ObserveStage
         client={client}
@@ -550,20 +616,20 @@ describe("the arena scorer is switchable in place, asymmetrically guarded", () =
       await screen.findByRole("button", { name: /use heuristic scorer/i }),
     );
 
-    await vi.waitFor(() => expect(client.loopCadence).toHaveBeenCalledTimes(2));
+    await vi.waitFor(() => expect(client.loopCadence).toHaveBeenCalledTimes(1));
     const loopCadenceMock = client.loopCadence as unknown as ReturnType<
       typeof vi.fn
     >;
-    expect(loopCadenceMock.mock.calls[1][1]).toEqual({
+    expect(loopCadenceMock.mock.calls[0][1]).toEqual({
       arenaScorer: "heuristic",
     });
   });
 
   it("reports a rejected write instead of silently showing the old value", async () => {
-    // Mount read resolves; the arm leg is the one the server rejects.
+    // The mount read resolves through its own method; the arm leg is the one
+    // the server rejects.
     const loopCadence = vi
       .fn()
-      .mockResolvedValueOnce(cadenceFixture())
       .mockRejectedValue(new Error("[loop] arena_scorer must be one of"));
     const client = makeClient({ loopCadence });
     render(
@@ -576,8 +642,11 @@ describe("the arena scorer is switchable in place, asymmetrically guarded", () =
       />,
     );
 
-    await vi.waitFor(() => expect(loopCadence).toHaveBeenCalledTimes(1));
+    await vi.waitFor(() =>
+      expect(client.loopCadenceRead).toHaveBeenCalledTimes(1),
+    );
     fireEvent.click(await screen.findByTestId("observe-arena-scorer"));
+    await vi.waitFor(() => expect(loopCadence).toHaveBeenCalledTimes(1));
 
     const alert = await screen.findByRole("alert");
     expect(alert.textContent).toContain("arena_scorer must be one of");

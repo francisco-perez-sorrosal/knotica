@@ -28,17 +28,6 @@ const SPEND_CHIP: Record<Spend, string | null> = {
   free: null,
 };
 
-/**
- * The chip an `acknowledged` spend wears instead of `billed`.
- *
- * `acknowledged` is the named exception — billed, single click — and the chip
- * is the *whole* of its preview, so it says what the click costs rather than
- * that a confirm is coming. This is the copy `Probe it` already shipped when
- * the exemption was first made honest; naming it here is what keeps the two
- * exempt rows saying the same thing as each other.
- */
-const ACKNOWLEDGED_CHIP = "costs tokens";
-
 export interface ProcessBriefProps {
   /** The registered process this trigger runs. */
   process: ProcessId;
@@ -59,10 +48,7 @@ export function ProcessBrief({
   align = "start",
 }: ProcessBriefProps): JSX.Element {
   const meta = PROCESS_META[process];
-  const chip =
-    meta.previewMode === "acknowledged"
-      ? ACKNOWLEDGED_CHIP
-      : SPEND_CHIP[meta.spend];
+  const chip = SPEND_CHIP[meta.spend];
 
   return (
     <span class="process-brief">

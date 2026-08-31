@@ -274,7 +274,7 @@ describe("empty state -- the success state", () => {
 });
 
 describe("Home is an inbox, not a rail", () => {
-  it("renders no LaneRail markup", async () => {
+  it("renders no stage-rail markup", async () => {
     const { container } = await renderHomeLane(
       attentionPayload([BLOCKED_TOPIC, RUNNING_TOPIC]),
     );
