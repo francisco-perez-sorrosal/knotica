@@ -88,7 +88,7 @@ silently discarded.
 | `desktop install` | Yes | (common only) | Patches (or creates) the Desktop config's `mcpServers.knotica` entry — additive, `.bak` backup, every other server preserved, `env` carried over untouched. |
 | `desktop status` | No | (common only) | Read-only. Prints `command`, `args`, `env` (names only, never values). |
 | `mcp` | Serves | `--vault NAME` none<br>`--http` off<br>`--host HOST` `127.0.0.1`<br>`--port PORT` `8765` | Serves the MCP tool surface. Stdio mode blocks until disconnect; stdout is the JSON-RPC channel — no diagnostic byte reaches it. `--http` needs the server's HTTP extra (`uvicorn`). |
-| `status` | No | `--json` off<br>`--topic NAME` none<br>`--wide` off<br>`--nudge` off | Pure read: pages/curated/unpushed counts per topic, last lint. With `--nudge`: renders the cross-topic attention view using `view="attention"` (cheaper than default: no full-vault lint walk, no note-anchor git subprocess — renders the same signal set the dashboard Home derives: unreachable gate baselines, refused-awaiting-rework, aborted arena races, pending suggestions, open gaps with no discovery run, compile-ready topics, live runners — seven signals, the same seven). `--nudge` is used by `knotica home` and kept permanently in the API because the shipped SessionStart hook calls it. |
+| `status` | No | `--json` off<br>`--topic NAME` none<br>`--wide` off<br>`--nudge` off | Pure read: pages/curated/unpushed counts per topic, last lint. With `--nudge`: renders the cross-topic attention view using `view="attention"` (cheaper than default: no full-vault lint walk, no note-anchor git subprocess — renders the same signal set the dashboard Home derives: unreachable gate baselines, refused-awaiting-rework, aborted arena races, pending suggestions, open gaps with no discovery run, open gaps the vault already answers, compile-ready topics, live runners — eight signals, the same eight). `--nudge` is used by `knotica home` and kept permanently in the API because the shipped SessionStart hook calls it. |
 | `prompt <operation>` | No | `operation` positional, required (`ingest`\|`query`\|`lint`\|`curate`)<br>`--topic NAME` `""`<br>`--source`, `--question`, `--verdict` parity-only, not consumed by this adapter | Renders the vault-resolved operation prompt body verbatim to stdout — byte-identical with the MCP `prompts/get` handler. |
 | `home` | No | (common only) | The cross-topic inbox: what needs attention right now, as plain text. Exits `0` **unconditionally** — an unconfigured install is an empty inbox, not an error — and signals emptiness with empty stdout. Polls the MCP `wiki_status` tool with `view="attention"` (no full-vault lint, no note-anchor resolution — only per-topic gap queue and runner liveness). Implemented via `status --nudge` to keep the two surfaces aligned. |
 | `learn` | No | (common only) | Guidance only, exits `0`: Learn is a conversational protocol, so it carries no deterministic CLI verb. Points at `/knotica:ingest` and `knotica prompt ingest`. |
@@ -153,8 +153,12 @@ identical across a paginated walk or the cursor is invalidated.
 | `wiki_status` | `topic=""`, `vault=""`, `view="summary"` | Four views. `summary` (default) is the full per-topic payload. `scope` is the cheapest read (topic names + totals) for conversational routing. `process_model` serves the lane/stage declaration, vault- and topic-independent. `attention` is the cross-topic inbox — see below. |
 
 `wiki_status view="attention"` returns `{schema_version, vault_name, topics, totals, last_lint,
-drift}`. Each `topics` row is `{topic, suggestions, compile_ready, runner}`: `suggestions` is the
-same per-topic gap-fill queue block `summary` carries, and `runner` is the loop-runner liveness
+drift}`. Each `topics` row is `{topic, suggestions, gaps, compile_ready, runner, arena, gate}`:
+`suggestions` is the same per-topic gap-fill queue block `summary` carries; `gaps` is
+`{open_total, answered_in_vault}`, where `answered_in_vault` counts the open gaps a drain stamped
+`answered_in_vault_at` because every candidate it could find for them is already stored in the vault
+(the fault is retrieval or linking, not acquisition — see [gap-fill](gap-fill.md)); and `runner` is
+the loop-runner liveness
 `{alive, pid, beat_at, interval_seconds}` read per topic — so a cross-topic surface gets a true
 per-topic answer instead of the multi-topic `summary` payload's unconditional `alive: false`.
 `totals` sums `pending`, `refused_awaiting_rework`, `compile_ready` and `runners_alive` across the
@@ -203,6 +207,33 @@ the chosen verb does not take. Passing one is no longer silent: the success enve
 **`ignored_arguments`**, the sorted names that were discarded. A failure envelope is returned
 unchanged, so its own `fix` stays the one thing to act on.
 
+**Every parameter is grounded.** Each published property carries a one-sentence schema
+`description` — its meaning, its default, and its unit where it has one — and a closed-vocabulary
+parameter (`decision`, `verdict`, `role`, `policy`, `direction`, `view`, `source_type`, each
+`<verb>_action`, …) also carries an advisory **`enum`** read from the constant the handler's own
+validation uses. The grounding is declared once, at the handler, and the lane union inherits it.
+Seven lane parameters deliberately publish no description: `mode`, `status`, `target` and `intent`
+mean genuinely different things to the verbs that contribute them within one lane, and publishing
+one verb's semantics over another's would be worse than publishing none — each verb's own schema
+still carries them.
+
+**A success from a lane says what is owed next.** An advancing (mutating) action returns a
+`next_stage` block projected from the same `LANE_MEMBERSHIP`/`LANE_STAGES` declaration the action
+tables come from:
+
+```json
+{"next_stage": {"kind": "always", "lane": "fill", "stage": "ingest",
+                "action": null, "handoff": true,
+                "why": "report progress inside the gap-fill session"}}
+```
+
+`kind` is `always` (a following rail position, with the `action` that advances it — `null` when the
+stage is a handoff the dashboard structurally cannot execute) or `terminal` (the rail's last stage,
+or `tend`, whose rail is independent checks rather than a sequence). A **read** action carries no
+`next_stage` — it advanced nothing. A **failure** carries none either: its `fix` is already the one
+actionable next step. The key is `next_stage` rather than `next` because `fill action=session_status`
+already publishes a `next` of its own (`{actor, do}` — per-session human guidance).
+
 **The six lane dispatchers are generated.** Their action tables, call shapes and description
 action lists are all projections of `LANE_MEMBERSHIP` in `src/knotica/core/process_model.py`, and
 each action routes to the same implementation object the verb's own handler defines — so a lane
@@ -227,7 +258,7 @@ sub-action. There is no alias layer — the old flat names return an unknown-too
 | `suggestions_read` | `fill action=suggestions_read` | `topic` (req); `status="pending"`, `cursor=""`, `limit=20`, `vault=""` | Paginated gap-fill queue. `status` ∈ `pending`\|`approved`\|`rejected`\|`deferred`\|`ingested`\|`all`. `limit` max `50`. |
 | `suggestions_review` | `fill action=suggestions_review` | `topic`, `suggestion_id`, `action` (req); `mode="dry-run"`, `reason=""`, `vault=""` | `action` ∈ `approve`\|`reject`\|`defer`\|`mark_ingested`\|`withdraw`. `reject` requires a non-empty `reason`. `withdraw` returns an `approved` suggestion to `pending` without asserting an ingest. |
 | `gaps_read` | `fill action=gaps_read` | `topic` (req); `status="open"`, `cursor=""`, `limit=20`, `vault=""` | Paginated P1 gap queue — the stage *before* sources exist. `status` ∈ `open`\|`resolved`\|`dismissed`\|`all` (here `all` means all three, unlike `suggestions_read`). `limit` max `50`. Returns `origin_counts` alongside `status_counts`. |
-| `gapfill_discover` | `fill action=gapfill_discover` | `topic` (req); `max_gaps=0`, `confirm=""`, `vault=""` | **Billed, two-phase.** A bare call previews (`open_gaps`, `would_drain`, `provider_configured`, `estimated_cost`) and returns a single-use `confirm_nonce` with a 300 s `ttl`, spending nothing; only a call passing that nonce as `confirm` runs the search. `max_gaps=0` drains every open gap. Candidate URLs are canonicalized (SEP archive editions collapse to the living entry) and candidates the vault already stores as ingested sources are skipped, counted as `candidates_already_in_vault`; each drain also closes still-open queue records whose source is now in the vault or that duplicate one source per gap, counted as `stale_suggestions_closed`, and reports gaps whose every candidate the vault already holds as `gaps_fully_in_vault`. That queue-healing pass runs on **every** drain — zero open gaps and no provider key included. No provider key → stages nothing, `provider_configured=false`; the search chain also falls through a provider whose entire yield fails the URL floor rather than stopping on its empty result. |
+| `gapfill_discover` | `fill action=gapfill_discover` | `topic` (req); `max_gaps=0`, `confirm=""`, `vault=""` | **Billed, two-phase.** A bare call previews (`open_gaps`, `would_drain`, `provider_configured`, `estimated_cost`) and returns a single-use `confirm_nonce` with a 300 s `ttl`, spending nothing; only a call passing that nonce as `confirm` runs the search. `max_gaps=0` drains every open gap. Candidate URLs are canonicalized (SEP archive editions collapse to the living entry) and candidates the vault already stores as ingested sources are skipped, counted as `candidates_already_in_vault`; each drain also closes still-open queue records whose source is now in the vault or that duplicate one source per gap, counted as `stale_suggestions_closed`, and reports gaps whose every candidate the vault already holds as `gaps_fully_in_vault` (also stamped on each such gap record as `answered_in_vault_at`, and cleared again by the first drain that stages a suggestion for it, so the signal reaches Home without a drain). That queue-healing pass runs on **every** drain — zero open gaps and no provider key included. No provider key → stages nothing, `provider_configured=false`; the search chain also falls through a provider whose entire yield fails the URL floor rather than stopping on its empty result. |
 | `review_gap` | `fill action=review_gap` | `topic`, `gap_id`, `decision` (req); `reason=""`, `vault=""` | The human close over the gap queue. `decision=dismiss` requires a non-empty `reason` and is legal only from `open`; it also closes the gap's still-open suggestions (`pending`/`approved`/`deferred` become `rejected` with `gap dismissed: <reason>`) in the same commit, returning their ids as `cascaded_suggestion_ids`. An `approved` suggestion that already has a live `loop/c/` candidate branch is spared the cascade — the gate dispositions it, because it merges that branch before stamping the record. `decision=reopen` is legal only from `dismissed` and its `reason` is optional; it resurrects no suggestion — re-run discovery to re-propose sources, which now works: a cascade closure is marked `gap dismissed: ` and does **not** dedup a re-drain, while a human rejection of the source still does. Every refusal names the legal exit, not only the rule broken. Any other source status refuses with `INVALID_ARGUMENT`. The reason is persisted on the gap record (`decided_reason`) and survives a re-read. |
 | `source_ingest_open` | `fill action=source_ingest_open` | `topic`, `suggestion_id` (req), `vault=""` | Opens/resumes a private candidate context for one approved suggestion. Idempotent (same handle on reopen). |
 | `source_ingest_submit` | `fill action=source_ingest_submit` | `topic`, `suggestion_id` (req); `mode="dry-run"`, `vault=""` | Finalizes candidate ingest, drives the loop gate synchronously. `mode=apply` returns `merged`\|`refused`\|`blocked`. |

@@ -7,19 +7,57 @@ best-effort journal appends (not git commits); the dashboard Ingest pane polls
 
 from __future__ import annotations
 
-from typing import Any
+from typing import Annotated, Any
 
 from mcp.server.fastmcp import FastMCP
 from mcp.types import CallToolResult
 
 from knotica.core.config import ResolvedVault
-from knotica.core.ingest_activity import append_ingest_event, read_ingest_activity
+from knotica.core.ingest_activity import (
+    CURATE_STAGES,
+    INGEST_STAGES,
+    append_ingest_event,
+    read_ingest_activity,
+)
+from knotica.mcp_server import tool_params
 from knotica.mcp_server.vault_ctx import with_resolved_vault
 from knotica.store import VaultStore
 
 __all__ = ["register_ingest_lane_tools", "register_ingest_tools"]
 
 ToolResult = CallToolResult
+
+#: The journal's own stage vocabulary, both workflows, deduplicated with the
+#: ingest order preserved -- the same tuples the Learn rail is folded from.
+_JOURNAL_STAGES: tuple[str, ...] = tuple(dict.fromkeys((*INGEST_STAGES, *CURATE_STAGES, "error")))
+
+#: The outcome vocabulary an event carries. `info` is what `append_ingest_event`
+#: falls back to for an empty status, so it is the default here too.
+_PROGRESS_STATUSES: tuple[str, ...] = ("info", "ok", "error")
+_DEFAULT_PROGRESS_STATUS = "info"
+
+_Stage = Annotated[
+    str,
+    tool_params.grounded(
+        "Which pipeline checkpoint this event reports; 'error' marks the run failed.",
+        _JOURNAL_STAGES,
+    ),
+]
+
+_ProgressStatus = Annotated[
+    str,
+    tool_params.grounded(
+        f"Outcome of this checkpoint; '{_DEFAULT_PROGRESS_STATUS}' is the default.",
+        _PROGRESS_STATUSES,
+    ),
+]
+
+_Detail = Annotated[
+    str,
+    tool_params.grounded(
+        "One-line detail shown under the event's title; optional.",
+    ),
+]
 
 _PROGRESS_DESCRIPTION = (
     "Append a live ingest-progress event for the dashboard Ingest pane. Call this "
@@ -45,14 +83,14 @@ def register_ingest_tools(mcp: FastMCP) -> None:
 
     @mcp.tool(name="ingest_progress", description=_PROGRESS_DESCRIPTION)
     def ingest_progress(
-        topic: str,
-        stage: str,
-        title: str,
-        status: str = "info",
-        detail: str = "",
-        run_id: str = "",
-        citation_key: str = "",
-        vault: str = "",
+        topic: tool_params.Topic,
+        stage: _Stage,
+        title: tool_params.Title,
+        status: _ProgressStatus = _DEFAULT_PROGRESS_STATUS,
+        detail: _Detail = "",
+        run_id: tool_params.RunId = "",
+        citation_key: tool_params.CitationKey = "",
+        vault: tool_params.Vault = "",
     ) -> ToolResult:
         return with_resolved_vault(
             vault,
@@ -83,10 +121,10 @@ def register_ingest_lane_tools(mcp: FastMCP) -> None:
 
     @mcp.tool(name="ingest_activity_read", description=_READ_DESCRIPTION)
     def ingest_activity_read(
-        topic: str = "",
-        run_id: str = "",
-        limit: int = 120,
-        vault: str = "",
+        topic: tool_params.Topic = "",
+        run_id: tool_params.RunId = "",
+        limit: tool_params.Limit = 120,
+        vault: tool_params.Vault = "",
     ) -> ToolResult:
         return with_resolved_vault(
             vault,

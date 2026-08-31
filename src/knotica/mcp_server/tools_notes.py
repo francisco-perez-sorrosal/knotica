@@ -27,7 +27,7 @@ the note is on disk would have it tell the user their thought was lost.
 from __future__ import annotations
 
 from pathlib import Path, PurePath
-from typing import Any
+from typing import Annotated, Any
 
 from mcp.server.fastmcp import FastMCP
 from mcp.types import CallToolResult
@@ -37,12 +37,38 @@ from knotica.core.notes.store import ResolvedNote, read_note
 from knotica.core.notes_config import resolve_notes_config
 from knotica.core.operations.capture_note import capture_note
 from knotica.core.vcs import VaultVcs
+from knotica.mcp_server import tool_params
 from knotica.mcp_server.vault_ctx import with_resolved_vault
 from knotica.store import VaultStore
 
 __all__ = ["register_notes_tools", "render_anchors"]
 
 ToolResult = CallToolResult
+
+#: `note_capture`'s own default intent -- the unclassified marginal remark.
+_DEFAULT_CAPTURE_INTENT = "reflection"
+
+_NoteBody = Annotated[
+    str,
+    tool_params.grounded(
+        "The note's text, in the user's own words. Required and never empty.",
+    ),
+]
+
+_NotePages = Annotated[
+    list[str],
+    tool_params.grounded(
+        "Vault-relative paths of the pages this note is about; empty (the default) "
+        "leaves the note unanchored to any page.",
+    ),
+]
+
+_NoteTags = Annotated[
+    list[str],
+    tool_params.grounded(
+        "Free-text tags to file the note under; empty (the default) means untagged.",
+    ),
+]
 
 _CAPTURE_DESCRIPTION = (
     "Save one personal note (marginalia) against a topic, anchored to the KB "
@@ -99,13 +125,15 @@ def register_notes_tools(mcp: FastMCP) -> None:
 
     @mcp.tool(name="note_capture", description=_CAPTURE_DESCRIPTION)
     def note_capture(
-        topic: str,
-        note: str,
-        quote: str = "",
-        pages: list[str] = [],  # never mutated; the wire schema needs a literal `default: []`
-        intent: str = "reflection",
-        tags: list[str] = [],  # never mutated; the wire schema needs a literal `default: []`
-        vault: str = "",
+        topic: tool_params.Topic,
+        note: _NoteBody,
+        quote: tool_params.Quote = "",
+        # never mutated; the wire schema needs a literal `default: []`
+        pages: _NotePages = [],
+        intent: tool_params.Intent = _DEFAULT_CAPTURE_INTENT,
+        # never mutated; the wire schema needs a literal `default: []`
+        tags: _NoteTags = [],
+        vault: tool_params.Vault = "",
     ) -> ToolResult:
         return with_resolved_vault(
             vault,

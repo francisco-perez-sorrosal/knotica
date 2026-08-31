@@ -8,12 +8,13 @@ the governing two-tier tool-surface ADRs live in ``.ai-state/decisions/``.
 
 from __future__ import annotations
 
-from typing import Any
+from typing import Annotated, Any
 
 from mcp.server.fastmcp import FastMCP
 from mcp.types import CallToolResult
 
 from knotica.core.errors import ErrorCode, KnoticaError
+from knotica.mcp_server import tool_params
 from knotica.mcp_server.dispatch_telemetry import record_rejected_action
 from knotica.mcp_server.tools_arena import _history_payload, _status_payload
 from knotica.mcp_server.vault_ctx import with_resolved_vault
@@ -25,6 +26,14 @@ ToolResult = CallToolResult
 
 _DISPATCHER = "arena"
 _ACTIONS = ("status", "history")
+
+_ArenaAction = Annotated[
+    str,
+    tool_params.grounded(
+        "'status' reads the current arena standing; 'history' reads past races.",
+        _ACTIONS,
+    ),
+]
 
 _ARENA_DISPATCH_DESCRIPTION = (
     "Race prompt variants against each other and read the result. Operator-tier "
@@ -45,7 +54,12 @@ def register_dispatch_arena_tools(mcp: FastMCP) -> None:
     """Register the ``arena`` operator dispatcher on ``mcp``."""
 
     @mcp.tool(name="arena", description=_ARENA_DISPATCH_DESCRIPTION)
-    def arena(action: str, topic: str, limit: int = 20, vault: str = "") -> ToolResult:
+    def arena(
+        action: _ArenaAction,
+        topic: tool_params.Topic,
+        limit: tool_params.Limit = 20,
+        vault: tool_params.Vault = "",
+    ) -> ToolResult:
         return with_resolved_vault(
             vault,
             lambda store, _resolved: _dispatch_payload(store, action, topic, limit=limit),

@@ -49,6 +49,12 @@ pass instead. The note rides only on a **success** envelope; a failure is
 returned unchanged, so the failure's own ``fix=`` stays the one thing a
 caller acts on. An unrecognised action that is *not* declared superseded is
 rejected exactly as before -- ``INVALID_ARGUMENT`` plus the live action set.
+
+**What the lane owes next.** A success from an advancing verb carries a
+``next_stage`` block naming the rail position that follows -- projected from the same
+declaration everything else here is (:mod:`knotica.mcp_server.lane_next`), and
+attached at the single routing seam so all six lanes inherit it rather than six
+wirings inheriting a bug apiece. Reads carry none; a failure is untouched.
 """
 
 from __future__ import annotations
@@ -59,7 +65,7 @@ from collections.abc import Callable, Mapping
 from functools import reduce
 from operator import or_
 from types import MappingProxyType
-from typing import Annotated, Any, cast
+from typing import Annotated, Any, cast, get_args, get_origin
 
 from mcp.server.fastmcp import FastMCP
 from mcp.types import CallToolResult
@@ -67,7 +73,7 @@ from pydantic import Field
 
 from knotica.core import process_model
 from knotica.core.errors import ErrorCode, KnoticaError
-from knotica.mcp_server import envelope
+from knotica.mcp_server import envelope, lane_next
 from knotica.mcp_server.dispatch_telemetry import record_rejected_action
 from knotica.mcp_server.tools_dispatch_arena import register_dispatch_arena_tools
 from knotica.mcp_server.tools_dispatch_branches import register_dispatch_branches_tools
@@ -231,6 +237,35 @@ def _lane_parameter_name(verb: str, parameter: str) -> str:
     return f"{verb}{_OWN_ACTION_SUFFIX}" if parameter == _SELECTOR else parameter
 
 
+def _split_annotation(annotation: Any) -> tuple[Any, tuple[Any, ...]]:
+    """``(base type, schema metadata)`` for an annotation that may be ``Annotated``."""
+    if get_origin(annotation) is Annotated:
+        base, *metadata = get_args(annotation)
+        return base, tuple(metadata)
+    return annotation, ()
+
+
+def _shared_metadata(metadatas: list[tuple[Any, ...]]) -> tuple[Any, ...]:
+    """The one schema metadata every contributing verb agreed on, else nothing.
+
+    A lane parameter is the union of several verbs' own parameters, so its
+    grounding is only publishable when those verbs *mean the same thing* by the
+    name. ``suggestion_id`` does -- four verbs, one alias from
+    :mod:`knotica.mcp_server.tool_params`, one metadata tuple. ``mode`` does
+    not: ``dry-run|apply`` for a mutating verb, ``best|latest`` for
+    ``loop_action=rebaseline``, ``compile|loop`` for ``prompt_diff``. Publishing
+    one of those over the others would be worse than publishing none, so
+    disagreement degrades to the plain type and the grounding survives only on
+    the verb's own flat schema. Compared by ``repr`` because two ``FieldInfo``
+    objects built from the same ``Field(...)`` call are equal in text, not in
+    identity.
+    """
+    distinct = {tuple(repr(item) for item in metadata): metadata for metadata in metadatas}
+    if len(distinct) != 1:
+        return ()
+    return next(iter(distinct.values()))
+
+
 def _optional(annotations: list[Any]) -> Any:
     """``X | None``, or ``X | Y | None`` where two verbs type one name differently.
 
@@ -249,12 +284,19 @@ def _optional(annotations: list[Any]) -> Any:
     exists to hold structurally -- for every all-``str`` parameter. Optionality
     does not depend on the annotation: it comes from ``default=None`` plus
     :func:`_forwarded` dropping unset arguments, both of which are unchanged.
+
+    Schema grounding rides through unchanged when every contributing verb
+    annotated the name identically (see :func:`_shared_metadata`); the
+    ``Annotated`` wrapper leaves ``FieldInfo.annotation`` alone, so re-attaching
+    it over a bare ``str`` does not arm the pre-parse the paragraph above
+    exists to avoid.
     """
-    ordered = sorted({str(annotation): annotation for annotation in annotations}.items())
-    distinct = [annotation for _key, annotation in ordered]
-    if distinct == [str]:
-        return str
-    return reduce(or_, distinct) | None
+    split = [_split_annotation(annotation) for annotation in annotations]
+    ordered = sorted({str(base): base for base, _metadata in split}.items())
+    distinct = [base for _key, base in ordered]
+    core = str if distinct == [str] else reduce(or_, distinct) | None
+    metadata = _shared_metadata([metadata for _base, metadata in split])
+    return Annotated[(core, *metadata)] if metadata else core
 
 
 def _selector_annotation(lane: str, actions: tuple[str, ...]) -> Any:
@@ -274,7 +316,16 @@ def _selector_annotation(lane: str, actions: tuple[str, ...]) -> Any:
     the deprecation seam is advertised as callable rather than as a typo.
     """
     published: list[Any] = list(actions) + list(_superseded_actions(lane))
-    return Annotated[str, Field(json_schema_extra={"enum": published})]
+    return Annotated[
+        str,
+        Field(
+            description=(
+                f"Which {lane} action to run; required. See the Actions list in this "
+                "tool's description for what each one does and which are billed."
+            ),
+            json_schema_extra={"enum": published},
+        ),
+    ]
 
 
 def _lane_signature(lane: str, actions: tuple[str, ...]) -> inspect.Signature:
@@ -383,7 +434,10 @@ def _dispatch(lane: str, actions: tuple[str, ...], arguments: dict[str, Any]) ->
                 fix=f"Pass {' and '.join(missing)} with the call.",
             )
         )
-    return _with_ignored_arguments(handler(**forwarded), ignored)
+    result = _with_ignored_arguments(handler(**forwarded), ignored)
+    # The one seam every lane inherits `next` through: routing already knows
+    # which lane and which verb, which is exactly what the projection needs.
+    return envelope.with_next_stage(result, lane_next.next_stage(lane, verb))
 
 
 def _ignored_arguments(verb: str, arguments: Mapping[str, Any]) -> list[str]:

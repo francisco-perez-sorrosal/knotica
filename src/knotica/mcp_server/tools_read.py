@@ -23,7 +23,7 @@ asserts):
 
 from collections.abc import Callable
 from pathlib import Path
-from typing import Any, cast
+from typing import Annotated, Any, cast
 
 from mcp.server.fastmcp import FastMCP
 from mcp.types import CallToolResult
@@ -40,7 +40,7 @@ from knotica.core.page import read_page as read_page_core
 from knotica.core.status_counts import page_count
 from knotica.core.topics import is_topic
 from knotica.core.vault_layout import SCORED_FAMILIES, Family
-from knotica.mcp_server import envelope
+from knotica.mcp_server import envelope, tool_params
 from knotica.search import DEFAULT_PAGE_SIZE, InvalidCursorError, RipgrepBackend
 from knotica.store import LocalFSStore, VaultStore
 
@@ -68,6 +68,29 @@ _LIST_TOPICS_DESCRIPTION = (
 #: The folder families `search` accepts on the wire. Personal notes are a
 #: member but never a default -- see `_resolve_families`.
 _VALID_FAMILIES: frozenset[str] = frozenset({"page", "source", "note"})
+
+#: The `direction` vocabulary `_collect_links` branches on, named so the
+#: published enum reads it rather than restating it.
+_DIRECTIONS: tuple[str, ...] = ("out", "in", "both")
+
+_Families = Annotated[
+    list[str],
+    tool_params.grounded(
+        "Folder families to search. Empty (the default) searches the knowledge base "
+        f"only; pass any of {sorted(_VALID_FAMILIES)} to widen it. Notes are private "
+        "marginalia -- include 'note' only when the request is about the user's own "
+        "notes. Must stay identical across a paginated walk.",
+    ),
+]
+
+_Direction = Annotated[
+    str,
+    tool_params.grounded(
+        "Which link edges to return: 'out' = pages this page links to, 'in' = "
+        "backlinks, 'both' (the default) = both.",
+        _DIRECTIONS,
+    ),
+]
 
 _SEARCH_DESCRIPTION = (
     "Search page contents and return POINTERS (topic, page path, a short snippet, relevance "
@@ -122,21 +145,24 @@ def register_read_tools(mcp: FastMCP) -> None:
     """
 
     @mcp.tool(name="list_topics", description=_LIST_TOPICS_DESCRIPTION)
-    def list_topics(vault: str = "") -> ToolResult:
+    def list_topics(vault: tool_params.Vault = "") -> ToolResult:
         return _read(lambda store, _root: _collect_topics(store), vault_name=vault)
 
     @mcp.tool(name="read_page", description=_READ_PAGE_DESCRIPTION)
-    def read_page(topic: str, page: str, vault: str = "") -> ToolResult:
+    def read_page(
+        topic: tool_params.Topic, page: tool_params.Page, vault: tool_params.Vault = ""
+    ) -> ToolResult:
         return _read(lambda store, _root: _read_one_page(store, topic, page), vault_name=vault)
 
     @mcp.tool(name="search", description=_SEARCH_DESCRIPTION)
     def search(
-        query: str,
-        topic: str = "",
-        cursor: str = "",
-        limit: int = DEFAULT_PAGE_SIZE,
-        families: list[str] = [],  # never mutated; the wire schema needs a literal `default: []`
-        vault: str = "",
+        query: tool_params.Query,
+        topic: tool_params.Topic = "",
+        cursor: tool_params.Cursor = "",
+        limit: tool_params.Limit = DEFAULT_PAGE_SIZE,
+        # never mutated; the wire schema needs a literal `default: []`
+        families: _Families = [],
+        vault: tool_params.Vault = "",
     ) -> ToolResult:
         # Validated inside the _read closure so a rejected family name becomes
         # an INVALID_ARGUMENT envelope like every other bad argument, rather
@@ -157,7 +183,12 @@ def register_read_tools(mcp: FastMCP) -> None:
         )
 
     @mcp.tool(name="list_links", description=_LIST_LINKS_DESCRIPTION)
-    def list_links(topic: str, page: str, direction: str = "both", vault: str = "") -> ToolResult:
+    def list_links(
+        topic: tool_params.Topic,
+        page: tool_params.Page,
+        direction: _Direction = "both",
+        vault: tool_params.Vault = "",
+    ) -> ToolResult:
         return _read(
             lambda store, _root: _collect_links(store, topic, page, direction), vault_name=vault
         )
@@ -174,7 +205,7 @@ def register_read_lane_tools(mcp: FastMCP) -> None:
     """
 
     @mcp.tool(name="lint_check", description=_LINT_CHECK_DESCRIPTION)
-    def lint_check(topic: str = "", vault: str = "") -> ToolResult:
+    def lint_check(topic: tool_params.Topic = "", vault: tool_params.Vault = "") -> ToolResult:
         return _read(
             lambda store, _root: envelope.read_ok(
                 {"violations": [violation.render() for violation in lint_vault(store, topic)]}

@@ -11,7 +11,7 @@ the governing two-tier tool-surface ADRs live in ``.ai-state/decisions/``.
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Any
+from typing import Annotated, Any
 
 from mcp.server.fastmcp import FastMCP
 from mcp.types import CallToolResult
@@ -20,7 +20,7 @@ from knotica.core.branch_scoreboard import gather_branch_scoreboard
 from knotica.core.compile_promote import compile_promote
 from knotica.core.errors import ErrorCode, KnoticaError
 from knotica.core.loop_promote import loop_promote
-from knotica.mcp_server import envelope
+from knotica.mcp_server import envelope, tool_params
 from knotica.mcp_server.dispatch_telemetry import record_rejected_action
 from knotica.mcp_server.tools_scoreboard import _delete_payload, _promote_payload
 from knotica.mcp_server.vault_ctx import with_resolved_vault
@@ -33,6 +33,37 @@ ToolResult = CallToolResult
 _DISPATCHER = "branches"
 _ACTIONS = ("scoreboard", "promote_loop", "promote", "delete")
 _PROMOTE_KINDS = ("compile", "loop")
+
+#: `promote`/`delete`'s two phases.
+_BRANCHES_MODES: tuple[str, ...] = ("dry-run", "apply")
+_DEFAULT_BRANCHES_MODE = "dry-run"
+
+_BranchesAction = Annotated[
+    str,
+    tool_params.grounded(
+        "Which branch operation to run; see this tool's description for each.",
+        _ACTIONS,
+    ),
+]
+
+_PromoteKind = Annotated[
+    str,
+    tool_params.grounded(
+        "Which family of candidate branch to act on: 'compile' for DSPy compile "
+        "branches, 'loop' for gate-loop branches. Empty (the default) lets the "
+        "action infer it from the branch name.",
+        _PROMOTE_KINDS,
+    ),
+]
+
+_BranchesMode = Annotated[
+    str,
+    tool_params.grounded(
+        f"'{_DEFAULT_BRANCHES_MODE}' (the default) previews the promote or delete "
+        "and writes nothing; 'apply' performs it.",
+        _BRANCHES_MODES,
+    ),
+]
 
 _BRANCHES_DISPATCH_DESCRIPTION = (
     "Score the candidate branches a compile or eval produced, then promote or "
@@ -63,12 +94,12 @@ def register_dispatch_branches_tools(mcp: FastMCP) -> None:
 
     @mcp.tool(name="branches", description=_BRANCHES_DISPATCH_DESCRIPTION)
     def branches(
-        action: str,
-        topic: str,
-        branch: str = "",
-        kind: str = "",
-        mode: str = "dry-run",
-        vault: str = "",
+        action: _BranchesAction,
+        topic: tool_params.Topic,
+        branch: tool_params.Branch = "",
+        kind: _PromoteKind = "",
+        mode: _BranchesMode = _DEFAULT_BRANCHES_MODE,
+        vault: tool_params.Vault = "",
     ) -> ToolResult:
         return with_resolved_vault(
             vault,

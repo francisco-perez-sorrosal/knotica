@@ -13,16 +13,25 @@ Single source of truth: the body comes from
 this tool, the MCP prompt surface, and the CLI never drift.
 """
 
-from typing import Literal
+from typing import Annotated, Literal
 
 from mcp.server.fastmcp import FastMCP
 from mcp.types import CallToolResult
 
 from knotica.core.errors import KnoticaError
 from knotica.core.prompts import get_prompt
+from knotica.mcp_server import tool_params
 from knotica.mcp_server.envelope import error_envelope, success_result
 
 __all__ = ["register_guide_tools"]
+
+_Operation = Annotated[
+    Literal["ingest", "query", "lint", "curate"],
+    tool_params.grounded(
+        "Which operation's protocol to return. The SDK enforces this enum at the "
+        "schema layer -- see the note on register_guide_tools.",
+    ),
+]
 
 _READ_PROTOCOL_DESCRIPTION = (
     "Return the step-by-step protocol for a knotica operation (ingest, query, lint, or curate), "
@@ -46,9 +55,7 @@ def register_guide_tools(mcp: FastMCP) -> None:
     """
 
     @mcp.tool(name="read_protocol", description=_READ_PROTOCOL_DESCRIPTION)
-    def read_protocol(
-        operation: Literal["ingest", "query", "lint", "curate"], topic: str = ""
-    ) -> CallToolResult:
+    def read_protocol(operation: _Operation, topic: tool_params.Topic = "") -> CallToolResult:
         try:
             resolved = get_prompt(operation, topic)
         except KnoticaError as error:  # malformed vault: READY but missing prompt defaults

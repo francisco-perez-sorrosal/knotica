@@ -14,7 +14,7 @@ on the client to remember ``ingest_progress``.
 
 from collections.abc import Callable
 from pathlib import Path
-from typing import Any
+from typing import Annotated, Any
 
 from mcp.server.fastmcp import FastMCP
 from mcp.types import CallToolResult
@@ -23,7 +23,7 @@ from knotica.core import operations
 from knotica.core.config import resolve
 from knotica.core.errors import ErrorCode, KnoticaError
 from knotica.core.ingest_activity import append_ingest_event
-from knotica.mcp_server import envelope
+from knotica.mcp_server import envelope, tool_params
 from knotica.store import LocalFSStore, VaultStore
 
 # --- verbatim tool descriptions (the executable interface; do not paraphrase) ---
@@ -83,19 +83,78 @@ _CURATE_EXAMPLE_DESCRIPTION = (
 
 ToolResult = CallToolResult
 
+#: `store_source`'s original-format vocabulary and its default, named here so
+#: the published enum and the default in the signature read one declaration.
+_SOURCE_TYPES: tuple[str, ...] = ("markdown", "html", "pdf", "text")
+_DEFAULT_SOURCE_TYPE = "markdown"
+
+# --- the write-only parameter grounding (shared names live in tool_params) ---
+
+_Summary = Annotated[
+    str,
+    tool_params.grounded(
+        "One-line commit subject describing this write, in the imperative mood.",
+    ),
+]
+
+_IndexEntry = Annotated[
+    str,
+    tool_params.grounded(
+        "One-line entry for the topic's index.md; empty (the default) leaves the index untouched.",
+    ),
+]
+
+_SourceUrl = Annotated[
+    str,
+    tool_params.grounded(
+        "URL the source was fetched from, recorded as provenance; empty when there is none.",
+    ),
+]
+
+_SourceType = Annotated[
+    str,
+    tool_params.grounded(
+        f"Original format of the source content; '{_DEFAULT_SOURCE_TYPE}' is the default.",
+        _SOURCE_TYPES,
+    ),
+]
+
+_PagesUsed = Annotated[
+    list[str] | None,
+    tool_params.grounded(
+        "Vault-relative paths of the pages the answer cited; omit (the default) for "
+        "an example with no cited pages.",
+    ),
+]
+
+_CurationNotes = Annotated[
+    str,
+    tool_params.grounded(
+        "Free-text note recorded with the example explaining the verdict; optional.",
+    ),
+]
+
+_TopicDescription = Annotated[
+    str,
+    tool_params.grounded(
+        "One-line description written into the new topic's schema; empty (the "
+        "default) leaves the template's placeholder in place.",
+    ),
+]
+
 
 def register_write_tools(mcp: FastMCP) -> None:
     """Register the three published mutating tools on ``mcp``."""
 
     @mcp.tool(name="write_page", description=_WRITE_PAGE_DESCRIPTION)
     def write_page(
-        topic: str,
-        page: str,
-        content: str,
-        summary: str,
-        index_entry: str = "",
-        candidate: str = "",
-        vault: str = "",
+        topic: tool_params.Topic,
+        page: tool_params.Page,
+        content: tool_params.Content,
+        summary: _Summary,
+        index_entry: _IndexEntry = "",
+        candidate: tool_params.Candidate = "",
+        vault: tool_params.Vault = "",
     ) -> ToolResult:
         return _write(
             lambda store, root: operations.write_page(
@@ -123,14 +182,14 @@ def register_write_tools(mcp: FastMCP) -> None:
 
     @mcp.tool(name="store_source", description=_STORE_SOURCE_DESCRIPTION)
     def store_source(
-        topic: str,
-        citation_key: str,
-        title: str,
-        content: str,
-        source_url: str,
-        source_type: str = "markdown",
-        candidate: str = "",
-        vault: str = "",
+        topic: tool_params.Topic,
+        citation_key: tool_params.CitationKey,
+        title: tool_params.Title,
+        content: tool_params.Content,
+        source_url: _SourceUrl,
+        source_type: _SourceType = _DEFAULT_SOURCE_TYPE,
+        candidate: tool_params.Candidate = "",
+        vault: tool_params.Vault = "",
     ) -> ToolResult:
         return _write(
             lambda store, root: operations.store_source(
@@ -160,13 +219,13 @@ def register_write_tools(mcp: FastMCP) -> None:
 
     @mcp.tool(name="curate_example", description=_CURATE_EXAMPLE_DESCRIPTION)
     def curate_example(
-        topic: str,
-        query: str,
-        answer: str,
-        verdict: str,
-        pages_used: list[str] | None = None,
-        notes: str = "",
-        vault: str = "",
+        topic: tool_params.Topic,
+        query: tool_params.Query,
+        answer: tool_params.Answer,
+        verdict: tool_params.Verdict,
+        pages_used: _PagesUsed = None,
+        notes: _CurationNotes = "",
+        vault: tool_params.Vault = "",
     ) -> ToolResult:
         return _write(
             lambda store, root: operations.curate_example(
@@ -206,7 +265,11 @@ def register_write_lane_tools(mcp: FastMCP) -> None:
     """
 
     @mcp.tool(name="create_topic", description=_CREATE_TOPIC_DESCRIPTION)
-    def create_topic(topic: str, description: str = "", vault: str = "") -> ToolResult:
+    def create_topic(
+        topic: tool_params.Topic,
+        description: _TopicDescription = "",
+        vault: tool_params.Vault = "",
+    ) -> ToolResult:
         return _write(
             lambda store, root: operations.create_topic(
                 store, root, topic, description=description or None

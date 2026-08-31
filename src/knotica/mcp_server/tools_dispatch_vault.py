@@ -16,7 +16,7 @@ from __future__ import annotations
 import importlib.util
 import os
 from pathlib import Path
-from typing import Any
+from typing import Annotated, Any
 
 from mcp.server.fastmcp import FastMCP
 from mcp.types import CallToolResult
@@ -25,7 +25,7 @@ from knotica.core import config_write, vault_scaffold
 from knotica.core.config import ConfigState, config_file_path, diagnose, list_vaults
 from knotica.core.errors import ErrorCode, KnoticaError
 from knotica.evals.llm import API_KEY_ENV_VAR, OAUTH_TOKEN_ENV_VAR
-from knotica.mcp_server import envelope
+from knotica.mcp_server import envelope, tool_params
 from knotica.mcp_server.dispatch_telemetry import record_rejected_action
 
 __all__ = ["register_dispatch_vault_tools"]
@@ -34,6 +34,38 @@ ToolResult = CallToolResult
 
 _DISPATCHER = "vault"
 _ACTIONS = ("list", "status", "use", "add", "create")
+
+_VaultAction = Annotated[
+    str,
+    tool_params.grounded(
+        "Which vault operation to run; see this tool's description for each.",
+        _ACTIONS,
+    ),
+]
+
+_VaultName = Annotated[
+    str,
+    tool_params.grounded(
+        "Configured vault name to act on. Required by vault_action=use/add/create; "
+        "ignored by 'list' and optional for 'status'.",
+    ),
+]
+
+_VaultPath = Annotated[
+    str,
+    tool_params.grounded(
+        "Absolute filesystem path of the vault repository. Required by "
+        "vault_action=add and vault_action=create.",
+    ),
+]
+
+_MakeDefault = Annotated[
+    bool,
+    tool_params.grounded(
+        "Also make this vault the configured default_vault; false is the default, "
+        "which registers it without switching.",
+    ),
+]
 
 _VAULT_DISPATCH_DESCRIPTION = (
     "Inspect and switch the active knowledge base (vault). "
@@ -64,11 +96,11 @@ def register_dispatch_vault_tools(mcp: FastMCP) -> None:
 
     @mcp.tool(name="vault", description=_VAULT_DISPATCH_DESCRIPTION)
     def vault(
-        action: str,
-        name: str = "",
-        path: str = "",
-        make_default: bool = False,
-        topic: str = "",
+        action: _VaultAction,
+        name: _VaultName = "",
+        path: _VaultPath = "",
+        make_default: _MakeDefault = False,
+        topic: tool_params.Topic = "",
     ) -> ToolResult:
         try:
             payload = _dispatch(

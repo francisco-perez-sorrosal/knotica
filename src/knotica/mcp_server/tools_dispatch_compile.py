@@ -10,7 +10,7 @@ the governing two-tier tool-surface ADRs live in ``.ai-state/decisions/``.
 
 from __future__ import annotations
 
-from typing import Any
+from typing import Annotated, Any
 
 from mcp.server.fastmcp import FastMCP
 from mcp.types import CallToolResult
@@ -18,7 +18,7 @@ from mcp.types import CallToolResult
 from knotica.core.compile_run import compile_status_payload
 from knotica.core.config import ResolvedVault
 from knotica.core.errors import ErrorCode, KnoticaError
-from knotica.mcp_server import envelope
+from knotica.mcp_server import envelope, tool_params
 from knotica.mcp_server.dispatch_telemetry import record_rejected_action
 from knotica.mcp_server.tools_compile import _promote_payload, _run_payload
 from knotica.mcp_server.vault_ctx import with_resolved_vault
@@ -30,6 +30,35 @@ ToolResult = CallToolResult
 
 _DISPATCHER = "compile"
 _ACTIONS = ("run", "status", "promote")
+
+#: `run`/`promote`'s two phases.
+_COMPILE_MODES: tuple[str, ...] = ("dry-run", "apply")
+_DEFAULT_COMPILE_MODE = "dry-run"
+
+_CompileAction = Annotated[
+    str,
+    tool_params.grounded(
+        "Which compile operation to run; see this tool's description for each.",
+        _ACTIONS,
+    ),
+]
+
+_CompileMode = Annotated[
+    str,
+    tool_params.grounded(
+        f"'{_DEFAULT_COMPILE_MODE}' (the default) previews the run or promotion and "
+        "writes nothing; 'apply' performs it. compile_action=run is billed under "
+        "'apply'.",
+        _COMPILE_MODES,
+    ),
+]
+
+_UseMipro = Annotated[
+    bool,
+    tool_params.grounded(
+        "Optimize with DSPy MIPROv2 rather than the cheaper bootstrap optimizer; true is the default.",
+    ),
+]
 
 _COMPILE_DISPATCH_DESCRIPTION = (
     "Compile a new query program for a topic from its trainset, then promote "
@@ -59,12 +88,12 @@ def register_dispatch_compile_tools(mcp: FastMCP) -> None:
 
     @mcp.tool(name="compile", description=_COMPILE_DISPATCH_DESCRIPTION)
     def compile(
-        action: str,
-        topic: str,
-        branch: str = "",
-        mode: str = "dry-run",
-        use_mipro: bool = True,
-        vault: str = "",
+        action: _CompileAction,
+        topic: tool_params.Topic,
+        branch: tool_params.Branch = "",
+        mode: _CompileMode = _DEFAULT_COMPILE_MODE,
+        use_mipro: _UseMipro = True,
+        vault: tool_params.Vault = "",
     ) -> ToolResult:
         return with_resolved_vault(
             vault,

@@ -9,7 +9,7 @@ the governing two-tier tool-surface ADRs live in ``.ai-state/decisions/``.
 
 from __future__ import annotations
 
-from typing import Any
+from typing import Annotated, Any
 
 from mcp.server.fastmcp import FastMCP
 from mcp.types import CallToolResult
@@ -17,7 +17,7 @@ from mcp.types import CallToolResult
 from knotica.core.config import ResolvedVault, resolve
 from knotica.core.errors import ErrorCode, KnoticaError
 from knotica.core.golden_review import load_golden_review, save_golden_review
-from knotica.mcp_server import envelope
+from knotica.mcp_server import envelope, tool_params
 from knotica.mcp_server.dispatch_telemetry import record_rejected_action
 from knotica.mcp_server.tools_golden import _EXCEPTIONS, _parse_accepted
 from knotica.mcp_server.vault_ctx import vault_arg
@@ -29,6 +29,22 @@ ToolResult = CallToolResult
 
 _DISPATCHER = "golden"
 _ACTIONS = ("load", "save")
+
+_GoldenAction = Annotated[
+    str,
+    tool_params.grounded(
+        "'load' reads the sealed golden set; 'save' writes the accepted examples back to it.",
+        _ACTIONS,
+    ),
+]
+
+_AcceptedJson = Annotated[
+    str,
+    tool_params.grounded(
+        "JSON array of accepted golden examples, as a string. Required by "
+        "golden_action=save; ignored by 'load'.",
+    ),
+]
 
 _GOLDEN_DISPATCH_DESCRIPTION = (
     "Load and save the sealed golden set's review board. Operator-tier and "
@@ -57,10 +73,10 @@ def register_dispatch_golden_tools(mcp: FastMCP) -> None:
 
     @mcp.tool(name="golden", description=_GOLDEN_DISPATCH_DESCRIPTION)
     def golden(
-        action: str,
-        topic: str,
-        accepted_json: str = "",
-        vault: str = "",
+        action: _GoldenAction,
+        topic: tool_params.Topic,
+        accepted_json: _AcceptedJson = "",
+        vault: tool_params.Vault = "",
     ) -> ToolResult:
         try:
             resolved = resolve(vault=vault_arg(vault))

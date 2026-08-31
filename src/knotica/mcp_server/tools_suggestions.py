@@ -24,7 +24,7 @@ from __future__ import annotations
 import json
 from collections import Counter
 from pathlib import Path
-from typing import Any, cast
+from typing import Annotated, Any, cast
 
 from mcp.server.fastmcp import FastMCP
 from mcp.types import CallToolResult
@@ -37,7 +37,7 @@ from knotica.core.gapfill import (
 )
 from knotica.core.page import TopicNotFoundError
 from knotica.core.records import RecordParseError, SuggestionRecord
-from knotica.mcp_server import envelope
+from knotica.mcp_server import envelope, tool_params
 from knotica.mcp_server.dispatch_telemetry import record_rejected_action
 from knotica.mcp_server.vault_ctx import with_resolved_vault
 from knotica.search.cursor import Cursor, InvalidCursorError, decode_cursor, encode_cursor
@@ -72,6 +72,31 @@ _MAX_LIMIT = 50
 #: within a gap. A token minted under any other sort id is stale (dec-002).
 _SUGGESTIONS_SORT = "generation-desc,rank-asc"
 
+_StatusFilter = Annotated[
+    str,
+    tool_params.grounded(
+        "Which suggestions to return; 'pending' is the default and "
+        f"'{_ALL_FILTER}' returns every non-terminal record.",
+        sorted(_STATUS_FILTERS),
+    ),
+]
+
+_ReviewAction = Annotated[
+    str,
+    tool_params.grounded(
+        "The lifecycle transition to apply to this suggestion.",
+        _ACTIONS,
+    ),
+]
+
+_ReviewMode = Annotated[
+    str,
+    tool_params.grounded(
+        "'dry-run' (the default) previews the transition and writes nothing; 'apply' commits it.",
+        sorted(_MODES),
+    ),
+]
+
 
 _READ_DESCRIPTION = (
     "List gap-fill suggestions for one topic: human-approval cards joining a "
@@ -105,11 +130,11 @@ def register_suggestions_tools(mcp: FastMCP) -> None:
 
     @mcp.tool(name="suggestions_read", description=_READ_DESCRIPTION)
     def suggestions_read(
-        topic: str,
-        status: str = "pending",
-        cursor: str = "",
-        limit: int = _DEFAULT_LIMIT,
-        vault: str = "",
+        topic: tool_params.Topic,
+        status: _StatusFilter = "pending",
+        cursor: tool_params.Cursor = "",
+        limit: tool_params.Limit = _DEFAULT_LIMIT,
+        vault: tool_params.Vault = "",
     ) -> ToolResult:
         return with_resolved_vault(
             vault,
@@ -120,12 +145,12 @@ def register_suggestions_tools(mcp: FastMCP) -> None:
 
     @mcp.tool(name=_REVIEW_TOOL, description=_REVIEW_DESCRIPTION)
     def suggestions_review(
-        topic: str,
-        suggestion_id: str,
-        action: str,
-        mode: str = "dry-run",
-        reason: str = "",
-        vault: str = "",
+        topic: tool_params.Topic,
+        suggestion_id: tool_params.SuggestionId,
+        action: _ReviewAction,
+        mode: _ReviewMode = "dry-run",
+        reason: tool_params.Reason = "",
+        vault: tool_params.Vault = "",
     ) -> ToolResult:
         return with_resolved_vault(
             vault,

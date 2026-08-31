@@ -30,7 +30,7 @@ Result shapes (the observable contract; feed TS type generation in M3):
 """
 
 from pathlib import Path
-from typing import Any
+from typing import Annotated, Any
 
 from mcp.server.fastmcp import FastMCP
 from mcp.types import CallToolResult
@@ -44,8 +44,8 @@ from knotica.core.metrics import (
     render_metrics_window,
 )
 from knotica.core.page import TopicNotFoundError
-from knotica.core.status import gather_wiki_status
-from knotica.mcp_server import envelope
+from knotica.core.status import VALID_STATUS_VIEWS, gather_wiki_status
+from knotica.mcp_server import envelope, tool_params
 from knotica.mcp_server.vault_ctx import with_resolved_vault
 from knotica.store import VaultStore
 
@@ -89,12 +89,34 @@ _BASELINE_PROBE_DESCRIPTION = (
 
 ToolResult = CallToolResult
 
+_View = Annotated[
+    str,
+    tool_params.grounded(
+        "Which status projection to return; 'summary' (the default) is the full "
+        "payload, 'scope' the cheap topic enumeration, 'process_model' the served "
+        "lane declaration, 'attention' the cross-topic inbox.",
+        VALID_STATUS_VIEWS,
+    ),
+]
+
+_BeforeGeneration = Annotated[
+    int | None,
+    tool_params.grounded(
+        "Return only metrics generations strictly older than this generation "
+        "number; omit (the default) to start from the newest.",
+    ),
+]
+
 
 def register_status_tools(mcp: FastMCP) -> None:
     """Register ``wiki_status`` on ``mcp``."""
 
     @mcp.tool(name="wiki_status", description=_WIKI_STATUS_DESCRIPTION)
-    def wiki_status(topic: str = "", vault: str = "", view: str = "summary") -> ToolResult:
+    def wiki_status(
+        topic: tool_params.Topic = "",
+        vault: tool_params.Vault = "",
+        view: _View = "summary",
+    ) -> ToolResult:
         return with_resolved_vault(
             vault,
             lambda store, resolved: envelope.read_ok(
@@ -116,10 +138,10 @@ def register_status_lane_tools(mcp: FastMCP) -> None:
 
     @mcp.tool(name="metrics_read", description=_METRICS_READ_DESCRIPTION)
     def metrics_read(
-        topic: str,
-        limit: int = DEFAULT_METRICS_LIMIT,
-        before_generation: int | None = None,
-        vault: str = "",
+        topic: tool_params.Topic,
+        limit: tool_params.Limit = DEFAULT_METRICS_LIMIT,
+        before_generation: _BeforeGeneration = None,
+        vault: tool_params.Vault = "",
     ) -> ToolResult:
         return with_resolved_vault(
             vault,
@@ -129,7 +151,7 @@ def register_status_lane_tools(mcp: FastMCP) -> None:
         )
 
     @mcp.tool(name="baseline_probe", description=_BASELINE_PROBE_DESCRIPTION)
-    def baseline_probe(topic: str, vault: str = "") -> ToolResult:
+    def baseline_probe(topic: tool_params.Topic, vault: tool_params.Vault = "") -> ToolResult:
         return with_resolved_vault(
             vault,
             lambda store, resolved: run_baseline_probe(store, resolved.path, topic).render(),

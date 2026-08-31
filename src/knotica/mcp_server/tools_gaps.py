@@ -34,7 +34,7 @@ from __future__ import annotations
 import json
 from collections import Counter
 from pathlib import Path
-from typing import Any, cast
+from typing import Annotated, Any, cast
 
 from mcp.server.fastmcp import FastMCP
 from mcp.types import CallToolResult
@@ -49,7 +49,7 @@ from knotica.core.gapfill import (
 )
 from knotica.core.page import TopicNotFoundError
 from knotica.core.records import GAP_ORIGINS, GapRecord, RecordParseError
-from knotica.mcp_server import confirm_nonce, dispatch_telemetry, envelope
+from knotica.mcp_server import confirm_nonce, dispatch_telemetry, envelope, tool_params
 from knotica.mcp_server.vault_ctx import with_resolved_vault
 from knotica.search.cursor import Cursor, InvalidCursorError, decode_cursor, encode_cursor
 from knotica.store import VaultStore
@@ -76,6 +76,51 @@ _GAP_ORIGIN_VALUES: tuple[str, ...] = tuple(sorted(GAP_ORIGINS))
 #: The gaps cursor's sort contract: newest filed first. Distinct from the
 #: suggestions sort so a cursor cannot be replayed across the two queues.
 _GAPS_SORT = "detected-at-desc"
+
+#: The two human gap transitions `core.gapfill.apply_gap_decision` enforces.
+#: Named here because the enforcing table is private to that module; the
+#: published enum and `_REVIEW_GAP_DESCRIPTION` read this one tuple.
+_GAP_DECISIONS: tuple[str, ...] = ("dismiss", "reopen")
+
+_GapStatusFilter = Annotated[
+    str,
+    tool_params.grounded(
+        f"Which gaps to return; 'open' is the default and '{_ALL_FILTER}' returns every status.",
+        sorted(_GAP_STATUS_FILTERS),
+    ),
+]
+
+_GapId = Annotated[
+    str,
+    tool_params.grounded(
+        "Id of one gap record in the topic's gap queue, as returned by gaps_read.",
+    ),
+]
+
+_GapDecision = Annotated[
+    str,
+    tool_params.grounded(
+        "What to do with the gap: 'dismiss' closes it (and its open suggestions) "
+        "and requires a reason; 'reopen' returns a dismissed gap to open.",
+        _GAP_DECISIONS,
+    ),
+]
+
+_MaxGaps = Annotated[
+    int,
+    tool_params.grounded(
+        "Ceiling on how many open gaps this billed drain proposes sources for; "
+        "0 (the default) uses the configured discovery budget.",
+    ),
+]
+
+_ReferencePages = Annotated[
+    list[str] | None,
+    tool_params.grounded(
+        "Vault-relative paths of the pages that came closest to answering the "
+        "question; omit (the default) when none did.",
+    ),
+]
 
 #: Nonce ``kind`` for the billed discovery drain. Per-action by construction, so
 #: a ``run-eval`` or ``run-once`` nonce can never confirm a drain.
@@ -157,11 +202,11 @@ def register_gaps_tools(mcp: FastMCP) -> None:
 
     @mcp.tool(name="gap_report", description=_REPORT_DESCRIPTION)
     def gap_report(
-        topic: str,
-        question: str,
-        reason: str = "",
-        reference_pages: list[str] | None = None,
-        vault: str = "",
+        topic: tool_params.Topic,
+        question: tool_params.Question,
+        reason: tool_params.Reason = "",
+        reference_pages: _ReferencePages = None,
+        vault: tool_params.Vault = "",
     ) -> ToolResult:
         return with_resolved_vault(
             vault,
@@ -189,11 +234,11 @@ def register_gaps_lane_tools(mcp: FastMCP) -> None:
 
     @mcp.tool(name="gaps_read", description=_GAPS_READ_DESCRIPTION)
     def gaps_read(
-        topic: str,
-        status: str = "open",
-        cursor: str = "",
-        limit: int = _DEFAULT_LIMIT,
-        vault: str = "",
+        topic: tool_params.Topic,
+        status: _GapStatusFilter = "open",
+        cursor: tool_params.Cursor = "",
+        limit: tool_params.Limit = _DEFAULT_LIMIT,
+        vault: tool_params.Vault = "",
     ) -> ToolResult:
         return with_resolved_vault(
             vault,
@@ -204,10 +249,10 @@ def register_gaps_lane_tools(mcp: FastMCP) -> None:
 
     @mcp.tool(name="gapfill_discover", description=_DISCOVER_DESCRIPTION)
     def gapfill_discover(
-        topic: str,
-        max_gaps: int = 0,
-        confirm: str = "",
-        vault: str = "",
+        topic: tool_params.Topic,
+        max_gaps: _MaxGaps = 0,
+        confirm: tool_params.Confirm = "",
+        vault: tool_params.Vault = "",
     ) -> ToolResult:
         return with_resolved_vault(
             vault,
@@ -218,11 +263,11 @@ def register_gaps_lane_tools(mcp: FastMCP) -> None:
 
     @mcp.tool(name="review_gap", description=_REVIEW_GAP_DESCRIPTION)
     def review_gap(
-        topic: str,
-        gap_id: str,
-        decision: str,
-        reason: str = "",
-        vault: str = "",
+        topic: tool_params.Topic,
+        gap_id: _GapId,
+        decision: _GapDecision,
+        reason: tool_params.Reason = "",
+        vault: tool_params.Vault = "",
     ) -> ToolResult:
         return with_resolved_vault(
             vault,

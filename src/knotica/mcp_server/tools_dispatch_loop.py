@@ -11,7 +11,7 @@ the governing two-tier tool-surface ADRs live in ``.ai-state/decisions/``.
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Any
+from typing import Annotated, Any
 
 from mcp.server.fastmcp import FastMCP
 from mcp.types import CallToolResult
@@ -26,6 +26,8 @@ from knotica.mcp_server.tools_vault import (
     _loop_run_eval_payload,
     _loop_set_baseline_payload,
 )
+from knotica.core.loop_cadence_config import ARENA_SCORERS
+from knotica.mcp_server import tool_params
 from knotica.mcp_server.vault_ctx import with_resolved_vault
 from knotica.store import VaultStore
 
@@ -33,6 +35,8 @@ __all__ = ["register_dispatch_loop_tools"]
 
 ToolResult = CallToolResult
 
+#: `loop_action=baseline_policy`'s vocabulary and `rebaseline`'s -- the same
+#: two words, read by `_require_policy`'s fix text and by both enums.
 _DISPATCHER = "loop"
 _ACTIONS = (
     "run_once",
@@ -42,6 +46,83 @@ _ACTIONS = (
     "cadence",
     "run_eval",
 )
+
+_BASELINE_POLICIES: tuple[str, ...] = ("latest", "best")
+_DEFAULT_REBASELINE_MODE = "best"
+
+_LoopAction = Annotated[
+    str,
+    tool_params.grounded(
+        "Which loop operation to run; see this tool's description for each.",
+        _ACTIONS,
+    ),
+]
+
+_Scalar = Annotated[
+    float | None,
+    tool_params.grounded(
+        "The metric value to freeze the gate baseline at, on the metric's own scale. "
+        "Required by loop_action=set_baseline.",
+    ),
+]
+
+_Policy = Annotated[
+    str,
+    tool_params.grounded(
+        "Which run loop_action=baseline_policy pins the gate to: 'latest' or 'best'.",
+        _BASELINE_POLICIES,
+    ),
+]
+
+_RebaselineMode = Annotated[
+    str,
+    tool_params.grounded(
+        "Which historical run loop_action=rebaseline re-freezes from; "
+        f"'{_DEFAULT_REBASELINE_MODE}' is the default.",
+        _BASELINE_POLICIES,
+    ),
+]
+
+_EvalMinIntervalHours = Annotated[
+    float | None,
+    tool_params.grounded(
+        "Minimum hours between two automatic eval cycles. Written by "
+        "loop_action=cadence; omit to leave the configured value alone.",
+    ),
+]
+
+_EvalWindow = Annotated[
+    str | None,
+    tool_params.grounded(
+        "Local-time window automatic eval cycles may run in, as 'HH:MM-HH:MM'. "
+        "Written by loop_action=cadence; omit to leave it alone.",
+    ),
+]
+
+_EvalNumThreads = Annotated[
+    int | None,
+    tool_params.grounded(
+        "Worker threads an automatic eval cycle uses. Written by "
+        "loop_action=cadence; omit to leave it alone.",
+    ),
+]
+
+_ArenaScorer = Annotated[
+    str | None,
+    tool_params.grounded(
+        "What the prompt arena races variants with: 'heuristic' is free and not "
+        "gate-comparable, 'eval' is gate-comparable and billed. Written by "
+        "loop_action=cadence; omit to leave it alone.",
+        sorted(ARENA_SCORERS),
+    ),
+]
+
+_NumThreads = Annotated[
+    int | None,
+    tool_params.grounded(
+        "Worker threads for this one billed run; omit to use the configured eval_num_threads.",
+    ),
+]
 
 _LOOP_DISPATCH_DESCRIPTION = (
     "Run and steer the self-improvement gate: evaluate a topic, freeze the bar "
@@ -84,18 +165,18 @@ def register_dispatch_loop_tools(mcp: FastMCP) -> None:
 
     @mcp.tool(name="loop", description=_LOOP_DISPATCH_DESCRIPTION)
     def loop(
-        action: str,
-        topic: str,
-        scalar: float | None = None,
-        policy: str = "",
-        mode: str = "best",
-        eval_min_interval_hours: float | None = None,
-        eval_window: str | None = None,
-        eval_num_threads: int | None = None,
-        arena_scorer: str | None = None,
-        confirm: str = "",
-        num_threads: int | None = None,
-        vault: str = "",
+        action: _LoopAction,
+        topic: tool_params.Topic,
+        scalar: _Scalar = None,
+        policy: _Policy = "",
+        mode: _RebaselineMode = _DEFAULT_REBASELINE_MODE,
+        eval_min_interval_hours: _EvalMinIntervalHours = None,
+        eval_window: _EvalWindow = None,
+        eval_num_threads: _EvalNumThreads = None,
+        arena_scorer: _ArenaScorer = None,
+        confirm: tool_params.Confirm = "",
+        num_threads: _NumThreads = None,
+        vault: tool_params.Vault = "",
     ) -> ToolResult:
         return with_resolved_vault(
             vault,
@@ -184,6 +265,6 @@ def _require_policy(policy: str) -> str:
         raise KnoticaError(
             ErrorCode.INVALID_ARGUMENT,
             "loop action=baseline_policy requires `policy`",
-            fix="Pass policy='latest' or policy='best'.",
+            fix=f"Pass policy as one of: {', '.join(_BASELINE_POLICIES)}.",
         )
     return policy

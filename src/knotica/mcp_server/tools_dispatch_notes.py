@@ -28,7 +28,7 @@ validation and the resolved-anchor status vocabulary (``exact``, ``shifted``,
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Any
+from typing import Annotated, Any
 
 from mcp.server.fastmcp import FastMCP
 from mcp.types import CallToolResult
@@ -42,6 +42,7 @@ from knotica.mcp_server.tools_dispatch_notes_common import (
     _DEFAULT_LIMIT,
     _DEFAULT_MODE,
     _LEAST_SEVERE_ANCHOR_STATUS as _LEAST_SEVERE_ANCHOR_STATUS,
+    _MODES,
     _MOST_SEVERE_ANCHOR_STATUS as _MOST_SEVERE_ANCHOR_STATUS,
     _validate_action,
     _validate_topic,
@@ -52,6 +53,7 @@ from knotica.mcp_server.tools_dispatch_notes_mutations import (
     _DEFAULT_VERDICT,
     _detach_payload,
     _promote_payload,
+    _PROMOTE_TARGETS,
     _reanchor_payload,
 )
 from knotica.mcp_server.tools_dispatch_notes_read import (
@@ -61,6 +63,7 @@ from knotica.mcp_server.tools_dispatch_notes_read import (
     _read_payload,
     _status_counts as _status_counts,
 )
+from knotica.mcp_server import tool_params
 from knotica.mcp_server.vault_ctx import with_resolved_vault
 from knotica.store import VaultStore
 
@@ -70,6 +73,55 @@ ToolResult = CallToolResult
 
 _DISPATCHER = "notes"
 _ACTIONS = ("list", "read", "drift", "reanchor", "detach", "promote", "archive")
+
+_NotesAction = Annotated[
+    str,
+    tool_params.grounded(
+        "Which overlay operation to run; see this tool's description for each.",
+        _ACTIONS,
+    ),
+]
+
+_IntentFilter = Annotated[
+    str,
+    tool_params.grounded(
+        f"Filter notes by their intent label; '{_ALL_FILTER}' (the default) returns every intent.",
+    ),
+]
+
+_AnchorStatusFilter = Annotated[
+    str,
+    tool_params.grounded(
+        "Filter notes by how well their quote still anchors to its page; "
+        f"'{_ALL_FILTER}' (the default) returns every status.",
+        (*_ANCHOR_STATUSES, _ALL_FILTER),
+    ),
+]
+
+_NotesMode = Annotated[
+    str,
+    tool_params.grounded(
+        f"'{_DEFAULT_MODE}' (the default) previews the change and writes nothing; 'apply' commits it.",
+        _MODES,
+    ),
+]
+
+_Anchor = Annotated[
+    int,
+    tool_params.grounded(
+        "Zero-based index of the quote occurrence to re-anchor to when the page "
+        "contains it more than once; 0 (the default) is the first.",
+    ),
+]
+
+_PromoteTarget = Annotated[
+    str,
+    tool_params.grounded(
+        "Where notes_action=promote sends the note: the training set, a filed gap, "
+        f"or the held-out golden set; '{_DEFAULT_PROMOTE_TARGET}' is the default.",
+        _PROMOTE_TARGETS,
+    ),
+]
 
 _NOTES_DISPATCH_DESCRIPTION = (
     "Browse and correct the personal notes layer (marginalia) for one topic -- "
@@ -130,22 +182,22 @@ def register_dispatch_notes_tools(mcp: FastMCP) -> None:
 
     @mcp.tool(name="notes", description=_NOTES_DISPATCH_DESCRIPTION)
     def notes(
-        action: str,
-        topic: str = "",
-        note_id: str = "",
-        intent: str = _ALL_FILTER,
-        status: str = _ALL_FILTER,
-        cursor: str = "",
-        limit: int = _DEFAULT_LIMIT,
-        mode: str = _DEFAULT_MODE,
-        anchor: int = 0,
-        page: str = "",
-        quote: str = "",
-        target: str = _DEFAULT_PROMOTE_TARGET,
-        question: str = "",
-        answer: str = "",
-        verdict: str = _DEFAULT_VERDICT,
-        vault: str = "",
+        action: _NotesAction,
+        topic: tool_params.Topic = "",
+        note_id: tool_params.NoteId = "",
+        intent: _IntentFilter = _ALL_FILTER,
+        status: _AnchorStatusFilter = _ALL_FILTER,
+        cursor: tool_params.Cursor = "",
+        limit: tool_params.Limit = _DEFAULT_LIMIT,
+        mode: _NotesMode = _DEFAULT_MODE,
+        anchor: _Anchor = 0,
+        page: tool_params.Page = "",
+        quote: tool_params.Quote = "",
+        target: _PromoteTarget = _DEFAULT_PROMOTE_TARGET,
+        question: tool_params.Question = "",
+        answer: tool_params.Answer = "",
+        verdict: tool_params.Verdict = _DEFAULT_VERDICT,
+        vault: tool_params.Vault = "",
     ) -> ToolResult:
         return with_resolved_vault(
             vault,

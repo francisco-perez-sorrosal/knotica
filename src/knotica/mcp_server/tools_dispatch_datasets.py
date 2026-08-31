@@ -12,7 +12,7 @@ the governing two-tier tool-surface ADRs live in ``.ai-state/decisions/``.
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Any
+from typing import Annotated, Any
 
 from mcp.server.fastmcp import FastMCP
 from mcp.types import CallToolResult
@@ -32,6 +32,7 @@ from knotica.mcp_server.tools_datasets import (
     _bootstrap_train_payload,
     _map_exception,
 )
+from knotica.mcp_server import tool_params
 from knotica.mcp_server.vault_ctx import vault_arg
 from knotica.store import LocalFSStore, VaultStore
 
@@ -41,6 +42,35 @@ ToolResult = CallToolResult
 
 _DISPATCHER = "datasets"
 _ACTIONS = ("inventory", "records", "bootstrap", "bootstrap_train", "freeze")
+
+#: The dataset roles `datasets action=records` reads. Named here so the
+#: published enum and `_require_role`'s fix text share one declaration.
+_ROLES: tuple[str, ...] = ("trainset", "held_out", "seal", "candidates", "reviewed")
+
+_DatasetsAction = Annotated[
+    str,
+    tool_params.grounded(
+        "Which dataset operation to run; see this tool's description for each.",
+        _ACTIONS,
+    ),
+]
+
+_Role = Annotated[
+    str,
+    tool_params.grounded(
+        "Which dataset to read records from. Required by datasets_action=records; "
+        "ignored by the others.",
+        _ROLES,
+    ),
+]
+
+_Target = Annotated[
+    int,
+    tool_params.grounded(
+        "How many examples a bootstrap should aim to produce; 30 is the default and "
+        "is the compile-readiness floor.",
+    ),
+]
 
 _DATASETS_DISPATCH_DESCRIPTION = (
     "Inventory, bootstrap and freeze the sets a topic's bar is measured on. "
@@ -72,12 +102,12 @@ def register_dispatch_datasets_tools(mcp: FastMCP) -> None:
 
     @mcp.tool(name="datasets", description=_DATASETS_DISPATCH_DESCRIPTION)
     def datasets(
-        action: str,
-        topic: str,
-        role: str = "",
-        limit: int = 200,
-        target: int = 30,
-        vault: str = "",
+        action: _DatasetsAction,
+        topic: tool_params.Topic,
+        role: _Role = "",
+        limit: tool_params.Limit = 200,
+        target: _Target = 30,
+        vault: tool_params.Vault = "",
     ) -> ToolResult:
         try:
             resolved = resolve(vault=vault_arg(vault))
@@ -121,7 +151,7 @@ def _require_role(role: str) -> str:
         raise KnoticaError(
             ErrorCode.INVALID_ARGUMENT,
             "datasets action=records requires `role`",
-            fix="Pass role as one of: trainset, held_out, seal, candidates, reviewed.",
+            fix=f"Pass role as one of: {', '.join(_ROLES)}.",
         )
     return cleaned
 

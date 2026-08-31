@@ -131,6 +131,30 @@ def with_deprecation_note(result: CallToolResult, replacement_action: str) -> Ca
     return success_result(payload)
 
 
+def with_next_stage(result: CallToolResult, next_step: Mapping[str, Any] | None) -> CallToolResult:
+    """Attach a ``next_stage`` block to a success envelope; leave a failure untouched.
+
+    The success-side counterpart to the ``fix`` an error envelope carries. A
+    failure is returned unchanged for the same reason
+    :func:`with_deprecation_note` leaves it alone: its ``fix=`` is already the
+    one actionable next step, and a second "what next" would compete with it.
+    ``next_step`` of ``None`` -- a read, which advanced nothing -- adds nothing
+    rather than claiming a transition that did not happen.
+
+    The key is ``next_stage``, not ``next``: ``session_status`` already
+    publishes a ``next`` of its own (``{actor, do}`` -- per-session human
+    guidance, a different shape and a different question). One key carrying two
+    incompatible shapes across one surface would force a model to discriminate
+    by shape, so the rail position gets a name that says what it is.
+
+    The block itself is projected in :mod:`knotica.mcp_server.lane_next`; this
+    function only decides *whether* it rides.
+    """
+    if next_step is None or result.isError or result.structuredContent is None:
+        return result
+    return success_result({**result.structuredContent, "next_stage": dict(next_step)})
+
+
 def _error_result(envelope: dict[str, Any]) -> CallToolResult:
     """Wrap a ``{"error": {...}}`` envelope as an ``isError=True`` tool result.
 

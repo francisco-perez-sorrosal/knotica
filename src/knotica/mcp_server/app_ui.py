@@ -14,12 +14,33 @@ from __future__ import annotations
 
 from urllib.parse import urlencode
 
+from typing import Annotated
+
 from mcp.server.fastmcp import FastMCP
 from mcp.types import TextContent
 
 from knotica.dashboard import dashboard_html
+from knotica.mcp_server import tool_params
 
 __all__ = ["DASHBOARD_URI", "MCP_APP_MIME", "register_dashboard_app"]
+
+_Lane = Annotated[
+    str,
+    tool_params.grounded(
+        "Lane id to open the dashboard on (home, learn, answer, improve, fill, "
+        "tend); empty (the default) opens the dashboard's own landing lane. "
+        "Threaded through unvalidated -- an unrecognised value degrades in the "
+        "dashboard's own resolution.",
+    ),
+]
+
+_Focus = Annotated[
+    str,
+    tool_params.grounded(
+        "Stage id within the lane to scroll to; empty (the default) leaves the "
+        "lane at its own default position.",
+    ),
+]
 
 #: SEP-1865 resource URI for the dashboard View.
 DASHBOARD_URI = "ui://knotica/dashboard"
@@ -65,7 +86,10 @@ def register_dashboard_app(mcp: FastMCP) -> None:
         },
     )
     def open_dashboard(
-        topic: str = "", vault: str = "", lane: str = "", focus: str = ""
+        topic: tool_params.Topic = "",
+        vault: tool_params.Vault = "",
+        lane: _Lane = "",
+        focus: _Focus = "",
     ) -> list[TextContent]:
         # `lane`/`focus` are threaded through unvalidated on purpose: an
         # unrecognised value degrades in the dashboard's own resolution rather

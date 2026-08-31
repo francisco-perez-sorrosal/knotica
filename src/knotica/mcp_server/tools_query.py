@@ -14,7 +14,7 @@ from mcp.types import CallToolResult
 
 from knotica.core.errors import ErrorCode, KnoticaError
 from knotica.core.query_engine import answer_question
-from knotica.mcp_server import envelope
+from knotica.mcp_server import envelope, tool_params
 from knotica.mcp_server.vault_ctx import with_resolved_vault
 from knotica.store import VaultStore
 
@@ -34,7 +34,11 @@ def register_query_tools(mcp: FastMCP) -> None:
     """Register the unified ``query`` answer tool on ``mcp``."""
 
     @mcp.tool(name="query", description=_QUERY_DESCRIPTION)
-    def query(question: str, topic: str, vault: str = "") -> ToolResult:
+    def query(
+        question: tool_params.Question,
+        topic: tool_params.Topic,
+        vault: tool_params.Vault = "",
+    ) -> ToolResult:
         return with_resolved_vault(
             vault,
             lambda store, _resolved: _query_payload(store, topic=topic, question=question),

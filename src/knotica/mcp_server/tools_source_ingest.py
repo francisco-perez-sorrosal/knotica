@@ -26,7 +26,7 @@ are the caller's only readout of candidate health.
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Any
+from typing import Annotated, Any
 
 from mcp.server.fastmcp import FastMCP
 from mcp.types import CallToolResult
@@ -44,6 +44,7 @@ from knotica.core.loop_state import read_loop_state
 from knotica.core.page import TopicNotFoundError
 from knotica.core.records import SuggestionRecord, parse_suggestions_jsonl
 from knotica.core.vcs import VaultVcs
+from knotica.mcp_server import tool_params
 from knotica.mcp_server.vault_ctx import with_resolved_vault
 from knotica.store import LocalFSStore, VaultStore
 
@@ -53,6 +54,15 @@ ToolResult = CallToolResult
 
 _APPROVED_STATUS = "approved"
 _MODES: frozenset[str] = frozenset({"dry-run", "apply"})
+
+_SubmitMode = Annotated[
+    str,
+    tool_params.grounded(
+        "'dry-run' (the default) validates the finished session and writes "
+        "nothing; 'apply' submits it.",
+        sorted(_MODES),
+    ),
+]
 
 #: Bounded drain for the synchronous apply-time gate cycle: `poll_once`
 #: processes the *oldest unhandled* ``loop/c/*`` tip across every topic, not
@@ -112,7 +122,11 @@ def register_source_ingest_tools(mcp: FastMCP) -> None:
     ``session_status`` on ``mcp``."""
 
     @mcp.tool(name="source_ingest_open", description=_OPEN_DESCRIPTION)
-    def source_ingest_open(topic: str, suggestion_id: str, vault: str = "") -> ToolResult:
+    def source_ingest_open(
+        topic: tool_params.Topic,
+        suggestion_id: tool_params.SuggestionId,
+        vault: tool_params.Vault = "",
+    ) -> ToolResult:
         return with_resolved_vault(
             vault,
             lambda store, resolved: _open_payload(store, resolved.path, topic, suggestion_id),
@@ -120,10 +134,10 @@ def register_source_ingest_tools(mcp: FastMCP) -> None:
 
     @mcp.tool(name="source_ingest_submit", description=_SUBMIT_DESCRIPTION)
     def source_ingest_submit(
-        topic: str,
-        suggestion_id: str,
-        mode: str = "dry-run",
-        vault: str = "",
+        topic: tool_params.Topic,
+        suggestion_id: tool_params.SuggestionId,
+        mode: _SubmitMode = "dry-run",
+        vault: tool_params.Vault = "",
     ) -> ToolResult:
         return with_resolved_vault(
             vault,
@@ -133,7 +147,11 @@ def register_source_ingest_tools(mcp: FastMCP) -> None:
         )
 
     @mcp.tool(name="session_status", description=_SESSION_STATUS_DESCRIPTION)
-    def session_status_tool(topic: str, suggestion_id: str, vault: str = "") -> ToolResult:
+    def session_status_tool(
+        topic: tool_params.Topic,
+        suggestion_id: tool_params.SuggestionId,
+        vault: tool_params.Vault = "",
+    ) -> ToolResult:
         return with_resolved_vault(
             vault,
             lambda store, resolved: _session_status_payload(
