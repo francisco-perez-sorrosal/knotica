@@ -29,7 +29,7 @@ or table is not an error, it just resolves to defaults.
 All mutation goes through one writer (`core/config_write.py`), additive and atomic — a
 same-directory temp file plus `os.replace`, so a torn write can never truncate the file or drop a
 sibling vault. Every section round-trips through a tool write (`knotica init`,
-`vault action=use/add/create`, a `loop action=cadence` write): top-level keys, `[vaults.<name>]`,
+`vault action=use/add/create`, a `improve action=loop loop_action=cadence` write): top-level keys, `[vaults.<name>]`,
 flat tables (`[loop]`, `[models]`, `[notes]`, `[gapfill]`), and nested sub-tables to arbitrary
 depth, `[gapfill.search]` included. Hand-edit any table at any time, in any order — a tool write
 preserves every section it does not itself own.
@@ -135,7 +135,7 @@ Three independent snapshot overrides, each optional:
 
 **`worker` and `judge` reach every eval.** They resolve inside the one shared `harness_evaluate`
 callable, which is what `knotica improve eval`, the `knotica improve loop` watcher, the OS-managed daemon, the MCP
-`loop action=run_once` and `loop action=run_eval` paths, and the ingest candidate gate all evaluate
+`improve action=loop loop_action=run_once` and `improve action=loop loop_action=run_eval` paths, and the ingest candidate gate all evaluate
 through — so an unattended background eval scores on the same instruments as a foreground one.
 `query` is separate: it drives answer synthesis rather than eval, and reaches the MCP `query` tool
 and nothing else.
@@ -161,14 +161,14 @@ separate concern: what the prompt arena races with.
 |---|---|---|
 | `eval_min_interval_hours` | `0.0` | Minimum hours since the last eval **started** before the watcher will start another. `0` means no throttle — every eligible tick evaluates. Reaches the watcher, the daemon, and the MCP `run_once` observe leg (`run_eval` bypasses it by forcing the observation). |
 | `eval_window` | none | The local-clock window an observation eval is permitted to **start** in, as `"HH:MM-HH:MM"` (midnight wrap supported, e.g. `"22:00-02:00"`). Unset means no window restriction. Reaches the watcher, the daemon, and the MCP `run_once` observe leg (`run_eval` bypasses it by forcing the observation). |
-| `eval_num_threads` | `4` | Default `num_threads` for the MCP `loop action=run_eval` billed call only — `run_once` does not read it. Bounded `1`–`8`. |
+| `eval_num_threads` | `4` | Default `num_threads` for the MCP `improve action=loop loop_action=run_eval` billed call only — `run_once` does not read it. Bounded `1`–`8`. |
 | `arena_scorer` | `"heuristic"` | Which scorer the prompt arena races with. See below — the default is free and deliberately **not** comparable to the gate baseline. |
 
 > [!NOTE]
 > `eval_num_threads` does not reach the foreground watcher or the daemon. `knotica improve loop` uses its
 > own `--eval-threads` flag (unset → the harness default of `4`); the daemon has no thread flag at
 > all and is pinned to the harness default of `4`. This key only sets the default thread count for
-> the MCP `loop action=run_eval` billed action.
+> the MCP `improve action=loop loop_action=run_eval` billed action.
 
 ### `arena_scorer`: what a prompt race actually measures
 
@@ -207,7 +207,7 @@ runs. The next tick after 24 hours have elapsed evaluates normally. Adding `eval
 with it — both constraints must pass, so an observation eval starts only once the interval has
 elapsed **and** the clock sits inside the window.
 
-Read or write all four keys without hand-editing the file via MCP `loop action=cadence` — called
+Read or write all four keys without hand-editing the file via MCP `improve action=loop loop_action=cadence` — called
 with no parameters it reads the resolved table; called with any of them it additively merges them
 in, leaving every other section of `config.toml` untouched. `arena_scorer` is validated *before*
 the write, so a value outside `heuristic|eval` is rejected and the file is left byte-identical.

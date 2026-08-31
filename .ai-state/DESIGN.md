@@ -79,7 +79,7 @@ and the `TEST_TOPOLOGY.md` rule change it forced, are `dec-075`.
 | `src/knotica/core/` | Vault semantics and the sole mutation path. **Read this row as a subtraction:** `core/operations/` and `core/notes/` carve packages out of it, and four § 3b capabilities — the write path, the loop lifecycle, query compile, and the gap-fill spine — carve clusters out of it; what remains is `transaction`/`lock`/`vcs`/`scrub`, the vault vocabulary (`config`, `config_write`, `schema`, `page`, `links`, `lint`, `records`, `errors`, `template`, `vault_layout`, `topics`, `jsonl`), and the shared read/aggregate substrate every surface renders from (`status`, `status_lanes`, `status_counts`, `doctor`, `metrics`, `prompts`, `datasets_inventory`, `golden_review`, `index_catalog`, `vault_metadata_tree`, `vault_scaffold`, `ingest_activity`, `text_reflow`, `baseline_probe`, `source_inventory` — the stored-source URL-identity set the gap-fill drain dedups discovery against), and `process_model` — the single declaration of the six process lanes and their stage rails, which every lane surface (the MCP lane dispatchers, the served `wiki_status` payload, the generated TypeScript mirror, `knotica lane`) projects rather than restates, in the same one-declaration spirit as `branch_namespaces` | Built |
 | `src/knotica/core/operations/` | Mostly one module per mutating operation, though `guillotine.py` exports two and `reanchor_note.py` three. Nine modules open a `VaultTransaction`, each opening exactly one; `doctor_repair.py` and `promote_note.py` open none — the latter delegates to `curate_example` or `gapfill.report_gap`, which carry their own. `__init__.py` re-exports a subset (`write_page`, `store_source`, `create_topic`, `curate_example`, `migrate`, `doctor_repair`, `apply_guillotine`, `persist_guillotine_artifacts`) while the notes operations and `reflow_sources` are imported by path. `candidate_scope.py` is a routing helper, not an operation | Built |
 | `src/knotica/core/notes/` | Personal-notes overlay model: `anchor` (document + append-only anchor history), `resolve` (the read-time resolution ladder, rungs 0–10), `candidates` + `scoring` (fuzzy candidate generation and the Hypothesis-weighted scorer), `supersession` (page-replaced vs passage-reworded), `reconcile` (post-merge drift-queue notification), `store` (read-only enumeration). `dec-058`, `dec-061` | Built |
-| `src/knotica/mcp_server/` | FastMCP adapter: 25 flat conversational tools, 9 operator dispatchers, the 6 process-lane dispatchers (`tools_dispatch_<lane>.py`, generated from `core/process_model.py` by `tools_dispatch_lane_common.py` and registered alongside the flat surface while the lane rename lands), `open_dashboard`, 4 resources + 1 UI resource, 4 prompts. `vault_ctx.with_resolved_vault` is the per-call config-resolution and error-mapping seam every tool routes through — the concrete form of the stateless-server invariant. Named `mcp_server` to avoid shadowing the `mcp` SDK (`dec-009`) | Built |
+| `src/knotica/mcp_server/` | FastMCP adapter: **21 registered tools** — 13 Tier-1 flat conversational tools, `open_dashboard`, the unlaned `vault` dispatcher, and the 6 process-lane dispatchers (`tools_dispatch_<lane>.py`, generated from `core/process_model.py` by `tools_dispatch_lane_common.py`) — plus 4 resources + 1 UI resource, 4 prompts. The operator-tier verbs — the eight absorbed topical dispatchers (`arena`, `branches`, `compile`, `datasets`, `golden`, `loop`, `notes`, `vault_health`) and the flat verbs the lanes took over (`create_topic`, `lint_check`, `metrics_read`, `baseline_probe`, `prompt_diff`, `suggestions_read`, `suggestions_review`, `gaps_read`, `gapfill_discover`, `review_gap`, `source_ingest_open`, `source_ingest_submit`, `session_status`, `ingest_activity_read`) — publish **no tool name of their own**: their `register_*_lane_tools` functions run only against `tools_dispatch_lane_common.py`'s `_HandlerCapture`, which keeps the function object and discards the schema. That capture is the handler seam, not an alias layer; the old flat names return an unknown-tool error (`dec-050`). `vault_ctx.with_resolved_vault` is the per-call config-resolution and error-mapping seam every tool routes through — the concrete form of the stateless-server invariant. Named `mcp_server` to avoid shadowing the `mcp` SDK (`dec-009`) | Built |
 | `src/knotica/cli/` | `knotica` console entry point. `cli/__init__.py::COMMAND_NAMES` is the single declaration of the top-level subcommand set — the six process lanes (read from `core/process_model.py`, never restated) plus the six unlaned commands; one module per command, six lane modules that re-parent their members one level deeper, plus `common.py` (Console, exit codes, `LaneCommand`, stdout=data / stderr=messages) | Built |
 | `src/knotica/evals/` | Frozen-corpus evaluator: clones the vault at a pinned SHA, scores a held-out golden set through `dspy.Evaluate` over a baseline runner and a cached LLM-as-judge, composes one stable scalar, and appends a `MetricsRecord` **on the clone**. `anthropic`/`dspy` are isolated in the `evals` extra and imported lazily | Built |
 | `src/knotica/programs/` | The DSPy query program: MIPROv2 with a bootstrap fallback, recording `optimizer`/`fallback_reason` on the artifact, plus `CompiledRunner` | Built |
@@ -183,7 +183,19 @@ reads from; `LaneRail.tsx` and `ArmedButton.tsx`, its render and armed-confirm c
 the stage that makes client-as-brain visible by handing a billed cognitive step back to the client's
 own LLM as a slash command rather than calling one server-side; and `visibilityPausedPoll.ts`, a
 framework-free polling primitive that skips ticks while the tab is hidden, for a lane that owns a
-read the app-wide 2 s poll does not make. Below it, one directory per lane — `home/`, `learn/`,
+read the app-wide 2 s poll does not make. Three registries sit beside them, each a typed record over
+a closed union carrying presentation copy the server payload does not carry, census-bound to the
+generated `processModel.ts`: `laneMeta.ts` (per-lane icon, one-line card description, and rail
+*shape* — `cycle`/`line`/`checks`), `stageMeta.ts` (per-stage copy, keyed lane-then-stage because two
+lanes both declare a `gate` stage), and the process registry — `processContract.ts` types the
+six-phase lifecycle (**Surface → Justify → Preview → Progress → Outcome → Next**) and declares the
+`ProcessId` inventory, `processRows/<lane>.ts` holds the rows one id-namespace per file, and
+`processMeta.ts` is the assembly that spreads them. Rendering that contract: `ProcessBrief.tsx`
+(phases 2–3, the *why* and the *what will it cost* beside the trigger), `ProcessOutcome.tsx`
+(phases 5–6, the result and the `NEXT STEP` block), and `LoopStrip.tsx`, the strip above a lane's
+rail that carries position and whether the lane closes back on itself. `stageFocus.ts` holds the
+client-owned **focus** axis strictly orthogonal to the server-declared **state** — focus is never
+stolen, and `aria-current="step"` stays bound to state alone. Below it, one directory per lane — `home/`, `learn/`,
 `answer/`, `fill/`, `improve/`, `tend/` — each holding that lane's rail component and its
 stage components, except `home/`, which has neither: Home is a flat cross-topic attention inbox
 (`HomeLane.tsx` over the pure `attentionRows.ts`), reading `wiki_status(view="attention")` on its
@@ -191,8 +203,17 @@ own 10 s visibility-paused cadence, so it has no rail and no stage state to deri
 the whole navigable surface: no standalone `*Pane.tsx` module remains, and every legacy `?pane=` key
 degrades to the lane that absorbed its work (`paneRouting.ts`). Home is the default landing — a bare
 URL, an omitted `?pane=`, an MCP-App mount with no `lane` argument, and any unrecognised value all
-resolve there — and it is the one lane permitted an outbound navigation prop (`onOpenLane`), which
-`App.tsx` binds to its own pane switch: Home routes, every other lane only narrates. Presentation
+resolve there. **Cross-lane navigation is one owner and one seam.** `App.tsx` remains the sole
+router — it alone sets the pane, writes the URL and publishes an arrival — and the whole mechanism
+lives in `src/anchorNavigation.ts` (at `src/`, not under `lanes/`: it reads the routing allowlist,
+and the cross-lane census forbids a lane resolving panes for itself). Any lane may *publish* a
+destination: `lanes/laneNavigation.ts` holds exactly one callback, registered by `App` on mount and a
+no-op until it is, so a `ProcessOutcome` twenty stage bodies deep reaches it through
+`publishOpenAnchor` rather than a cross-lane prop threaded through every intermediate component.
+Every caller passes an `onOpenAnchor` `(lane, stage)` pair that came out of a registry — `PROCESS_META`'s
+`next` anchors or `ATTENTION_KIND_META`'s row anchors — both census-validated against `LANE_STAGES`,
+so the router cannot be handed a destination the process model does not declare. Publishing is open;
+routing is not. Presentation
 shared by two lanes lives beside the tree rather than inside either one (`answerPresentation.tsx`,
 `notePresentation.tsx`).
 
@@ -200,30 +221,41 @@ shared by two lanes lives beside the tree rather than inside either one (`answer
 
 ### MCP tool surface
 
-**35 tools**: 25 flat conversational tools, 9 operator dispatchers, and `open_dashboard`. Every tool
-resolves config per call through `mcp_server/vault_ctx.py` and returns a structured envelope, never a
-transport exception (`dec-001`). Mutating dispatcher actions accept `mode=dry-run|apply`.
+**21 tools**: 13 Tier-1 flat conversational tools, `open_dashboard`, the unlaned `vault` dispatcher,
+and the 6 process-lane dispatchers. Every tool resolves config per call through
+`mcp_server/vault_ctx.py` and returns a structured envelope, never a transport exception (`dec-001`).
+Mutating dispatcher actions accept `mode=dry-run|apply`. The per-tool parameter and return tables are
+published once, in [`docs/reference.md`](../docs/reference.md) — gated against the live registry by
+`scripts/check_surface_consistency.py`, so this section names the surface and never restates its
+shape (`dec-073`).
+
+The 14 flat registrations, by module: `tools_read.py` — `list_topics`, `read_page`, `search`,
+`list_links`; `tools_write.py` — `write_page`, `store_source`, `curate_example`; `tools_query.py` —
+`query`; `tools_status.py` — `wiki_status`; `tools_gaps.py` — `gap_report`; `tools_ingest.py` —
+`ingest_progress`; `tools_notes.py` — `note_capture`; `tools_guide.py` — `read_protocol`;
+`app_ui.py` — `open_dashboard`.
 
 | Dispatcher | Actions |
 |---|---|
-| `loop` | `run_once` \| `run_eval` \| `set_baseline` \| `baseline_policy` \| `rebaseline` \| `cadence` |
-| `branches` | `scoreboard` \| `promote_loop` \| `promote` \| `delete` |
-| `compile` | `run` \| `status` \| `promote` |
-| `datasets` | `inventory` \| `records` \| `bootstrap` \| `bootstrap_train` \| `freeze` |
-| `arena` | `status` \| `history` |
-| `golden` | `load` \| `save` |
-| `notes` | `list` \| `read` \| `drift` \| `reanchor` \| `detach` \| `promote` \| `archive` |
 | `vault` | `list` \| `status` \| `use` \| `add` \| `create` |
-| `vault_health` | `doctor` \| `repair` \| `okf_check` \| `okf_repair` \| `lint` \| `metadata_tree` |
+| `home` | none — the router takes no arguments |
+| `learn` | `create_topic` \| `store_source` \| `ingest_progress` \| `write_page` \| `ingest_activity_read` \| `curate_example` |
+| `answer` | `query` \| `curate_example` \| `note_capture` \| `gap_report` \| `notes` |
+| `improve` | `datasets` \| `golden` \| `baseline_probe` \| `curate_example` \| `notes` \| `loop` \| `arena` \| `compile` \| `branches` \| `prompt_diff` \| `metrics_read` \| `query` |
+| `fill` | `gap_report` \| `gaps_read` \| `review_gap` \| `notes` \| `gapfill_discover` \| `suggestions_read` \| `suggestions_review` \| `store_source` \| `ingest_progress` \| `write_page` \| `ingest_activity_read` \| `source_ingest_open` \| `source_ingest_submit` \| `loop` |
+| `tend` | `vault_health` \| `lint_check` \| `notes` \| `note_capture` |
 
-The 25 flat tools, by module: `tools_read.py` — `list_topics`, `read_page`, `search`, `list_links`,
-`lint_check`; `tools_write.py` — `write_page`, `store_source`, `create_topic`, `curate_example`;
-`tools_status.py` — `wiki_status`, `metrics_read`, `baseline_probe`; `tools_suggestions.py` —
-`suggestions_read`, `suggestions_review`; `tools_gaps.py` — `gap_report`, `gaps_read`,
-`gapfill_discover`; `tools_source_ingest.py` —
-`source_ingest_open`, `source_ingest_submit`; `tools_ingest.py` — `ingest_progress`,
-`ingest_activity_read`; `tools_query.py` — `query`; `tools_notes.py` — `note_capture`;
-`tools_prompt_diff.py` — `prompt_diff`; `tools_guide.py` — `read_protocol`.
+The six lane action tables above are **projections of `LANE_MEMBERSHIP`**, not a second declaration —
+`tools_dispatch_lane_common.py` generates each lane's actions, call shape and description from
+`core/process_model.py`. The eight topical dispatchers the lanes absorbed (`loop`, `branches`,
+`compile`, `datasets`, `arena`, `golden`, `notes`, `vault_health`) and the operator flat verbs
+(`create_topic`, `lint_check`, `metrics_read`, `baseline_probe`, `prompt_diff`, `suggestions_read`,
+`suggestions_review`, `gaps_read`, `gapfill_discover`, `review_gap`, `source_ingest_open`,
+`source_ingest_submit`, `session_status`, `ingest_activity_read`) survive **only as the lane
+dispatchers' handler seam** — captured function objects, no registration, no alias. A verb that owns
+its own `action` parameter takes it here as `<verb>_action`; `improve action=datasets
+datasets_action=freeze` is the shape. Calling a removed name flat is an unknown-tool error
+(`dec-050`).
 
 Also registered: 4 resources (`knotica://schema/root`, `knotica://schema/topic/{topic}`,
 `knotica://schema/resolved/{topic}`, `knotica://index`) plus the `ui://knotica/dashboard` MCP-App
@@ -256,7 +288,8 @@ configured vaults nor vanish while the server is unconfigured. The module stays 
 resolving its own destination at write time rather than taking a root, and writes best-effort — a sink
 failure is logged and swallowed, never raised.
 
-**Billing gate.** `loop action=run_eval` and `loop action=run_once` are both two-phase: a bare call
+**Billing gate.** `improve action=loop loop_action=run_eval` and `loop_action=run_once` are both
+two-phase: a bare call
 returns a preview and a nonce; only a confirmed second call bills. `run_eval` additionally passes
 `force=True`, bypassing the cadence hold; `run_once` does not (`dec-048`).
 
@@ -412,8 +445,9 @@ is a wish. Do not violate without updating this section first.
 **The process lifecycle contract.** Every user-triggered process — one that spends, mutates the vault,
 or hands work to another agent — surfaces itself, justifies itself, previews its effect and its cost,
 shows its progress, reports its outcome, and names its follow-up as a reachable destination. The six
-answers are declared once per process in `dashboard/src/lanes/processMeta.ts` and consumed by shared
-compositions; no surface authors them inline. The registry is **closed over the `ToolClient` method
+answers are declared once per process in `dashboard/src/lanes/processRows/<lane>.ts`, assembled by
+`dashboard/src/lanes/processMeta.ts` and typed by `dashboard/src/lanes/processContract.ts`, and are
+consumed by shared compositions; no surface authors them inline. The registry is **closed over the `ToolClient` method
 surface** — the dashboard's only route to the server — so a process cannot exist without a row, and its
 `next` anchors are validated against the lane/stage census in `core/process_model.py`, so a follow-up
 cannot point at a destination the process model does not declare. `dec-091`'s anti-dead-end guarantee —

@@ -30,7 +30,7 @@ Ask your client, in either Desktop Chat or Code:
 
 > Create a topic called `agentic-systems` in my knotica vault.
 
-Claude calls `create_topic`. That one commit gives the topic an empty `SCHEMA.md` overlay, an empty
+Claude calls `learn action=create_topic`. That one commit gives the topic an empty `SCHEMA.md` overlay, an empty
 `.knotica/datasets/qa.jsonl`, empty `prompts/` and `compiled/` directories, and a section in the
 vault's `index.md`.
 
@@ -132,7 +132,7 @@ Compile refuses unless all three gates hold:
 |---|---|---|
 | Health | `tend doctor --quick` reports no `FAIL` **and** the vault worktree is clean | `knotica tend doctor --quick` — it runs only the config and schema rows; check the tree separately with `git -C <vault> status`, since a dirty tree is a `WARN`, never a `FAIL` |
 | Trainset | at least **30** query-style examples in `qa.jsonl` | `knotica status --topic agentic-systems` — `to_compile_ready` reaches 0 |
-| Golden set | a **frozen** held-out set of at least **20** records | the Datasets pane, or `datasets action=inventory` |
+| Golden set | a **frozen** held-out set of at least **20** records | the dashboard's `improve` lane **Instrument** stage, or `improve action=datasets datasets_action=inventory` |
 
 "Query-style" is exact: verdict `good` or `corrected`, and the query does not begin with `ingest `.
 Curating an ingest is useful, but it does not count toward the 30.
@@ -150,7 +150,7 @@ knotica improve eval --bootstrap --topic agentic-systems   # synthesize candidat
 knotica improve freeze --topic agentic-systems    # commit reviewed candidates as the held-out set
 ```
 
-Review sits between them and is a human act — edit and keep candidates in the Datasets pane, then
+Review sits between them and is a human act — edit and keep candidates on the `improve` lane's **Instrument** stage, then
 **Save reviewed**. Freeze refuses any question that overlaps the trainset, because the golden set is
 an exam, not training data: it is sealed by a `MANIFEST.json` checksum and stays held out, while the
 trainset is what compile optimizes against. Conflating the two is what makes a score meaningless.
@@ -161,8 +161,8 @@ trainset is what compile optimizes against. Conflating the two is what makes a s
 knotica improve compile --topic agentic-systems
 ```
 
-The dashboard's **Compile** button on the Vault pane does the same, as does asking Claude to call
-`compile action=run`. Compile clones the vault, optimizes the query program with MIPROv2
+The dashboard's **Compile** button on the `improve` lane's **Promote** stage does the same, as does asking Claude to call
+`improve action=compile compile_action=run`. Compile clones the vault, optimizes the query program with MIPROv2
 (`auto="light"`), post-evaluates compiled against baseline over the golden set, writes
 `agentic-systems/.knotica/compiled/query_v1.json` plus its manifest on the clone, and fetches the
 result back as branch `compile/agentic-systems/<sha12>`. **It never merges for you.**
@@ -196,13 +196,13 @@ worktree, a branch not prefixed `compile/agentic-systems/`, and a branch not pre
 
 Ask the same question through `query` again. Runner selection now prefers the healthy compiled artifact
 over the baseline — same tool, same arguments, different engine. There is no second tool name and no
-engine field in the answer envelope. In the Ask pane, re-ask and an **After** card renders beside your
+engine field in the answer envelope. On the `answer` lane's **Ask** stage, re-ask and an **After** card renders beside your
 pinned **Before** once the answer text differs.
 
 What to look for: both figures still present with `wang2024awm` cited, and an answer shaped more like
 the ones you saved — the compiled program was optimized against your own trainset. One cleanup before
 you leave: `compile/*` is the one branch namespace knotica never prunes automatically, so delete the
-branch via `branches action=delete` or the dashboard's Scoreboard panel.
+branch via `improve action=branches branches_action=delete` or the dashboard's Scoreboard panel.
 
 ## Where to go next
 

@@ -41,27 +41,37 @@ the other four along.
 
 Both surfaces drive the same MCP tools, so the choice is ergonomics — with one real exception.
 
+The dashboard is six process **lanes**, not panes: `home`, `learn`, `answer`, `fill`, `improve`,
+and `tend`. Each lane stages its workflow as an ordered rail, so the column below names the lane and
+the stage on it.
+
 | Step | Claude Desktop | Dashboard |
 |---|---|---|
 | Create the KB | `vault action=create` | Vault header → **＋ New KB** |
 | Switch active KB | `vault action=use` | KB picker |
-| Create a topic | `create_topic` | Topic bar → **＋ New topic** |
-| **Ingest a source** | **yes — chat does the reading** | monitor only |
-| See what landed | `wiki_status` | Vault pane |
-| Ask a grounded question | `query` | Ask pane |
-| Curate an answer | `curate_example` | Ask pane → **Save as good** |
-| Bootstrap / review / freeze golden | `datasets` | Datasets pane |
-| Compile and promote | `compile` | Compile panel |
-| Baseline, eval, loop | `loop` | Loop pane |
-| Diagnose, discover, approve a gap | `gaps_read`, `gapfill_discover`, `suggestions_review` | Sources pane |
+| Create a topic | `learn action=create_topic` | Topic bar → **＋ New topic** |
+| **Ingest a source** | **yes — chat does the reading** | `learn` lane, monitor only |
+| See what landed | `wiki_status` | `tend` lane **Doctor** stage; the topic header everywhere |
+| Ask a grounded question | `query` | `answer` lane **Ask** stage |
+| Curate an answer | `curate_example` | `answer` lane **Ask** stage → **Save as good** |
+| Bootstrap / review / freeze golden | `improve action=datasets datasets_action=…` | `improve` lane **Instrument** stage |
+| Compile and promote | `improve action=compile compile_action=…` | `improve` lane **Promote** stage |
+| Baseline, eval, loop | `improve action=loop loop_action=…` | `improve` lane **Observe** / **Gate** / **Heal** stages |
+| Diagnose, discover, approve a gap | `fill action=gaps_read`, `fill action=gapfill_discover`, `fill action=suggestions_review` | `fill` lane **Gap** / **Discover** / **Approve** stages |
 | **Ingest an approved source** | **yes — the handshake needs a model** | no |
+
+> [!IMPORTANT]
+> There is no alias layer. The old flat verbs (`create_topic`, `gaps_read`, `datasets`, `loop`, …)
+> return an unknown-tool error; each is reachable only as `<lane> action=<verb>`. A verb that owns
+> its own `action` parameter takes it as `<verb>_action` on the lane. Full mapping:
+> [reference](reference.md#operator-verbs-lane-actions-only).
 
 > [!IMPORTANT]
 > **Ingest is the one step the dashboard cannot do for you**, and that is by design rather than an
 > omission. Ingest is *client-as-brain*: your Claude reads the source, decides what the entities are,
 > and drives `store_source` and `write_page` itself. The dashboard is a deterministic MCP client with
-> no model of its own, so it can show you an ingest in flight (the Ingest pane) but cannot perform
-> one. Everything else on this page works from either surface.
+> no model of its own, so it can show you an ingest in flight (the `learn` lane's rail) but cannot
+> perform one. Everything else on this page works from either surface.
 
 ## Before you start
 
@@ -116,7 +126,7 @@ topic is selected as soon as the status refreshes. Repeat for each.
 > In the `llms` knowledge base, create topics `pretraining`, `mid-training`, `post-training`, and
 > `reasoning`.
 
-Each `create_topic` is one commit, and gives the topic an empty `SCHEMA.md` overlay, an empty
+Each `learn action=create_topic` is one commit, and gives the topic an empty `SCHEMA.md` overlay, an empty
 `.knotica/datasets/qa.jsonl`, empty `prompts/` and `compiled/` directories, and a section in the
 vault's `index.md`. Creating a topic that already exists is a safe no-op.
 
@@ -145,9 +155,9 @@ you ingest, and Claude will write the links.
 
 ## Step 4. Confirm what landed
 
-Open the dashboard's **Vault** pane and switch topics with the picker — pages, sources, lint state,
-and unpushed commits per topic. `http://127.0.0.1:8765/?topic=pretraining` deep-links straight to
-one.
+Switch topics with the dashboard's picker — pages, sources, lint state, and unpushed commits per
+topic. The `tend` lane's **Doctor** stage is the vault-health read.
+`http://127.0.0.1:8765/?topic=pretraining&lane=tend` deep-links straight to one.
 
 In Desktop, ask for `wiki_status` on a topic. Either way, `pages` should be non-zero and
 `to_compile_ready` should be counting down from 30.
@@ -155,14 +165,14 @@ In Desktop, ask for `wiki_status` on a topic. Either way, `pages` should be non-
 ## Step 5. Ask and curate
 
 Ask questions whose answers you can check against what you just ingested. In the dashboard that is
-the **Ask** pane; in Desktop, ask Claude to call `query`.
+the `answer` lane's **Ask** stage; in Desktop, ask Claude to call `query`.
 
 > [!IMPORTANT]
 > Only the `query` path is what compile improves. If you simply ask in chat, Claude answers with
 > `search` and `read_page` — useful, free, and *not* the engine compile optimizes. Ask through
 > `query` if Step 7 is to mean anything.
 
-Judge each answer and save it: **Save as good** / **Save as bad** in the Ask pane, or ask Claude to
+Judge each answer and save it: **Save as good** / **Save as bad** on the **Ask** stage, or ask Claude to
 curate the exchange. Both land on `curate_example` — one appended row, one commit; re-saving an
 identical `(query, answer, verdict)` is a safe no-op.
 
@@ -171,8 +181,8 @@ good `reasoning` examples do nothing for `pretraining`.
 
 ## Step 6. Freeze a golden set
 
-The golden set is an exam, not training data. The **Datasets** pane walks it in three moves, each
-unlocking when its precondition is met:
+The golden set is an exam, not training data. The `improve` lane's **Instrument** stage walks it in
+three moves, each unlocking when its precondition is met:
 
 1. **Bootstrap** — synthesize candidate question/answer pairs from the topic's pages. Billed.
 2. **Review** — a human act. Edit and keep the candidates that are actually fair questions, then
@@ -189,7 +199,7 @@ Compile refuses unless three gates hold — health (no `FAIL`, clean worktree), 
 **30** query-style examples, and a **frozen** golden set of at least **20** records. "Query-style" is
 exact: verdict `good` or `corrected`, and the query does not begin with `ingest `.
 
-The dashboard's **Compile** button runs it. Compile clones the vault, optimizes the query program
+The `improve` lane's **Promote** stage runs it. Compile clones the vault, optimizes the query program
 with MIPROv2, post-evaluates compiled against baseline over the golden set, and fetches the result
 back as a branch — **it never merges for you**. Compiled must *strictly* beat baseline; equal fails.
 
@@ -201,9 +211,15 @@ Re-ask your question through `query` afterwards. Same tool, same arguments, diff
 
 ## Step 8. Set a baseline and let the loop defend it
 
-A baseline is the bar new content must clear. In the **Loop** pane, run an eval and set the resulting
-scalar as the topic's baseline. From then on the loop can observe changes, compare them against that
-bar, and — when a change makes answers worse — race prompt variants in the arena to heal it.
+A baseline is the bar new content must clear. On the `improve` lane's **Observe** stage, run an eval
+and set the resulting scalar as the topic's baseline. From then on the loop can observe changes,
+compare them against that bar on the **Gate** stage, and — when a change makes answers worse — race
+prompt variants in the arena on the **Heal** stage.
+
+A baseline cannot be frozen above what the corpus currently measures: both
+`improve action=loop loop_action=set_baseline` and `loop_action=rebaseline mode=best` refuse an
+unreachable bar and name `mode=latest` as the exit, because such a bar refuses every future
+candidate by construction.
 
 Two things worth internalizing before you trust the chart:
 
@@ -222,13 +238,15 @@ When a regression traces to *missing knowledge* rather than a bad prompt, healin
 help. The gap-fill pipeline diagnoses that case, writes the gap to a queue, and — only when you ask
 — searches for candidate sources and shows them to you before anything is ingested.
 
-Read the queue with `gaps_read` or the dashboard's **Sources** pane; drain it with `gapfill_discover`,
-which is billed and two-phase. Discovery needs a search-provider key rather than a model token. You
-approve or reject each suggestion from either surface.
+Read the queue with `fill action=gaps_read` or the `fill` lane's **Gap** stage; drain it with
+`fill action=gapfill_discover` or the **Discover** stage, which is billed and two-phase. Discovery
+needs a search-provider key rather than a model token. You approve or reject each suggestion from
+either surface — the **Approve** stage, or `fill action=suggestions_review`.
 
 Ingesting an approved source is the same Desktop-only story as [Step 3](#step-3-ingest-sources-into-each-topic),
-for the same reason. It is a four-step handshake — `source_ingest_open`, then `store_source` and
-`write_page` against the returned candidate handle, then `source_ingest_submit` dry-run and apply —
+for the same reason. It is a four-step handshake — `fill action=source_ingest_open`, then
+`store_source` and `write_page` against the returned candidate handle, then
+`fill action=source_ingest_submit` dry-run and apply —
 and the middle step is your Claude reading the source. Approval and ingest are MCP-only by design.
 Note that apply runs the gate synchronously and bills, and returns `blocked` without publishing if the
 topic has no frozen baseline. Full pipeline: [gap-fill](gap-fill.md).
@@ -242,7 +260,7 @@ know, in the vocabulary of questions it failed to answer.
 |---|---|
 | One topic all the way around the flywheel, with a real paper | [tutorial](tutorial.md) |
 | How the loop observes, gates, and heals on its own | [self-improvement](self-improvement.md) |
-| What each dashboard pane does | [dashboard](dashboard.md) |
+| What each dashboard lane and stage does | [dashboard](dashboard.md) |
 | Closing gaps end to end | [gap-fill](gap-fill.md) |
 | Private notes that are never scored | [notes](notes.md) |
 | Retracting a claim that no longer holds | [guillotine](guillotine.md) |

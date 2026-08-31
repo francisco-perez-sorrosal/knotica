@@ -468,6 +468,7 @@ selectors:
       - tests/test_dispatch_vault_health.py
       - tests/test_file_size_ratchet.py
       - tests/test_fill_review_gap.py
+      - tests/test_fix_text_call_forms.py
       - tests/test_http_dashboard.py
       - tests/test_lane_action_deprecation.py
       - tests/test_lane_dispatchers.py
@@ -757,6 +758,7 @@ selectors:
       - tests/test_gap_dismiss_cascade.py
       - tests/test_gap_lifecycle.py
       - tests/test_gapfill.py
+      - tests/test_gapfill_topic_guard.py
       - tests/test_gapfill_discovery_default.py
       - tests/test_gapfill_integration.py
       - tests/test_gapfill_session_status.py
@@ -1034,7 +1036,8 @@ TT01). §3's refinement pass gave all four a row, so the three new groups above 
 row's assignment to `mcp-surface` absorb every one of those files. Nothing is un-grouped for lack
 of a §3 row any more.
 
-What remains is **test infrastructure and record gates — 4 files / 51 tests**, un-grouped for a
+What remains is **test infrastructure and record gates — 4 files** (51 tests as of the 2026-08-06
+sample), un-grouped for a
 different reason that closing the §3 gap never addressed: each covers code outside `src/knotica/`, which §3 does not
 model *by design*, so Note 1's prohibition on synthetic subsystem names applies permanently rather
 than pending a refinement pass.
@@ -1046,8 +1049,8 @@ than pending a refinement pass.
 | `test_adr_health.py` | 9 | `scripts/check_adr_health.py` | Dev tooling outside `src/knotica/`, same constraint. |
 | `test_architecture_coverage.py` | 11 | `scripts/check_architecture_coverage.py` | Dev tooling outside `src/knotica/`, same constraint. Its subject is the architecture record itself (td-038), which §3 does not model as a component. |
 
-All 51 fall through to **pipeline tier (full suite)** — never skipped, only absent from the scoped
-inner loop. The three `scripts/`-covering files are the live illustration of Note 1's closing
+All four files fall through to **pipeline tier (full suite)** — never skipped, only absent from the
+scoped inner loop. The three `scripts/`-covering files are the live illustration of Note 1's closing
 paragraph: inventing an `scripts/` subsystem would be a TT01 FAIL, and folding either into a
 group's `file_dependencies` would make that group claim coverage of a tree §3 does not describe.
 Un-grouped is the correct state for both, not a debt.
@@ -1060,18 +1063,31 @@ either filename would have misled a glob in the opposite direction.
 
 ### Partition check
 
-Re-proved against the live tree after the duplicate-consolidation and `td-031` passes, and again
-when `test_mcp_gaps_read.py` was split out of `test_mcp_suggestions.py`.
+> [!IMPORTANT]
+> **The two counts below are a dated sample, not a live assertion.** They were re-proved against
+> the tree of **2026-08-06** — after the duplicate-consolidation and `td-031` passes, and again when
+> `test_mcp_gaps_read.py` was split out of `test_mcp_suggestions.py` — and the suite has grown since.
+> Read them as "the partition held exactly when it was measured", never as today's totals; only
+> `make verify`'s topology check is live. `scripts/test_group.py::cmd_check` validates that every
+> declared selector and dependency resolves, but it does **not** walk `tests/` for files no group
+> claims, so an orphaned file cannot make it fail. That orphan check is the fix that would turn this
+> prose into a gate (see F-CO-06 of the pre-release coherence review).
 
-**Files — 179 total.** 169 in group `arg` lists as own membership + 6 pinned fitness files + 4
+**Re-measured 2026-08-30** (files only, no test-count re-run): 213 test files, of which the four
+below are un-grouped for the reasons this section gives. `test_gapfill_topic_guard.py` and
+`test_fix_text_call_forms.py` were added to `gapfill-spine` and `mcp-surface` respectively in that
+pass; before it they were orphans the closure claim did not cover.
+
+**Files — 179 total, as of 2026-08-06.** 169 in group `arg` lists as own membership + 6 pinned fitness files + 4
 un-grouped = 179. Exactly two files appear in more than one group's `arg` list
 (`test_file_size_ratchet.py` in all 14, `test_architecture_boundaries.py` in 5); both are pinned
 fitness tests, counted once in the runtime table. No file is assigned to two groups' own
 membership.
 
-**Tests — 2583 total.** Running the fourteen groups yields 2532 unique tests; 2532 + 51 un-grouped
-= **2583**, exactly the full-suite collection. The topology covers the suite with no silent drop
-and no stray.
+**Tests — 2583 total, as of 2026-08-06.** Running the fourteen groups yielded 2532 unique tests;
+2532 + 51 un-grouped = **2583**, exactly the full-suite collection at that sample. The topology
+covered the suite with no silent drop and no stray. The collection has grown since; this equality
+is a record of the partition holding on that date, not a current total.
 
 **Five movements, in that order.** The §3 gap closed first; this revision then grew the suite
 without reopening it. Both are recorded because the second is only legible against the first:

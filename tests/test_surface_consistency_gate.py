@@ -33,7 +33,12 @@ GATE = Path("scripts") / "check_surface_consistency.py"
 #: and `node_modules` into every case for nothing.
 _NEEDED = (
     Path("scripts") / "check_surface_consistency.py",
-    Path("docs") / "reference.md",
+    Path(".ai-state") / "DESIGN.md",
+    # Check 3 reports these two missing rather than skipping them, so a case
+    # asserting the *pass* outcome needs both present or it fails for a reason
+    # it never injected.
+    Path("hooks") / "session_start.sh",
+    Path("skills") / "wiki-maintenance" / "SKILL.md",
 )
 
 
@@ -44,6 +49,10 @@ def tree(tmp_path: Path) -> Path:
         destination = tmp_path / relative
         destination.parent.mkdir(parents=True, exist_ok=True)
         shutil.copy2(REPO_ROOT / relative, destination)
+    # The whole of `docs/` rather than `reference.md` alone: check 4 resolves
+    # published call-forms across the tree, so copying one file would make every
+    # case here report a missing-document finding it never meant to inject.
+    shutil.copytree(REPO_ROOT / "docs", tmp_path / "docs")
     shutil.copytree(REPO_ROOT / "commands", tmp_path / "commands")
     return tmp_path
 
@@ -239,3 +248,128 @@ def test_a_missing_reference_document_fails_rather_than_passing_vacuously(tree: 
 
     assert result.returncode == 1
     assert "is missing" in result.stderr
+
+
+# ---------------------------------------------------------------------------
+# Check 4 -- published call-forms in the rest of docs/ and in DESIGN.md
+# ---------------------------------------------------------------------------
+
+
+def test_a_dead_call_form_in_a_doc_other_than_the_reference_is_rejected(tree: Path) -> None:
+    """The `gap-fill.md` defect: a dispatcher the lanes absorbed, published as a call.
+
+    Checks 1-2 read `reference.md` and nothing else, so this shape sat wrong in
+    four sibling documents while the gate reported green.
+    """
+    _edit(
+        tree,
+        "docs/gap-fill.md",
+        lambda text: text.replace("`fill action=gaps_read`", "`gaps_read action=open`", 1),
+    )
+
+    result = _run(tree)
+
+    assert result.returncode == 1
+    assert "is not a registered tool" in result.stderr
+
+
+def test_an_action_a_live_lane_does_not_declare_is_rejected(tree: Path) -> None:
+    _edit(
+        tree,
+        "docs/gap-fill.md",
+        lambda text: text.replace("`fill action=gaps_read`", "`fill action=gaps_reed`", 1),
+    )
+
+    result = _run(tree)
+
+    assert result.returncode == 1
+    assert "has no action" in result.stderr
+
+
+def test_a_dead_call_form_in_the_design_canon_is_rejected(tree: Path) -> None:
+    """`DESIGN.md` § 4 is the canon an agent resolves "what does this expose?" against.
+
+    It declared a 35-tool surface two sections after § 3b correctly said 21, and
+    no check read it.
+    """
+    _edit(
+        tree,
+        ".ai-state/DESIGN.md",
+        lambda text: text.replace(
+            "`improve action=loop loop_action=run_eval`", "`loop action=run_eval`", 1
+        ),
+    )
+
+    result = _run(tree)
+
+    assert result.returncode == 1
+    assert ".ai-state/DESIGN.md" in result.stderr
+
+
+def test_a_lane_verb_offered_as_a_bare_call_is_rejected(tree: Path) -> None:
+    """`create_topic` is reachable only as an action; offering it bare is a dead end."""
+    _edit(
+        tree,
+        "docs/tutorial.md",
+        lambda text: text.replace(
+            "Claude calls `learn action=create_topic`.", "Claude calls `create_topic`.", 1
+        ),
+    )
+
+    result = _run(tree)
+
+    assert result.returncode == 1
+    assert "reachable only as" in result.stderr
+
+
+def test_a_verb_named_as_a_subject_rather_than_a_call_is_not_flagged(tree: Path) -> None:
+    """The rule that keeps the gate usable: prose names verbs constantly.
+
+    Without the call-position restriction this exact sentence -- and roughly a
+    hundred and fifty like it across `docs/` -- reported as drift. A gate that
+    fires on correct prose gets muted, so this case is as load-bearing as the
+    four above.
+    """
+    _edit(
+        tree,
+        "docs/gap-fill.md",
+        lambda text: text + "\n\nThe `gaps_read` verb reads the queue; `datasets` seals it.\n",
+    )
+
+    assert _run(tree).returncode == 0
+
+
+def test_a_history_marked_region_may_publish_a_dead_name(tree: Path) -> None:
+    """A migration table must print the dead name -- that is its whole job."""
+    _edit(
+        tree,
+        "docs/gap-fill.md",
+        lambda text: (
+            text
+            + "\n<!-- surface-history-begin: v0.2.0 migration -->\n"
+            + "Was `loop action=run_eval`.\n"
+            + "<!-- surface-history-end -->\n"
+        ),
+    )
+
+    assert _run(tree).returncode == 0
+
+
+def test_the_history_marker_is_scoped_to_its_own_region(tree: Path) -> None:
+    """It exempts a region, never the file -- otherwise one marker silences a document."""
+    _edit(
+        tree,
+        "docs/gap-fill.md",
+        lambda text: (
+            text
+            + "\n<!-- surface-history-begin: v0.2.0 migration -->\n"
+            + "Was `loop action=run_eval`.\n"
+            + "<!-- surface-history-end -->\n\n"
+            + "Call `datasets action=freeze` to seal it.\n"
+        ),
+    )
+
+    result = _run(tree)
+
+    assert result.returncode == 1
+    assert "is not a registered tool" in result.stderr

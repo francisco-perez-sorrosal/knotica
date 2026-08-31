@@ -9,7 +9,11 @@ wins; unrecognized values degrade to Home.
 tabs are replaced by the Learn, Answer and Fill lanes; legacy ?pane=
 values redirect.
 - the operator-tier flat MCP tools are removed; their
-behaviour is reachable as lane-dispatcher actions. Full mapping:
+behaviour is reachable as lane-dispatcher actions, in the shape
+`<lane> action=<verb>` (a verb owning its own `action` parameter takes it
+as `<verb>_action`). There is no alias layer — an old flat name returns an
+unknown-tool error. Full mapping:
+[docs/reference.md — Operator verbs](docs/reference.md#operator-verbs-lane-actions-only).
 
 ### Feat
 

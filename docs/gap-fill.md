@@ -49,19 +49,28 @@ Gap records land at `<topic>/.knotica/gaps/gaps.jsonl`, one commit per non-empty
 whose `(qa_id, fault_class)` pair is already open is dropped — a regression that persists across
 cycles does not spam the queue.
 
-Read that queue back with `gaps_read` — in conversation, or in the dashboard's `Fill` lane
+Read that queue back with `fill action=gaps_read` — in conversation, or in the dashboard's `fill` lane
 **Gaps** stage, which lists open gaps. This matters most right after you file one by hand: a gap
 has no candidate sources until [discovery](#p2--discover) runs, so the suggestion list is
 legitimately empty and the gap is the only evidence anything happened.
 
-**Dismissing a gap** — `review_gap decision=dismiss` (a non-empty reason required), or the
-**Dismiss…** control on the dashboard's gap card — closes a gap not worth sourcing. The dismissal
+**Dismissing a gap** — `fill action=review_gap decision=dismiss` (a non-empty reason required), or
+the **Dismiss…** control on the dashboard's gap card — closes a gap not worth sourcing. The dismissal
 **cascades**: the gap's still-open suggestions (pending/approved/deferred) close as `rejected` in
 the same commit, with `gap dismissed: <reason>` recorded on each and their ids returned as
 `cascaded_suggestion_ids`, so nothing is left stranded waiting on a question nobody wants answered.
+One record is **spared**: an `approved` suggestion that already has a live `loop/c/` candidate
+branch. The gate merges that branch before it stamps the record, so cascading over it would land
+the source and leave the queue saying it was rejected — the gate dispositions it instead.
+
 `decision=reopen` reverses the dismissal (legal only from `dismissed`; MCP/CLI only — the dashboard
-lists open gaps) but resurrects no suggestion: re-run discovery to re-propose sources with fresh
-ranking. A `resolved` gap — already answered by a merged source — accepts neither transition.
+lists open gaps). It resurrects no suggestion, but **a re-drain re-proposes**: the cascade writes
+`gap dismissed: ` as the `decided_reason` prefix, and discovery reads that marker to tell the gap's
+own dismissal from a human's judgement of the source. Only the latter dedups. So reopen + re-drain
+returns the same candidates with fresh ranking, while a source you rejected on its merits stays
+rejected. A `resolved` gap — already answered by a merged source — accepts neither transition.
+
+A refusal on either transition names the legal exit rather than only the rule it broke.
 
 ## Where gaps come from
 
@@ -101,7 +110,15 @@ counted as `candidates_already_in_vault` in the drain summary, never re-proposed
 heals the queue it already holds: still-open records whose source the vault now stores, and per-gap
 duplicates of one source (archive editions staged before canonicalization), close as `rejected` with
 the reason recorded — the winner being the human-decided, best-ranked record — counted as
-`stale_suggestions_closed`.
+`stale_suggestions_closed`. **Every drain heals**, even one that stages nothing: healing is local
+work over records the vault already holds, so it runs with zero open gaps and with no provider key
+configured. A gap whose every candidate the vault already stores is reported by id in
+`gaps_fully_in_vault` — the vault answers it, so the problem is not a missing source.
+
+A cascade closure is **not** a human rejection and does not dedup: the cascade stamps
+`gap dismissed: ` as the record's `decided_reason` prefix, and the drain reads that marker, so
+re-opening a dismissed gap and re-draining re-proposes its sources with fresh ranking. A record you
+rejected on the source's own merits still dedups, permanently.
 
 **`dilution` gaps are never drained** — a dilution gap's reference page still exists, so there is
 nothing to go find, and those records sit in the queue inert. **Under a cap**, gaps carrying a
@@ -133,9 +150,12 @@ A key is looked up when a provider is actually built, first hit wins, in this or
 probe below — so a key kept only in a `.env` file both switches the loop-side default on and lets
 the drain search. Keys never come from `config.toml` or the vault, and are never logged.
 
-Search is a fallback chain: a provider that fails is skipped, not fatal, and the first one returning
-at least one candidate wins. Survivors are sanitized first — a hit whose URL has no `http(s)`
-scheme or no host is dropped (syntactic only, no reachability probe), and each URL is rewritten to
+Search is a fallback chain: a provider that fails is skipped, not fatal, and the first one yielding
+at least one candidate **that survives sanitization** wins. The URL floor is applied *per provider,
+inside* the chain rather than once after it, so a provider that returns ten hits and loses all ten
+to the floor falls through to the next provider instead of ending the chain with an empty list
+indistinguishable from "nothing found". Sanitization drops a hit whose URL has no `http(s)`
+scheme or no host (syntactic only, no reachability probe), and rewrites each URL to
 its host's canonical form (SEP archive-edition permalinks like
 `plato.stanford.edu/archives/win2018/entries/<slug>` collapse to the living
 `plato.stanford.edu/entries/<slug>`, case-insensitively on the archive segment) — then deduped by
@@ -146,8 +166,9 @@ un-enriched rather than failing when rate-limited — then scored deterministica
 (venue tier, citations, recency; never the title or snippet) and ranked in an explicit total order.
 
 **Offline behaviour is a clean no-op.** With no key configured, no open gaps, or every provider
-failing, the drain writes nothing and exits `0` with an informational message — the honest empty
-state, not an error.
+failing, the drain stages nothing and exits `0` with an informational message — the honest empty
+state, not an error. It still runs the queue-healing pass, so a stale record the vault has since
+absorbed closes even on a keyless run; that is the one thing such a run can write.
 
 ### Draining automatically after a regression
 
@@ -171,7 +192,7 @@ Suggestions live at `<topic>/.knotica/suggestions/suggestions.jsonl` and move th
 | `defer` | `pending` | `deferred` | Optional |
 | `mark_ingested` | `approved` | `ingested` | — |
 
-Anything else is rejected with an actionable message. `suggestions_review` defaults to
+Anything else is rejected with an actionable message. `fill action=suggestions_review` defaults to
 `mode="dry-run"`, and preview and commit share one pure validation function, so a dry-run can never
 disagree with apply. Reads sort newest `proposed_at` first, then rank, then id; page size defaults to
 20 and caps at 50, behind an opaque cursor that fails closed if reused under a different filter.
@@ -198,7 +219,7 @@ alone.
 | `loop/x/<topic>/source-<id8>` | Quarantined — the gate refused it |
 | `loop/r/<sha>` | Result pointer for a completed cycle |
 
-1. **Open.** `source_ingest_open(topic, suggestion_id)` requires the suggestion to be `approved`,
+1. **Open.** `fill action=source_ingest_open topic=… suggestion_id=…` requires the suggestion to be `approved`,
    checked before any worktree is touched. It creates a git worktree under
    `<vault>/.knotica/worktrees/<topic>/source-<id8>/` on a fresh `loop/wip/` branch and returns a
    candidate handle plus provenance. Re-opening **resumes**, never restarts: the response says
@@ -210,11 +231,11 @@ alone.
    same place.
 2. **Write.** Drive `store_source` and `write_page` with `candidate=<handle>`. Each call is its own
    commit on the WIP branch.
-3. **Dry run.** `source_ingest_submit(..., mode="dry-run")` reports lint cleanliness (the same
-   `lint_check` rules the vault is held to), whether source and pages exist, and whether the topic
+3. **Dry run.** `fill action=source_ingest_submit … mode=dry-run` (the default) reports lint
+   cleanliness (the same `tend action=lint_check` rules the vault is held to), whether source and pages exist, and whether the topic
    has a frozen baseline, then returns `would_evaluate`. Zero side effects, and it always runs —
    even when a prior verdict is replayable.
-4. **Apply.** `mode="apply"` refuses to run without source *and* pages, and returns
+4. **Apply.** `mode=apply` refuses to run without source *and* pages, and returns
    `verdict: "blocked"` without publishing if no baseline is frozen. Otherwise it renames the WIP
    branch into `loop/c/` — **that rename is the readiness boundary**, the first moment the loop can
    see the work — then drives the gate synchronously, polling up to 20 cycles before failing loud
@@ -244,8 +265,9 @@ race against it risks a variant that masks the dilution.
 On **pass**, the candidate fast-forwards onto the default branch, the suggestion advances
 `approved → ingested`, and a best-effort trainset grower runs afterwards over exactly the entity
 pages the merge changed. That grower is the one place an LLM call happens *implicitly* inside a
-client-driven tool call — `compile action=run`, `datasets action=bootstrap`, and
-`loop action=run_eval` reach a model in the server process too, but only because you asked them to.
+client-driven tool call — `improve action=compile compile_action=run`,
+`improve action=datasets datasets_action=bootstrap`, and `improve action=loop loop_action=run_eval`
+reach a model in the server process too, but only because you asked them to.
 A missing credential or any failure in the grower is logged and swallowed, never rolling back a
 merge that already committed.
 
@@ -258,28 +280,37 @@ it. Quarantine branches are pruned beyond the newest 5 per topic.
 **Reworking a refusal**: re-open the ingest (it resumes from the quarantine ref with the source and
 pages intact), fix what the diff blamed, and resubmit — the rewritten tree expires the stored verdict,
 so the gate evaluates rather than replaying. If instead you decide against the source altogether,
-`suggestions_review(action="withdraw")` returns it to `pending` without asserting an ingest that
+`fill action=suggestions_review suggestions_review_action=withdraw` returns it to `pending` without asserting an ingest that
 never happened; `mark_ingested` was previously the only exit from `approved`, which meant releasing
 a suggestion required writing a false record.
 
 Note that `pending_candidates` stays empty while a rework is in flight, beside
 `refused_awaiting_rework: 1`. That is correct: `loop/wip/` is private until submit publishes it,
-which is the guarantee that the gate never evaluates a half-written candidate. `loop action=run_once`
-says so explicitly rather than reporting a bare "no pending loop branches".
+which is the guarantee that the gate never evaluates a half-written candidate.
+`improve action=loop loop_action=run_once` says so explicitly rather than reporting a bare "no
+pending loop branches".
 
 ## Entry points
+
+Every MCP entry point below is a `fill` lane action. There is no alias layer: the bare verb names
+(`gaps_read`, `gapfill_discover`, `suggestions_review`, …) return an unknown-tool error. `gap_report`
+is the one that is *also* a registered flat tool, because the client calls it mid-conversation.
 
 | Surface | Call | Stage |
 |---|---|---|
 | CLI | `knotica fill discover --topic NAME [--max-gaps N] [--vault PATH]` | P2 |
-| MCP | `gapfill_discover(topic, max_gaps=0, confirm="", vault="")` | P2 (billed, two-phase) |
-| MCP | `gap_report(topic, question, reason="", reference_pages=None, vault="")` | P1 (reported gap) |
-| MCP | `gaps_read(topic, status="open", cursor="", limit=20, vault="")` | P1 (read the queue) |
-| MCP | `review_gap(topic, gap_id, decision, reason="", vault="")` | P1 (dismiss/reopen; dismiss cascades to the gap's open suggestions) |
-| MCP | `suggestions_read(topic, status="pending", cursor="", limit=20, vault="")` | P3 |
-| MCP | `suggestions_review(topic, suggestion_id, action, mode="dry-run", reason="", vault="")` | P3 |
-| MCP | `source_ingest_open(topic, suggestion_id, vault="")` | P4 |
-| MCP | `source_ingest_submit(topic, suggestion_id, mode="dry-run", vault="")` | P4 |
+| MCP | `fill action=gapfill_discover topic=NAME max_gaps=0 confirm="" vault=""` | P2 (billed, two-phase) |
+| MCP | `gap_report topic=NAME question=… reason="" reference_pages=None vault=""` (also `fill action=gap_report`, `answer action=gap_report`) | P1 (reported gap) |
+| MCP | `fill action=gaps_read topic=NAME status=open cursor="" limit=20 vault=""` | P1 (read the queue) |
+| MCP | `fill action=review_gap topic=NAME gap_id=… decision=… reason="" vault=""` | P1 (dismiss/reopen; dismiss cascades to the gap's open suggestions) |
+| MCP | `fill action=suggestions_read topic=NAME status=pending cursor="" limit=20 vault=""` | P3 |
+| MCP | `fill action=suggestions_review topic=NAME suggestion_id=… suggestions_review_action=… mode=dry-run reason="" vault=""` | P3 |
+| MCP | `fill action=source_ingest_open topic=NAME suggestion_id=… vault=""` | P4 |
+| MCP | `fill action=source_ingest_submit topic=NAME suggestion_id=… mode=dry-run vault=""` | P4 |
+
+`suggestions_review` owns a parameter already named `action`, so on the lane it is passed as
+`suggestions_review_action` — the lane's own selector has the name. Defaults shown are the live
+ones; every listed parameter is optional except `topic` and the ids.
 
 There is no `gapfill decide` or `gapfill ingest` subcommand: approval and ingest are MCP-only by
 design — the client's LLM does the judging, the server exposes deterministic tools. `discover` is on

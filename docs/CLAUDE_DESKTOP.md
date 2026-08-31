@@ -77,7 +77,7 @@ source: a checkout gets `uv run --directory <repo> --extra evals knotica mcp`, a
 
 ## Headless credentials in Desktop's config
 
-The MCP tool **`query`**, plus `compile action=run`, `knotica improve eval`, and the loop's evals, run
+The MCP tool **`query`**, plus `improve action=compile compile_action=run`, `knotica improve eval`, and the loop's evals, run
 **headless** (server-side LLM); the arena itself makes no model call — see [install](install.md)
 for which paths need one and how to obtain `CLAUDE_CODE_OAUTH_TOKEN` or `ANTHROPIC_API_KEY`.
 Ingest, curate, lint, and exploratory Q&A need none of this.
@@ -123,7 +123,7 @@ commands. Ask for the tool by name instead, or for a multi-step operation ask Cl
 |---|---|
 | Follow the ingest protocol | "Load the knotica ingest protocol, then ingest `<url>` into `<topic>`." |
 | One-shot answer | "Call knotica `query` with topic `<topic>` and question `<question>`." |
-| Health check | "Run knotica `vault_health action=doctor` (quick) and summarize failures." |
+| Health check | "Run knotica `tend action=vault_health vault_health_action=doctor` (quick) and summarize failures." |
 | Open the dashboard | "Call `open_dashboard` for topic `<topic>`." |
 
 Every tool, argument, and dispatcher action: [reference](reference.md).

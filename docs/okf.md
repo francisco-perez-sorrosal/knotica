@@ -133,8 +133,8 @@ All three subcommands need a configured vault; without one they fail the same wa
 
 | Action | Parameters | Equivalent to |
 |---|---|---|
-| `vault_health action=okf_check` | `strict` (bool, default `false`) | `knotica tend okf check [--strict]` |
-| `vault_health action=okf_repair` | `mode` (`dry-run` default \| `apply`), `force` (bool, default `false`) | `knotica tend okf repair --dry-run` / `--apply [--force]` |
+| `tend action=vault_health vault_health_action=okf_check` | `strict` (bool, default `false`) | `knotica tend okf check [--strict]` |
+| `tend action=vault_health vault_health_action=okf_repair` | `mode` (`dry-run` default \| `apply`), `force` (bool, default `false`) | `knotica tend okf repair --dry-run` / `--apply [--force]` |
 
 Both accept `vault` to target a non-default configured vault.
 
@@ -158,7 +158,7 @@ Behavior a user will observe beyond the frontmatter fix:
 
 ## Lint vs OKF check
 
-Knotica's mechanical lint (`lint_check` MCP tool, `vault_health action=lint`, `/knotica:lint`) and `knotica tend okf check` are separate gates with separate link-resolution policies: lint uses conservative same-directory wikilink resolution; `tend okf check` resolves through the same OKF link tiers `okf export` uses. They intentionally disagree on stricter link cases — a page can pass one and fail the other.
+Knotica's mechanical lint (`lint_check` MCP tool, `tend action=vault_health vault_health_action=lint`, `/knotica:lint`) and `knotica tend okf check` are separate gates with separate link-resolution policies: lint uses conservative same-directory wikilink resolution; `tend okf check` resolves through the same OKF link tiers `okf export` uses. They intentionally disagree on stricter link cases — a page can pass one and fail the other.
 
 > [!NOTE]
 > The lint engine has an internal `profile` parameter (`"knotica"` default, or `"okf"` — an OKF-shaped gate requiring only a non-empty `type`, skipping the orphan and source-citation checks). No CLI flag, MCP argument, or test anywhere in the codebase ever passes `profile="okf"` — every real entry point runs the default profile. Use `knotica tend okf check` for OKF-specific validation; the `okf` profile is not user-reachable.

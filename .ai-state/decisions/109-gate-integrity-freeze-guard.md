@@ -66,6 +66,32 @@ docstring called the resulting state "always a misconfiguration".
   misconfiguration"; permitting a knowingly-jammed freeze with a warning makes
   the warning the reader's problem.
 
+## Consequences
+
+**Positive**
+
+- The jam can no longer be *created*. `set_baseline` is the one entry point that
+  could freeze a bar above the newest measurement, and it now refuses, so the
+  unreachable-gate state has exactly one remaining origin instead of two.
+- The refusal names its own exit (`mode=latest`), so the operator who hits it is
+  not left reverse-engineering a legal call from an error string.
+- The drift-created case, which the guard cannot prevent, surfaces on Home as
+  `gate.baseline_unreachable` rather than being discovered when a gate silently
+  never passes.
+
+**Negative**
+
+- **No aspirational-bar override exists.** An operator who deliberately wants a
+  bar above current measurement — a quality-recovery campaign — has no argument
+  to say so. The refusal is unconditional by design; adding the override is the
+  named fix if the Reversal trigger below fires, not a gap to patch casually.
+- **Drift-created unreachability still needs a manual rebaseline.** The guard
+  closes the creation path only; a corpus that regresses after a legitimate
+  freeze still leaves a jammed gate that a human must clear.
+- Two pre-existing tests that pinned freeze-above-measurement as legitimate had
+  to be rewritten, so the repo's own record of the old behavior is gone from the
+  suite and survives only here.
+
 ## Disconfirmation
 
 - **Falsifier**: a real operator workflow that legitimately needs an

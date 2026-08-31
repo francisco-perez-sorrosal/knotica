@@ -37,8 +37,8 @@ HTTP mount instead, which talks to the same tools over `StreamableHTTPClientTran
 auto-detects which transport to use; `?mount=bridge`/`?mount=http` forces one.
 
 > [!NOTE]
-> End-user Desktop install lives in [`CLAUDE_DESKTOP.md`](CLAUDE_DESKTOP.md). The `Ask` pane and
-> the process lanes call headless MCP tools and need LLM credentials in Desktop's MCP `env` block —
+> End-user Desktop install lives in [`CLAUDE_DESKTOP.md`](CLAUDE_DESKTOP.md). The process lanes
+> call headless MCP tools and need LLM credentials in Desktop's MCP `env` block —
 > see that guide's headless-credentials section.
 
 ## Query parameters
@@ -210,9 +210,18 @@ bills on an explicit second confirm (the server-nonce two-phase flow) — never 
    thread count; the second, explicit confirm executes (**Cancel** discards, nothing bills).
    EVAL RUN prints cadence, window, threads, and the arena **SCORER** — each label carries an ⓘ
    naming the `[loop]` key and its default — and switches the scorer in place: **Use eval scorer**
-   is a two-click armed→confirm control behind an `arms billing` chip (the click itself spends
-   nothing; it arms one golden-set eval per variant on every future race), while switching back to
-   the heuristic is a single click. Both write `[loop] arena_scorer` in
+   is a two-click control behind an `arms billing` chip, and the arming is the **server's**, not the
+   UI's. The first click calls `improve action=loop loop_action=cadence arena_scorer=eval` with no
+   `confirm`; that call writes nothing and returns a preview envelope (`requested_arena_scorer`,
+   `estimated_cost`, a single-use `confirm_nonce`, `ttl=300`), which the control renders as the
+   quote. The second click repeats the same call carrying that nonce as `confirm`, and only then is
+   anything written — so the estimate you confirm is the one the server actually produced, not a
+   number the client composed. Both legs are free; what is armed is one golden-set eval per variant
+   on every *future* race. Switching back to `heuristic` stays a single click, needs no nonce, and
+   applies immediately.
+   Switching back to `heuristic` is free and applies in one call, and an unrecognized
+   `arena_scorer` is refused with `INVALID_ARGUMENT` before any `[loop]` key is written.
+   Both write `[loop] arena_scorer` in
    `~/.config/knotica/config.toml`; see [configuration](configuration.md#loop-eval-cadence-and-the-arena-scorer).
 3. **Gate** — review pending `loop/c/*` candidate branches. One **PENDING CANDIDATES** card lists
    them as a state list (branch name and a right-aligned sha), each pending row carrying a
@@ -256,13 +265,15 @@ misleading `pending` ("nothing has run yet" would be a guess the server cannot b
 
 **Five stages, in order:**
 
-1. **Gap** — browse diagnosed gaps waiting for sources. Lists open gaps from the `gaps_read` tool.
+1. **Gap** — browse diagnosed gaps waiting for sources. Lists open gaps from `fill action=gaps_read`.
    Each card shows the fault class, filed date, the unanswered question, and reference pages, plus
    the one gap-side decision: **Dismiss…** opens a reason form (a non-empty reason is required,
    mirroring the reject form) and confirming marks the gap dismissed — which also closes the gap's
    still-open suggestions as rejected in the same commit; the outcome sentence says how many closed
-   with it. Reopening a dismissed gap is MCP/CLI-only (`review_gap decision=reopen`) since this
-   page lists open gaps.
+   with it. An `approved` suggestion that already has a live candidate branch is spared the cascade —
+   the gate dispositions it. Reopening a dismissed gap is MCP/CLI-only
+   (`fill action=review_gap decision=reopen`) since this page lists open gaps; a re-drain then
+   re-proposes its sources, because a cascade closure does not dedup discovery.
 2. **Discover** — runs source discovery directly from the dashboard, not a handoff: **Discover
    sources…** is a two-phase billed action (a preview click quotes how many gaps would be drained
    and the estimated cost; a second, explicit confirm runs it and stages ranked suggestions). The
@@ -339,6 +350,13 @@ The Handoff Stage carries:
    The button copies the command *plus* its one-line narration, because a host without slash
    commands routes on the prose. Present at every tier: where a dispatch button exists it sits
    beside it as **Copy it instead**; where none does it is labelled **Copy the instruction**.
+
+**Confirmation follows the only honest signal the tier has.** At tiers A and B — a host that can
+dispatch — the stage confirms on a successful *send*. At tiers C and D there is no send, so a
+successful clipboard write is the only evidence the payload left the dashboard at all; the stage
+confirms on the copy instead (**Copied.** Paste it into your Claude session). Either way, the same
+**NEXT STEP → Fill → Gate** block renders once the handoff is confirmed — including on the plain
+HTTP mount, which has no dispatch bridge and previously reached no confirmed state at all.
 
 ### When it is your turn
 

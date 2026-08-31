@@ -130,7 +130,7 @@ Configs written before the extra migration carry `--group evals`, which no longe
 | Exploratory Q&A via `search` / `read_page` | No |
 | Arena races | No — deterministic mutator, keyword scorer, no model call |
 | MCP `query` tool | Yes |
-| `compile action=run` | Yes |
+| `improve action=compile compile_action=run` | Yes |
 | `knotica improve eval` | Yes |
 | The loop's evals | Yes |
 | Gap-fill candidate gating | Yes |

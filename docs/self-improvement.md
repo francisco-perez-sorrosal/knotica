@@ -23,8 +23,8 @@ does:
 |---|---|---|
 | Foreground watcher | `knotica improve loop --topic <t>` | observe, then gate one candidate — polling every **5.0 s**, and in watch mode behind the **20.0 s** debounce |
 | OS-supervised daemon | `knotica service install` | observe, then gate one candidate — supervised every **30 s**, no debounce |
-| Synchronous MCP tick | `loop action=run_once` | observe, then gate one candidate — once, no debounce |
-| Forced MCP eval | `loop action=run_eval` | observe **only**, forced past the cadence hold |
+| Synchronous MCP tick | `improve action=loop loop_action=run_once` | observe, then gate one candidate — once, no debounce |
+| Forced MCP eval | `improve action=loop loop_action=run_eval` | observe **only**, forced past the cadence hold |
 
 `--no-arena` is the one off switch, and it belongs to `knotica improve loop` alone; under it a regression
 records `"observation regression (arena disabled)"` and stops.
@@ -100,7 +100,7 @@ coalesces into one eval at its natural boundary, and any change to HEAD restarts
 `--once` forces it to `0.0`. The two retry floors key on the error's own contract: **60 s** for a
 transient failure, **3600 s** when the error reports itself non-retryable (no frozen golden set, no
 credential). If a blocked topic sits idle for an hour, that is why. Both are independent of cadence,
-and both pace the **unattended** watcher only: `loop action=run_eval`'s confirmed leg clears them,
+and both pace the **unattended** watcher only: `improve action=loop loop_action=run_eval`'s confirmed leg clears them,
 because the remedy for a blocked topic — freezing a golden set — is a `.knotica/` write that the
 content-change check ignores by design, so no correct action would otherwise clear the floor before
 it expired.
@@ -116,9 +116,9 @@ Everything in flight is a branch. The set is declared once, in
 | `loop/r/` | every observation merge and every keep | audit pointer at the eval clone tip, carrying the metrics commit | newest 5, **merged pointers only** — an unmerged pointer is evidence of an interrupted run and is left alone |
 | `loop/x/` | a source-gate refusal | a refused source candidate, kept as audit trail, invisible to the gate scan | newest 5 per topic |
 | `loop/wip/` | an ingest session opening, on a private worktree | work in progress, invisible to the gate | renamed to its `loop/c/` name at publish; idle sessions swept after **24 h** |
-| `compile/<topic>/` | `compile action=run` | a compile artifact awaiting human promotion | **never** auto-pruned |
+| `compile/<topic>/` | `improve action=compile compile_action=run` | a compile artifact awaiting human promotion | **never** auto-pruned |
 
-`compile/*` is the one namespace that accumulates. Clear it with `branches action=delete`, which
+`compile/*` is the one namespace that accumulates. Clear it with `improve action=branches branches_action=delete`, which
 refuses the default branch and the checked-out HEAD.
 
 ## Baseline policy
@@ -131,12 +131,17 @@ The baseline is the frozen scalar the gate defends, stored per topic in
 | `latest` | The baseline tracks reality. It moves on exactly two events: the first-observation auto-freeze, and an instrument-change re-freeze. A better observation does **not** raise it |
 | `best` | High-water mark. Any observation with `scalar > baseline` raises the bar to that scalar |
 
-`loop action=rebaseline mode=best` re-picks the high-water mark from metrics history — but **refuses
+`improve action=loop loop_action=rebaseline mode=best` re-picks the high-water mark from metrics history — but **refuses
 to freeze a bar above the newest measurement** on the current instrument: such a bar fails every
 candidate and arena variant by construction (the `baseline_unreachable` state `wiki_status` reports
 and the Home attention inbox surfaces as a blocked row). The refusal names both scalars and points
-at `mode=latest`. Drift *after* a legitimate freeze still requires a human rebaseline — lowering the
-bar forgives a regression, so it is never automatic.
+at `mode=latest`. **`improve action=loop loop_action=set_baseline` shares that refusal** — a manual
+freeze jams the queue exactly as a `mode=best` re-pick does, and the guard is skipped honestly when
+the topic has no same-instrument history to compare against. `set_baseline` also records the
+*current* instrument on the frozen baseline rather than leaving it null; a null would silently
+disarm both guards keyed on it (the gate's mismatch branch and the first-observation re-freeze).
+Drift *after* a legitimate freeze still requires a human rebaseline — lowering the
+bar forgives a regression, so it is never automatic. No aspirational-bar override exists (`dec-109`).
 
 An **instrument change** means the harness fingerprint rotated. That fingerprint hashes the judge
 prompt, the judge and worker model snapshots, the scalar formula version, and a runner config hash
@@ -150,6 +155,15 @@ every score it ever produced still comparable. That matters because the budget w
 2048) after real runs aborted on truncated judge responses — folding it in would have retired every
 baseline in every topic for a change that alters no score.
 
+**The candidate gate is the fourth reader of that mismatch, and the only one that merges branches.**
+When a candidate's `harness_version` differs from the one the baseline was frozen under, the gate
+neither merges nor reverts: it records the measurement, marks the candidate processed so the refusal
+costs one eval rather than one per tick, and names the way out —
+`improve action=loop loop_action=rebaseline mode=latest`, then re-submit. It is a returned result,
+not an exception, because the condition persists until a human re-freezes and raising it every tick
+would kill an unattended watcher. A formula bump that merely rescaled the ruler must not read as the
+candidate having got better or worse.
+
 On the first observation under a new instrument the old baseline is discarded and the new scalar
 becomes the baseline. That auto-refreeze is **by definition not a regression**, so no arena race
 fires: cross-instrument scalars are incomparable, and pretending otherwise would manufacture a false
@@ -161,8 +175,8 @@ Three operator levers, none of which runs an eval:
 
 | Lever | CLI | MCP |
 |---|---|---|
-| Switch policy | `knotica improve loop --baseline-policy latest\|best` | `loop action=baseline_policy policy=…` |
-| Re-freeze from history | `knotica improve loop --rebaseline best\|latest` | `loop action=rebaseline mode=…` (default `best`) |
+| Switch policy | `knotica improve loop --baseline-policy latest\|best` | `improve action=loop loop_action=baseline_policy policy=…` |
+| Re-freeze from history | `knotica improve loop --rebaseline best\|latest` | `improve action=loop loop_action=rebaseline mode=…` (default `best`) |
 | Adopt HEAD as observed | `knotica loop --mark-observed` | — |
 
 `--rebaseline` re-freezes from `metrics.jsonl`, restricted to records sharing the *newest* record's
@@ -181,7 +195,7 @@ topic's `query.md` and promotes a winner.
 | How variants are made | The shipped mutator appends a fixed text tweak, deterministically, with no model call |
 | How a winner is picked | Highest score wins, and "clears" means meeting or beating the topic's eval baseline — but only if the scorer's scalars can be ranked against that baseline at all. See **Which scorer, and whether it can be compared** below |
 | What lands | The winning body, written to `<topic>/.knotica/prompts/query.md` in its own commit — the only thing the arena mutates. It never touches page content |
-| Where to look | `<topic>/.knotica/arena-state.json` (stages `idle`, `racing`, `promoting`, `completed`, `reverted`, `aborted`; variant statuses `pending`, `scored`, `winner`, `lost`) and the append-only `arena-history.jsonl`, via `arena action=status\|history` (`limit` defaults to 20). Each race and each variant also records `scorer_id`, `n_examples` and `golden_manifest_sha` |
+| Where to look | `<topic>/.knotica/arena-state.json` (stages `idle`, `racing`, `promoting`, `completed`, `reverted`, `aborted`; variant statuses `pending`, `scored`, `winner`, `lost`) and the append-only `arena-history.jsonl`, via `improve action=arena arena_action=status\|history` (`limit` defaults to 20). Each race and each variant also records `scorer_id`, `n_examples` and `golden_manifest_sha` |
 
 After healing a failed gate candidate the wound `loop/c/*` branch is deleted, win or lose. After
 healing an observation regression nothing is reverted — default-branch content is human-owned.
@@ -236,7 +250,7 @@ tie fails with `compiled_not_better`, and with no LLM client the compile refuses
 fabricating scores.
 
 Compile produces `<topic>/.knotica/compiled/query_v1.json` and a manifest on branch
-`compile/<topic>/<clone-head[:12]>`. **It never merges for you.** `compile action=promote` requires
+`compile/<topic>/<clone-head[:12]>`. **It never merges for you.** `improve action=compile compile_action=promote` requires
 that `branch` and defaults to `mode=dry-run`, which returns a plan; `mode=apply` takes the vault
 lock, merges `--no-ff`, resolves conflicts on two known audit paths only (anything else aborts the
 merge), and appends a compile metrics record so the promoted scalar shows on the loop chart. The
@@ -290,7 +304,7 @@ The `[loop]` table in `config.toml` carries three keys. See [configuration](conf
 |---|---|---|
 | `eval_min_interval_hours` | `0.0` | Minimum hours between eval starts |
 | `eval_window` | unset | Local-clock `"HH:MM-HH:MM"` range; an observation outside it holds |
-| `eval_num_threads` | `4` | Bounded `1..8`. Only the MCP `loop action=run_eval` path reads it |
+| `eval_num_threads` | `4` | Bounded `1..8`. Only the MCP `improve action=loop loop_action=run_eval` path reads it |
 
 Both cadence knobs are resolved once, on the shared runner construction path, so both apply to all
 four engines. `eval_window` accepts a midnight wrap — `22:00-06:00` means overnight, not never.
@@ -298,14 +312,14 @@ four engines. `eval_window` accepts a midnight wrap — `22:00-06:00` means over
 At all defaults the cadence check short-circuits before touching either knob. When it holds, it says
 which one: `"cadence held: 0.42h since last eval start < 24h interval"`, or `"cadence held: outside
 eval window 22:00:00-06:00:00"`. The candidate-gate path bypasses cadence entirely and is always
-eager, and `loop action=run_eval` forces the observation. Forcing clears both **pacing** holds —
+eager, and `improve action=loop loop_action=run_eval` forces the observation. Forcing clears both **pacing** holds —
 cadence and the retry floors — since both exist to pace the unattended watcher and `force` arrives
 only from a two-phase, cost-quoted human confirm that cannot loop. The **ingest hold** and **quiet
 window** still apply: those say the vault is mid-write, which no amount of human intent makes safe
 to evaluate through.
 
-Every eval resolves the `[models]` table: the watcher, the daemon, `loop action=run_once`, the
-candidate gate, `loop action=run_eval`, and `knotica improve eval` all score with the operator's worker and
+Every eval resolves the `[models]` table: the watcher, the daemon, `improve action=loop loop_action=run_once`, the
+candidate gate, `improve action=loop loop_action=run_eval`, and `knotica improve eval` all score with the operator's worker and
 judge snapshots. The packaged defaults are `claude-haiku-4-5-20251001` (worker) and `claude-sonnet-5`
 (judge). `[models].query` is a separate key naming the model behind the compiled query engine — its
 packaged value is also `claude-sonnet-5`, not the Haiku worker — and it never folds into the harness
@@ -319,10 +333,10 @@ no `[models]` table — the default — the packaged snapshots apply and nothing
 
 **Bills:**
 
-- Any eval — the observation eval, a candidate-gate eval, `loop action=run_eval`,
-  `loop action=run_once` with content pending, `knotica improve eval`. Roughly one worker call plus up to
+- Any eval — the observation eval, a candidate-gate eval, `improve action=loop loop_action=run_eval`,
+  `improve action=loop loop_action=run_once` with content pending, `knotica improve eval`. Roughly one worker call plus up to
   three judge samples **per golden question**, minus cache hits.
-- `compile action=run` — the optimization plus the baseline-vs-compiled post-eval.
+- `improve action=compile compile_action=run` — the optimization plus the baseline-vs-compiled post-eval.
 - Golden bootstrap, trainset bootstrap, and the best-effort trainset grower that runs after a source
   candidate passes the gate.
 - The opt-in gap-discovery drain (external search API), capped at **5** gaps per regression. Off by
@@ -332,8 +346,8 @@ no `[models]` table — the default — the packaged snapshots apply and nothing
 
 **Does not bill:** the arena at its default `heuristic` scorer (under `arena_scorer = "eval"` it
 bills one full eval per variant); `set_baseline`, `baseline_policy`, `rebaseline`, `mark_observed`, and
-cadence reads/writes; `branches action=scoreboard`, `arena action=status|history`,
-`compile action=status`, `wiki_status`, `metrics_read`; `compile action=promote` and branch deletes
+cadence reads/writes; `improve action=branches branches_action=scoreboard`, `improve action=arena arena_action=status|history`,
+`improve action=compile compile_action=status`, `wiki_status`, `metrics_read`; `improve action=compile compile_action=promote` and branch deletes
 (git only); a warm-cache re-run on a frozen corpus; and any tick that returns "did nothing".
 
 Two ceilings abort a run post-hoc, before any record is committed: **5,000,000 tokens** and
@@ -357,7 +371,7 @@ cost figure, while its replayed usage still feeds the token median. That is why 
 reproduces the scalar exactly yet passes a ceiling a cold run breached.
 
 > [!IMPORTANT]
-> `loop action=run_eval` and `loop action=run_once` never bill on a bare call. The first call mints a
+> `improve action=loop loop_action=run_eval` and `improve action=loop loop_action=run_once` never bill on a bare call. The first call mints a
 > single-use nonce with a **300-second** TTL and returns a preview — estimated cost, the nonce, the
 > TTL, plus (for `run_eval` only) the worker and judge snapshots and the thread count. Only a second
 > call passing that nonce as `confirm` executes. The nonce file is deleted unconditionally on read,

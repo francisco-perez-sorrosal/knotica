@@ -88,7 +88,7 @@ silently discarded.
 | `desktop install` | Yes | (common only) | Patches (or creates) the Desktop config's `mcpServers.knotica` entry — additive, `.bak` backup, every other server preserved, `env` carried over untouched. |
 | `desktop status` | No | (common only) | Read-only. Prints `command`, `args`, `env` (names only, never values). |
 | `mcp` | Serves | `--vault NAME` none<br>`--http` off<br>`--host HOST` `127.0.0.1`<br>`--port PORT` `8765` | Serves the MCP tool surface. Stdio mode blocks until disconnect; stdout is the JSON-RPC channel — no diagnostic byte reaches it. `--http` needs the server's HTTP extra (`uvicorn`). |
-| `status` | No | `--json` off<br>`--topic NAME` none<br>`--wide` off<br>`--nudge` off | Pure read: pages/curated/unpushed counts per topic, last lint. With `--nudge`: renders the cross-topic attention view using `view="attention"` (cheaper than default: no full-vault lint walk, no note-anchor git subprocess — renders the same signal set the dashboard Home derives: unreachable gate baselines, refused-awaiting-rework, aborted arena races, pending suggestions, open gaps with no discovery run, compile-ready topics, live runners, drifted notes). `--nudge` is used by `knotica home` and kept permanently in the API because the shipped SessionStart hook calls it. |
+| `status` | No | `--json` off<br>`--topic NAME` none<br>`--wide` off<br>`--nudge` off | Pure read: pages/curated/unpushed counts per topic, last lint. With `--nudge`: renders the cross-topic attention view using `view="attention"` (cheaper than default: no full-vault lint walk, no note-anchor git subprocess — renders the same signal set the dashboard Home derives: unreachable gate baselines, refused-awaiting-rework, aborted arena races, pending suggestions, open gaps with no discovery run, compile-ready topics, live runners — seven signals, the same seven). `--nudge` is used by `knotica home` and kept permanently in the API because the shipped SessionStart hook calls it. |
 | `prompt <operation>` | No | `operation` positional, required (`ingest`\|`query`\|`lint`\|`curate`)<br>`--topic NAME` `""`<br>`--source`, `--question`, `--verdict` parity-only, not consumed by this adapter | Renders the vault-resolved operation prompt body verbatim to stdout — byte-identical with the MCP `prompts/get` handler. |
 | `home` | No | (common only) | The cross-topic inbox: what needs attention right now, as plain text. Exits `0` **unconditionally** — an unconfigured install is an empty inbox, not an error — and signals emptiness with empty stdout. Polls the MCP `wiki_status` tool with `view="attention"` (no full-vault lint, no note-anchor resolution — only per-topic gap queue and runner liveness). Implemented via `status --nudge` to keep the two surfaces aligned. |
 | `learn` | No | (common only) | Guidance only, exits `0`: Learn is a conversational protocol, so it carries no deterministic CLI verb. Points at `/knotica:ingest` and `knotica prompt ingest`. |
@@ -160,6 +160,12 @@ per-topic answer instead of the multi-topic `summary` payload's unconditional `a
 `totals` sums `pending`, `refused_awaiting_rework`, `compile_ready` and `runners_alive` across the
 vault. It covers **every** topic and ignores `topic`, which has no single-topic reading here.
 
+Both `summary` and `attention` carry **`gate.baseline_unreachable`**: `null` in the healthy case, or
+an object naming both scalars when the frozen bar outranks the newest measurement on the same
+instrument — a condition that refuses every future candidate, so it must not have to be inferred by
+comparing `baseline_scalar` against a metrics record on another surface. `loop.baseline_unreachable`
+mirrors it and is **deprecated for one release**; read `gate`.
+
 The view is deliberately cheaper than `summary` and stays that way by contract (`dec-092`): it runs
 **no** mechanical lint pass — `last_lint` is `{date, age_days, stale}` read from the log, stale after
 7 days, and never-linted counts as stale — and it resolves **no** note anchors, so `drift` is the
@@ -167,7 +173,7 @@ marker `{default_collapsed: true, count: null}` whose count is paid only on expa
 git subprocess at all, so whole-vault cost never grows in process spawns as topics are added.
 | `gap_report` | `topic`, `question` (req); `reason=""`, `reference_pages=None`, `vault=""` | Files a conversationally-reported gap (`origin=reported`). Dedups on repeat identical question. |
 | `note_capture` | `topic`, `note` (req); `quote=""`, `pages=[]`, `intent="reflection"`, `tags=[]`, `vault=""` | Writes under `notes/<topic>/`, never a wiki page. A weak/unprovable anchor degrades to `ANCHOR_DEGRADED`, never fails. |
-| `ingest_progress` | `topic`, `stage`, `title` (req); `status="info"`, `detail=""`, `run_id=""`, `citation_key=""`, `vault=""` | Best-effort journal append (**not** a git commit) for the dashboard Ingest pane. |
+| `ingest_progress` | `topic`, `stage`, `title` (req); `status="info"`, `detail=""`, `run_id=""`, `citation_key=""`, `vault=""` | Best-effort journal append (**not** a git commit) for the dashboard's `learn` lane rail. |
 | `read_protocol` | `operation` (req, `ingest`\|`query`\|`lint`\|`curate`), `topic=""` | Returns the operation prompt body as a tool result — closes the gap for hosts without MCP-prompt support. |
 | `open_dashboard` | `topic=""` (vault-wide), `vault=""`, `lane=""`, `focus=""` | Opens the dashboard on a process lane; `focus` names a stage or object within it. An unrecognized `lane`/`focus` degrades to the lane's own landing view rather than failing the call (`dec-092`). See [dashboard](dashboard.md). Falls back to a `TextContent` URL on hosts without MCP Apps support. |
 
@@ -179,12 +185,23 @@ Every dispatcher validates `action` against a fixed tuple; an unrecognized actio
 | Dispatcher | Actions | `mode=` dry-run/apply? | Params beyond `action`/`topic`/`vault` |
 |---|---|---|---|
 | `vault` | `list`, `status`, `use`, `add`, `create` | No | `name=""` (letters, digits, `-`, `_` only), `path=""`, `make_default=False` — **no `vault` param**; this dispatcher IS the vault-selection surface |
-| `home` | none — the router takes no arguments | No — read-only | none; returns every lane's rail and action table |
+| `home` | none — the router takes no arguments | No — read-only | none; returns every lane's rail and action table. Each `actions[]` entry is an object `{id, narration, stage}` — the verb, the same one-line narration the lane's own description renders, and the rail stage it acts on (`null` when the verb sits past the declared rail) — not a bare name |
 | `learn` | generated from the process model: `create_topic`, `store_source`, `ingest_progress`, `write_page`, `ingest_activity_read`, `curate_example` | Per wrapped verb | the union of its verbs' own params |
 | `answer` | generated: `query`, `curate_example`, `note_capture`, `gap_report`, `notes` | Per wrapped verb | the union of its verbs' own params |
 | `improve` | generated: `datasets`, `golden`, `baseline_probe`, `curate_example`, `notes`, `loop`, `arena`, `compile`, `branches`, `prompt_diff`, `metrics_read`, `query` | Per wrapped verb | the union of its verbs' own params |
 | `fill` | generated: `gap_report`, `gaps_read`, `review_gap`, `notes`, `gapfill_discover`, `suggestions_read`, `suggestions_review`, `store_source`, `ingest_progress`, `write_page`, `ingest_activity_read`, `source_ingest_open`, `source_ingest_submit`, `loop` | Per wrapped verb | the union of its verbs' own params |
 | `tend` | generated: `vault_health`, `lint_check`, `notes`, `note_capture` | Per wrapped verb | the union of its verbs' own params |
+
+Every lane's `action` selector publishes its legal set as a schema **`enum`** (the live table plus
+any names the lane declares superseded), so a model reads the vocabulary before it calls. The enum is
+advisory, not enforced by the schema: an unrecognized action is still rejected by the dispatcher as
+an `INVALID_ARGUMENT` **envelope** with a `fix`, and is still recorded as mis-selection telemetry —
+both of which a host-level validation error would destroy.
+
+A lane's call shape is the *union* of its verbs' parameters, so it legitimately advertises arguments
+the chosen verb does not take. Passing one is no longer silent: the success envelope carries
+**`ignored_arguments`**, the sorted names that were discarded. A failure envelope is returned
+unchanged, so its own `fix` stays the one thing to act on.
 
 **The six lane dispatchers are generated.** Their action tables, call shapes and description
 action lists are all projections of `LANE_MEMBERSHIP` in `src/knotica/core/process_model.py`, and
@@ -210,8 +227,8 @@ sub-action. There is no alias layer — the old flat names return an unknown-too
 | `suggestions_read` | `fill action=suggestions_read` | `topic` (req); `status="pending"`, `cursor=""`, `limit=20`, `vault=""` | Paginated gap-fill queue. `status` ∈ `pending`\|`approved`\|`rejected`\|`deferred`\|`ingested`\|`all`. `limit` max `50`. |
 | `suggestions_review` | `fill action=suggestions_review` | `topic`, `suggestion_id`, `action` (req); `mode="dry-run"`, `reason=""`, `vault=""` | `action` ∈ `approve`\|`reject`\|`defer`\|`mark_ingested`\|`withdraw`. `reject` requires a non-empty `reason`. `withdraw` returns an `approved` suggestion to `pending` without asserting an ingest. |
 | `gaps_read` | `fill action=gaps_read` | `topic` (req); `status="open"`, `cursor=""`, `limit=20`, `vault=""` | Paginated P1 gap queue — the stage *before* sources exist. `status` ∈ `open`\|`resolved`\|`dismissed`\|`all` (here `all` means all three, unlike `suggestions_read`). `limit` max `50`. Returns `origin_counts` alongside `status_counts`. |
-| `gapfill_discover` | `fill action=gapfill_discover` | `topic` (req); `max_gaps=0`, `confirm=""`, `vault=""` | **Billed, two-phase.** A bare call previews (`open_gaps`, `would_drain`, `provider_configured`, `estimated_cost`) and returns a single-use `confirm_nonce` with a 300 s `ttl`, spending nothing; only a call passing that nonce as `confirm` runs the search. `max_gaps=0` drains every open gap. Candidate URLs are canonicalized (SEP archive editions collapse to the living entry) and candidates the vault already stores as ingested sources are skipped, counted as `candidates_already_in_vault`; each drain also closes still-open queue records whose source is now in the vault or that duplicate one source per gap, counted as `stale_suggestions_closed`. No provider key → clean no-op, `provider_configured=false`. |
-| `review_gap` | `fill action=review_gap` | `topic`, `gap_id`, `decision` (req); `reason=""`, `vault=""` | The human close over the gap queue. `decision=dismiss` requires a non-empty `reason` and is legal only from `open`; it also closes the gap's still-open suggestions (`pending`/`approved`/`deferred` become `rejected` with `gap dismissed: <reason>`) in the same commit, returning their ids as `cascaded_suggestion_ids`. `decision=reopen` is legal only from `dismissed` and its `reason` is optional; it resurrects no suggestion — re-run discovery to re-propose sources. Any other source status refuses with `INVALID_ARGUMENT`. The reason is persisted on the gap record (`decided_reason`) and survives a re-read. |
+| `gapfill_discover` | `fill action=gapfill_discover` | `topic` (req); `max_gaps=0`, `confirm=""`, `vault=""` | **Billed, two-phase.** A bare call previews (`open_gaps`, `would_drain`, `provider_configured`, `estimated_cost`) and returns a single-use `confirm_nonce` with a 300 s `ttl`, spending nothing; only a call passing that nonce as `confirm` runs the search. `max_gaps=0` drains every open gap. Candidate URLs are canonicalized (SEP archive editions collapse to the living entry) and candidates the vault already stores as ingested sources are skipped, counted as `candidates_already_in_vault`; each drain also closes still-open queue records whose source is now in the vault or that duplicate one source per gap, counted as `stale_suggestions_closed`, and reports gaps whose every candidate the vault already holds as `gaps_fully_in_vault`. That queue-healing pass runs on **every** drain — zero open gaps and no provider key included. No provider key → stages nothing, `provider_configured=false`; the search chain also falls through a provider whose entire yield fails the URL floor rather than stopping on its empty result. |
+| `review_gap` | `fill action=review_gap` | `topic`, `gap_id`, `decision` (req); `reason=""`, `vault=""` | The human close over the gap queue. `decision=dismiss` requires a non-empty `reason` and is legal only from `open`; it also closes the gap's still-open suggestions (`pending`/`approved`/`deferred` become `rejected` with `gap dismissed: <reason>`) in the same commit, returning their ids as `cascaded_suggestion_ids`. An `approved` suggestion that already has a live `loop/c/` candidate branch is spared the cascade — the gate dispositions it, because it merges that branch before stamping the record. `decision=reopen` is legal only from `dismissed` and its `reason` is optional; it resurrects no suggestion — re-run discovery to re-propose sources, which now works: a cascade closure is marked `gap dismissed: ` and does **not** dedup a re-drain, while a human rejection of the source still does. Every refusal names the legal exit, not only the rule broken. Any other source status refuses with `INVALID_ARGUMENT`. The reason is persisted on the gap record (`decided_reason`) and survives a re-read. |
 | `source_ingest_open` | `fill action=source_ingest_open` | `topic`, `suggestion_id` (req), `vault=""` | Opens/resumes a private candidate context for one approved suggestion. Idempotent (same handle on reopen). |
 | `source_ingest_submit` | `fill action=source_ingest_submit` | `topic`, `suggestion_id` (req); `mode="dry-run"`, `vault=""` | Finalizes candidate ingest, drives the loop gate synchronously. `mode=apply` returns `merged`\|`refused`\|`blocked`. |
 | `session_status` | `fill action=session_status` | `topic`, `suggestion_id` (req); `vault=""` | Nine-state Fill session watch: `not_started`\|`waiting_on_client`\|`client_wrote`\|`rework_in_flight`\|`submitted`\|`merged`\|`refused`\|`blocked`\|`swept`. Returns `{state, stage_index, next.actor, gate_eligible, ...}`. Read-only, ≤3 git subprocesses worst case, called only while session is active. |
@@ -221,7 +238,7 @@ sub-action. There is no alias layer — the old flat names return an unknown-too
 | `compile` | `improve action=compile` + `compile_action=` | `branch=""`, `use_mipro=True`, `mode="dry-run"` | Actions: `run`, `status`, `promote`. Yes, on `promote`. |
 | `datasets` | `improve action=datasets` + `datasets_action=` | `role=""`, `limit=200`, `target=30` | Actions: `inventory`, `records`, `bootstrap`, `bootstrap_train`, `freeze`. No. |
 | `golden` | `improve action=golden` + `golden_action=` | `accepted_json=""` | Actions: `load`, `save`. No. |
-| `loop` | `improve action=loop` + `loop_action=` | `scalar`, `policy=""`, `mode="best"`, `eval_min_interval_hours`, `eval_window`, `eval_num_threads`, `arena_scorer`, `confirm=""`, `num_threads` | Actions: `run_once`, `set_baseline`, `baseline_policy`, `rebaseline`, `cadence`, `run_eval`. `rebaseline mode=best` refuses to freeze a high-water mark above the newest measurement (an unreachable bar; use `mode=latest`). No (nonce-confirmed instead — see below). |
+| `loop` | `improve action=loop` + `loop_action=` | `scalar`, `policy=""`, `mode="best"`, `eval_min_interval_hours`, `eval_window`, `eval_num_threads`, `arena_scorer`, `confirm=""`, `num_threads` | Actions: `run_once`, `set_baseline`, `baseline_policy`, `rebaseline`, `cadence`, `run_eval`. **Both** `rebaseline mode=best` and `set_baseline` refuse to freeze a bar above the newest measurement on the same instrument (an unreachable bar; the refusal names `mode=latest` as the exit). `set_baseline` defaults `harness_version` to the *current* instrument rather than null, so the freeze records what measured it. `cadence` with no params reads; with any of the four keys it validates **all** of them before writing one, refusing a bad value as `INVALID_ARGUMENT` (a bad argument, not a broken install). `cadence arena_scorer=eval` is **two-phase**: a bare call returns a preview (`requested_arena_scorer`, `estimated_cost`, a single-use `confirm_nonce`, `ttl=300`) and writes nothing; pass that nonce as `confirm` to apply. `arena_scorer=heuristic` is free and applies in one call. No (nonce-confirmed instead — see below). |
 | `notes` | `tend action=notes` + `notes_action=` | `note_id=""`, `intent="all"`, `status="all"`, `cursor=""`, `limit=20`, `anchor=0`, `page=""`, `quote=""`, `target="trainset"`, `question=""`, `answer=""`, `verdict="good"`, `mode="dry-run"` | Actions: `list`, `read`, `drift`, `reanchor`, `detach`, `promote`, `archive`. Yes, on the 4 mutating actions. |
 | `vault_health` | `tend action=vault_health` + `vault_health_action=` | `quick=False`, `fix=False`, `paths_json="[]"`, `all_tracked=False`, `delete_untracked=False`, `strict=False`, `force=False`, `mode="dry-run"` | Actions: `doctor`, `repair`, `okf_check`, `okf_repair`, `lint`, `metadata_tree`. Yes, on `repair`/`okf_repair`. |
 
@@ -353,7 +370,7 @@ success envelope as warnings only.
 | Code | Meaning | Fix |
 |---|---|---|
 | `NOT_CONFIGURED` | No vault resolved. | `/knotica:setup` or `knotica init`. |
-| `TOPIC_NOT_FOUND` | Topic doesn't exist. | Call `list_topics`, or `create_topic`. |
+| `TOPIC_NOT_FOUND` | Topic doesn't exist. | Call `list_topics`, or `learn action=create_topic`. |
 | `PAGE_NOT_FOUND` | Page doesn't exist (message lists nearest matches). | Call `search` in this topic. |
 | `RESERVED_NAME` | Wrote to a reserved top-level name. | Choose a different name; use `index_entry` on `write_page` for the catalog. |
 | `SOURCE_EXISTS` | `store_source` citation key exists with different content. | Use a different citation key — sources are immutable. |
@@ -364,11 +381,11 @@ success envelope as warnings only.
 | `INVALID_ARGUMENT` | Generic bad argument (empty required field, out-of-range, bad enum). | Correct the named argument and call again. |
 | `LLM_API_ERROR` | Headless LLM call failed. | Retryable for transient statuses; not for auth rejections. |
 | `SEARCH_API_ERROR` | Search-provider call failed. | Retryable for transient statuses. |
-| `SUGGESTION_NOT_FOUND` | `suggestion_id` not in queue. | Call `suggestions_read`. |
-| `SUGGESTION_NOT_APPROVED` | Action requires `approved` status. | Approve first via `suggestions_review`. |
-| `NOTE_NOT_FOUND` | `note_id` not in topic. | Call `notes(action=list)`. |
+| `SUGGESTION_NOT_FOUND` | `suggestion_id` not in queue. | Call `fill action=suggestions_read`. |
+| `SUGGESTION_NOT_APPROVED` | Action requires `approved` status. | Approve first: `fill action=suggestions_review suggestions_review_action=approve mode=apply`. |
+| `NOTE_NOT_FOUND` | `note_id` not in topic. | Call `tend action=notes notes_action=list`. |
 | `SECRET_SCRUBBED` | **Warning only** — write succeeded, a secret was redacted. | Review the redacted spans. |
-| `ANCHOR_DEGRADED` | **Warning only** — note saved, anchor pin weak/unprovable. | Call `notes(action=read)`; re-capture naming a more specific page. |
+| `ANCHOR_DEGRADED` | **Warning only** — note saved, anchor pin weak/unprovable. | Call `tend action=notes notes_action=read`; re-capture naming a more specific page. |
 
 `LOCK_BUSY`, `LLM_API_ERROR`, and `SEARCH_API_ERROR` are the retryable codes (the latter two
 default `retryable=True` but can be raised `retryable=False` for non-transient failures like auth

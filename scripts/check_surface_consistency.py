@@ -60,6 +60,43 @@ It will not catch a wholly-removed tool whose name has no dispatcher shape. That
 is a stated limit, not an oversight: a rule wide enough to catch it flags
 `next_cursor` too, and a gate that cries wolf gets muted.
 
+4. **Published call-forms in the rest of `docs/` and in `DESIGN.md` § 4.** Checks
+   1 and 2 gate `docs/reference.md`'s four tool tables and nothing else, and
+   check 3 gates `src/` and `commands/`. That left the eight *other* documents
+   under `docs/` and the design canon ungated, and both drifted: a pre-release
+   review found `docs/gap-fill.md`'s entry-point table publishing seven call
+   signatures that return unknown-tool, `docs/new-knowledge-base.md` routing a
+   README-promoted walkthrough through dissolved panes, and `DESIGN.md` § 4
+   declaring a 35-tool surface two sections after § 3b correctly said 21. None
+   was catchable: `check_architecture_coverage.py` gates package counts, this
+   script gated one file, and nothing read the rest.
+
+   **Extraction is conservative on purpose**, and mirrors
+   `tests/test_fix_text_call_forms.py`'s discipline rather than duplicating its
+   corpora (that test covers `src/`'s `fix=` text, the vault-template prompts
+   and `commands/`; this covers `docs/` and `DESIGN.md`). Only a backticked span
+   is a candidate, and only two shapes inside one are inspected:
+
+     * a span carrying ``action=`` -- the head must be a registered tool, the
+       action one of *its* actions, and any ``<verb>_action`` must both belong to
+       the selected verb and name one of that verb's own actions;
+     * a bare identifier in **call position** (after "call", "route through") that
+       names a lane verb -- reachable only as an action, so offering it bare is
+       exactly the `create_topic` mistake. Call position is the whole rule: prose
+       names a verb as a *subject* constantly ("the `loop` verb", "`datasets`
+       inventory"), and inspecting every such mention reports 150 findings and 0
+       defects. Measured on this tree before the rule was narrowed.
+
+   Parameter names, statuses, filenames, prose and CLI lines fall outside both
+   and are never inspected.
+
+   **Deliberately-historical names get a marker, not an exemption.** A migration
+   mapping table and a breaking-change note *must* print the dead name -- that is
+   their entire job. Wrap such a region in
+   ``<!-- surface-history-begin: why -->`` / ``<!-- surface-history-end -->`` and
+   this check skips it. The marker is visible in the source, greppable, and
+   scoped: it cannot silence a whole file by accident.
+
 **An unparseable document is a failure, not a skip.** If the summary sentence is
 reworded past the shape parsed here, the gate fails and says so. A gate that
 silently stops checking when its input changes is worse than no gate: it reports
@@ -75,7 +112,9 @@ import sys
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
-REFERENCE = REPO_ROOT / "docs" / "reference.md"
+DOCS_DIR = REPO_ROOT / "docs"
+REFERENCE = DOCS_DIR / "reference.md"
+DESIGN = REPO_ROOT / ".ai-state" / "DESIGN.md"
 COMMANDS_DIR = REPO_ROOT / "commands"
 SRC_DIR = REPO_ROOT / "src"
 SESSION_HOOK = REPO_ROOT / "hooks" / "session_start.sh"
@@ -404,6 +443,7 @@ def _check_references() -> list[str]:
         failures.append(f"{SESSION_HOOK.relative_to(REPO_ROOT).as_posix()} is missing")
 
     failures.extend(_check_routing_contract(live))
+    failures.extend(_check_published_forms(live))
     return failures
 
 
@@ -436,6 +476,129 @@ def _check_routing_contract(live: _Surface) -> list[str]:
         for name in sorted(described)
         if not re.search(rf"\b{name}\b", _INSTRUCTIONS)
     ]
+
+
+# ---------------------------------------------------------------------------
+# Check 4 -- published call-forms in the rest of docs/ and in DESIGN.md
+# ---------------------------------------------------------------------------
+
+#: The region markers that exempt a deliberately-historical name (a migration
+#: mapping table, a breaking-change note). Scoped, greppable, visible in source.
+_HISTORY_REGION = re.compile(
+    r"<!--\s*surface-history-begin.*?-->.*?<!--\s*surface-history-end\s*-->", re.S
+)
+#: A bare snake_case identifier -- the only bare shape that can name a tool.
+_IDENTIFIER = re.compile(r"^[a-z][a-z0-9_]*$")
+#: A placeholder inside a call-form: an ellipsis or an angle-bracket slot. A form
+#: written `improve action=loop loop_action=...` is teaching the *shape*, so its
+#: argument values are not names to resolve.
+_PLACEHOLDER = re.compile(r"[.\u2026<>]")
+#: The prose that puts a following span in *call position*. Deliberately short:
+#: each phrase is an imperative aimed at the reader, so a name after one is being
+#: offered as an executable step rather than mentioned as a subject. This is the
+#: only route by which a bare name is inspected -- documentation names a verb as a
+#: subject constantly ("the `loop` verb", "`datasets` inventory"), and treating
+#: every such mention as a call reports 150 findings and 0 defects.
+_CALL_POSITION = re.compile(r"(?:[Cc]alls?|[Cc]alling|routes? through|runs? through)\s+`([^`\n]+)`")
+
+
+def _lane_verbs(live: _Surface) -> frozenset[str]:
+    """Every verb some lane declares -- the vocabulary a bare name is resolved against."""
+    return frozenset(verb for lane in LANE_DISPATCHERS for verb in live.actions.get(lane, ()))
+
+
+def _enumerated(value: str) -> list[str]:
+    """The action names in one argument value.
+
+    Documentation writes an action *set* where code writes one value --
+    ``vault action=use/add/create``, ``arena_action=status|history`` -- and in a
+    Markdown table the pipe arrives escaped. Split on both separators and drop the
+    escape so an enumeration is checked member-by-member rather than reported
+    whole as a name nothing declares.
+    """
+    return [one for one in re.split(r"[/|]", value.replace("\\", "")) if one]
+
+
+def _call_form_problem(span: str, live: _Surface) -> str | None:
+    """Why ``span`` is not a call a client can make, or ``None`` when it is."""
+    tokens = span.split()
+    head = tokens[0]
+    if "=" in head:  # `action=status`, with the tool named in surrounding prose
+        return None
+    arguments: dict[str, str] = {}
+    for token in tokens[1:]:
+        key, separator, value = token.partition("=")
+        if separator:
+            arguments[key] = value.strip("\"'`,.")
+    verb = arguments.get("action")
+    if verb is None:
+        return None
+    if _PLACEHOLDER.search(verb):  # `<lane> action=<verb>` teaches shape, not a name
+        return None
+    if head not in live.tools:
+        return f"`{span}` — {head!r} is not a registered tool"
+    legal = live.actions.get(head)
+    if legal is None:
+        return f"`{span}` — {head!r} takes no `action`"
+    for one in _enumerated(verb):
+        if one not in legal:
+            return f"`{span}` — {head!r} has no action {one!r} (has: {', '.join(legal)})"
+    for key, value in arguments.items():
+        if key == "action" or not key.endswith("_action"):
+            continue
+        owner = key.removesuffix("_action")
+        if owner != verb:
+            return f"`{span}` — {key!r} selects inside {owner!r}, but the action is {verb!r}"
+        inner = live.actions.get(owner)
+        if inner is None or _PLACEHOLDER.search(value):
+            continue
+        for one in _enumerated(value):
+            if one not in inner:
+                return f"`{span}` — {owner!r} has no {key} {one!r} (has: {', '.join(inner)})"
+    return None
+
+
+def _published_form_failures(where: str, text: str, live: _Surface) -> list[str]:
+    """Every dead call-form published in one document."""
+    verbs = _lane_verbs(live)
+    scannable = _HISTORY_REGION.sub("", text)
+    in_call_position = set(_CALL_POSITION.findall(scannable))
+    failures: list[str] = []
+    for span in _BACKTICKED.findall(scannable):
+        cleaned = span.strip()
+        if "action=" in cleaned:
+            problem = _call_form_problem(cleaned, live)
+            if problem is not None:
+                failures.append(f"{where}: {problem}")
+            continue
+        if span not in in_call_position:
+            continue
+        bare = cleaned.split("(")[0].strip()
+        if _IDENTIFIER.match(bare) and bare not in live.tools and bare in verbs:
+            failures.append(
+                f"{where}: `{span}` is offered as a call but names no registered tool — "
+                f"it is a lane action, reachable only as `<lane> action={bare}`"
+            )
+    return failures
+
+
+def _check_published_forms(live: _Surface) -> list[str]:
+    """`docs/**/*.md` and the design canon, resolved against the live registry."""
+    failures: list[str] = []
+    documents = sorted(DOCS_DIR.rglob("*.md"))
+    # Absence is not a finding here: the architecture-coverage gate owns DESIGN.md's
+    # existence, and the synthetic trees the gate tests run against have no .ai-state/.
+    if DESIGN.is_file():
+        documents.append(DESIGN)
+    for path in documents:
+        failures.extend(
+            _published_form_failures(
+                path.relative_to(REPO_ROOT).as_posix(),
+                path.read_text(encoding="utf-8"),
+                live,
+            )
+        )
+    return failures
 
 
 def _diff(label: str, actual: set[str], documented: set[str], where: str) -> list[str]:

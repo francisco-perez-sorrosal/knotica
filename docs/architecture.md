@@ -167,7 +167,7 @@ record is taken *after* the handler returns, which is what makes `outcome` the r
 an optimistic `ok`. `tests/test_dispatch_telemetry_census.py` enumerates the surface from
 `list_tools()` — never a hand-written list — and asserts exactly one `dispatch` record per tool.
 
-`loop action=run_eval` and `loop action=run_once` are two-phase: a bare call returns a preview and a
+`improve action=loop loop_action=run_eval` and `improve action=loop loop_action=run_once` are two-phase: a bare call returns a preview and a
 nonce, and only a confirmed second call bills. `run_eval` passes `force=True` and so bypasses the
 cadence hold; `run_once` honours it.
 

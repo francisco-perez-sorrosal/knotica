@@ -46,7 +46,7 @@ Each directory below carries its own `CLAUDE.md` with the conventions that apply
 | Plugin slash commands | [`commands/`](commands/CLAUDE.md) | [install](docs/install.md) |
 | Tests | [`tests/`](tests/CLAUDE.md) | — |
 
-Feature docs not tied to one directory: [gap-fill](docs/gap-fill.md) · [notes](docs/notes.md) · [guillotine](docs/guillotine.md) · [configuration](docs/configuration.md) · [tutorial](docs/tutorial.md) · [OKF](docs/okf.md) · [Claude Desktop](docs/CLAUDE_DESKTOP.md).
+Feature docs not tied to one directory: [gap-fill](docs/gap-fill.md) · [notes](docs/notes.md) · [guillotine](docs/guillotine.md) · [configuration](docs/configuration.md) · [tutorial](docs/tutorial.md) · [new knowledge base](docs/new-knowledge-base.md) · [OKF](docs/okf.md) · [Claude Desktop](docs/CLAUDE_DESKTOP.md).
 
 ## Verification
 

@@ -134,7 +134,7 @@ never fires from detection alone.
 
 ## Promoting a note
 
-`notes action=promote` is the only notes action that writes outside the notes layer:
+`tend action=notes notes_action=promote` is the only notes action that writes outside the notes layer:
 
 | `target` | What it does | Gate |
 |---|---|---|
@@ -175,7 +175,7 @@ notes out of the walks knowledge-base surfaces use regardless of family. Simplif
 reserved-name check, or reaching for the raw walk instead of the filtered one, would silently
 readmit personal notes into scored territory — no error, no failing test. Corollary:
 **`search` does not return your notes by default** — its corpus is the scored families, and the
-ordinary recall path is `notes action=list`; a caller that asks for them explicitly
+ordinary recall path is `tend action=notes notes_action=list`; a caller that asks for them explicitly
 (`families=['note']`) can search them. And because an anchor's quote is verbatim knowledge-base
 prose, `reanchor`, `detach`, and `archive` title their commit and `log.md` entry from the note's
 id alone (`note <id>`), never the quote. `note_capture` is the exception: it titles both with the
@@ -207,7 +207,7 @@ vaults). Returns the note's id, path, resolved anchors, any `alternatives`, and 
 **`/knotica:note <your note>`** — the plugin alias for capture. It infers the topic from the
 conversation, recovers the quote and pages from what was just shown to you, calls
 `note_capture`, and reports the returned `placement` line verbatim. To browse afterward, it
-points you at the dashboard's Notes pane or `notes action=list`.
+points you at the `tend` lane's **Drift** stage or `tend action=notes notes_action=list`.
 
 ## Dashboard
 
