@@ -75,8 +75,8 @@ is a stated limit, not an oversight: a rule wide enough to catch it flags
    review found `docs/gap-fill.md`'s entry-point table publishing seven call
    signatures that return unknown-tool, `docs/new-knowledge-base.md` routing a
    README-promoted walkthrough through dissolved panes, and `DESIGN.md` § 4
-   declaring a 35-tool surface two sections after § 3b correctly said 21. None
-   was catchable: `check_architecture_coverage.py` gates package counts, this
+   declaring a 35-tool surface two sections after DESIGN.md § 3b correctly said
+   21. None was catchable: `check_architecture_coverage.py` gates package counts, this
    script gated one file, and nothing read the rest.
 
    **Extraction is conservative on purpose**, and mirrors

@@ -47,7 +47,7 @@ DESIGN = REPO_ROOT / ".ai-state" / "DESIGN.md"
 ARCHITECTURE = REPO_ROOT / "docs" / "architecture.md"
 PACKAGE_ROOT = REPO_ROOT / "src" / "knotica"
 
-#: One row of § 3's inventory table: a backticked package path, then its count.
+#: One row of DESIGN.md § 3's inventory table: a backticked package path, then its count.
 INVENTORY_ROW_RE = re.compile(r"^\|\s*`(src/knotica/[^`]*)`\s*\|\s*(\d+)\s*\|", re.MULTILINE)
 
 #: Any `src/knotica/...` path cited in prose, backticked or bare. `*` is part of
@@ -60,7 +60,7 @@ CITATION_RE = re.compile(r"`?(src/knotica/[A-Za-z0-9_./*]*)`?")
 #: documents make about the future, not a stale reference to a deleted thing --
 #: so it is listed here by name rather than silently tolerated by a pattern.
 PLANNED_PATHS = {
-    "src/knotica/agent/": "SIA outer-loop runners, Phase 3b — `Status: Planned` in § 3",
+    "src/knotica/agent/": "SIA outer-loop runners, Phase 3b — `Status: Planned` in DESIGN.md § 3",
 }
 
 
@@ -83,7 +83,7 @@ def _packages() -> dict[str, int]:
 
 
 def _declared_counts(design: str) -> dict[str, int]:
-    """Package → published module count, read from § 3's inventory table."""
+    """Package → published module count, read from DESIGN.md § 3's inventory table."""
     return {path: int(count) for path, count in INVENTORY_ROW_RE.findall(design)}
 
 
