@@ -19,6 +19,7 @@ is pure vault I/O.
 
 from __future__ import annotations
 
+from dataclasses import replace
 from pathlib import Path
 
 from knotica.core import gapfill
@@ -339,6 +340,114 @@ def test_a_drain_reports_which_gap_the_vault_already_answers(template_vault: Pat
 
     assert result.candidates_already_in_vault == 1
     assert result.gaps_fully_in_vault == ("gap-inert",)
+
+
+# ---------------------------------------------------------------------------
+# The drain-time stamp -- the same observation, persisted (td-070)
+# ---------------------------------------------------------------------------
+
+
+def _seed_gaps(store: LocalFSStore, vault: Path, gaps) -> None:
+    with VaultTransaction(store, vault, "test_seed", TOPIC, "seed gaps") as txn:
+        txn.write(
+            f"{TOPIC}/.knotica/gaps/gaps.jsonl",
+            "".join(gap.to_json_line() + "\n" for gap in gaps),
+        )
+
+
+def _read_gap(store: LocalFSStore, gap_id: str) -> GapRecord:
+    from knotica.core.records import parse_gaps_jsonl
+
+    text = store.read_text(f"{TOPIC}/.knotica/gaps/gaps.jsonl")
+    return next(gap for gap in parse_gaps_jsonl(text) if gap.gap_id == gap_id)
+
+
+def test_a_drain_stamps_the_gap_the_vault_already_answers(template_vault: Path) -> None:
+    """The result names the inert gap only to whoever ran the drain. Home reads
+    the record, so the observation has to survive on it -- otherwise an
+    operator who did not run discovery never learns the fault is retrieval or
+    linking rather than acquisition."""
+    store = LocalFSStore(template_vault)
+    _store_sep_source(store, template_vault)
+    _seed_gaps(store, template_vault, [_gap_record(gap_id="gap-inert")])
+
+    gapfill.refresh_suggestions_for_gaps(
+        store, template_vault, TOPIC, service=_FakeDiscoveryService([_candidate(_SEP_EDITION)])
+    )
+
+    assert _read_gap(store, "gap-inert").answered_in_vault_at is not None
+
+
+def test_the_stamp_lands_in_the_drains_own_single_commit(template_vault: Path) -> None:
+    """Both queue files are one operation's worth of writing: a drain that only
+    restamps a gap still makes exactly one commit, never a second."""
+    from support.vault import git_commit_count
+
+    store = LocalFSStore(template_vault)
+    _store_sep_source(store, template_vault)
+    _seed_gaps(store, template_vault, [_gap_record(gap_id="gap-inert")])
+    before = git_commit_count(template_vault)
+
+    gapfill.refresh_suggestions_for_gaps(
+        store, template_vault, TOPIC, service=_FakeDiscoveryService([_candidate(_SEP_EDITION)])
+    )
+
+    assert git_commit_count(template_vault) == before + 1
+
+
+def test_a_drain_that_stages_a_suggestion_clears_a_stale_stamp(template_vault: Path) -> None:
+    """A stageable candidate is proof the vault does not already answer the
+    gap. The clearing runs on the same drain path that sets the stamp, so the
+    signal can never outlive the observation behind it."""
+    store = LocalFSStore(template_vault)
+    _store_sep_source(store, template_vault)
+    stamped = replace(_gap_record(gap_id="gap-inert"), answered_in_vault_at="2026-08-01T00:00:00Z")
+    _seed_gaps(store, template_vault, [stamped])
+
+    gapfill.refresh_suggestions_for_gaps(
+        store,
+        template_vault,
+        TOPIC,
+        service=_FakeDiscoveryService([_candidate("https://example.com/newly-found")]),
+    )
+
+    assert _read_gap(store, "gap-inert").answered_in_vault_at is None
+
+
+def test_a_drain_leaves_an_untouched_gaps_stamp_alone(template_vault: Path) -> None:
+    """Only the gaps this drain queried are restamped -- a gap the ``max_gaps``
+    cap skipped keeps whatever the last drain that did query it concluded."""
+    store = LocalFSStore(template_vault)
+    _store_sep_source(store, template_vault)
+    stamped = replace(
+        _gap_record(gap_id="gap-untouched"), answered_in_vault_at="2026-08-01T00:00:00Z"
+    )
+    _seed_gaps(store, template_vault, [_gap_record(gap_id="gap-inert"), stamped])
+
+    gapfill.refresh_suggestions_for_gaps(
+        store,
+        template_vault,
+        TOPIC,
+        service=_FakeDiscoveryService([_candidate(_SEP_EDITION)]),
+        max_gaps=1,
+    )
+
+    assert _read_gap(store, "gap-untouched").answered_in_vault_at == "2026-08-01T00:00:00Z"
+
+
+def test_a_drain_with_nothing_to_stamp_stays_a_zero_commit_no_op(template_vault: Path) -> None:
+    """The stamp must not turn the documented no-op drain into a commit."""
+    from support.vault import git_commit_count
+
+    store = LocalFSStore(template_vault)
+    _seed_gaps(store, template_vault, [_gap_record(gap_id="gap-open")])
+    before = git_commit_count(template_vault)
+
+    gapfill.refresh_suggestions_for_gaps(
+        store, template_vault, TOPIC, service=_FakeDiscoveryService([])
+    )
+
+    assert git_commit_count(template_vault) == before
 
 
 def test_a_drain_closes_open_records_whose_source_the_vault_now_stores(

@@ -12,7 +12,7 @@ branch: main
 pipeline_tier: standard
 dissent: A reason-string prefix is a stringly-typed marker on a JSON record that anything can hand-edit; a boolean `cascaded` field would be checkable, and skipping a published-branch record rather than refusing the dismissal leaves the operator with a gap they believe is dismissed and a suggestion that is still approved.
 affected_files:
-  - src/knotica/core/gapfill.py
+  - src/knotica/core/gapfill/
   - src/knotica/core/source_gate.py
 ---
 

@@ -319,3 +319,56 @@ def test_the_module_distinguishes_the_three_internal_states():
         "knotica.core.config must expose a three-state enum with members "
         f"{sorted(expected)} so diagnostics can distinguish them"
     )
+
+
+# ---------------------------------------------------------------------------
+# Dotted vault names that pre-date the bare-key guard
+# ---------------------------------------------------------------------------
+
+
+def test_a_healthy_config_reports_no_mangled_vault_names(tmp_path: Path):
+    config_path = _single_vault_config(tmp_path, "/data/main")
+
+    assert _config_module().detect_mangled_vault_names(config_path) == []
+
+
+def test_a_dotted_vault_name_written_before_the_guard_is_detected_with_its_path(
+    tmp_path: Path,
+):
+    """The fixed point the guard cannot see.
+
+    `[vaults.my.name]` parses as `vaults -> my -> name`, so both segments are
+    individually valid bare keys and the write seam never fires -- the file
+    re-emits unchanged forever. `list_vaults` shows it as a phantom `my` with
+    no path, which is visible but not self-explaining.
+    """
+    config_path = _write_config(
+        tmp_path,
+        'schema_version = 1\ndefault_vault = "my.name"\n\n'
+        '[vaults.my.name]\npath = "/data/dotted"\n',
+    )
+
+    found = _config_module().detect_mangled_vault_names(config_path)
+
+    assert [(entry.name, entry.path) for entry in found] == [("my.name", "/data/dotted")]
+    assert [row["name"] for row in _config_module().list_vaults(config_path)["vaults"]] == ["my"], (
+        "the phantom entry list_vaults surfaces is what the detection explains"
+    )
+
+
+def test_a_twice_dotted_vault_name_is_reported_as_one_deep_name(tmp_path: Path):
+    config_path = _write_config(
+        tmp_path,
+        'schema_version = 1\n\n[vaults.a.b.c]\npath = "/data/deep"\n',
+    )
+
+    assert [entry.name for entry in _config_module().detect_mangled_vault_names(config_path)] == [
+        "a.b.c"
+    ]
+
+
+def test_detecting_mangled_names_never_raises_on_an_absent_or_broken_config(tmp_path: Path):
+    broken = _write_config(tmp_path, "this is = = not toml")
+
+    assert _config_module().detect_mangled_vault_names(broken) == []
+    assert _config_module().detect_mangled_vault_names(tmp_path / "absent.toml") == []

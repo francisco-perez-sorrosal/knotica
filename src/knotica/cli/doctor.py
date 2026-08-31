@@ -246,7 +246,14 @@ def _render_human(
         glyph = console.status_glyph(row.status)
         console.data(f"  {glyph}  {row.name.ljust(width)}  {row.message}")
         if row.remediation is not None and row.status != Status.PASS:
-            console.data(f"        {' ' * width}  -> {row.remediation}")
+            # A remediation may carry literal text to paste back (a config table,
+            # a command block), so its own line breaks are preserved and every
+            # continuation line is indented to the column the arrow opened.
+            indent = f"        {' ' * width}  "
+            head, *rest = row.remediation.split("\n")
+            console.data(f"{indent}-> {head}")
+            for line in rest:
+                console.data(f"{indent}   {line}")
     console.data("")
     counts = {
         "pass": sum(r.status == Status.PASS for r in rows),

@@ -61,6 +61,30 @@ def is_bare_key(name: str) -> bool:
     return _BARE_KEY_PATTERN.fullmatch(name) is not None
 
 
+def _toml_key(name: str) -> str:
+    """Render ``name`` as a TOML key: bare when it can be, quoted when it cannot.
+
+    The counterpart to :func:`_emit_table`'s guard, and deliberately the *other*
+    answer. A table-header segment names a **vault**, and a vault name is typed
+    back as a ``--vault`` flag and passed as a tool argument, so a name that
+    needs quoting is rejected at the seam rather than silently accepted in a
+    shape the rest of the surface cannot spell. An ordinary key -- a ``[loop]``
+    knob, a ``[gapfill.search]`` setting -- is never typed back anywhere, so
+    there is nothing to protect by refusing it, and quoting keeps the write
+    additive.
+
+    Both value-emitting sites route through here, because either one left
+    unguarded reaches the same amplifier: an unquoted ``weird key = "x"`` does
+    not parse, and :func:`read_config` answers a parse error with ``{}``, so the
+    next write rebuilds the config from nothing. The quieter half is a *dotted*
+    key -- ``a.b = 1`` parses, as a nested table, silently restructuring the
+    config instead of round-tripping it.
+    """
+    if is_bare_key(name):
+        return name
+    return json.dumps(name, ensure_ascii=False)
+
+
 def read_config(path: Path) -> dict[str, Any]:
     """Read the existing config table, or an empty table if absent/invalid.
 
@@ -150,7 +174,7 @@ def dump_config_toml(data: dict[str, Any]) -> str:
         if key == "vaults" or isinstance(value, dict):
             continue
         if isinstance(value, (str, int, float, bool)):
-            lines.append(f"{key} = {_toml_scalar(value)}")
+            lines.append(f"{_toml_key(key)} = {_toml_scalar(value)}")
     for name, entry in data.get("vaults", {}).items():
         _emit_table("vaults", name, entry, lines)
     for key, value in data.items():
@@ -207,7 +231,7 @@ def _emit_table(parent: str, segment: str, table: dict[str, Any], lines: list[st
     lines.append(f"[{header}]")
     for key, value in table.items():
         if not isinstance(value, dict):
-            lines.append(f"{key} = {_toml_scalar(value)}")
+            lines.append(f"{_toml_key(key)} = {_toml_scalar(value)}")
     for key, value in table.items():
         if isinstance(value, dict):
             _emit_table(header, key, value, lines)

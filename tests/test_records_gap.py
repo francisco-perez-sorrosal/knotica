@@ -55,6 +55,7 @@ GAP_RECORD_FIELDS = frozenset(
         "origin",
         "reported_reason",
         "decided_reason",
+        "answered_in_vault_at",
     }
 )
 
@@ -271,6 +272,30 @@ def test_gap_line_missing_reported_reason_defaults_to_none():
     record = _records_module().GapRecord.from_json_line(json.dumps(payload))
 
     assert record.reported_reason is None
+
+
+def test_gap_record_round_trips_the_answered_in_vault_stamp():
+    """The drain's `the vault already answers this gap` observation is only
+    useful if it survives the parse->serialize every drain and every dismissal
+    puts the whole queue through."""
+    record = _gap_record(answered_in_vault_at="2026-08-30T12:00:00Z")
+
+    rendered = json.loads(record.to_json_line())
+    parsed = _records_module().GapRecord.from_json_line(record.to_json_line())
+
+    assert rendered["answered_in_vault_at"] == "2026-08-30T12:00:00Z"
+    assert parsed.answered_in_vault_at == "2026-08-30T12:00:00Z"
+
+
+def test_gap_line_missing_the_answered_in_vault_stamp_defaults_to_none():
+    """Absence on a pre-feature record means "no drain ever found this gap
+    inert", which is exactly `None` -- never a parse error."""
+    payload = json.loads(_gap_record().to_json_line())
+    del payload["answered_in_vault_at"]
+
+    record = _records_module().GapRecord.from_json_line(json.dumps(payload))
+
+    assert record.answered_in_vault_at is None
 
 
 # ---------------------------------------------------------------------------

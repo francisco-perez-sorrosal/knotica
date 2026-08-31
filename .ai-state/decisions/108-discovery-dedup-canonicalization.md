@@ -14,7 +14,7 @@ affected_files:
   - src/knotica/discovery/normalize.py
   - src/knotica/discovery/service.py
   - src/knotica/core/source_inventory.py
-  - src/knotica/core/gapfill.py
+  - src/knotica/core/gapfill/
 ---
 
 # Discovery dedups against the vault, and URL identity canonicalizes host-known edition permalinks

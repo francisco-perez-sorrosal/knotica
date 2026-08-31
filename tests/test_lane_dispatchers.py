@@ -377,6 +377,28 @@ assert not _missing, (
 # ---------------------------------------------------------------------------
 
 
+#: Top-level keys a lane call adds that the flat verb structurally cannot.
+#: `next_stage` names the rail position that follows, which is a fact about the
+#: *lane* -- the flat tool has no lane to project one from, so its absence
+#: there is correct rather than a divergence. Equivalence is asserted over the
+#: verb's own payload; `test_lane_next.py` owns the block itself.
+_LANE_ONLY_KEYS: tuple[str, ...] = ("next_stage",)
+
+
+def _verb_payload(payload: Any, volatile: tuple[str, ...]) -> Any:
+    """The comparable payload with the lane-only keys dropped from the top level.
+
+    Top level only: `session_status` publishes a `next` of its own one level
+    down, and every such key belongs to the verb's own data.
+    """
+    stripped = (
+        {key: value for key, value in payload.items() if key not in _LANE_ONLY_KEYS}
+        if isinstance(payload, dict)
+        else payload
+    )
+    return _comparable(stripped, volatile)
+
+
 def _comparable(payload: Any, volatile: tuple[str, ...]) -> Any:
     """The payload minus the keys minted fresh on every call (see `volatile`).
 
@@ -419,7 +441,7 @@ def test_lane_dispatcher_action_matches_the_flat_tool_it_will_replace(
         new = payload_of(
             call_tool(_lane_dispatch_server(lane), lane, _lane_call_kwargs(verb, spec.kwargs))
         )
-        assert _comparable(new, spec.volatile) == _comparable(old, spec.volatile), (
+        assert _verb_payload(new, spec.volatile) == _comparable(old, spec.volatile), (
             f"{lane}(action={verb!r}) must reproduce {verb}()'s payload exactly"
         )
         return
@@ -438,7 +460,7 @@ def test_lane_dispatcher_action_matches_the_flat_tool_it_will_replace(
         call_tool(_lane_dispatch_server(lane), lane, _lane_call_kwargs(verb, spec.kwargs))
     )
 
-    assert _comparable(new, spec.volatile) == _comparable(old, spec.volatile), (
+    assert _verb_payload(new, spec.volatile) == _comparable(old, spec.volatile), (
         f"{lane}(action={verb!r}) must reproduce {verb}()'s payload exactly"
     )
 
@@ -544,7 +566,13 @@ def test_server_registers_all_six_lane_dispatchers_and_none_of_the_verbs_they_ab
 
 
 def _all_str_parameters(lane: str) -> dict[str, Any]:
-    """``{parameter: annotation}`` for the lane params every verb types ``str``."""
+    """``{parameter: annotation}`` for the lane params every verb types ``str``.
+
+    Compared on the *base* type, not the whole annotation: a handler parameter
+    carrying schema grounding is ``Annotated[str, Field(...)]``, and pydantic
+    still resolves that to ``FieldInfo.annotation is str`` -- so the pre-parse
+    rule below is about what the ``Annotated`` wraps, never the wrapper.
+    """
     from knotica.mcp_server import tools_dispatch_lane_common as common
 
     actions = common.lane_actions(lane)
@@ -552,21 +580,24 @@ def _all_str_parameters(lane: str) -> dict[str, Any]:
     for verb in actions:
         for parameter in common._handler_parameters(verb).values():
             name = common._lane_parameter_name(verb, parameter.name)
-            contributed.setdefault(name, []).append(parameter.annotation)
+            base, _metadata = common._split_annotation(parameter.annotation)
+            contributed.setdefault(name, []).append(base)
     signature = common._lane_signature(lane, actions)
     return {
         name: signature.parameters[name].annotation
-        for name, annotations in contributed.items()
-        if name in signature.parameters and set(annotations) == {str}
+        for name, bases in contributed.items()
+        if name in signature.parameters and set(bases) == {str}
     }
 
 
 @pytest.mark.parametrize("lane", ["learn", "answer", "improve", "fill", "tend"])
 def test_lane_parameters_every_verb_types_str_are_not_widened(lane: str) -> None:
+    from knotica.mcp_server import tools_dispatch_lane_common as common
+
     widened = {
         name: annotation
         for name, annotation in _all_str_parameters(lane).items()
-        if annotation is not str
+        if common._split_annotation(annotation)[0] is not str
     }
     assert not widened, (
         f"{lane} widened {sorted(widened)} past bare `str`; FastMCP will JSON "
@@ -595,7 +626,9 @@ def test_a_json_shaped_string_argument_survives_the_lane_it_is_passed_through(
         call_tool(_lane_dispatch_server("tend"), "tend", _lane_call_kwargs("vault_health", kwargs))
     )
 
-    assert new == old, "tend(action=vault_health) mangled a JSON-shaped string argument"
+    assert _verb_payload(new, ()) == old, (
+        "tend(action=vault_health) mangled a JSON-shaped string argument"
+    )
 
 
 def test_a_missing_required_verb_argument_is_a_structured_error_not_a_type_error(
@@ -693,3 +726,63 @@ def test_each_lane_publishes_its_action_table_as_a_schema_enum() -> None:
             action for action in published if action in lane_actions(lane)
         ]
         assert set(lane_actions(lane)) <= set(published)
+
+
+# ---------------------------------------------------------------------------
+# The union-merge's schema grounding. A lane parameter is the union of several
+# verbs' own parameters, so its published description is only honest when
+# those verbs mean the same thing by the name. `_optional` therefore preserves
+# the metadata when they agree and drops it when they do not -- both halves
+# pinned here, because a silent flip either way is invisible in a schema dump.
+# ---------------------------------------------------------------------------
+
+
+def test_optional_preserves_schema_metadata_when_every_verb_agrees() -> None:
+    from typing import Annotated, get_args, get_origin
+
+    from pydantic import Field
+
+    from knotica.mcp_server import tools_dispatch_lane_common as common
+
+    grounded = Annotated[str, Field(description="one meaning")]
+
+    merged = common._optional([grounded, grounded])
+
+    assert get_origin(merged) is Annotated
+    base, *metadata = get_args(merged)
+    assert base is str, "the bare-`str` pre-parse exception must survive the merge"
+    assert [repr(item) for item in metadata] == [repr(get_args(grounded)[1])]
+
+
+def test_optional_drops_schema_metadata_when_two_verbs_disagree() -> None:
+    from typing import Annotated
+
+    from pydantic import Field
+
+    from knotica.mcp_server import tools_dispatch_lane_common as common
+
+    merged = common._optional(
+        [
+            Annotated[str, Field(description="dry-run|apply")],
+            Annotated[str, Field(description="best|latest")],
+        ]
+    )
+
+    assert merged is str, (
+        "disagreeing verbs must degrade to the plain type; publishing one "
+        "verb's semantics over another's is worse than publishing none"
+    )
+
+
+def test_optional_keeps_widening_two_differently_typed_parameters() -> None:
+    from typing import Annotated
+
+    from pydantic import Field
+
+    from knotica.mcp_server import tools_dispatch_lane_common as common
+
+    merged = common._optional(
+        [Annotated[int, Field(description="a count")], Annotated[str, Field(description="a name")]]
+    )
+
+    assert merged == (int | str | None)

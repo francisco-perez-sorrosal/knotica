@@ -218,6 +218,74 @@ def list_vaults(
     return {"default_vault": default_vault, "vaults": rows}
 
 
+@dataclass(frozen=True, slots=True)
+class MangledVaultName:
+    """A ``[vaults.a.b]`` nesting that was meant to be the single name ``a.b``.
+
+    ``path`` is the raw (unexpanded) value found at the leaf, or ``""`` when the
+    leaf carries none -- the writer only ever put a ``path`` there, so an empty
+    one means the nesting is deeper or emptier than a mangled name explains, and
+    the caller should say so rather than promise a clean repair.
+    """
+
+    name: str
+    path: str
+
+
+def detect_mangled_vault_names(
+    config_path: str | os.PathLike[str] | None = None,
+) -> list[MangledVaultName]:
+    """Find vault entries that a dotted name silently nested into sub-tables.
+
+    A vault named with a dot and written *before* the bare-key guard landed
+    round-tripped into genuine TOML nesting: ``[vaults.my.name]`` parses as
+    ``vaults -> my -> name``, so the guard now sees two individually-valid
+    segments and never fires, and the file re-emits unchanged as a fixed point.
+    :func:`list_vaults` surfaces the wreckage as a vault ``my`` with no path
+    configured, which is visible but not self-explaining.
+
+    Read-only and non-raising: an absent or unparseable config yields ``[]``.
+    Repair is the caller's business -- ``doctor`` reports the exact quoted-key
+    form a user can paste, and never rewrites ``config.toml`` itself.
+    """
+    config = _load_toml(config_file_path(config_path))
+    if isinstance(config, str):
+        return []
+    vaults = config.get("vaults")
+    if not isinstance(vaults, dict):
+        return []
+    found: list[MangledVaultName] = []
+    for name in sorted(vaults):
+        entry = vaults[name]
+        if isinstance(entry, dict):
+            found.extend(_nested_vault_names(name, entry))
+    return found
+
+
+def _nested_vault_names(prefix: str, table: dict[str, Any]) -> list[MangledVaultName]:
+    """Collect the dotted names hiding under ``table``, deepest leaf wins.
+
+    A well-formed entry is ``{"path": "..."}`` -- flat, no dict values -- so it
+    contributes nothing. Recursion (rather than a single level) is what handles
+    a name carrying two dots, which nests two tables deep.
+    """
+    found: list[MangledVaultName] = []
+    for key in sorted(table):
+        value = table[key]
+        if not isinstance(value, dict):
+            continue
+        dotted = f"{prefix}.{key}"
+        deeper = _nested_vault_names(dotted, value)
+        if deeper:
+            found.extend(deeper)
+            continue
+        raw_path = value.get("path")
+        found.append(
+            MangledVaultName(name=dotted, path=raw_path if isinstance(raw_path, str) else "")
+        )
+    return found
+
+
 def _vault_path_entry(config: dict[str, Any], vault_name: str) -> str | None:
     """Return the raw ``[vaults.<name>] path`` string, or None if absent/invalid."""
     vaults = config.get("vaults")

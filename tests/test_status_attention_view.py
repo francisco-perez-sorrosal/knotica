@@ -355,6 +355,45 @@ def test_attention_row_reports_zero_open_gaps_for_a_topic_with_none(
 
     assert row["gaps"]["open_total"] == 0
     assert row["suggestions"]["total"] == 0
+    assert row["gaps"]["answered_in_vault"] == 0
+
+
+def test_attention_row_counts_the_open_gaps_the_vault_already_answers(
+    template_vault: Path,
+) -> None:
+    """A gap a drain found every candidate for already stored is not waiting on
+    acquisition -- it is waiting on retrieval or linking. The drain stamps that
+    on the record so this view reports it as a plain count, paying no discovery
+    cost of its own."""
+    store = LocalFSStore(template_vault)
+    report_gap(
+        store,
+        template_vault,
+        TOPIC,
+        question="what is the retrieval story for long documents?",
+    )
+    _stamp_every_open_gap(store, template_vault, "2026-08-30T12:00:00Z")
+
+    row = _row_for(gather_wiki_status(store, template_vault, view="attention"), TOPIC)
+
+    assert row["gaps"]["open_total"] == 1
+    assert row["gaps"]["answered_in_vault"] == 1
+
+
+def _stamp_every_open_gap(store: LocalFSStore, vault: Path, stamp: str) -> None:
+    """Set ``answered_in_vault_at`` on the topic's gap records (drain-free)."""
+    from dataclasses import replace
+
+    from knotica.core.gap_classifier import gaps_path
+    from knotica.core.records import parse_gaps_jsonl
+    from knotica.core.transaction import VaultTransaction
+
+    path = gaps_path(TOPIC)
+    stamped = [
+        replace(gap, answered_in_vault_at=stamp) for gap in parse_gaps_jsonl(store.read_text(path))
+    ]
+    with VaultTransaction(store, vault, "test_seed", TOPIC, "stamp gaps") as txn:
+        txn.write(path, "".join(gap.to_json_line() + "\n" for gap in stamped))
 
 
 def test_attention_row_reports_the_arena_stage_when_a_race_was_refused(
@@ -421,5 +460,6 @@ def test_attention_row_carries_both_new_fields_for_every_topic_in_the_vault(
 
     for row in body["topics"]:
         assert "open_total" in row["gaps"], row["topic"]
+        assert "answered_in_vault" in row["gaps"], row["topic"]
         assert "total" in row["suggestions"], row["topic"]
         assert "stage" in row["arena"], row["topic"]

@@ -53,7 +53,7 @@ tables so sentinel TT01 can resolve them.
 | §3b **Autonomous loop lifecycle** (`loop.py` + `loop_state`, `loop_heartbeat`, `loop_progress`, `loop_factory`, `loop_promote`, `loop_retry_backoff`, `loop_attempt`, `loop_cadence_config`, `arena`, `arena_resolve`, `candidate_gate`, `branch_namespaces`, `branch_scoreboard`, `branch_delete`, `best_effort`) | `loop-runtime` | The autonomous watcher: observe → gate → heal, together with the arena, branch and pacing siblings the §3 cell now names outright instead of leaving to prose (note 2). The most expensive group by construction — real git clones, worktrees, arena races, flock contention. |
 | `src/knotica/discovery/` | `discovery-network` | Pure outbound-network boundary: no vault read/write, no state, single inward edge to `core.errors`, enforced by the `mcp_server ⊬ discovery` import-boundary test. The most cleanly dependency-closed group in the project. |
 | §3b **Gap-fill spine**, P1 (`core/gap_classifier.py` + `records.GapRecord`) | `gapfill-spine` | P1 — regression → fault-class diagnosis, producing the `GapRecord` queue. |
-| §3b **Gap-fill spine**, P3 (`core/gapfill.py` + `records.SuggestionRecord` + `mcp_server/tools_suggestions.py` + `cli/gapfill.py`) | `gapfill-spine` | P3 — gap × ranked-candidate join, suggestion queue, approval surface. |
+| §3b **Gap-fill spine**, P3 (`core/gapfill/` + `records.SuggestionRecord` + `mcp_server/tools_suggestions.py` + `cli/gapfill.py`) | `gapfill-spine` | P3 — gap × ranked-candidate join, suggestion queue, approval surface. |
 | §3b **Gap-fill spine**, P4 (`core/source_gate.py` + `source_ingest.py` + `records.SuggestionRecord.gate_outcome` + `mcp_server/tools_source_ingest.py` + `core/operations/candidate_scope.py` + the page-subset filter on `evals/train_bootstrap.py`/`evals/golden.py`) | `gapfill-spine` | P4 — worktree-scoped candidate ingest and the merge-or-quarantine gate. P1/P3/P4 are three phases of one §3b capability and one hand-forward contract over shared `records.*` schemas and the `.knotica/{gaps,suggestions}` JSONL files; they change together and are meaningless apart. |
 | `src/knotica/okf/` | `okf-conformance` | One format vocabulary with three verbs over it — `check` (read-only findings), `export` (bundle outside the vault), `repair` (the one module here that mutates, and only through `VaultTransaction`). Both `export` and `repair` import `check`, so an OKF field-set change touches all three in a single edit. Its adapters are thin and stay with their surface groups: `cli/okf.py` with `cli-surface`, the `vault_health` dispatcher's `okf_check`/`okf_repair` actions with `mcp-surface`. Enumerate this tree's tests **by import** — one of them carries no `okf` marker in its filename (note 1). |
 | `src/knotica/guillotine/` | `guillotine-audit` | A read-only claim-trial pipeline — search → classify → score → patch → report, composed by `runner`. Deliberately **not** folded into `okf-conformance` despite the single `guillotine.report → okf.frontmatter` edge: the two answer different questions (format conformance vs. claim retraction) and change for different reasons, so sharing a group would fire an okf edit into the guillotine suite for nothing. The group also claims `core/operations/guillotine.py` — the transaction-bearing adapter §3 keeps *outside* the package precisely to hold the analysis layer inward-arrow-clean, and the module whose tests live here rather than in `vault-semantics` (note 2). |
@@ -117,7 +117,7 @@ under it. The claimed subtractions, by group:
 | `notes-overlay` | `notes/`, `notes_config.py`, `operations/capture_note.py`, `operations/promote_note.py`, `operations/reanchor_note.py` |
 | `loop-runtime` | `loop.py`, `loop_state.py`, `loop_heartbeat.py`, `loop_progress.py`, `loop_factory.py`, `loop_promote.py`, `loop_retry_backoff.py`, `loop_attempt.py`, `loop_cadence_config.py`, `arena.py`, `arena_resolve.py`, `candidate_gate.py`, `branch_namespaces.py`, `branch_scoreboard.py`, `branch_delete.py`, `best_effort.py` |
 | `query-compile` | `compile_run.py`, `compile_promote.py`, `compile_state.py`, `compiled.py`, `query_engine.py`, `models_config.py`, `prompt_diff.py`, `trainset.py` |
-| `gapfill-spine` | `gap_classifier.py`, `gapfill.py`, `gapfill_config.py`, `source_gate.py`, `source_ingest.py`, `operations/candidate_scope.py` |
+| `gapfill-spine` | `gap_classifier.py`, `gapfill/`, `gapfill_config.py`, `source_gate.py`, `source_ingest.py`, `operations/candidate_scope.py` |
 | `guillotine-audit` | `operations/guillotine.py` |
 
 The `loop-runtime` and `query-compile` subtractions were originally made on concern grounds while
@@ -472,6 +472,7 @@ selectors:
       - tests/test_http_dashboard.py
       - tests/test_lane_action_deprecation.py
       - tests/test_lane_dispatchers.py
+      - tests/test_lane_next.py
       - tests/test_lane_rename_invariants.py
       - tests/test_loop_dispatch_cadence_run_eval.py
       - tests/test_loop_dispatch_run_once.py
@@ -489,6 +490,7 @@ selectors:
       - tests/test_mcp_query.py
       - tests/test_mcp_read.py
       - tests/test_mcp_resources.py
+      - tests/test_mcp_schema_grounding.py
       - tests/test_mcp_status.py
       - tests/test_mcp_vault.py
       - tests/test_mcp_write.py
@@ -745,7 +747,7 @@ id: gapfill-spine
 title: Gap-fill spine — diagnose, discover, queue, gate
 subsystems:
   - "src/knotica/core/gap_classifier.py + records.GapRecord"
-  - "src/knotica/core/gapfill.py + records.SuggestionRecord + mcp_server/tools_suggestions.py + cli/gapfill.py"
+  - "src/knotica/core/gapfill/ + records.SuggestionRecord + mcp_server/tools_suggestions.py + cli/gapfill.py"
   - "src/knotica/core/source_gate.py + source_ingest.py + records.SuggestionRecord.gate_outcome + mcp_server/tools_source_ingest.py + core/operations/candidate_scope.py + page-subset filter on evals/train_bootstrap.py+evals/golden.py"
 tier: integration
 selectors:
@@ -775,7 +777,7 @@ selectors:
       - tests/test_suggestion_withdraw.py
 file_dependencies:
   - "src/knotica/core/gap_classifier.py"
-  - "src/knotica/core/gapfill.py"
+  - "src/knotica/core/gapfill/"
   - "src/knotica/core/gapfill_config.py"
   - "src/knotica/core/source_inventory.py"
   - "src/knotica/core/gapfill_session.py"

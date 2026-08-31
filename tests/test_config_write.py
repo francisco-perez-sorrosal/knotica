@@ -253,6 +253,51 @@ def test_set_default_vault_rejects_an_unconfigured_vault(tmp_path: Path):
     assert _load(cfg)["default_vault"] == "main", "a rejected switch must not change the config"
 
 
+def test_a_key_that_needs_quoting_round_trips_byte_losslessly(tmp_path: Path):
+    # The third axis, after the vault-name key and the vault-path value: an
+    # ordinary key that is not a bare key. `[loop]` and `[gapfill]` knobs are
+    # never typed back as a flag, so these are quoted on emission rather than
+    # rejected -- but they must come back spelled exactly as they went in.
+    cfg = tmp_path / "config.toml"
+    original = {
+        "schema_version": 1,
+        "a key with spaces": "top-level",
+        "loop": {"weird key": 1, "quoted.dotted": "kept flat"},
+    }
+
+    config_write.atomic_write(cfg, config_write.dump_config_toml(original))
+
+    assert _load(cfg) == original
+
+
+def test_a_dotted_key_is_quoted_rather_than_silently_nested():
+    # The quiet half. Emitted bare, `quoted.dotted = "x"` parses -- as a nested
+    # table -- so the config is restructured rather than round-tripped, and the
+    # key the caller wrote is gone.
+    dumped = config_write.dump_config_toml({"loop": {"a.b": 1}})
+
+    assert tomllib.loads(dumped) == {"loop": {"a.b": 1}}
+
+
+def test_a_key_needing_quotes_cannot_destroy_the_config_on_the_following_write(
+    tmp_path: Path,
+):
+    # Emitted bare, `weird key = 1` does not parse at all, and `read_config`
+    # answers a parse error with {} -- so the *next* write rebuilt the file
+    # from nothing. Same amplifier the vault-name guard exists to close.
+    cfg = tmp_path / "config.toml"
+    config_write.upsert_vault(cfg, "main", "/data/main", make_default=True)
+    data = config_write.read_config(cfg)
+    data["loop"] = {"weird key": 1}
+    config_write.atomic_write(cfg, config_write.dump_config_toml(data))
+
+    config_write.upsert_vault(cfg, "later", "/data/later", make_default=False)
+
+    written = _load(cfg)
+    assert sorted(written["vaults"]) == ["later", "main"]
+    assert written["loop"] == {"weird key": 1}
+
+
 def test_a_vault_path_with_an_astral_character_survives_the_next_write(tmp_path: Path):
     # The key axis is guarded by `is_bare_key`; this is the value axis, and it
     # reaches the same amplifier. `json.dumps` at its default escapes an

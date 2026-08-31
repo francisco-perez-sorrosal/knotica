@@ -11,7 +11,7 @@ agent_type: orchestrator
 branch: main
 pipeline_tier: lightweight
 affected_files:
-  - src/knotica/core/gapfill.py
+  - src/knotica/core/gapfill/
   - src/knotica/core/process_model.py
   - src/knotica/mcp_server/tools_gaps.py
 ---

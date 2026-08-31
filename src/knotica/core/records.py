@@ -377,6 +377,15 @@ class GapRecord:
     #: never been through a human decision, and on pre-feature records.
     #: Additive-only optional field (schema stays v1).
     decided_reason: str | None = None
+    #: Drain-time stamp: the ISO-8601 UTC instant a gap-fill drain found this
+    #: gap's *entire* non-empty candidate yield already stored in the vault --
+    #: the gap is answered by sources the vault holds, so the fault is
+    #: retrieval/linking, not acquisition. Cleared back to ``None`` by the same
+    #: drain path the moment a drain stages a suggestion for the gap. ``None``
+    #: on a gap no drain ever found inert, and on pre-feature records; the
+    #: attention view reads it as a plain record field so the signal costs no
+    #: discovery work (dec-092). Additive-only optional field (schema stays v1).
+    answered_in_vault_at: str | None = None
 
     def __post_init__(self) -> None:
         _validate_schema_version(self.schema_version)
@@ -414,6 +423,7 @@ class GapRecord:
             "origin": self.origin,
             "reported_reason": self.reported_reason,
             "decided_reason": self.decided_reason,
+            "answered_in_vault_at": self.answered_in_vault_at,
         }
         return json.dumps(payload, ensure_ascii=False)
 
@@ -464,6 +474,9 @@ class GapRecord:
             ),
             reported_reason=_optional_str_absent(data, "reported_reason", record="gaps.jsonl"),
             decided_reason=_optional_str_absent(data, "decided_reason", record="gaps.jsonl"),
+            answered_in_vault_at=_optional_str_absent(
+                data, "answered_in_vault_at", record="gaps.jsonl"
+            ),
         )
 
 

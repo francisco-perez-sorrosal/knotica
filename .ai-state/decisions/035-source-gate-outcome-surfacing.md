@@ -13,7 +13,7 @@ pipeline_tier: standard
 affected_files:
   - src/knotica/core/records.py
   - src/knotica/core/status.py
-  - src/knotica/core/gapfill.py
+  - src/knotica/core/gapfill/
   - src/knotica/mcp_server/tools_suggestions.py
   - dashboard/src/
 affected_reqs: []

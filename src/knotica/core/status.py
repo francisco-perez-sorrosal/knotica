@@ -268,9 +268,10 @@ def _attention_status(store: VaultStore, vault_path: Path, vault_name: str) -> d
 
     Reports, for every topic in the vault, the honest fields its two consumers
     -- ``knotica status --nudge`` and the dashboard's Home rail -- derive the
-    same seven attention signals from: pending suggestions,
-    refused-awaiting-rework, open gaps with no discovery yet, an aborted arena
-    race, compile-readiness, runner liveness, and an unreachable gate baseline.
+    same eight attention signals from: pending suggestions,
+    refused-awaiting-rework, open gaps with no discovery yet, open gaps the
+    vault already answers, an aborted arena race, compile-readiness, runner
+    liveness, and an unreachable gate baseline.
     Which of them *means* a row is the client's call, so this docstring names
     the fields, never the rules -- ``cli/status.py`` and
     ``dashboard/src/lanes/home/attentionRows.ts`` are where a signal is added.
@@ -325,6 +326,11 @@ def _attention_row(store: VaultStore, vault_path: Path, topic: str) -> dict[str,
     dec-092 budget: no git subprocess, no lint walk, no note-anchor
     resolution, and cost still linear in topic count.
 
+    The ``gaps`` block's ``answered_in_vault`` costs nothing beyond that same
+    read: it counts open gaps carrying the drain's ``answered_in_vault_at``
+    stamp, a field the drain persisted precisely so this view never has to
+    re-run discovery to learn it (td-070).
+
     They exist because "needs a human" conditions reached Home through no
     signal at all. A topic with open gaps and no suggestions -- because
     discovery never ran against them -- tripped none of the four original
@@ -341,10 +347,14 @@ def _attention_row(store: VaultStore, vault_path: Path, topic: str) -> dict[str,
     client-side.
     """
     trainset_n = count_query_train_examples(store, topic)
+    gaps = gap_block(store, topic)
     return {
         "topic": topic,
         "suggestions": suggestion_block(store, topic),
-        "gaps": {"open_total": gap_block(store, topic)["open_total"]},
+        "gaps": {
+            "open_total": gaps["open_total"],
+            "answered_in_vault": gaps["answered_in_vault"],
+        },
         "compile_ready": _is_compile_ready(trainset_n, golden_count(store, topic)),
         "runner": read_runner_liveness(vault_path, topic),
         "arena": _attention_arena_block(store, topic),

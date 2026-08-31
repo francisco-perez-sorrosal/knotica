@@ -13,7 +13,7 @@ pipeline_tier: standard
 affected_files:
   - src/knotica/core/records.py
   - src/knotica/core/source_gate.py
-  - src/knotica/core/gapfill.py
+  - src/knotica/core/gapfill/
   - src/knotica/evals/train_bootstrap.py
   - src/knotica/evals/golden.py
 affected_reqs: [REQ-05, REQ-06, REQ-07, REQ-08]

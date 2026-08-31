@@ -77,13 +77,18 @@ def gap_block(store: VaultStore, topic: str) -> dict[str, Any]:
 
     Counts every *open* gap record (any fault_class) bucketed by ``origin``
     (``measured`` = eval-proven, ``reported`` = conversationally filed,
-    ``retracted`` = guillotine-weakened) plus ``open_total``. Reads
+    ``retracted`` = guillotine-weakened) plus ``open_total``, and separately
+    ``answered_in_vault`` -- open gaps a drain stamped ``answered_in_vault_at``
+    because the vault already stores every source it could find for them
+    (td-070). That one is a plain field read of a stamp the drain persisted, so
+    it costs the attention view no discovery work (dec-092). Reads
     ``gaps.jsonl`` line-by-line and skips a malformed line rather than raising,
     so a single corrupt record never breaks the status readout (mirrors
     :func:`suggestion_block`). Honest zeros when the file is absent.
     """
     counts = Counter[str]()
     open_total = 0
+    answered_in_vault = 0
     path = gaps_path(topic)
     if store.exists(path):
         for line in store.read_text(path).splitlines():
@@ -97,11 +102,14 @@ def gap_block(store: VaultStore, topic: str) -> dict[str, Any]:
                 continue
             counts[record.origin] += 1
             open_total += 1
+            if record.answered_in_vault_at is not None:
+                answered_in_vault += 1
     return {
         GAP_ORIGIN_MEASURED: counts.get(GAP_ORIGIN_MEASURED, 0),
         GAP_ORIGIN_REPORTED: counts.get(GAP_ORIGIN_REPORTED, 0),
         GAP_ORIGIN_RETRACTED: counts.get(GAP_ORIGIN_RETRACTED, 0),
         "open_total": open_total,
+        "answered_in_vault": answered_in_vault,
     }
 
 

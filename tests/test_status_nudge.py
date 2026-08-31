@@ -540,6 +540,47 @@ def test_nudge_stays_quiet_about_gaps_once_anything_was_proposed() -> None:
     assert "open gap" not in out.getvalue()
 
 
+def test_nudge_reports_open_gaps_the_vault_already_answers() -> None:
+    """The eighth signal: a drain found every candidate for these gaps already
+    stored, so the fault is retrieval or linking. Home renders it as a waiting
+    row; the nudge must say the same thing, in the same words."""
+    console, out = _console()
+
+    render_nudge(
+        console,
+        _parity_payload(gaps={"open_total": 2, "answered_in_vault": 2}),
+        ResolvedVault(name="main", path=Path("/data/knotica")),
+    )
+
+    assert _has_line_with(out.getvalue(), "2 open gap(s) the vault already answers", "dismiss")
+
+
+def test_nudge_stays_quiet_when_no_open_gap_is_answered_in_vault() -> None:
+    console, out = _console()
+
+    render_nudge(
+        console,
+        _parity_payload(gaps={"open_total": 2, "answered_in_vault": 0}),
+        ResolvedVault(name="main", path=Path("/data/knotica")),
+    )
+
+    assert "already answers" not in out.getvalue()
+
+
+def test_nudge_survives_a_gap_block_that_predates_the_answered_in_vault_field() -> None:
+    """One signal short, never a traceback: the same defensive contract every
+    other post-parity field is read under."""
+    console, out = _console()
+
+    render_nudge(
+        console,
+        _parity_payload(gaps={"open_total": 2}),
+        ResolvedVault(name="main", path=Path("/data/knotica")),
+    )
+
+    assert "already answers" not in out.getvalue()
+
+
 def test_nudge_reports_an_aborted_arena_race() -> None:
     console, out = _console()
 

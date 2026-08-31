@@ -20,10 +20,14 @@ paid down:
 
 Two source modules (``core/gapfill.py`` and ``guillotine/report.py``) were over
 the ceiling without any ledger row tracking them -- discovered only by measuring
-every file rather than trusting the recorded set. ``guillotine/report.py`` has
-since fallen under the ceiling (td-036 deleted a dead pre-transaction writer from
-it) and its entry is gone: a paid-down exemption is removed, never kept. That is the argument for a mechanical check over a hand-maintained
-list, and it is the argument that extended this ratchet to ``tests/``.
+every file rather than trusting the recorded set. Both entries are now gone.
+``guillotine/report.py`` fell under the ceiling when td-036 deleted a dead
+pre-transaction writer from it; ``core/gapfill.py`` was split into the
+``core/gapfill/`` package (td-042), six modules of 92-421 lines behind one
+re-exporting ``__init__``, so the largest exemption this list ever carried
+needed no successor entry. A paid-down exemption is removed, never kept. That is
+the argument for a mechanical check over a hand-maintained list, and it is the
+argument that extended this ratchet to ``tests/``.
 
 **``tests/`` is scanned because it was the same blind spot, one directory over.**
 The ratchet originally measured ``src/knotica`` only, so the 800-line ceiling
@@ -76,8 +80,9 @@ OVER_CEILING_BASELINE: dict[str, int] = {
     # lint-attribution instrument fix and the rebaseline freeze guard: the
     # harness's scalar input filter must sit beside the scalar composition it
     # feeds, and the guard must sit inside `rebaseline` -- the one freeze-time
-    # entry point that could create an unreachable bar. td-042/td-008 still
-    # name the real fixes.
+    # entry point that could create an unreachable bar. td-008 still names the
+    # real fix for these two (td-042, which named gapfill's, is paid: that
+    # module is now the `core/gapfill/` package and carries no entry here).
     "evals/harness.py": 1241,
     "core/loop.py": 1189,
     "evals/golden.py": 975,
@@ -95,73 +100,13 @@ OVER_CEILING_BASELINE: dict[str, int] = {
     # topic by a routine refresh. The carrier field, its partition on parse and
     # its merge on emit live inside the frozen record's own (de)serialization
     # pair and are not extractable from it.
-    "core/records.py": 981,
-    # Raised 1532 -> 1536 so a reported gap stops asserting `reference_pages_exist`
-    # is false without checking: `_file_synthetic_gap` now asks the store the same
-    # question the eval path asks (`page_path` + `store.exists`). Four lines -- an
-    # import, a parameter, its argument and one rationale comment -- and none of
-    # them is extractable: the value belongs to the record this module composes.
-    # td-042 still names the real fix.
     #
-    # Prior raise, 1320 -> 1532, for queue-lifecycle integrity: the drain now does all
-    # network work first and reads/writes the queue inside one span lock (a
-    # pre-discovery snapshot was reverting decisions taken during a drain), a
-    # cascade closure is marked so it stops deduping a reopened gap's re-drain,
-    # and both queue writers skip an approved record whose candidate branch is
-    # already published. None of it is extractable: the ordering constraint is
-    # the drain function's own shape, and the cascade marker must be written and
-    # read by the two writers that live here.
-    #
-    # Prior raise, 1252 -> 1320, for the drain's queue healing: still-open records
-    # whose source the vault now stores, and per-gap duplicates one canonical
-    # identity now collapses, close on every drain instead of one manual
-    # withdraw at a time (the field report held fourteen). `_heal_queue` writes
-    # inside the drain's own transaction against the same records the staging
-    # pass dedups on -- the one-commit argument again. td-042 still names the
-    # real fix.
-    #
-    # Prior raise, 1221 -> 1252, for the vault-dedup half of the discovery-dedup fix:
-    # the drain now drops candidates the vault already stores (the set itself
-    # lives in the new `core/source_inventory.py`; only the drain-loop skip,
-    # the RefreshResult count, and the URL-identity key stay here, each bound
-    # to the drain's own transaction and result shape). td-042 still names the
-    # real fix.
-    #
-    # Prior raise, 1142 -> 1221, for the dismiss cascade and the refused-transition
-    # exit hint (a field report: an approved suggestion read as terminal from
-    # Claude Desktop, and dismissing a gap stranded its approved suggestions).
-    # `_plan_dismiss_cascade` must sit here: it rewrites `suggestions.jsonl`
-    # inside `apply_gap_decision`'s own `VaultTransaction` -- the same
-    # one-commit argument that pinned the gap-lifecycle writers below -- and
-    # `_legal_exits_hint` is a projection of `_ALLOWED_FROM`, which cannot
-    # leave. td-042 still names the real fix.
-    #
-    # Prior raise, 1138 -> 1142, for the synthetic-gap topic guard: `_file_synthetic_gap`
-    # now runs `require_topic` before filing (an unguarded conversational report
-    # once scaffolded a stray topic the loop began tending). The check itself
-    # lives in `core/topics.py`; only the two-line rationale comment and the one
-    # call remain here, at the single entry both `report_gap` and
-    # `file_retracted_gap` share. td-042 still names the real fix.
-    #
-    # Prior raise, 1115 -> 1138, for `review_gap`'s dismiss-requires-a-reason rule and
-    # its `decided_reason` persistence: `_plan_gap_decision` grew a reason check
-    # and a docstring, and `apply_gap_decision` now threads the cleaned reason
-    # onto the record it replaces. Same module as the prior raise below, same
-    # reason it cannot move: the human gap transition's whole legality table
-    # lives here beside `apply_decision`'s. td-042 still names the real fix --
-    # split gapfill.py into file / drain / decide-gate.
-    #
-    # Prior raise, 944 -> 1115, for the gap-lifecycle writers: two of the three
-    # `GAP_STATUSES` values had no writer anywhere in `src/knotica/`, so the gap
-    # queue was append-only in practice and its declared terminal state did not
-    # exist. Closing that needs the machine transition (a merged gate verdict
-    # resolves the originating gap, inside the gate stamp's own transaction) and
-    # the human one (`apply_gap_decision`, dismiss/reopen). Neither is extractable
-    # from here: the machine half must be declared to the *same* `VaultTransaction`
-    # as the suggestion stamp or the two writes stop being one commit, and the
-    # human half is the parameter-for-parameter sibling of `apply_decision`, which
-    # lives in this module.
-    "core/gapfill.py": 1536,
+    # Raised 981 -> 994 for `GapRecord.answered_in_vault_at` (td-070): the
+    # drain-time stamp that lets Home say "the vault already answers this gap"
+    # without paying for discovery. Same shape as `decided_reason` above -- one
+    # field, its docstring, one line each in `to_json_line`/`from_json_line` --
+    # and equally inseparable from the frozen record's own (de)serialization.
+    "core/records.py": 994,
 }
 
 

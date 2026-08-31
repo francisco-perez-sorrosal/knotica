@@ -72,6 +72,19 @@ rejected. A `resolved` gap — already answered by a merged source — accepts n
 
 A refusal on either transition names the legal exit rather than only the rule it broke.
 
+**A gap the vault already answers** carries `answered_in_vault_at`, an ISO-8601 UTC stamp a drain
+writes when *every* candidate it found for that gap turns out to be a source the vault already
+stores. It means acquisition is finished and the failure is retrieval or linking — no amount of
+further discovery will close the gap, and each drain re-pays for a billed search that can only find
+the same sources again. The same drain path **clears** the stamp the moment it stages a suggestion
+for the gap, so the flag can never outlive the observation behind it; terminal gaps need no clearing
+because every reader filters to `open`. Two things to do with one: fix the retrieval path (or the
+pages' links to those sources), or dismiss the gap if it is simply stale.
+
+Because the stamp lives on the record, `knotica home` / `status --nudge` and the dashboard's Home
+inbox both surface it as a waiting row without running discovery themselves — the attention view
+reads it as a count (`gaps.answered_in_vault`, [reference](reference.md)), never as work.
+
 ## Where gaps come from
 
 Every gap record carries an `origin`. Two of the three never touch the classifier.
@@ -113,7 +126,9 @@ the reason recorded — the winner being the human-decided, best-ranked record �
 `stale_suggestions_closed`. **Every drain heals**, even one that stages nothing: healing is local
 work over records the vault already holds, so it runs with zero open gaps and with no provider key
 configured. A gap whose every candidate the vault already stores is reported by id in
-`gaps_fully_in_vault` — the vault answers it, so the problem is not a missing source.
+`gaps_fully_in_vault` — the vault answers it, so the problem is not a missing source — **and** stamped
+on the gap record as `answered_in_vault_at`, so an operator who did not run this drain still sees it
+(see [P1](#p1--diagnose)).
 
 A cascade closure is **not** a human rejection and does not dedup: the cascade stamps
 `gap dismissed: ` as the record's `decided_reason` prefix, and the drain reads that marker, so
@@ -322,7 +337,7 @@ surface in `wiki_status`, including `refused_awaiting_rework` (approved suggesti
 outcome was a refusal); the [dashboard](dashboard.md) renders the same data.
 
 Code: [`core/gap_classifier.py`](../src/knotica/core/gap_classifier.py),
-[`core/gapfill.py`](../src/knotica/core/gapfill.py),
+[`core/gapfill/`](../src/knotica/core/gapfill/),
 [`core/source_ingest.py`](../src/knotica/core/source_ingest.py),
 [`core/source_gate.py`](../src/knotica/core/source_gate.py),
 [`discovery/`](../src/knotica/discovery).

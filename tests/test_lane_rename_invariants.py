@@ -68,6 +68,7 @@ from support.dispatch import (
 from test_lane_dispatchers import (
     RepresentativeCall,
     _comparable,
+    _verb_payload,
     _lane_call_kwargs,
     _lane_dispatch_server,
 )
@@ -352,7 +353,7 @@ def test_lane_action_matches_the_flat_tool_for_a_verb_that_stays_flat(
         call_tool(_lane_dispatch_server(lane), lane, _lane_call_kwargs(verb, spec.kwargs))
     )
 
-    assert _comparable(routed, spec.volatile) == _comparable(flat, spec.volatile), (
+    assert _verb_payload(routed, spec.volatile) == _comparable(flat, spec.volatile), (
         f"{lane}(action={verb!r}) must reproduce the flat {verb}() tool's payload, "
         "even though the flat registration is kept permanently"
     )

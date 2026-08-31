@@ -229,6 +229,44 @@ def test_unresolved_schema_flags_the_schema_check_with_remediation(
     assert result.returncode == (1 if _has_fail(result.stdout) else 0)
 
 
+def test_a_dotted_vault_name_from_before_the_guard_is_reported_with_its_repair(
+    vault_config: Path, template_vault: Path
+):
+    """The one corruption that lives in `config.toml` rather than in the vault.
+
+    A vault named with a dot, written before the bare-key guard, round-tripped
+    into real TOML nesting and re-emits as a fixed point the guard never sees.
+    Doctor is where the user finds out -- report-only, because
+    `doctor repair --apply` means a path-scoped git restore *inside the vault*
+    and `config.toml` lives outside it. The remediation must therefore carry
+    the replacement text itself.
+    """
+    vault_config.write_text(
+        f'schema_version = 1\ndefault_vault = "main"\n\n'
+        f'[vaults.main]\npath = "{template_vault}"\n\n'
+        f'[vaults.my.name]\npath = "/data/dotted"\n',
+        encoding="utf-8",
+    )
+
+    result = _run("doctor")
+
+    assert _statuses_for(result.stdout, "vault names") & {"WARN", "FAIL"}, (
+        "a nested [vaults.my.name] must drive the vault-names row off PASS"
+    )
+    combined = result.stdout + result.stderr
+    assert "my.name" in combined, "the row must name the vault it found"
+    assert "[vaults.my-name]" in combined, (
+        "the remediation must carry the literal replacement table header, and it "
+        "must be a BARE key -- quoting the dotted name would read fine and then "
+        "raise INVALID_ARGUMENT on the next vault write"
+    )
+    assert result.returncode == 0, "a repairable-but-benign finding is a WARN, not a FAIL"
+
+
+def test_a_healthy_config_keeps_the_vault_names_row_passing(vault_config: Path):
+    assert _statuses_for(_run("doctor").stdout, "vault names") == {"PASS"}
+
+
 def test_reserved_name_collision_flags_the_reserved_row_with_rename_remediation(
     vault_config: Path, template_vault: Path
 ):

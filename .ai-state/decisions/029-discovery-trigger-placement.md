@@ -11,7 +11,7 @@ agent_type: systems-architect
 branch: worktree-hackathon-loop-ideas
 pipeline_tier: standard
 affected_files:
-  - src/knotica/core/gapfill.py
+  - src/knotica/core/gapfill/
   - src/knotica/cli/gapfill.py
   - src/knotica/core/loop.py
 affected_reqs: [REQ-01, REQ-02, REQ-08]

@@ -12,6 +12,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+from knotica.core.config import MangledVaultName, detect_mangled_vault_names
 from knotica.core.lint import LintCheck, Violation, lint_vault
 from knotica.core.schema import read_root_schema
 from knotica.core.vcs import GitError, VaultVcs
@@ -75,6 +76,7 @@ def run_doctor_checks(
     if quick:
         return rows
 
+    rows.append(_vault_names_row())
     violations = lint_vault(store)
     rows.append(_reserved_names_row(violations))
     rows.append(_links_row(violations))
@@ -161,6 +163,55 @@ def _schema_row(store: VaultStore) -> CheckRow:
             "add `schema_version: <n>` to SCHEMA.md frontmatter",
         )
     return CheckRow(_PASS, "schema", f"root SCHEMA.md v{root.schema_version} resolves clean")
+
+
+def _vault_names_row() -> CheckRow:
+    """Report vault names a dot silently nested into sub-tables, with the repair.
+
+    Report-only, by the surface's own convention: ``doctor repair --apply``
+    means one thing here -- a path-scoped ``git restore`` inside the *vault* --
+    and ``config.toml`` lives outside the vault and outside that repo, so a
+    config rewrite has no home behind that flag. The remediation is the exact
+    replacement text instead, which is copy-pasteable and leaves the user in
+    control of a file that is theirs.
+    """
+    mangled = detect_mangled_vault_names()
+    if not mangled:
+        return CheckRow(_PASS, "vault names", "every configured vault name is a TOML bare key")
+    names = ", ".join(entry.name for entry in mangled)
+    return CheckRow(
+        _WARN,
+        "vault names",
+        (
+            f"{len(mangled)} vault name(s) written before the bare-key guard nested "
+            f"into sub-tables and now read back as phantom vaults: {names}"
+        ),
+        _mangled_vault_repair(mangled),
+    )
+
+
+def _mangled_vault_repair(mangled: list[MangledVaultName]) -> str:
+    """The literal TOML to paste over each mangled entry in ``config.toml``.
+
+    The repair renames to a **bare** key rather than quoting the dotted one.
+    Quoting would make the file read correctly and then break on the next
+    mutation: :func:`~knotica.core.config_write._emit_table` still rejects a
+    dotted vault name outright (a vault name is typed back as a ``--vault``
+    flag and passed as a tool argument), so ``[vaults."my.name"]`` would raise
+    ``INVALID_ARGUMENT`` the next time any vault is added. A repair that arms a
+    later failure is not a repair.
+    """
+    blocks = "\n\n".join(
+        f'[vaults.{entry.name.replace(".", "-")}]\npath = "{entry.path or "<the vault path>"}"'
+        for entry in mangled
+    )
+    return (
+        "edit ~/.config/knotica/config.toml by hand: delete the nested "
+        "[vaults...] header(s) and write one flat table per vault under a name "
+        "with no dot (a dotted name is what nested them) —\n"
+        f"{blocks}\n"
+        "— then point `default_vault` at the new name if it named an old one."
+    )
 
 
 def _reserved_names_row(violations: list[Violation]) -> CheckRow:

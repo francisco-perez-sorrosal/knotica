@@ -12,7 +12,7 @@ branch: worktree-hackathon-loop-ideas
 pipeline_tier: standard
 affected_files:
   - src/knotica/core/records.py
-  - src/knotica/core/gapfill.py
+  - src/knotica/core/gapfill/
   - src/knotica/mcp_server/tools_suggestions.py
 affected_reqs: [REQ-03, REQ-04, REQ-05, REQ-06]
 re_affirms: dec-025

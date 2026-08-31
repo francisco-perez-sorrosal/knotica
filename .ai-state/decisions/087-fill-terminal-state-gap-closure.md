@@ -12,7 +12,7 @@ branch: worktree-process-swimlanes
 pipeline_tier: full
 affected_files:
   - src/knotica/core/records.py
-  - src/knotica/core/gapfill.py
+  - src/knotica/core/gapfill/
   - src/knotica/core/source_gate.py
   - src/knotica/mcp_server/tools_gaps.py
 dissent: "Closing a gap on a merge assumes one merged source answers the whole gap, which is a modelling claim nothing verifies — a gap can be broad enough that one ingested source addresses a third of it, and this design will report it closed while the knowledge hole is still open, silently converting a monotonic-but-honest counter into a non-monotonic and possibly optimistic one."
