@@ -65,15 +65,18 @@ import type {
  * affordance ... adding a UI control for it here would be scope growth
  * beyond what the design specifies -- noted, not built." This suite follows
  * the plan's own written scope, not the paraphrase: no dismiss affordance,
- * no resolved/dismissed-bucket assertions. Every `GapRecord` fixture below
+ * no resolved/dismissed-bucket assertions. (That scope line was later
+ * superseded: once `review_gap decision=dismiss` began cascading to the
+ * gap's open suggestions, the dashboard gained the dismiss affordance and
+ * its tests live in the "gap dismissal" describe block below. Reopen remains
+ * MCP/CLI-only -- this page lists open gaps.) Every `GapRecord` fixture below
  * carries `status: "open"`, matching `SourcesPane`'s own
  * `gapsRead(topic, "open", ...)` call -- there is nothing here to
  * characterize for the other two statuses because nothing today writes them
  * (`INTERFACE_DESIGN.md §2.5`'s own N6 finding).
  *
  * Not tested here (later steps' job): `ingest`/`gate` (Step 98's
- * `IngestGateStage`), the assembled five-stage `FillLane` rail (Step 100),
- * and `review_gap`/dismiss (out of scope, per above).
+ * `IngestGateStage`) and the assembled five-stage `FillLane` rail (Step 100).
  */
 
 interface QueueStageProps {
@@ -304,13 +307,27 @@ function fakeClient(
   const suggestionsReview = vi.fn(async (..._args: unknown[]) => ({
     mode: "apply" as const,
   }));
+  const reviewGap = vi.fn(async (..._args: unknown[]) => ({
+    gap_id: "g_7c21",
+    topic: TOPIC,
+    decision: "dismiss" as const,
+    from_status: "open" as const,
+    to_status: "dismissed" as const,
+    reason: "covered elsewhere",
+    decided_at: "2026-08-30T00:00:00Z",
+    question: "no coverage of HyDE",
+    changed: true,
+    commit_sha: "abc123",
+    cascaded_suggestion_ids: ["s1", "s2"],
+  }));
   const client = {
     gapsRead,
     suggestionsRead,
     gapfillDiscover,
     suggestionsReview,
+    reviewGap,
   } as unknown as ToolClient;
-  return { client, gapsRead, suggestionsRead, gapfillDiscover, suggestionsReview };
+  return { client, gapsRead, suggestionsRead, gapfillDiscover, suggestionsReview, reviewGap };
 }
 
 function renderQueueStage(
@@ -1327,5 +1344,89 @@ describe("the lifecycle contract on the triage verbs", () => {
         stageNodes(container)[APPROVE].querySelectorAll('[role="status"]'),
       ).toHaveLength(1),
     );
+  });
+});
+
+
+describe("gap dismissal -- the one gap-side decision, cascading by design", () => {
+  it("requires opening the reason form and typing a non-empty reason before confirming", async () => {
+    const { client, reviewGap } = fakeClient();
+    const container = renderQueueStage(client);
+    await vi.waitFor(() =>
+      expect(within(stageNodes(container)[GAP]).getByText(/no coverage of HyDE/)).toBeTruthy(),
+    );
+
+    fireEvent.click(
+      within(stageNodes(container)[GAP]).getByRole("button", { name: /dismiss…/i }),
+    );
+
+    const confirm = within(stageNodes(container)[GAP]).getByRole("button", {
+      name: /confirm dismiss/i,
+    });
+    expect(isDisabled(confirm)).toBe(true);
+    fireEvent.input(within(stageNodes(container)[GAP]).getByRole("textbox"), {
+      target: { value: "answered by the retrieval page" },
+    });
+    expect(isDisabled(confirm)).toBe(false);
+    expect(reviewGap).not.toHaveBeenCalled();
+  });
+
+  it("confirming dismisses with the reason, reloads both queues, and says how many suggestions closed", async () => {
+    const onStatusRefresh = vi.fn();
+    const { client, reviewGap, gapsRead, suggestionsRead } = fakeClient();
+    const container = renderQueueStage(client, { onStatusRefresh });
+    await vi.waitFor(() =>
+      expect(within(stageNodes(container)[GAP]).getByText(/no coverage of HyDE/)).toBeTruthy(),
+    );
+    gapsRead.mockClear();
+    suggestionsRead.mockClear();
+
+    fireEvent.click(
+      within(stageNodes(container)[GAP]).getByRole("button", { name: /dismiss…/i }),
+    );
+    fireEvent.input(within(stageNodes(container)[GAP]).getByRole("textbox"), {
+      target: { value: "answered by the retrieval page" },
+    });
+    fireEvent.click(
+      within(stageNodes(container)[GAP]).getByRole("button", { name: /confirm dismiss/i }),
+    );
+
+    await vi.waitFor(() => expect(reviewGap).toHaveBeenCalledTimes(1));
+    expect(reviewGap).toHaveBeenCalledWith(
+      TOPIC,
+      "g_7c21",
+      "dismiss",
+      "answered by the retrieval page",
+      VAULT,
+    );
+    // The cascade changed the suggestion queue too -- both reload, plus status.
+    await vi.waitFor(() => expect(onStatusRefresh).toHaveBeenCalled());
+    expect(gapsRead).toHaveBeenCalled();
+    expect(suggestionsRead).toHaveBeenCalled();
+    await vi.waitFor(() =>
+      expect(
+        container.textContent ?? "",
+      ).toContain("2 linked suggestions closed with it"),
+    );
+  });
+
+  it("cancelling the form calls nothing and closes it", async () => {
+    const { client, reviewGap } = fakeClient();
+    const container = renderQueueStage(client);
+    await vi.waitFor(() =>
+      expect(within(stageNodes(container)[GAP]).getByText(/no coverage of HyDE/)).toBeTruthy(),
+    );
+
+    fireEvent.click(
+      within(stageNodes(container)[GAP]).getByRole("button", { name: /dismiss…/i }),
+    );
+    fireEvent.click(
+      within(stageNodes(container)[GAP]).getByRole("button", { name: /^cancel$/i }),
+    );
+
+    expect(reviewGap).not.toHaveBeenCalled();
+    expect(
+      within(stageNodes(container)[GAP]).queryByRole("button", { name: /confirm dismiss/i }),
+    ).toBeNull();
   });
 });

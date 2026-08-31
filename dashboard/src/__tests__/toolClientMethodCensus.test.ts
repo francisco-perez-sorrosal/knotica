@@ -130,6 +130,10 @@ const MOVED_METHODS: Record<string, readonly string[]> = {
   fill: [
     "suggestionsRead",
     "gapsRead",
+    // Post-split addition (gap dismissal affordance): the census counts it as
+    // a moved-set member so groups (1)/(2) keep gating the live surface; the
+    // Step 119 transcription proper was the five methods around it.
+    "reviewGap",
     "gapfillDiscover",
     "suggestionsReview",
     "sessionStatus",
@@ -209,9 +213,9 @@ beforeAll(() => {
   censusClient = new BridgeToolClient(fakeApp().app);
 });
 
-describe("the fixture's own bookkeeping matches Step 119's recorded split", () => {
-  it("48 moved methods across the six lanes, plus 3 shell methods, totals 51", () => {
-    expect(PRE_SPLIT_TOOL_CALL_METHODS).toHaveLength(51);
+describe("the fixture's own bookkeeping matches the recorded split plus later additions", () => {
+  it("49 lane methods (48 moved + reviewGap) plus 3 shell methods totals 52", () => {
+    expect(PRE_SPLIT_TOOL_CALL_METHODS).toHaveLength(52);
   });
 });
 
@@ -220,8 +224,8 @@ describe("the fixture's own bookkeeping matches Step 119's recorded split", () =
 //     pre-split fixture.
 // ---------------------------------------------------------------------------
 
-describe("the composed ToolClient exposes exactly the pre-split 51-method set", () => {
-  it("carries every pre-split tool-call method and no others", () => {
+describe("the composed ToolClient exposes exactly the declared method set", () => {
+  it("carries every declared tool-call method and no others", () => {
     const toolCallMethods = collectPrototypeMethodNames(censusClient).filter(
       (name) => !TRANSPORT_METHODS.includes(name),
     );

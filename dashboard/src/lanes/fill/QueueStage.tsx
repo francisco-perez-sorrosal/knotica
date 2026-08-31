@@ -7,14 +7,13 @@ import type { ToolClient } from "../../toolClient";
 import { ProcessBrief } from "../ProcessBrief";
 import { ProcessOutcome } from "../ProcessOutcome";
 import type { ProcessId } from "../processMeta";
-import { GapOriginBadge } from "./badges";
+import { GapCard } from "./GapCard";
 import { QueueToolbar } from "./QueueToolbar";
 import { SuggestionRow } from "./SuggestionRow";
 import { mergeGhosts } from "./suggestionSort";
 import type { GhostRow, QueueSortMode } from "./suggestionSort";
 import type {
   GapfillDiscoverResult,
-  GapRecord,
   GapsReadResult,
   LaneRailStageState,
   SuggestionAction,
@@ -52,8 +51,12 @@ import type {
  * click was a row disappearing from a list of dozens of near-identical rows --
  * indistinguishable from nothing having happened.
  *
- * `review_gap` (the human dismiss/reopen transition on a gap) is out of scope
- * here: it is a flat MCP tool already registered, not a dashboard affordance.
+ * The gap stage carries the one gap-side decision: Dismiss (reason required,
+ * mirroring the reject form), which also closes the gap's still-open
+ * suggestions in the same commit -- the outcome sentence says how many went
+ * with it. Reopen stays an MCP/CLI verb (`review_gap decision=reopen`): this
+ * page lists open gaps only, so a reopen control would act on rows it cannot
+ * show.
  */
 
 /** The server's "no cap" sentinel for a drain -- it decides how many gaps to take. */
@@ -101,6 +104,9 @@ const DECISION_PROCESS: Partial<Record<SuggestionAction, ProcessId>> = {
   defer: "fill.suggestion_defer",
   withdraw: "fill.suggestion_withdraw",
 };
+
+/** The gap stage's own decision -- registered like the four triage verbs. */
+const GAP_DISMISS_PROCESS: ProcessId = "fill.gap_dismiss";
 
 const STAGE_ORDER = ["gap", "discover", "approve"] as const;
 type StageId = (typeof STAGE_ORDER)[number];
@@ -156,6 +162,11 @@ export function QueueStage({
   const [rejectOpenId, setRejectOpenId] = useState<string | null>(null);
   const [gaps, setGaps] = useState<GapsReadResult | null>(null);
   const [gapsError, setGapsError] = useState<string | null>(null);
+  /** Which gap's dismiss form is open, and the reason being drafted for it. */
+  const [dismissOpenId, setDismissOpenId] = useState<string | null>(null);
+  const [gapReasonDraft, setGapReasonDraft] = useState("");
+  /** The gap id in flight, so only the clicked card goes busy. */
+  const [gapBusy, setGapBusy] = useState<string | null>(null);
   /** Billed and two-phase; the preview quotes, only an explicit second click drains. */
   const discover = useTwoPhaseAction<GapfillDiscoverResult>({
     preview: () => client!.gapfillDiscover(topic, DISCOVER_ALL_GAPS, "", vault),
@@ -191,6 +202,39 @@ export function QueueStage({
       // either one. Folding this into the suggestions error would let a gaps
       // failure blank a suggestions list that loaded perfectly well.
       setGapsError(cause instanceof Error ? cause.message : String(cause));
+    }
+  }
+
+  /**
+   * Dismiss one gap; the server closes its still-open suggestions in the same
+   * commit, so BOTH queues reload and the outcome says how many went with it.
+   */
+  async function dismissGap(gapId: string) {
+    if (!client || gapBusy) return;
+    setGapBusy(gapId);
+    setGapsError(null);
+    try {
+      const result = await client.reviewGap(
+        topic,
+        gapId,
+        "dismiss",
+        gapReasonDraft.trim(),
+        vault,
+      );
+      setDismissOpenId(null);
+      setGapReasonDraft("");
+      const closed = result.cascaded_suggestion_ids.length;
+      await Promise.all([loadGaps(), load(), onStatusRefresh?.()]);
+      setAnnouncement(
+        closed > 0
+          ? `Dismissed gap — ${closed} linked suggestion${closed === 1 ? "" : "s"} closed with it.`
+          : "Dismissed gap.",
+      );
+      setDecidedProcess(GAP_DISMISS_PROCESS);
+    } catch (cause) {
+      setGapsError(cause instanceof Error ? cause.message : String(cause));
+    } finally {
+      setGapBusy(null);
     }
   }
 
@@ -329,7 +373,21 @@ export function QueueStage({
             </h4>
             <ul class="sources-list">
               {openGaps.map((gap) => (
-                <GapCard key={gap.gap_id} gap={gap} />
+                <GapCard
+                  key={gap.gap_id}
+                  gap={gap}
+                  dismissOpen={dismissOpenId === gap.gap_id}
+                  reasonDraft={dismissOpenId === gap.gap_id ? gapReasonDraft : ""}
+                  busy={gapBusy === gap.gap_id}
+                  disabled={gapBusy !== null}
+                  onRequestDismiss={() => {
+                    setDismissOpenId(gap.gap_id);
+                    setGapReasonDraft("");
+                  }}
+                  onCancelDismiss={() => setDismissOpenId(null)}
+                  onReasonChange={setGapReasonDraft}
+                  onConfirmDismiss={() => void dismissGap(gap.gap_id)}
+                />
               ))}
             </ul>
           </>
@@ -655,32 +713,3 @@ function StageShell({
  * finding. What the reader needs here is what was asked and why it went
  * unanswered.
  */
-function GapCard({ gap }: { gap: GapRecord }): JSX.Element {
-  return (
-    <li class="sources-card sources-gap-card">
-      <div class="sources-card-head">
-        <span class="status-chip">
-          {gap.fault_class} · filed {gap.detected_at.slice(0, 10)}
-        </span>
-        <span class="sources-card-badges">
-          <GapOriginBadge origin={gap.origin} />
-        </span>
-      </div>
-
-      <div class="sources-card-question">
-        <span class="stat-label">Unanswered question</span>
-        <p>“{gap.question}”</p>
-        {gap.reference_pages.length > 0 ? (
-          <p class="muted">references: {gap.reference_pages.join(", ")}</p>
-        ) : null}
-      </div>
-
-      {gap.reported_reason ? (
-        <div class="sources-card-source">
-          <span class="stat-label">Why the wiki fell short</span>
-          <p class="muted">{gap.reported_reason}</p>
-        </div>
-      ) : null}
-    </li>
-  );
-}

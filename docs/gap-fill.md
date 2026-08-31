@@ -54,6 +54,15 @@ Read that queue back with `gaps_read` — in conversation, or in the dashboard's
 has no candidate sources until [discovery](#p2--discover) runs, so the suggestion list is
 legitimately empty and the gap is the only evidence anything happened.
 
+**Dismissing a gap** — `review_gap decision=dismiss` (a non-empty reason required), or the
+**Dismiss…** control on the dashboard's gap card — closes a gap not worth sourcing. The dismissal
+**cascades**: the gap's still-open suggestions (pending/approved/deferred) close as `rejected` in
+the same commit, with `gap dismissed: <reason>` recorded on each and their ids returned as
+`cascaded_suggestion_ids`, so nothing is left stranded waiting on a question nobody wants answered.
+`decision=reopen` reverses the dismissal (legal only from `dismissed`; MCP/CLI only — the dashboard
+lists open gaps) but resurrects no suggestion: re-run discovery to re-propose sources with fresh
+ranking. A `resolved` gap — already answered by a merged source — accepts neither transition.
+
 ## Where gaps come from
 
 Every gap record carries an `origin`. Two of the three never touch the classifier.
@@ -266,6 +275,7 @@ says so explicitly rather than reporting a bare "no pending loop branches".
 | MCP | `gapfill_discover(topic, max_gaps=0, confirm="", vault="")` | P2 (billed, two-phase) |
 | MCP | `gap_report(topic, question, reason="", reference_pages=None, vault="")` | P1 (reported gap) |
 | MCP | `gaps_read(topic, status="open", cursor="", limit=20, vault="")` | P1 (read the queue) |
+| MCP | `review_gap(topic, gap_id, decision, reason="", vault="")` | P1 (dismiss/reopen; dismiss cascades to the gap's open suggestions) |
 | MCP | `suggestions_read(topic, status="pending", cursor="", limit=20, vault="")` | P3 |
 | MCP | `suggestions_review(topic, suggestion_id, action, mode="dry-run", reason="", vault="")` | P3 |
 | MCP | `source_ingest_open(topic, suggestion_id, vault="")` | P4 |

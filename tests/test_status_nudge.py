@@ -470,3 +470,89 @@ def test_status_without_the_nudge_flag_still_uses_the_default_summary_view(
     assert exit_code == EXIT_SUCCESS
     assert calls, "gather_wiki_status was never called"
     assert calls[0].get("view", "summary") == "summary"
+
+
+# ---------------------------------------------------------------------------
+# CLI/dashboard Home parity -- the three signals the nudge once could not say
+# ---------------------------------------------------------------------------
+
+
+def _parity_payload(**row_overrides: Any) -> dict[str, Any]:
+    """An attention payload whose one topic carries the newer signal blocks."""
+    payload = _attention_payload()
+    payload["topics"][0].update(
+        {
+            "suggestions": {"pending": 0, "refused_awaiting_rework": 0, "total": 0},
+            "gaps": {"open_total": 0},
+            "arena": {"stage": None},
+            "gate": {"baseline_unreachable": None},
+        }
+    )
+    payload["topics"][0].update(row_overrides)
+    return payload
+
+
+def test_nudge_reports_an_unreachable_gate_baseline() -> None:
+    """The dashboard Home shows the jam as a blocked row; a session-start nudge
+    reading 'nothing needs you' over the same vault was the parity hole."""
+    console, out = _console()
+
+    render_nudge(
+        console,
+        _parity_payload(gate={"baseline_unreachable": {"baseline": 0.95, "last_scalar": 0.89}}),
+        ResolvedVault(name="main", path=Path("/data/knotica")),
+    )
+
+    assert _has_line_with(out.getvalue(), "baseline unreachable", "rebaseline")
+
+
+def test_nudge_reports_open_gaps_only_when_discovery_never_ran() -> None:
+    # Same conservative rule as the dashboard: fires only when nothing was
+    # ever proposed, so it cannot false-positive on a topic mid-pipeline.
+    console, out = _console()
+
+    render_nudge(
+        console,
+        _parity_payload(gaps={"open_total": 3}),
+        ResolvedVault(name="main", path=Path("/data/knotica")),
+    )
+
+    assert _has_line_with(out.getvalue(), "3 open gap(s)", "no discovery")
+
+
+def test_nudge_stays_quiet_about_gaps_once_anything_was_proposed() -> None:
+    console, out = _console()
+
+    render_nudge(
+        console,
+        _parity_payload(
+            gaps={"open_total": 3},
+            suggestions={"pending": 0, "refused_awaiting_rework": 0, "total": 1},
+        ),
+        ResolvedVault(name="main", path=Path("/data/knotica")),
+    )
+
+    assert "open gap" not in out.getvalue()
+
+
+def test_nudge_reports_an_aborted_arena_race() -> None:
+    console, out = _console()
+
+    render_nudge(
+        console,
+        _parity_payload(arena={"stage": "aborted"}),
+        ResolvedVault(name="main", path=Path("/data/knotica")),
+    )
+
+    assert _has_line_with(out.getvalue(), "arena race(s) aborted")
+
+
+def test_nudge_renders_a_pre_parity_payload_one_signal_short_not_raising() -> None:
+    """An older server omits the gate/arena/gaps blocks entirely."""
+    console, out = _console()
+
+    render_nudge(
+        console, _attention_payload(pending=2), ResolvedVault(name="main", path=Path("/data"))
+    )
+
+    assert _has_line_with(out.getvalue(), "2 pending suggestion(s)")

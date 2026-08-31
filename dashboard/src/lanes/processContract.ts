@@ -43,6 +43,7 @@ export type ProcessId =
   | "answer.note_capture"
   | "answer.gap_report"
   | "fill.gapfill_discover"
+  | "fill.gap_dismiss"
   | "fill.suggestion_approve"
   | "fill.suggestion_reject"
   | "fill.suggestion_defer"

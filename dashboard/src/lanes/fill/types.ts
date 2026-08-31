@@ -193,6 +193,25 @@ export interface GapfillDiscoverResult {
   stale_suggestions_closed?: number;
 }
 
+/**
+ * `review_gap`'s result — the human dismiss/reopen transition over the gap
+ * queue. A dismiss also closes the gap's still-open suggestions in the same
+ * commit; their ids come back so the outcome can say how many went with it.
+ */
+export interface ReviewGapResult {
+  gap_id: string;
+  topic: string;
+  decision: "dismiss" | "reopen";
+  from_status: GapStatus;
+  to_status: GapStatus;
+  reason: string | null;
+  decided_at: string;
+  question: string;
+  changed: boolean;
+  commit_sha: string;
+  cascaded_suggestion_ids: string[];
+}
+
 /** ``gap_report``'s result -- the flat Tier-1 tool Answer's ``react`` stage calls for "Report gap". */
 export interface GapReportResult {
   topic: string;

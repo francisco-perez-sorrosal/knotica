@@ -1,7 +1,10 @@
 import type { ProcessId, ProcessMeta } from "../processContract";
 
 /**
- * Fill's six: the billed discovery drain, the four triage verbs, and the ingest handoff.
+ * Fill's seven: the billed discovery drain, the gap dismissal, the four
+ * triage verbs, and the ingest handoff. (Reopening a dismissed gap stays an
+ * MCP/CLI verb — the dashboard lists open gaps only, so a reopen control
+ * would act on rows the page cannot show.)
  *
  * Keyed by `Extract<ProcessId, "fill.*">` rather than by a hand-written union:
  * the `Record` is exhaustive over exactly the ids in this namespace, so a new
@@ -45,6 +48,25 @@ export const FILL_PROCESSES: Record<
   // lifecycle statement they share -- what a decision does to the record --
   // is the state machine in `core/gapfill.py::_TARGET_STATUS`, and each row's
   // Next is what that landing status leaves owed.
+  "fill.gap_dismiss": {
+    lane: "fill",
+    stage: "gap",
+    title: "Confirm dismiss",
+    spend: "free",
+    mutates: true,
+    dispatch: "client",
+    clientMethod: "reviewGap",
+    why: "This gap is not worth sourcing — an existing page answers it, or the question is out of scope — and while it sits open every discovery drain re-searches it and every triage pass re-reads it.",
+    willDo:
+      "Marks the gap dismissed with the reason you wrote and, in the same commit, closes its still-open suggestions as rejected so nothing is stranded waiting on a question nobody wants answered. Reversible from MCP/CLI (review_gap decision=reopen); re-draining then re-proposes sources.",
+    previewMode: "armed",
+    progressMode: "busy",
+    outcomeMode: "result",
+    next: {
+      kind: "terminal",
+      why: "Dismissing closes the thread on purpose — the gap and its queue rows are settled together, and nothing downstream is owed anything.",
+    },
+  },
   "fill.suggestion_approve": {
     lane: "fill",
     stage: "approve",

@@ -176,11 +176,32 @@ def render_nudge(console: Console, payload: dict[str, Any], vault: ResolvedVault
     compile_ready = sum(1 for t in topics if t["compile_ready"])
     running = sum(1 for t in topics if t.get("runner", {}).get("alive"))
     drifted = payload["totals"].get("notes", {}).get("drifted", 0)
+    # The three signals below mirror the dashboard Home inbox's derivations
+    # exactly (`attentionRows.ts`) -- the CLI nudge once rendered only four of
+    # the seven attention signals, so a jammed gate or a rotting gap queue was
+    # visible on one surface and silent on the other. All are read defensively
+    # so an older payload renders one signal short rather than raising.
+    unreachable = sum(
+        1 for t in topics if (t.get("gate") or {}).get("baseline_unreachable") is not None
+    )
+    aborted = sum(1 for t in topics if (t.get("arena") or {}).get("stage") == "aborted")
+    undiscovered_gaps = sum(
+        (t.get("gaps") or {}).get("open_total", 0)
+        for t in topics
+        if (t.get("gaps") or {}).get("open_total", 0)
+        and not (t.get("suggestions") or {}).get("total", 0)
+    )
     items = []
-    if pending:
-        items.append(f"{pending} pending suggestion(s)")
+    if unreachable:
+        items.append(f"{unreachable} gate(s) blocked -- baseline unreachable, rebaseline needed")
     if refused:
         items.append(f"{refused} refused-awaiting-rework")
+    if aborted:
+        items.append(f"{aborted} arena race(s) aborted")
+    if pending:
+        items.append(f"{pending} pending suggestion(s)")
+    if undiscovered_gaps:
+        items.append(f"{undiscovered_gaps} open gap(s) with no discovery run yet")
     if compile_ready:
         items.append(f"{compile_ready} topic(s) compile-ready")
     if running:

@@ -288,6 +288,7 @@ export type {
   GapfillDiscoverResult,
   GapReportResult,
   GapsReadResult,
+  ReviewGapResult,
   SuggestionAction,
   SuggestionReviewResult,
   SessionState,

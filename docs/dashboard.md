@@ -257,11 +257,18 @@ misleading `pending` ("nothing has run yet" would be a guess the server cannot b
 **Five stages, in order:**
 
 1. **Gap** — browse diagnosed gaps waiting for sources. Lists open gaps from the `gaps_read` tool.
-   Each card shows the fault class, filed date, the unanswered question, and reference pages.
-   There is no approval action here — gaps are read-only until sources exist.
+   Each card shows the fault class, filed date, the unanswered question, and reference pages, plus
+   the one gap-side decision: **Dismiss…** opens a reason form (a non-empty reason is required,
+   mirroring the reject form) and confirming marks the gap dismissed — which also closes the gap's
+   still-open suggestions as rejected in the same commit; the outcome sentence says how many closed
+   with it. Reopening a dismissed gap is MCP/CLI-only (`review_gap decision=reopen`) since this
+   page lists open gaps.
 2. **Discover** — runs source discovery directly from the dashboard, not a handoff: **Discover
    sources…** is a two-phase billed action (a preview click quotes how many gaps would be drained
-   and the estimated cost; a second, explicit confirm runs it and stages ranked suggestions).
+   and the estimated cost; a second, explicit confirm runs it and stages ranked suggestions). The
+   outcome sentence also reports what the drain declined or cleaned up: candidates skipped as
+   already ingested in the vault, and stale queue records closed (already-in-vault sources and
+   per-gap duplicates of one source).
 3. **Approve** — triage discovered source suggestions. One toolbar carries the filter pills
    **pending** / **accepted** (the underlying filter value is `approved`; the label reads
    "accepted" to avoid colliding with the row's own `Approve` button) / **all** with their counts,

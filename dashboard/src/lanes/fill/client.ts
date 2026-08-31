@@ -18,6 +18,7 @@ import { LLM_CALL_TIMEOUT_MS, type ToolCallGroup } from "../../toolClientCore";
 import type {
   GapfillDiscoverResult,
   GapsReadResult,
+  ReviewGapResult,
   GapsStatusFilter,
   SessionStatus,
   SuggestionAction,
@@ -44,6 +45,13 @@ export interface FillToolCalls {
     limit?: number,
     vault?: string,
   ): Promise<GapsReadResult>;
+  reviewGap(
+    topic: string,
+    gapId: string,
+    decision: "dismiss" | "reopen",
+    reason?: string,
+    vault?: string,
+  ): Promise<ReviewGapResult>;
   gapfillDiscover(
     topic: string,
     maxGaps?: number,
@@ -96,6 +104,24 @@ export const fillToolCalls: ToolCallGroup<FillToolCalls> = {
       status,
       cursor,
       limit,
+      vault,
+    });
+  },
+
+  /** Dismiss (reason required) or reopen one gap; a dismiss cascades to its open suggestions. */
+  reviewGap(
+    topic: string,
+    gapId: string,
+    decision: "dismiss" | "reopen",
+    reason = "",
+    vault = "",
+  ): Promise<ReviewGapResult> {
+    return this.call(LANE, {
+      action: "review_gap",
+      topic,
+      gap_id: gapId,
+      decision,
+      reason,
       vault,
     });
   },
