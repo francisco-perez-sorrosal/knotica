@@ -25,10 +25,6 @@ Never prefix a test with a pipeline identifier (`REQ-`, `AC-`, `Step N`). A pre-
 - **Measure, do not assume.** More than one tech-debt row in this repo was closed by discovering the reported premise had gone stale. Drive the real code path before believing a description of it.
 - Architecture invariants are tests too: `tests/test_architecture_boundaries.py` fails the build if anything outside `core.transaction` calls the store's raw write/delete.
 
-## Known flake
-
-`tests/test_hooks_session_start.py` is **load-sensitive**. The hook under test bounds its warmth probe at one second, so on a saturated machine the probe overruns, the hook exits early, and the later nudges never emit — the test then fails in a full-suite run while passing standalone. If it fails alone in an otherwise-green run, re-run before investigating.
-
 ## Credentials
 
 Some tests exercise credential-resolution paths and will emit a metered-fallback warning when `ANTHROPIC_API_KEY` is set but `CLAUDE_CODE_OAUTH_TOKEN` is not. No test should ever make a real billed API call — if you are adding one that could, stub the client.

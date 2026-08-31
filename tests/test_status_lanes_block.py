@@ -70,6 +70,7 @@ in isolation, not tangled with its neighbours):
 from __future__ import annotations
 
 from collections.abc import Sequence
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
 
@@ -104,7 +105,8 @@ PROMOTE_INDEX = IMPROVE_IDS.index("promote")
 
 CANDIDATE_BRANCH = "loop/c/agentic-systems/candidate-a1b2c3d4"
 CANDIDATE_SHA = "a1b2c3d4" * 5
-COMPILE_BRANCH = "loop/compile/agentic-systems/e5f6a7b8"
+COMPILE_HISTORY_ID = "e5f6a7b8"
+COMPILE_BRANCH = f"loop/compile/{TOPIC}/{COMPILE_HISTORY_ID}"
 
 TEND_IDS = [stage.id for stage in process_model.LANE_STAGES["tend"]]
 
@@ -208,23 +210,44 @@ def _seed_candidate_branch(store: LocalFSStore, vault: Path) -> None:
     )
 
 
-def _seed_compile_branch_awaiting_merge(store: LocalFSStore, vault: Path) -> None:
-    """Publish a compile branch into compile history without promoting it."""
-    state = empty_compile_state(TOPIC)
-    entry = CompileHistoryEntry(
-        history_id="e5f6a7b8",
-        branch=COMPILE_BRANCH,
+def _days_ago(days: int) -> str:
+    """A compile-history timestamp ``days`` in the past, in the format
+    ``compile_state`` itself stamps -- relative to now, so the assertion is
+    about the *age* the code measures and never about a fixed wall-clock date."""
+    return (datetime.now(UTC) - timedelta(days=days)).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
+def _compile_entry(
+    history_id: str, *, promoted: bool = False, updated_at: str = ""
+) -> CompileHistoryEntry:
+    """One published compile-history row, promoted or not."""
+    return CompileHistoryEntry(
+        history_id=history_id,
+        branch=f"loop/compile/{TOPIC}/{history_id}",
         head_sha="b" * 40,
         base_sha="c" * 40,
         scalar_before=0.61,
         scalar_after=0.68,
+        promoted=promoted,
+        updated_at=updated_at,
     )
+
+
+def _seed_compile_history(
+    store: LocalFSStore, vault: Path, entries: Sequence[CompileHistoryEntry]
+) -> None:
+    """Write ``entries`` as the topic's whole compile history."""
     write_compile_state(
         store,
         vault,
-        state.model_copy(update={"history": [entry]}),
-        title="seed an unpromoted compile branch for test",
+        empty_compile_state(TOPIC).model_copy(update={"history": list(entries)}),
+        title="seed compile history for test",
     )
+
+
+def _seed_compile_branch_awaiting_merge(store: LocalFSStore, vault: Path) -> None:
+    """Publish a compile branch into compile history without promoting it."""
+    _seed_compile_history(store, vault, [_compile_entry(COMPILE_HISTORY_ID)])
 
 
 def _rail_index_for_journal_stage(lane: str, journal_stage: str) -> int:
@@ -390,6 +413,58 @@ def test_improve_lane_is_active_at_promote_with_a_compile_branch_awaiting_merge(
     row = _topic_row(store, template_vault)
 
     _assert_matches_watermark(row["lanes"]["improve"], "improve", PROMOTE_INDEX)
+
+
+def test_an_unmerged_compile_branch_stops_claiming_promote_once_it_has_gone_stale(
+    template_vault: Path,
+) -> None:
+    """A branch nobody merged for months is not "awaiting merge" any more.
+
+    The rail must degrade to the next honest rung -- the compile did happen,
+    so ``heal`` is reached -- rather than pinning ``promote`` forever.
+    """
+    store = LocalFSStore(template_vault)
+    _seed_compile_history(
+        store, template_vault, [_compile_entry("stale001", updated_at=_days_ago(90))]
+    )
+
+    row = _topic_row(store, template_vault)
+
+    _assert_matches_watermark(row["lanes"]["improve"], "improve", HEAL_INDEX)
+
+
+def test_a_recently_published_compile_branch_still_claims_promote(template_vault: Path) -> None:
+    """Non-vacuity for the staleness bound: the same fixture one day old, not
+    ninety, must still name ``promote`` -- proving the bound measures age and
+    is not simply refusing every timestamped entry."""
+    store = LocalFSStore(template_vault)
+    _seed_compile_history(
+        store, template_vault, [_compile_entry("fresh001", updated_at=_days_ago(1))]
+    )
+
+    row = _topic_row(store, template_vault)
+
+    _assert_matches_watermark(row["lanes"]["improve"], "improve", PROMOTE_INDEX)
+
+
+def test_a_later_promoted_compile_branch_supersedes_an_earlier_unmerged_one(
+    template_vault: Path,
+) -> None:
+    """Once a newer compile branch has been promoted, an older unpromoted row
+    is history, not a pending action: the rail must stop naming ``promote``."""
+    store = LocalFSStore(template_vault)
+    _seed_compile_history(
+        store,
+        template_vault,
+        [
+            _compile_entry("older001", updated_at=_days_ago(3)),
+            _compile_entry("newer001", promoted=True, updated_at=_days_ago(1)),
+        ],
+    )
+
+    row = _topic_row(store, template_vault)
+
+    _assert_matches_watermark(row["lanes"]["improve"], "improve", HEAL_INDEX)
 
 
 def test_a_live_evaluation_cycle_outranks_every_standing_signal(template_vault: Path) -> None:

@@ -28,6 +28,11 @@ import pytest
 REPO_ROOT = Path(__file__).resolve().parent.parent
 HOOK_SCRIPT = REPO_ROOT / "hooks" / "session_start.sh"
 
+#: The warmth-probe budget these tests run the hook under -- generous enough
+#: that even a cold, saturated machine reaches the warm path, so what is being
+#: measured is the hook's logic and never the host's fork latency.
+PINNED_PROBE_SECONDS = "30"
+
 #: A fast, deterministic fake ``uvx`` -- responds to each subcommand the hook
 #: invokes without ever touching the real uv toolchain. Every invocation's
 #: argv is appended to ``$CALL_LOG`` (one line per call) for assertion.
@@ -99,6 +104,13 @@ def _run_hook(
         "CLAUDE_PLUGIN_ROOT": str(REPO_ROOT),
         "PATH": path,
         "CALL_LOG": str(call_log),
+        # The hook's warmth probe is bounded at one second in production. That
+        # budget measures machine load, not the stub, so on a cold tree the
+        # probe overran, the hook took its cold-path exit and the nudges these
+        # tests assert on never emitted -- a wall-clock coupling, not a real
+        # regression. Pinning a generous bound removes the machine from the
+        # test; the production default is guarded separately below.
+        "KNOTICA_SESSION_PROBE_SECONDS": PINNED_PROBE_SECONDS,
     }
     env.update(extra_env or {})
     return subprocess.run(
@@ -245,6 +257,24 @@ def test_the_prewarm_invokes_the_plugin_root_version_check_in_the_background() -
     assert "</dev/null" in line and ">/dev/null" in line, (
         "stdin and stdout must be detached or the hook can block on a prompt "
         "or leak output into the session transcript"
+    )
+
+
+def test_the_warmth_probe_budget_defaults_to_one_second() -> None:
+    """The override the tests above use must never become the production value.
+
+    A generous bound is right for a test and wrong for a session: the probe sits
+    on the session's critical path, so its default has to stay at one second.
+    Asserting the default here is what keeps the override an escape hatch rather
+    than a quiet way to widen the budget everyone pays.
+    """
+    script = HOOK_SCRIPT.read_text(encoding="utf-8")
+
+    assert "${KNOTICA_SESSION_PROBE_SECONDS:-1}" in script, (
+        "the warmth probe must be overridable and must default to a one-second bound"
+    )
+    assert PINNED_PROBE_SECONDS not in script, (
+        "the test's generous bound must live in the test, never in the shipped hook"
     )
 
 

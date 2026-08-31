@@ -71,7 +71,11 @@ fi
 if [ "$config_ok" -eq 0 ]; then
 	exit 0
 fi
-if ! run_bounded 1 uvx --from "$ROOT" knotica --version >/dev/null 2>&1; then
+# One second is deliberate: it keeps the probe off the session's critical path.
+# The override exists so a test can pin a bound that survives a slow machine --
+# never to widen the budget a real session pays.
+probe_secs="${KNOTICA_SESSION_PROBE_SECONDS:-1}"
+if ! run_bounded "$probe_secs" uvx --from "$ROOT" knotica --version >/dev/null 2>&1; then
 	exit 0 # cold: pre-warm is backgrounding the install; richer nudges wait for next session.
 fi
 

@@ -55,6 +55,7 @@ from knotica.core.branch_namespaces import (
 from knotica.core.errors import ErrorCode, KnoticaError
 from knotica.core.gap_classifier import FaultClass, gaps_path, write_gap_records
 from knotica.core.lock import vault_span_lock
+from knotica.core.page import page_path
 from knotica.core.records import (
     GAP_ORIGIN_REPORTED,
     GAP_ORIGIN_RETRACTED,
@@ -1057,6 +1058,8 @@ def _file_synthetic_gap(
         origin=origin,
         reported_reason=cleaned_reason,
         detected_at=stamp(),
+        # Checked against the store, exactly as the eval path checks it -- never asserted.
+        reference_pages_exist=any(store.exists(page_path(topic, page)) for page in pages),
     )
     write_gap_records(store, root, topic, [record])
     return ReportedGapResult(
@@ -1083,6 +1086,7 @@ def _build_synthetic_gap(
     origin: str,
     reported_reason: str | None,
     detected_at: str,
+    reference_pages_exist: bool,
 ) -> GapRecord:
     """Compose an origin-tagged synthetic gap record with empty eval evidence."""
     return GapRecord(
@@ -1098,7 +1102,7 @@ def _build_synthetic_gap(
         baseline_scalar=0.0,
         question=question,
         reference_pages=reference_pages,
-        reference_pages_exist=False,
+        reference_pages_exist=reference_pages_exist,
         evidence=GapEvidence(
             quality_delta=0.0,
             qa_accuracy_delta=0.0,

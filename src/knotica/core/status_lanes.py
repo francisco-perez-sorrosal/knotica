@@ -13,11 +13,12 @@ and Tend's checks reuse ``lint_violations``/notes-drift.
 
 from __future__ import annotations
 
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
 
 from knotica.core import process_model
-from knotica.core.compile_state import read_compile_state
+from knotica.core.compile_state import CompileHistoryEntry, CompileState, read_compile_state
 from knotica.core.gapfill import suggestions_path
 from knotica.core.ingest_activity import read_ingest_activity
 from knotica.core.loop_state import LoopStage, LoopState, read_loop_state
@@ -42,6 +43,14 @@ _FILL_APPROVE_INDEX = next(i for i, stage in enumerate(_FILL_STAGES) if stage.id
 _FILL_INGEST_INDEX = next(i for i, stage in enumerate(_FILL_STAGES) if stage.id == "ingest")
 _FILL_GATE_INDEX = next(i for i, stage in enumerate(_FILL_STAGES) if stage.id == "gate")
 _FILL_TERMINAL_WATERMARK = len(_FILL_STAGES)
+
+#: How long an unmerged compile branch keeps counting as "awaiting merge".
+#: Days, not hours: a compile branch legitimately waits out a weekend or a
+#: holiday, and expiring one while the user is merely away would be its own
+#: dishonesty. Two weeks is the outer edge of guidance freshness -- past it the
+#: branch is no longer something the user recognizes as theirs to merge, and a
+#: rail that keeps naming ``promote`` is asserting an action nobody will take.
+_PROMOTION_CLAIM_MAX_AGE = timedelta(days=14)
 
 
 def lanes_block(
@@ -147,7 +156,10 @@ def _improve_watermark(
       actionable -- both, never the floor alone (compiling before anything has
       been measured is exactly what the loop exists to discourage);
     * a **recorded scalar** completes ``observe``;
-    * **datasets** complete ``instrument``.
+    * **datasets** complete ``instrument``;
+    * **any compile history at all** -- stale or superseded -- still proves the
+      topic reached ``heal`` once, so an expired promote claim degrades onto
+      the rung below it rather than collapsing the whole rail to ``unknown``.
 
     Returns ``None`` when no rung matches at all, which the caller renders as
     ``unknown`` rather than idle. Under the rail contract a watermark is
@@ -158,7 +170,9 @@ def _improve_watermark(
     state = read_loop_state(store, topic)
     if state is not None and state.stage == LoopStage.evaluating:
         return _IMPROVE_INDEX["observe"]
-    if _has_candidate_awaiting_promotion(store, topic):
+    # Read once for the two rungs that consult it, never per rung.
+    compile_state = read_compile_state(store, topic)
+    if _has_candidate_awaiting_promotion(compile_state):
         return _IMPROVE_INDEX["promote"]
     if _has_pending_candidate(state):
         return _IMPROVE_INDEX["gate"]
@@ -168,6 +182,8 @@ def _improve_watermark(
         return _IMPROVE_INDEX["gate"]
     if datasets_present:
         return _IMPROVE_INDEX["observe"]
+    if compile_state is not None and compile_state.history:
+        return _IMPROVE_INDEX["heal"]
     return None
 
 
@@ -184,17 +200,54 @@ def _has_pending_candidate(state: LoopState | None) -> bool:
     return state.cursors.get(state.candidate_branch) != state.candidate_sha
 
 
-def _has_candidate_awaiting_promotion(store: VaultStore, topic: str) -> bool:
+def _has_candidate_awaiting_promotion(compile_state: CompileState | None) -> bool:
     """Whether a published compile branch is still waiting to be merged.
 
     Read off ``compile-state.json``'s own history, which records exactly this:
     an entry is written when a compile branch is published and flipped to
     ``promoted`` when it merges. A deleted branch is nothing to promote.
+
+    Two bounds keep the claim from outliving its truth, because nothing else
+    ever retracts it -- history carries no abandonment field, so an unmerged
+    entry would otherwise outrank every fresher signal indefinitely:
+
+    * **supersession** -- only the newest entry is consulted. A later compile
+      that was published (and possibly merged) makes an earlier unmerged one
+      history rather than a pending action.
+    * **age** -- an entry older than :data:`_PROMOTION_CLAIM_MAX_AGE` no longer
+      names something the user is about to do.
+
+    An entry with no timestamp at all is left claiming: absence of a date is
+    not evidence of staleness, and pre-dating history rows carry none.
     """
-    compile_state = read_compile_state(store, topic)
-    if compile_state is None:
+    entry = _newest_history_entry(compile_state)
+    if entry is None or entry.promoted or entry.branch_deleted:
         return False
-    return any(not entry.promoted and not entry.branch_deleted for entry in compile_state.history)
+    published_at = _parse_timestamp(entry.updated_at or entry.created_at)
+    if published_at is None:
+        return True
+    return datetime.now(UTC) - published_at <= _PROMOTION_CLAIM_MAX_AGE
+
+
+def _newest_history_entry(state: CompileState | None) -> CompileHistoryEntry | None:
+    """The most recently touched compile-history row, by ``compile_state``'s own
+    ordering key -- recomputed rather than trusting the persisted order, since a
+    hand-edited or pre-sort file would otherwise decide the rail."""
+    if state is None or not state.history:
+        return None
+    return max(state.history, key=lambda row: row.updated_at or row.created_at)
+
+
+def _parse_timestamp(stamp: str) -> datetime | None:
+    """A compile-history timestamp as an aware datetime, or ``None`` when it is
+    absent or unparseable -- a malformed stamp must not decide the rail."""
+    if not stamp:
+        return None
+    try:
+        parsed = datetime.fromisoformat(stamp.replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    return parsed if parsed.tzinfo is not None else parsed.replace(tzinfo=UTC)
 
 
 def _fill_watermark(store: VaultStore, topic: str) -> tuple[int | None, str | None]:

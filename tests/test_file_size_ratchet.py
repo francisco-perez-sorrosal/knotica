@@ -96,7 +96,14 @@ OVER_CEILING_BASELINE: dict[str, int] = {
     # its merge on emit live inside the frozen record's own (de)serialization
     # pair and are not extractable from it.
     "core/records.py": 981,
-    # Raised 1320 -> 1532 for queue-lifecycle integrity: the drain now does all
+    # Raised 1532 -> 1536 so a reported gap stops asserting `reference_pages_exist`
+    # is false without checking: `_file_synthetic_gap` now asks the store the same
+    # question the eval path asks (`page_path` + `store.exists`). Four lines -- an
+    # import, a parameter, its argument and one rationale comment -- and none of
+    # them is extractable: the value belongs to the record this module composes.
+    # td-042 still names the real fix.
+    #
+    # Prior raise, 1320 -> 1532, for queue-lifecycle integrity: the drain now does all
     # network work first and reads/writes the queue inside one span lock (a
     # pre-discovery snapshot was reverting decisions taken during a drain), a
     # cascade closure is marked so it stops deduping a reopened gap's re-drain,
@@ -154,7 +161,7 @@ OVER_CEILING_BASELINE: dict[str, int] = {
     # as the suggestion stamp or the two writes stop being one commit, and the
     # human half is the parameter-for-parameter sibling of `apply_decision`, which
     # lives in this module.
-    "core/gapfill.py": 1532,
+    "core/gapfill.py": 1536,
 }
 
 

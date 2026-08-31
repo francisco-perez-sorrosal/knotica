@@ -679,6 +679,27 @@ def test_report_gap_persists_the_reporters_reference_pages(template_vault: Path)
     assert gaps[0].reference_pages == ("prompt-caching",)
 
 
+def test_report_gap_checks_whether_its_reference_pages_actually_exist(
+    template_vault: Path,
+) -> None:
+    """``reference_pages_exist`` is a checkable property, not a placeholder.
+
+    The eval path computes it by asking the store; the reported path must give
+    the same answer rather than asserting ``False`` without looking. Both cases
+    live in one test on purpose -- the ``False`` half is what proves the
+    ``True`` half is a real read and not a flipped hardcode.
+    """
+    mod = _gapfill_module()
+    store = LocalFSStore(template_vault)
+
+    mod.report_gap(store, template_vault, TOPIC, question="Q1?", reference_pages=("agent-memory",))
+    mod.report_gap(store, template_vault, TOPIC, question="Q2?", reference_pages=("no-such-page",))
+
+    real, missing = _reported_gaps(store)
+    assert real.reference_pages_exist, "agent-memory.md exists in the template vault"
+    assert not missing.reference_pages_exist, "no-such-page.md does not"
+
+
 def test_report_gap_qa_id_is_deterministic_for_the_same_question(
     template_vault: Path, vault_seed: Path, tmp_path: Path
 ) -> None:
