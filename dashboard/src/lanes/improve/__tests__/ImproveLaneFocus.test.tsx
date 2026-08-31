@@ -15,7 +15,7 @@ import type { ToolClient } from "../../../toolClient";
 import type { MetricsWindow, WikiStatus } from "../../../types";
 
 /**
- * The focus dimension (design §5.3, §7.2) — the fix for F1, "the Improve rail
+ * The focus dimension — the fix for F1, "the Improve rail
  * is a dead checklist". `_improve_watermark` declares all six stages `pending`
  * in the overwhelmingly common case, so before this axis existed **no stage in
  * the flagship lane was interactive and a click did nothing**.
@@ -246,7 +246,7 @@ describe("focus opens a stage the server declares pending (the F1 fix)", () => {
 });
 
 // ---------------------------------------------------------------------------
-// §5.3: focus and declared state are orthogonal
+// Focus and declared state are orthogonal
 // ---------------------------------------------------------------------------
 
 describe("focus never touches the server's own position", () => {
@@ -319,7 +319,7 @@ describe("focus never touches the server's own position", () => {
 });
 
 // ---------------------------------------------------------------------------
-// §7.2: the idle rail still names its entry point
+// The idle rail still names its entry point
 // ---------------------------------------------------------------------------
 
 describe("the idle rail is not a dead end", () => {

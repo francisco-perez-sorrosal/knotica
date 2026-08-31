@@ -5,8 +5,8 @@ import { Stat, StatGrid } from "../Stat";
 
 /**
  * The readout primitive replacing every `Label: <strong>value</strong>`
- * prose fragment (design §2.2). Absence renders `—`, never blank, never
- * `0` (round 1 §7.3), and a tone is a colour on the value only.
+ * prose fragment. Absence renders `—`, never blank, never
+ * `0`, and a tone is a colour on the value only.
  */
 
 afterEach(cleanup);

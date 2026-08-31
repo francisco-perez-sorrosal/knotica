@@ -349,6 +349,22 @@ def test_future_gap_schema_version_with_unknown_fields_still_parses():
     assert record.qa_id == "golden-72c431a0cdbd7ead"
 
 
+def test_an_unknown_gap_field_survives_a_full_rewrite_of_the_record():
+    """Tolerance on ingress is only half the contract. The drain's
+    answered-in-vault stamp and the dismiss/reopen decision path both rewrite
+    the WHOLE gaps file through parse->serialize, so a field dropped on re-emit
+    is erased from every gap in the topic by a routine drain -- with no decision
+    taken and no error raised. Mirrors the SuggestionRecord guarantee."""
+    payload = json.loads(_gap_record().to_json_line())
+    payload["novel_field"] = "added by a future classifier_version bump"
+
+    record = _records_module().GapRecord.from_json_line(json.dumps(payload))
+    round_tripped = json.loads(record.to_json_line())
+
+    assert round_tripped["novel_field"] == "added by a future classifier_version bump"
+    assert record.extra == {"novel_field": "added by a future classifier_version bump"}
+
+
 # ---------------------------------------------------------------------------
 # parse_gaps_jsonl -- whole-file parse (mirrors parse_qa_jsonl)
 # ---------------------------------------------------------------------------

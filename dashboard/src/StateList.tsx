@@ -12,12 +12,12 @@ export interface StateListRow {
    * Distinct from the rail's `LaneRailStageState`: each `StateList`
    * consumer (arena variants, gate candidates, doctor/lint rows) owns its
    * own state vocabulary and resolves its own `icon`, which keeps this
-   * primitive reusable across all of them (design §2.4).
+   * primitive reusable across all of them.
    */
   readonly state: string;
   readonly icon: IconName;
   readonly name: JSX.Element | string;
-  /** The visible state word -- never colour alone (round 1 §2.5, one level deeper). */
+  /** The visible state word -- never colour alone. */
   readonly stateLabel: string;
   readonly tone?: SectionTone;
   /** `null`/`undefined`/`""` renders `—`, matching `Stat`'s absence convention. */
@@ -32,7 +32,7 @@ export interface StateListProps {
 }
 
 /**
- * The multi-item live readout primitive (design §2.4). Replaces every
+ * The multi-item live readout primitive. Replaces every
  * `<strong>name</strong><span>state</span>` fragment -- arena variants,
  * gate candidates, compile trials, doctor/lint rows -- with a tabular row:
  * icon, name, toned state chip, right-aligned value, optional quiet action.

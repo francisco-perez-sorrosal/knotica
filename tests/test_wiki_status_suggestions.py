@@ -1,6 +1,7 @@
 """Behavioral contract tests for the ``wiki_status`` suggestions/gapfill block.
 
-Derived from ``INTERFACE_DESIGN.md`` §D6.1 -- never from the implementation. ``wiki_status`` gains a per-topic ``suggestions``
+Derived from the documented contract -- never from the implementation.
+``wiki_status`` gains a per-topic ``suggestions``
 count block (``pending``, ``approved_awaiting_ingest``, ``deferred``,
 ``rejected``, ``ingested``, ``newest_proposed_at``) so a dashboard or an
 interactive client discovers a pending-approval / approved-backlog queue

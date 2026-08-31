@@ -2,8 +2,8 @@ import { beforeAll, describe, expect, it } from "vitest";
 
 /**
  * `deriveAttentionRows` -- the pure grouping function behind Home
- * (`IMPLEMENTATION_PLAN.md` Steps 113/114, `INTERFACE_DESIGN.md §2.1`,
- * `dec-092`). RED-first: this suite spawns *before* Step 113's implementer,
+ * (`dec-092`). RED-first: this suite spawns *before* its paired
+ * implementer,
  * per the RED-handshake fix -- the standalone run below must fail at
  * collection with a missing-module error, which the paired implementation
  * step is gated on.
@@ -17,17 +17,16 @@ import { beforeAll, describe, expect, it } from "vitest";
  * import of the real ones.
  *
  * **Payload shape is pinned from the live server seam, not from
- * `INTERFACE_DESIGN.md §2.1`'s illustrative mockup.** Reading
+ * the design's illustrative mockup.** Reading
  * `core/status.py::_attention_status`/`_attention_row` directly (the
  * mockup's `baseline_unreachable` / "gate blocked" / stale-ingest-session
- * "Blocked" members do not exist in the shipped payload -- Step 110/111
+ * "Blocked" members do not exist in the shipped payload -- the paired steps
  * already fixed the real shape to `{topic, suggestions: {pending,
  * refused_awaiting_rework}, compile_ready, runner: {alive}}` plus
  * vault-level `totals`/`last_lint`/`drift`), only the fields the server
  * actually returns are exercised here.
  *
- * **Load-bearing assumption (full reasoning in
- * `LEARNINGS_test-engineer_step114.md`; the Step 113 implementer wins on
+ * **Load-bearing assumption (the paired implementer wins on
  * conflict):** each row carries `{topic, lane, urgency, narration, action}`.
  * `lane` routes `[Open]`/`[Watch]` to the right pane per the mockup's own
  * per-row lane tags ("fill · gate", "fill · approve", "improve · observe");

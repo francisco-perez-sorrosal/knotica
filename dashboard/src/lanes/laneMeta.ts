@@ -2,7 +2,7 @@ import type { IconName } from "../icons";
 import type { PaneId } from "../types";
 
 /**
- * How `LoopStrip` draws a lane's rail (design §3.3): `cycle` closes with a
+ * How `LoopStrip` draws a lane's rail: `cycle` closes with a
  * return arc (the only such lane today is `improve` -- prove loops back to
  * instrument); `line` is a straight sequence with no arc; `checks` renders
  * independent peer chips with no track at all, matching
@@ -15,13 +15,13 @@ export type LaneShape = "cycle" | "line" | "checks";
 
 export interface LaneMeta {
   icon: IconName;
-  /** One-line description rendered on the Home lane card (design §3.2). */
+  /** One-line description rendered on the Home lane card. */
   blurb: string;
   shape: LaneShape;
 }
 
 /**
- * Per-lane presentation copy (design §9 CH-2, orchestrator disposition:
+ * Per-lane presentation copy (orchestrator disposition:
  * "adopt dashboard-local for blurb, icon AND shape"). `process_model.py` is
  * the single source of truth for the lane *census* (`processModel.ts`'s
  * `LANES`); this module supplies presentation-only copy that census does not

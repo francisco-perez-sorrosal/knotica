@@ -4,7 +4,7 @@ import { LANE_STAGES, LANES } from "../../processModel";
 import { STAGE_META, stageMeta } from "../stageMeta";
 
 /**
- * `STAGE_META` census (design §5.1): its keys must equal `LANE_STAGES`
+ * `STAGE_META` census: its keys must equal `LANE_STAGES`
  * exactly, lane by lane and stage by stage. `LANE_STAGES` is generated from
  * `core/process_model.py`, so a stage added, removed, or renamed there must
  * fail here rather than silently render a rail node with no copy behind it.

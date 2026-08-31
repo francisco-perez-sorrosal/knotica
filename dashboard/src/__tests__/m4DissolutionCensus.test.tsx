@@ -14,12 +14,12 @@ import { TendLane } from "../lanes/tend/TendLane";
 import { resolvePane } from "../paneRouting";
 
 /**
- * The **whole target state** of the M4 dissolution wave (`IMPLEMENTATION_PLAN.md`
- * Step 91), written before any of Steps 92-104 land -- the M3 lesson applied
- * directly: M3's own post-hoc census (Step 80) caught a missed batch only
+ * The **whole target state** of the M4 dissolution wave, written before any of
+ * the waves that follow land -- the M3 lesson applied
+ * directly: M3's own post-hoc census caught a missed batch only
  * because it asserted the *whole* target state, not one lane at a time. This
  * suite is that backstop for M4. It is deliberately **RED on arrival** and
- * stays RED, shrinking one assertion at a time, until Step 104 lands.
+ * stays RED, shrinking one assertion at a time, until the last wave lands.
  *
  * Five independently falsifiable groups, matching the plan's own (a)-(e):
  *
@@ -27,29 +27,27 @@ import { resolvePane } from "../paneRouting";
  *       literal type assertion. Comparing a not-yet-valid literal like
  *       `"learn"` against `PaneId` via `as PaneId`/a typed equality check
  *       would fail `tsc --noEmit` for the *entire project* the moment this
- *       file lands, long before Step 102 adds those members. A source-text
+ *       file lands, long before the later wave adds those members. A source-text
  *       regex sidesteps the type system entirely, exactly as
  *       `crossLaneLinkCensus.test.ts`'s own `PANE_BY_PARAM`-values check
  *       avoided the same trap for the M3 removal phase).
- *         - inclusion of `learn`/`answer`/`fill` -- un-REDs at Step 102
- *         - exclusion of `ingest`/`ask`/`sources` -- un-REDs at Step 104
+ *         - inclusion of `learn`/`answer`/`fill` -- un-REDs when its wave lands
+ *         - exclusion of `ingest`/`ask`/`sources` -- un-REDs when its wave lands
  *   (b) the three dissolved files are gone from disk and unreferenced by any
- *       survivor -- un-REDs at Step 104. Same absence + no-import-survives
+ *       survivor -- un-REDs when its wave lands. Same absence + no-import-survives
  *       technique `crossLaneLinkCensus.test.ts` used for the eight
  *       `ImproveLane`/`TendLane`-absorbed panes.
  *   (c) the legacy `?pane=ingest|ask|sources` keys repoint to
- *       `learn`/`answer`/`fill` respectively -- un-REDs at Step 104 (Step 102
+ *       `learn`/`answer`/`fill` respectively -- un-REDs when its wave lands (that wave
  *       is additive-only by design and leaves the legacy keys self-mapped).
  *   (d) the final five-pane surface renders end-to-end: `ImproveLane`/
  *       `TendLane` are regression-only (unaffected by this wave, already
- *       green); `AnswerLane` is already green (Step 94 landed); `LearnLane`
- *       un-REDs at Step 92; `FillLane` un-REDs at Step 100. The nav's three
- *       new tabs un-RED at Step 102; the nav's three retired tabs un-RED at
- *       Step 104.
+ *       green); `AnswerLane` is already green; `LearnLane`
+ *       and `FillLane` un-RED when their own lanes land. The nav's three
+ *       new tabs and its three retired tabs un-RED with the repoint.
  *   (e) `LearnLane`'s subtree embeds exactly one `HandoffStage` dispatching
- *       `/knotica:ingest` (un-REDs at Step 92); `FillLane`'s subtree embeds
- *       exactly one, dispatching `/knotica:fill` (un-REDs at Step 98, when
- *       `IngestGateStage.tsx` -- not `FillLane.tsx` itself -- adds the tag);
+ *       `/knotica:ingest`; `FillLane`'s subtree embeds
+ *       exactly one, dispatching `/knotica:fill`;
  *       `AnswerLane`'s subtree embeds zero (already green -- its `react`
  *       stage terminates in-lane, no handoff needed).
  *
@@ -59,13 +57,12 @@ import { resolvePane } from "../paneRouting";
  * literal `import { LearnLane } from "../lanes/learn/LearnLane"` would fail
  * `tsc --noEmit` for the whole project the instant this file lands.
  *
- * Load-bearing assumption (full reasoning in
- * `LEARNINGS_test-engineer_step91.md`): `LearnLane`/`FillLane`'s smoke-render
+ * Load-bearing assumption : `LearnLane`/`FillLane`'s smoke-render
  * props are a best-effort superset guess (`LearnLane` mirrors the
  * `IngestPane` props it absorbs; `FillLane` mirrors `QueueStage`'s), leaning
  * on this codebase's established cross-cutting invariant that every pane/lane
  * tolerates `client: null` and nullable `status`/`obsidianCtx` gracefully.
- * Whichever implementer lands Steps 92/100 wins on conflict; if the real
+ * Whichever implementer lands the paired steps wins on conflict; if the real
  * props differ enough to throw at render, that sub-assertion stays RED and
  * names exactly which prop assumption to revisit -- the backstop doing its
  * job either way.
@@ -145,13 +142,13 @@ describe("(a) PaneId reaches its final M4 union", () => {
       .map((entry) => entry.trim().replace(/^"|"$/g, ""));
   }
 
-  describe("target-state additions (un-REDs at Step 102)", () => {
+  describe("target-state additions", () => {
     it.each(["learn", "answer", "fill"])("PaneId includes %s", (member) => {
       expect(paneIdUnionMembers()).toContain(member);
     });
   });
 
-  describe("target-state removals (un-REDs at Step 104)", () => {
+  describe("target-state removals", () => {
     it.each(["ingest", "ask", "sources"])(
       "PaneId no longer includes %s",
       (member) => {
@@ -161,7 +158,7 @@ describe("(a) PaneId reaches its final M4 union", () => {
   });
 });
 
-describe("(b) the three dissolved pane files are gone and unreferenced (un-REDs at Step 104)", () => {
+describe("(b) the three dissolved pane files are gone and unreferenced", () => {
   const DISSOLVED_FILES = [
     "IngestPane.tsx",
     "SourcesPane.tsx",
@@ -197,7 +194,7 @@ describe("(b) the three dissolved pane files are gone and unreferenced (un-REDs 
   });
 });
 
-describe("(c) legacy ?pane= keys repoint to their lane replacements (un-REDs at Step 104)", () => {
+describe("(c) legacy ?pane= keys repoint to their lane replacements", () => {
   const REPOINTED: ReadonlyArray<readonly [string, string]> = [
     ["ingest", "learn"],
     ["ask", "answer"],
@@ -261,7 +258,7 @@ describe("(d) the final five-pane surface renders end-to-end", () => {
       expectNonEmptyRender(container);
     });
 
-    it("renders AnswerLane (green since Step 94)", () => {
+    it("renders AnswerLane", () => {
       const { container } = render(
         <AnswerLane
           client={null}
@@ -274,7 +271,7 @@ describe("(d) the final five-pane surface renders end-to-end", () => {
       expectNonEmptyRender(container);
     });
 
-    it("renders LearnLane (un-REDs at Step 92)", async () => {
+    it("renders LearnLane", async () => {
       const { LearnLane } = (await import(LEARN_LANE_MODULE_PATH)) as {
         LearnLane: LaneComponent;
       };
@@ -284,7 +281,7 @@ describe("(d) the final five-pane surface renders end-to-end", () => {
       expectNonEmptyRender(container);
     });
 
-    it("renders FillLane (un-REDs at Step 100)", async () => {
+    it("renders FillLane", async () => {
       const { FillLane } = (await import(FILL_LANE_MODULE_PATH)) as {
         FillLane: LaneComponent;
       };
@@ -295,13 +292,13 @@ describe("(d) the final five-pane surface renders end-to-end", () => {
     });
   });
 
-  describe("nav shows the three new lane tabs (un-REDs at Step 102)", () => {
+  describe("nav shows the three new lane tabs", () => {
     it.each(["Learn", "Answer", "Fill"])("nav renders a %s tab", (label) => {
       expect(paneTabsBlock()).toMatch(new RegExp(`>\\s*${label}\\s*[<{]`));
     });
   });
 
-  describe("nav retires the three old tabs (un-REDs at Step 104)", () => {
+  describe("nav retires the three old tabs", () => {
     it.each(["Ask", "Sources", "Ingest"])(
       "nav no longer renders a %s tab",
       (label) => {
@@ -326,13 +323,13 @@ describe("(e) LearnLane/FillLane each embed exactly one HandoffStage; AnswerLane
     return tags;
   }
 
-  it("lanes/learn embeds exactly one HandoffStage, dispatching /knotica:ingest (un-REDs at Step 92)", () => {
+  it("lanes/learn embeds exactly one HandoffStage, dispatching /knotica:ingest", () => {
     const tags = handoffTagsUnder("learn");
     expect(tags).toHaveLength(1);
     expect(tags[0]).toMatch(/command="ingest"/);
   });
 
-  it("lanes/fill embeds exactly one HandoffStage, dispatching /knotica:fill (un-REDs at Step 98)", () => {
+  it("lanes/fill embeds exactly one HandoffStage, dispatching /knotica:fill", () => {
     const tags = handoffTagsUnder("fill");
     expect(tags).toHaveLength(1);
     expect(tags[0]).toMatch(/command="fill"/);

@@ -434,7 +434,7 @@ p {
 .gate-fail {
   border-left-color: var(--bad);
 }
-/* `unknown` is the honest absence of a comparison, not a warning (design §7.3). */
+/* `unknown` is the honest absence of a comparison, not a warning. */
 .gate-unknown {
   border-left-color: var(--neutral);
 }
@@ -1306,7 +1306,7 @@ code {
 }
 /* `info` = actionable, `neutral` = the honest absence of a comparison —
    the two tones `flywheelTone` gained so `Ready` stops reading as a warning
-   and `Curating` stops reading as a failure (design §7.3). */
+   and `Curating` stops reading as a failure. */
 .health-chip.info,
 .health-inline.info {
   color: var(--accent);
@@ -3432,7 +3432,7 @@ button.danger:hover:not(:disabled) {
   border-radius: var(--radius);
   background: var(--surface);
 }
-/* The client-owned focus axis (design §5.3) -- orthogonal to `data-state`,
+/* The client-owned focus axis (`dec-104`) -- orthogonal to `data-state`,
    which stays the server's. Inert until a lane passes `focusedId`. */
 .lane-stage[data-focus="true"] {
   border-color: var(--line-strong);
@@ -3441,7 +3441,7 @@ button.danger:hover:not(:disabled) {
 .lane-stage[data-state="pending"] {
   border-left-color: var(--lane-state-pending);
 }
-/* `unknown` is the honest absence of a position (design §7.3): neutral, never
+/* `unknown` is the honest absence of a position: neutral, never
    the warn ramp. Declared rather than left to fall through, so the tone is a
    decision a reader can find. */
 .lane-stage[data-state="unknown"] {
@@ -3525,7 +3525,7 @@ button.danger:hover:not(:disabled) {
   margin: 0;
 }
 /* Shown on the first row only while nothing at all is open, so an idle rail
-   still names its entry point rather than reading as six dead boxes (§7.2). */
+   still names its entry point rather than reading as six dead boxes. */
 .lane-stage-cue {
   padding: 0.1rem 0.4rem;
   border: var(--border) solid var(--accent);
@@ -4086,7 +4086,7 @@ button.loop-node:focus-visible {
 .loop-strip-item[data-state="blocked"] .loop-node-state {
   color: var(--bad);
 }
-/* The return arc — drawn only for a `cycle`-shaped lane (design §3.3). */
+/* The return arc — drawn only for a `cycle`-shaped lane. */
 .loop-strip-arc {
   display: flex;
   align-items: center;
@@ -4134,7 +4134,7 @@ button.loop-node:focus-visible {
 }
 
 /* ── STAGE-BODY GRAMMAR (round 2) ──────────────────────────────────────── */
-/* SectionCard — the stage-interior container (design §2.1). A card is
+/* SectionCard — the stage-interior container (`dec-105`). A card is
    never a disclosure: no rule here targets `[aria-expanded]`. */
 .section-card {
   border: var(--border) solid var(--line);
@@ -4193,7 +4193,7 @@ button.loop-node:focus-visible {
   color: var(--muted);
   font: var(--fs-xs) / 1.5 var(--sans);
 }
-/* A note carried inside the footer (design §4.2's disabled-Freeze reason)
+/* A note carried inside the footer (the disabled-Freeze reason, say)
    takes its own full-width line below the action row, left-aligned against
    the card's own padding rather than the footer's flex-end. */
 .section-card-actions .section-card-note {
@@ -4201,7 +4201,7 @@ button.loop-node:focus-visible {
   margin: 0;
   text-align: left;
 }
-/* An icon-prefixed live line inside a card body (design §4.1's progress
+/* An icon-prefixed live line inside a card body (a stage's progress
    row). The grammar had no inline icon+text pairing outside `StateList`,
    and a bare inline `<svg>` sits on the text baseline with a descender gap. */
 .section-card-status {
@@ -4222,7 +4222,7 @@ button.loop-node:focus-visible {
   margin-top: var(--space-3);
 }
 
-/* Stat / StatGrid — the readout primitive (design §2.2). `.stat-label` and
+/* Stat / StatGrid — the readout primitive (`dec-105`). `.stat-label` and
    `.microlabel` already carry the uppercase/muted treatment; this section
    only adds the grid and the value styling. */
 .stat-grid {
@@ -4257,8 +4257,8 @@ button.loop-node:focus-visible {
   color: var(--muted);
 }
 
-/* TermHint — the inline dotted-underline explanatory overlay (design
-   §2.3). Byte-identical dismissal semantics to InfoPopover; a distinct
+/* TermHint — the inline dotted-underline explanatory overlay
+   (`dec-103`). Byte-identical dismissal semantics to InfoPopover; a distinct
    trigger visual (dotted underline, `cursor: help`) since it lives inline
    in prose or a stat label rather than as a standalone `ⓘ` glyph. */
 .term-hint {
@@ -4329,7 +4329,7 @@ button.loop-node:focus-visible {
   color: var(--text);
 }
 
-/* StateList — the multi-item live readout primitive (design §2.4). Fixes
+/* StateList — the multi-item live readout primitive (`dec-105`). Fixes
    G1 (the unstyled `.arena-lane` sub-structure below): the state word is
    always visible text next to the icon, and the value column is
    tabular-nums, right-aligned. */
@@ -4375,8 +4375,8 @@ button.loop-node:focus-visible {
   justify-self: stretch;
 }
 
-/* Billed marker — a sibling of the button it precedes, never a child
-   (design §2.5): the chip must not change the button's accessible name. */
+/* Billed marker — a sibling of the button it precedes, never a child:
+   the chip must not change the button's accessible name. */
 .chip.cost {
   color: var(--warn);
   border-color: color-mix(in srgb, var(--warn) 45%, var(--line));

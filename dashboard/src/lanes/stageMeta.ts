@@ -2,14 +2,14 @@ import type { IconName } from "../icons";
 import type { LaneRailStageState } from "../types";
 
 /**
- * Per-stage presentation copy, keyed lane-then-stage (design §5.1). Two
+ * Per-stage presentation copy, keyed lane-then-stage. Two
  * lanes declare a stage called `gate` and they mean different things, so a
  * flat stage-id key would silently collide -- the census test
  * (`stageMeta.test.ts`) binds these keys to `LANE_STAGES` from the generated
  * `processModel.ts`, which is the single source of truth for the stage
  * census. Only the copy lives here.
  *
- * `icon: null` is deliberate rather than a gap: design §4's inventory draws
+ * `icon: null` is deliberate rather than a gap: the design's inventory draws
  * stage glyphs for the six Improve stages only. Every other lane's strip node
  * falls back to the glyph for its own declared *state*, which is information
  * the node has to carry anyway -- inventing eighteen more glyphs to avoid a

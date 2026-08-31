@@ -44,7 +44,7 @@ import type { DatasetFileRow, DatasetsInventory } from "../../types";
  * armed→confirm affordance before the billing call fires — the first click
  * arms the control (relabelling it to "Confirm … — bills", with a `Cancel`
  * ghost button to back out), and only the second, explicit click spends. Per
- * the orchestrator's no-native-dialogs ruling (`LEARNINGS.md`): a sandboxed
+ * the dashboard-wide no-native-dialogs rule: a sandboxed
  * MCP-App iframe has no `allow-modals`, so `window.confirm()` can be silently
  * suppressed and return `false`, bricking the action on Claude Desktop. None
  * of the three mints a server-side `confirm_nonce` (unlike `observe`'s
@@ -52,7 +52,7 @@ import type { DatasetFileRow, DatasetsInventory } from "../../types";
  * confirmation" for all of them. `Freeze golden` previously kept
  * `window.confirm()` as pre-existing `DatasetsPane` behavior; the ruling is
  * dashboard-wide, not billed-actions-only, so it is converted here too
- * (`LEARNINGS.md`, "Carried to the ImproveLane assembly step") — a suppressed
+ * — a suppressed
  * native confirm silently returns `false` in the sandboxed MCP-App mount,
  * making Freeze un-triggerable on Claude Desktop regardless of whether it was
  * "new" spend surface. The reviewed-set-below-floor warning `window.confirm`

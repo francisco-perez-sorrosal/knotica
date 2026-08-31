@@ -16,34 +16,34 @@ import { ProcessOutcome } from "../ProcessOutcome";
 import type { ProcessId } from "../processMeta";
 
 /**
- * `AnswerLane` (`INTERFACE_DESIGN.md §2.3`) -- the three-stage `ask -> cite ->
+ * `AnswerLane` -- the three-stage `ask -> cite ->
  * react` rail that absorbed the dissolved ask pane's question box and
  * citation rendering unchanged (`AnswerCard`, imported from
  * `answerPresentation.tsx` rather than reimplemented, exactly the way
  * `ProveStage.tsx` already reuses it for Improve's own in-lane probe).
  *
- * The watermark lives in **component state only** -- `§2.3`'s own decision,
+ * The watermark lives in **component state only** -- a deliberate decision,
  * re-affirmed here: `query` stays a non-writer, so nothing about this rail is
  * journal-backed or restored across a remount. Submitting a question
  * completes `ask` and activates `cite` immediately, before the LLM call
  * resolves; only once the answer lands does `cite` complete and `react`
  * become current.
  *
- * `react`'s four actions all terminate inside Answer (`§2.0` clause 2, `§2.3`
- * clause 2) -- none of them navigates to another lane. `Good example`/
+ * `react`'s four actions all terminate inside Answer
+ * -- none of them navigates to another lane. `Good example`/
  * `Bad example` reuse the unchanged `client.curateExample` call `AskPane.tsx`
  * already makes; `Note it`/`Report gap` are the two new flat Tier-1 tools
  * this step wires onto `ToolClient` (`note_capture`/`gap_report`).
  *
  * `react`'s body is rebuilt on the stage-body grammar
- * (`INTERFACE_DESIGN_2.md §5`, P2-1): one `SectionCard "REACT"` whose muted
+ * (`dec-105`): one `SectionCard "REACT"` whose muted
  * explanation names what the four buttons do; `Good example`/`Bad example`
  * keep their exact accessible names and their default (non-quiet) button
  * class, since they are the pair the loop trains on directly; `Note it`/
  * `Report gap` become `class="ghost"` quiet actions, since they route
  * through the loop's queues rather than feeding a training signal directly.
  * The `role="status"` outcome note stays in the footer, unchanged text. Ask
- * and Cite are untouched -- `§5` names only React for this budget.
+ * and Cite are untouched -- only React's body was in scope for that rebuild.
  */
 
 /** React's four verbs, named so the one in flight can be told from its peers. */

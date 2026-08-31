@@ -435,6 +435,34 @@ def test_a_drain_leaves_an_untouched_gaps_stamp_alone(template_vault: Path) -> N
     assert _read_gap(store, "gap-untouched").answered_in_vault_at == "2026-08-01T00:00:00Z"
 
 
+def test_a_drain_preserves_an_unknown_field_on_a_gap_it_never_touched(
+    template_vault: Path,
+) -> None:
+    """The stamp made the drain a second whole-file rewriter of gaps.jsonl. A
+    rewrite that re-serializes from this version's field list would erase a
+    field a newer writer added -- from every gap in the topic, including the
+    ones this drain never queried."""
+    store = LocalFSStore(template_vault)
+    _store_sep_source(store, template_vault)
+    carrying = replace(
+        _gap_record(gap_id="gap-untouched"),
+        extra={"novel_field": "written by a newer classifier"},
+    )
+    _seed_gaps(store, template_vault, [_gap_record(gap_id="gap-inert"), carrying])
+
+    gapfill.refresh_suggestions_for_gaps(
+        store,
+        template_vault,
+        TOPIC,
+        service=_FakeDiscoveryService([_candidate(_SEP_EDITION)]),
+        max_gaps=1,
+    )
+
+    assert _read_gap(store, "gap-untouched").extra == {
+        "novel_field": "written by a newer classifier"
+    }
+
+
 def test_a_drain_with_nothing_to_stamp_stays_a_zero_commit_no_op(template_vault: Path) -> None:
     """The stamp must not turn the documented no-op drain into a commit."""
     from support.vault import git_commit_count

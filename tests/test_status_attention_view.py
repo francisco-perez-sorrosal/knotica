@@ -26,8 +26,8 @@ today: calling it with ``view="attention"`` currently raises a ``KnoticaError``
 surfacing as an uncaught exception in every test below, is this file's RED
 signal, not a collection failure.
 
-Load-bearing assumption about the not-yet-landed payload shape (recorded in
-full in ``LEARNINGS_test-engineer_step47.md``): ``body["topics"]`` is a list
+Load-bearing assumption about the not-yet-landed payload shape:
+``body["topics"]`` is a list
 of per-topic dicts, each carrying ``"topic"`` and a ``"runner"`` sub-object
 shaped like the existing single-topic ``loop["runner"]`` (``{"alive", "pid",
 "beat_at", "interval_seconds"}``). The paired implementation wins on conflict.

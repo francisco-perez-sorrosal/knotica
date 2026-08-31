@@ -4,7 +4,7 @@ import { Spinner } from "../icons";
 
 /**
  * The shared armed→confirm control for every nonce-less billed or
- * mutating action (`LEARNINGS.md`'s no-native-dialogs ruling): a sandboxed
+ * mutating action, under the dashboard-wide no-native-dialogs rule: a sandboxed
  * MCP-App iframe has no `allow-modals`, so `window.confirm()` can be
  * silently suppressed and return `false`, bricking the action on Claude
  * Desktop. The fix is the same shape everywhere -- a first click arms the

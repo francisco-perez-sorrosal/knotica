@@ -5,7 +5,7 @@ import { Icon } from "./icons";
 
 /**
  * The centred icon/title/sentence/one-action template used for every empty,
- * error, and zero state (design §3.2/§3.5) -- replacing the bare
+ * error, and zero state -- replacing the bare
  * `<p>Nothing needs you.</p>` and `<aside role="alert">` patterns that
  * currently carry no icon, no hierarchy, and no route back to a fix.
  *

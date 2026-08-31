@@ -3,7 +3,7 @@ import { describe, expect, it } from "vitest";
 import { initialFocus } from "../stageFocus";
 
 /**
- * The focus axis's one piece of pure logic (design §5.3). The hook itself is
+ * The focus axis's one piece of pure logic. The hook itself is
  * exercised through `ImproveLane.test.tsx`, where focus is observable as
  * rendered behaviour rather than as a return value.
  */

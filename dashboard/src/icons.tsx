@@ -6,7 +6,7 @@ import type { JSX } from "preact";
  * reference's outline contract: 24x24 viewbox, no fill, `currentColor`
  * stroke, 1.5 stroke width, round caps/joins. An icon is never the sole
  * label -- every call site pairs it with visible text or an `sr-only`
- * string (`design §4`); this module only draws the glyph.
+ * string; this module only draws the glyph.
  */
 
 export type IconName =

@@ -24,9 +24,8 @@ on a field that does not exist yet) inside the test that drives the action,
 never a collection error hiding the rest of the file.
 
 Two load-bearing API-shape assumptions, both unavoidable because the
-``review_gap`` tool did not exist to consult when this suite was authored --
-full reasoning in ``LEARNINGS_test-engineer_step36.md``; the paired
-implementation wins on conflict:
+``review_gap`` tool did not exist to consult when this suite was authored;
+the paired implementation wins on conflict:
 
 1. ``review_gap``'s own parameters are ``topic``, ``gap_id``, ``decision``,
    ``reason`` (default ``""``), ``vault`` -- lifted verbatim from

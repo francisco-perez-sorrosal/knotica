@@ -4,10 +4,10 @@ import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 
 /**
  * `dashboard/src/lanes/improve/ObserveStage.tsx` does not exist yet -- this is
- * the RED half of a paired step (IMPLEMENTATION_PLAN.md Step 69/70,
- * INTERFACE_DESIGN.md §2.4's `observe` row). Loaded through a non-literal
- * dynamic `import()`, the same technique `laneRailState.test.ts` (Step 62)
- * and `LaneRail.test.tsx` (Step 64) established.
+ * the RED half of a paired step for
+ * Improve's `observe` row. Loaded through a non-literal
+ * dynamic `import()`, the same technique `laneRailState.test.ts`
+ * and `LaneRail.test.tsx` established.
  *
  * `uplot` is mocked the same way `loopPaneStepper.characterization.test.tsx`
  * mocks it: the real package calls `window.matchMedia` at import time, which
@@ -16,16 +16,15 @@ import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
  *
  * `observe` absorbs `LoopPane`'s cadence controls, runner-liveness chip,
  * `loop-progress`, the scalar chart, `metrics_read`, and the billed
- * two-phase `loop run_eval` (§2.4's stage table). Load-bearing assumptions
+ * two-phase `loop run_eval` (the design's stage table). Load-bearing assumptions
  * the paired implementer may satisfy differently -- the paired
- * implementation wins on conflict, full reasoning in
- * `LEARNINGS_test-engineer_step70.md`:
+ * implementation wins on conflict:
  *
  *   1. The component is invoked as `<ObserveStage client={...} topic={...}
  *      vault={...} status={...} metrics={...} />`. `status`/`metrics` are
  *      passed down from the lane's own read (mirroring `LoopPane`'s current
  *      prop shape) rather than fetched independently by this stage, since
- *      the sibling `gate` stage (Step 71) reads the same `status.loop`
+ *      the sibling `gate` stage reads the same `status.loop`
  *      object.
  *   2. Cadence is self-fetched via `client.loopCadenceRead(topic, vault)` on
  *      mount, exactly as `LoopPane.tsx` does today (a `useEffect`-driven
@@ -37,8 +36,8 @@ import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
  *      `toolClient.twoPhase.test.ts` pins at the wire level, asserted here
  *      at the component boundary instead.
  *   4. A disclosure toggle (if any) carries `aria-expanded`, reusing
- *      `LaneRail.tsx`'s (Step 63) accessibility-floor convention as the
- *      mechanical proxy for "one nesting level" (§2.4 rule 2).
+ *      `LaneRail.tsx`'s accessibility-floor convention as the
+ *      mechanical proxy for "one nesting level".
  *   5. The runner-liveness chip keeps `LoopPane.tsx`'s existing verbatim
  *      wording (`"runner: watching · pid <n>"` / `"runner: off"`) rather than
  *      inventing new copy for the same fact.
@@ -653,7 +652,7 @@ describe("the arena scorer is switchable in place, asymmetrically guarded", () =
   });
 });
 
-describe("one nesting level (§2.4 rule 2)", () => {
+describe("one nesting level", () => {
   it("never places a disclosure toggle inside another disclosure toggle", async () => {
     const client = makeClient();
     const { container } = render(

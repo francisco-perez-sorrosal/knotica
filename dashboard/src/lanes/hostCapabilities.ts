@@ -1,5 +1,4 @@
-// Pure dispatch-tier derivation from host capabilities
-// (INTERFACE_DESIGN.md §3.4).
+// Pure dispatch-tier derivation from host capabilities (`dec-091`).
 //
 // Framework-free: no Preact import, no DOM, no fetch. Dispatch is
 // progressive enhancement down to the copyable-text floor (dec-091) — every
@@ -22,7 +21,7 @@ export type HostCapabilities = Pick<
 >;
 
 /**
- * Resolves which of the four dispatch tiers (`INTERFACE_DESIGN.md §3.4`)
+ * Resolves which of the four dispatch tiers below
  * applies for a given mount and the capabilities the host advertised.
  *
  * - **A** — bridge mount, host advertises `message`: a turn can happen.

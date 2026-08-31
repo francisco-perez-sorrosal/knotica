@@ -3,14 +3,14 @@
 ``doctor`` runs mechanical, LLM-free checks over the resolved vault and reports a
 PASS/WARN/FAIL row per check with a specific remediation, gating the hooks
 through its exit code. These tests pin that contract *behaviorally*, from the
-documented interface (INTERFACE_DESIGN §4.3 human mockup + §4.4 exit codes),
+documented interface (the human output mockup plus the exit-code contract),
 never from implementation internals:
 
 - a healthy fixture vault produces no FAIL rows and exits 0 (warnings are still
-  a clean exit per §4.4);
+  a clean exit);
 - one corruption per deterministic, vault-scoped check drives exactly that row
   off PASS and surfaces its specific remediation; a FAIL row forces exit 1,
-  warnings-only stays exit 0 — the §4.4 rule encoded directly;
+  warnings-only stays exit 0;
 - ``--quick`` is a strict subset of the full check set;
 - ``--json`` is stable machine output (parses, round-trips, carries the check
   labels and status tokens);
@@ -18,13 +18,13 @@ never from implementation internals:
   stderr (mirroring the MCP ``NOT_CONFIGURED`` grammar).
 
 Rows are parsed from the human output rather than JSON keys because the human
-mockup (§4.3) is the literal contract; assertions match documented labels and
+mockup is the literal contract; assertions match documented labels and
 remediation grammar by substring, so an impl free to phrase details stays green
 as long as it honors the contract. The environment-dependent checks (``mcp``
 plugin registration, ``uvx`` presence) are deliberately *not* pinned here — they
 depend on the host, not the vault, and cannot be corrupted deterministically in
 a subprocess; the healthy case therefore asserts "no FAIL", not "every row
-PASS", which is what §4.4 actually promises.
+PASS", which is what the exit-code contract actually promises.
 
 RED until the ``doctor`` command lands: the registered stub raises
 ``NotImplementedError`` (empty stdout, exit 1), so every behavioral assertion
@@ -66,7 +66,7 @@ def _run(*args: str) -> subprocess.CompletedProcess[str]:
 
 
 # ---------------------------------------------------------------------------
-# Human-output row parsing (the §4.3 mockup is the literal contract)
+# Human-output row parsing (the printed mockup is the literal contract)
 # ---------------------------------------------------------------------------
 
 
@@ -170,8 +170,8 @@ def test_healthy_vault_has_no_failing_check_and_exits_zero(
     vault_config: Path, template_vault: Path
 ):
     """A clean fixture vault yields no FAIL row and a clean exit. Warnings are
-    permitted (host-dependent ``mcp``/``uvx`` rows may warn) — §4.4 makes a
-    warning-only run exit 0, so the invariant is 'no FAIL', not 'all PASS'."""
+    permitted (host-dependent ``mcp``/``uvx`` rows may warn) — a
+    warning-only run exits 0, so the invariant is 'no FAIL', not 'all PASS'."""
     result = _run("doctor")
 
     assert result.returncode == 0, f"healthy vault must exit 0; stderr: {result.stderr!r}"
@@ -303,10 +303,11 @@ def test_page_citing_an_unstored_source_flags_the_citations_row(
     vault_config: Path, template_vault: Path
 ):
     page = template_vault / "agentic-systems" / "agent-memory.md"
-    page.write_text(
-        page.read_text() + "\n\nA later survey expands this (nobody2099ghost §3).\n",
-        encoding="utf-8",
+    # Fixture page prose citing a source the vault does not hold.
+    cites_unstored = (
+        "\n\nA later survey expands this (nobody2099ghost §3).\n"  # id-citation-discipline:ignore
     )
+    page.write_text(page.read_text() + cites_unstored, encoding="utf-8")
 
     result = _run("doctor")
 

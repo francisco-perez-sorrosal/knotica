@@ -10,21 +10,20 @@ import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 
 /**
  * `dashboard/src/lanes/improve/InstrumentStage.tsx` does not exist yet -- this
- * is the RED half of a paired step (IMPLEMENTATION_PLAN.md Step 69/70,
- * INTERFACE_DESIGN.md §2.4's `instrument` row). Loaded through a non-literal
- * dynamic `import()`, the same technique `laneRailState.test.ts` (Step 62) and
- * `LaneRail.test.tsx` (Step 64) established -- a literal specifier would fail
+ * is the RED half of a paired step for
+ * Improve's `instrument` row. Loaded through a non-literal
+ * dynamic `import()`, the same technique `laneRailState.test.ts` and
+ * `LaneRail.test.tsx` established -- a literal specifier would fail
  * `tsc --noEmit` for the whole project the moment this file lands.
  *
  * `instrument` absorbs `DatasetsPane`'s inventory/bootstrap/bootstrap_train/
- * freeze plus `VaultPane`'s "Bootstrap trainset" action (§2.4's stage table).
+ * freeze plus `VaultPane`'s "Bootstrap trainset" action (the design's stage table).
  * Three load-bearing assumptions the paired implementer may satisfy
- * differently -- the paired implementation wins on conflict, full reasoning
- * in `LEARNINGS_test-engineer_step70.md`:
+ * differently -- the paired implementation wins on conflict:
  *
  *   1. The component is invoked as `<InstrumentStage client={...} topic={...}
  *      vault={...} />` and fetches its own `datasetsInventory` on mount --
- *      mirroring `DatasetsPane`'s existing self-fetch and §2.7's "each stage
+ *      mirroring `DatasetsPane`'s existing self-fetch and the design's "each stage
  *      resolves independently as its read lands" rule for Improve.
  *   2. **Declared test-contract adjustment (orchestrator ruling, dispatched
  *      with the paired implementation step, not this suite's original
@@ -35,22 +34,21 @@ import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
  *      `allow-modals`, so a native `confirm()` can be silently suppressed and
  *      return `false`, bricking the action on Claude Desktop -- exactly the
  *      "standing design asymmetry" a Batch-P light-review flagged as "worth a
- *      two-phase upgrade when the Improve lane pane lands" (LEARNINGS.md,
- *      Step 38 disposition), now landing as an in-DOM affordance instead of
+ *      two-phase upgrade when the Improve lane pane lands",
+ *      now landing as an in-DOM affordance instead of
  *      the native dialog this suite originally assumed. Neither action mints
  *      a server-side `confirm_nonce` (only the two `loop` actions do), so
  *      this is the honest client-side mirror of "explicit confirmation" --
  *      the same shape `HealStage.tsx`'s `compile action=run` control already
  *      established for its own nonce-less billed action.
  *   3. A disclosure toggle (if any) carries `aria-expanded`, per the
- *      accessibility floor `LaneRail.tsx` (Step 63) already established for
+ *      accessibility floor `LaneRail.tsx` already established for
  *      this codebase -- reused here as the mechanical proxy for "one nesting
- *      level, no disclosure inside a disclosure" (§2.4 rule 2).
+ *      level, no disclosure inside a disclosure".
  *
  * Golden/trainset facts and the confirmation gate are the two behaviors this
  * suite pins; `golden load/save`, `baseline_probe`, and `loop set_baseline`
- * are out of this suite's scope by design -- see the scope note in
- * `LEARNINGS_test-engineer_step70.md`.
+ * are out of this suite's scope by design.
  */
 
 interface DatasetFileRowFixture {
@@ -449,7 +447,7 @@ describe("the per-role breakdown groups the roles and shows the composition", ()
   });
 });
 
-describe("one nesting level (§2.4 rule 2)", () => {
+describe("one nesting level", () => {
   it("never places a disclosure toggle inside another disclosure toggle", async () => {
     const client = makeClient();
     const { container } = render(

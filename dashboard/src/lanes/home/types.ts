@@ -8,7 +8,7 @@
 import type { PaneId } from "../../types";
 
 // ---------------------------------------------------------------------------
-// Home's cross-topic attention inbox (`INTERFACE_DESIGN.md §2.1`, `dec-092`) --
+// Home's cross-topic attention inbox (`dec-092`) --
 // `wiki_status(view="attention")`'s wire contract.
 // ---------------------------------------------------------------------------
 
@@ -70,7 +70,7 @@ export interface AttentionStatus {
   last_lint: { date: string | null; age_days: number | null; stale: boolean };
   /** Marker, never a count -- resolving drift means resolving every note's
    * anchor, the exact cost the `attention` view exists to avoid paying
-   * unconditionally (`INTERFACE_DESIGN.md §4.2` rule 2). */
+   * unconditionally. */
   drift: { default_collapsed: boolean; count: number | null };
 }
 

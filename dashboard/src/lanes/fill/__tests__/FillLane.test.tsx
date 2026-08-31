@@ -23,10 +23,10 @@ import type {
 /**
  * `dashboard/src/lanes/fill/FillLane.tsx` does not exist yet -- this is the
  * RED half of a paired implementation/test step assembling `QueueStage.tsx`
- * (`gap`/`discover`/`approve`, Step 96) and `IngestGateStage.tsx`
- * (`ingest`/`gate`, Step 98) behind one shared rail, mirroring
+ * (`gap`/`discover`/`approve`) and `IngestGateStage.tsx`
+ * (`ingest`/`gate`) behind one shared rail, mirroring
  * `ImproveLane.tsx`'s "six stage bodies under one `<ol>`" shape
- * (`INTERFACE_DESIGN.md §1.2`/`§2.5`). Loaded through a non-literal dynamic
+ *. Loaded through a non-literal dynamic
  * `import()` -- the same device `QueueStage.test.tsx`/`IngestGateStage.test.tsx`
  * used for their own not-yet-existing modules: a literal
  * `import { FillLane } from "../FillLane"` would fail `tsc --noEmit` for the
@@ -36,17 +36,16 @@ import type {
  * stage groups are mounted together. It deliberately does not re-litigate
  * either stage group's own internal behaviour (gap listing, the two-phase
  * discover flow, approve/reject, singleton ingest expansion, the nine
- * `HandoffStage` states) -- those are `QueueStage.test.tsx` (Step 97) and
- * `IngestGateStage.test.tsx` (Step 99)'s job, already green.
+ * `HandoffStage` states) -- those are `QueueStage.test.tsx` and
+ * `IngestGateStage.test.tsx`'s job, already green.
  *
- * Load-bearing assumptions (full reasoning in
- * `LEARNINGS_test-engineer_step101.md`; the paired implementation wins on
+ * Load-bearing assumptions (the paired implementation wins on
  * conflict):
  *
  *   1. `<FillLane client={...} topic={...} vault={...} status={...}
  *      onStatusRefresh={...} />` -- the same five props `QueueStage`/
  *      `IngestGateStage` already take (confirmed against both files' own
- *      signatures), and the exact shape the Step 91 census's own
+ *      signatures), and the exact shape the whole-target-state census's own
  *      `<FillLane client={null} topic="t" vault="v" status={null} />` smoke
  *      fixture pins. No `obsidianCtx` (unlike `LearnLane`/`AnswerLane`) --
  *      neither absorbed component reads it.
@@ -59,25 +58,25 @@ import type {
  *      two independently-configured reads") -- `FillLane` itself makes no
  *      tool call.
  *
- * REGISTER OBJECTION -- `IMPLEMENTATION_PLAN.md`'s Step 100/101 prose asks
+ * REGISTER OBJECTION -- this lane's assembly brief asks
  * for "the expanded item selected in `QueueStage`'s queue ... threaded down
  * to `IngestGateStage` as the active item -- one selection state, not two
- * independently-tracked ones," and Step 101's own "Done when" names a
+ * independently-tracked ones," and asks for a
  * "single-selection invariant ... asserted end-to-end across both stage
  * groups." Read against the two components as actually landed, this is not
  * a wiring gap `FillLane` can close: `QueueStage`'s `approve` queue lists
- * `pending` suggestions (§`suggestionsRead(topic, "pending", ...)`) and
+ * `pending` suggestions (`suggestionsRead(topic, "pending", ...)`) and
  * `IngestGateStage`'s `ingest` list is the disjoint `approved` set
- * (§`suggestionsRead(topic, "approved", ...)`) -- a suggestion is never a
+ * (`suggestionsRead(topic, "approved", ...)`) -- a suggestion is never a
  * member of both lists at once, so there is no single item that could ever
  * be "selected" in one queue and "opened" in the other. Neither component
  * exposes an `expandedId`/`onExpand` prop for a parent to lift anyway (both
  * self-manage their own expansion state internally, confirmed by reading
- * both files), and this step's `Files:` field is `FillLane.tsx` only, so
+ * both files), and this change's declared file scope is `FillLane.tsx` only, so
  * introducing such a prop is out of scope here regardless. The one real
- * "singleton rail" cardinality invariant in this lane (`INTERFACE_DESIGN.md
- * §1.4`) belongs to `IngestGateStage` alone (already characterized,
- * Step 99); `FillLane`'s assembly introduces no second one to desynchronize
+ * "singleton rail" cardinality invariant in this lane
+ * belongs to `IngestGateStage` alone (already characterized in its own
+ * suite); `FillLane`'s assembly introduces no second one to desynchronize
  * against. This suite therefore does not assert cross-component selection
  * threading -- it asserts the composition facts that are actually testable
  * (one data spine, correct rail order/state, assembly does not break either
@@ -507,10 +506,10 @@ describe("watermark: per-stage state from status.topics[].lanes.fill, verbatim",
 });
 
 // ---------------------------------------------------------------------------
-// Collapsed/active rendering per §1.5: glyph + word together, never gated
+// Collapsed/active rendering: glyph + word together, never gated
 // ---------------------------------------------------------------------------
 
-describe("collapsed/active rendering per §1.5 (glyph and state word together, content never hidden)", () => {
+describe("collapsed/active rendering (glyph and state word together, content never hidden)", () => {
   it("renders a check glyph and the literal state word for a complete stage, without hiding its content", async () => {
     const declared: LaneRailStageStatus[] = [
       { id: "gap", state: "complete", reason: null },
@@ -601,7 +600,7 @@ describe("assembly preserves each stage group's own interactivity", () => {
 
     // QueueStage's approve stage is untouched by IngestGateStage's own
     // singleton expansion -- the two stage groups' internal states are
-    // independent by domain construction (§ REGISTER OBJECTION above), so
+    // independent by domain construction (see the REGISTER OBJECTION above), so
     // the approve stage still renders its own (empty, per this fixture)
     // pending-suggestions content rather than reacting to ingest's expand.
     const approveNode = stageNodes(container)[APPROVE];

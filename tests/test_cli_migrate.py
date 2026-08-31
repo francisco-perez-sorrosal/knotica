@@ -3,7 +3,7 @@
 ``migrate`` is a mutating vault operation: it brings a vault's schema up to the
 version the running code ships, via a template-diff three-way merge that **never
 clobbers a file the user has evolved**. These tests pin the interface contract
-(exit-code table §4.4, one-commit-per-effective-mutation §6) and the load-bearing
+(the exit-code table and one-commit-per-effective-mutation) and the load-bearing
 safety property (an evolved file survives an applied migration byte-identical) —
 not the migration's internal diff/merge mechanics.
 
@@ -113,7 +113,7 @@ def _log_entries(vault: Path) -> list:
 
 
 # ---------------------------------------------------------------------------
-# 1. Up-to-date vault — nothing to do, no mutation (§4.4, §6.4)
+# 1. Up-to-date vault — nothing to do, no mutation
 # ---------------------------------------------------------------------------
 
 
@@ -140,7 +140,7 @@ def test_up_to_date_check_reports_success(vault_config: Path, template_vault: Pa
 
 
 # ---------------------------------------------------------------------------
-# 2. Stale vault — availability reporting and non-destructive preview (§4.4)
+# 2. Stale vault — availability reporting and non-destructive preview
 # ---------------------------------------------------------------------------
 
 
@@ -167,7 +167,7 @@ def test_dry_run_shows_diff_without_writing(vault_config: Path, template_vault: 
 
 
 # ---------------------------------------------------------------------------
-# 3. Applied migration — safety, one commit, audit trail (§6.4, safety property)
+# 3. Applied migration — safety, one commit, audit trail
 # ---------------------------------------------------------------------------
 
 

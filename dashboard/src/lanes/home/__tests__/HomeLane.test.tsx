@@ -6,9 +6,9 @@ import type { ToolClient } from "../../../toolClient";
 
 /**
  * `dashboard/src/lanes/home/HomeLane.tsx` does not exist yet -- this is the
- * RED half of a paired implementation/test step (`IMPLEMENTATION_PLAN.md`
- * Steps 113/114, `INTERFACE_DESIGN.md §2.1`/`§4.2`, `dec-092`). This suite
- * spawns *before* Step 113's implementer, per the RED-handshake fix: the
+ * RED half of a paired implementation/test step for Home's cross-topic
+ * attention inbox (`dec-092`). This suite
+ * spawns *before* its paired implementer, per the RED-handshake fix: the
  * standalone run below must fail at collection with a missing-module error,
  * which the paired implementation step is gated on.
  *
@@ -19,7 +19,7 @@ import type { ToolClient } from "../../../toolClient";
  * this file lands.
  *
  * Load-bearing assumptions the paired implementer may satisfy differently
- * (full reasoning in `LEARNINGS_test-engineer_step114.md`; the paired
+ * (the paired
  * implementation wins on conflict):
  *
  *   1. `<HomeLane client={...} vault={...} onOpenAnchor={...} />` -- three
@@ -35,23 +35,23 @@ import type { ToolClient } from "../../../toolClient";
  *      `view="summary"` poll used by every other lane's rail. The module is
  *      mocked below so this suite drives the callback directly rather than
  *      depending on real interval timing (already covered by
- *      `visibilityPausedPoll.test.ts`, Step 108).
+ *      `visibilityPausedPoll.test.ts`).
  *   4. Each row carries a `[Open]` or `[Watch]` button (`"Watch"` only for
  *      `urgency: "running"` rows) that calls `onOpenAnchor` with the anchor
  *      its `kind` declares in `attentionMeta.ts` -- the stage that holds the
  *      control, not merely the lane that contains it.
  *   5. The drift row renders unconditionally as one line with a `[Check]`
- *      affordance; per Step 113's own declared scope, `[Check]` has no click
+ *      affordance; per its own declared scope, `[Check]` has no click
  *      handler yet -- clicking it must not reach the client beyond the
  *      initial `wikiStatus` fetch and must not call `onOpenAnchor`.
  *   6. Payload shape is pinned from the live server seam
  *      (`core/status.py::_attention_status`/`_attention_row`), not from
- *      `INTERFACE_DESIGN.md §2.1`'s illustrative mockup -- see
+ *      the design's illustrative mockup -- see
  *      `attentionRows.test.ts`'s own docblock for the full reasoning.
  *
  * Not tested here (other steps' job): the `[Check]` affordance's eventual
- * click behavior (out of Step 113's declared scope), routing/pane wiring
- * (`Step 115/116`), the `deriveAttentionRows` grouping logic itself (unit
+ * click behavior (out of this lane's declared scope), routing/pane wiring
+ *, the `deriveAttentionRows` grouping logic itself (unit
  * -tested directly in `attentionRows.test.ts`).
  */
 
@@ -143,7 +143,7 @@ function attentionPayload(topics: AttentionTopicRow[]): AttentionStatus {
 
 // ---------------------------------------------------------------------------
 // `visibilityPausedPoll` is mocked, not exercised for real: its own pause/
-// resume contract is Step 108's suite. `startVisibilityPausedPoll` is
+// resume contract is that hook's own suite. `startVisibilityPausedPoll` is
 // referenced inside the mock factory's *nested* function only, so it reads
 // `pollCallback`/`pollTeardown` lazily -- at the time `HomeLane` actually
 // calls it during a render inside an `it()` block, by which point these
@@ -283,8 +283,8 @@ describe("Home is an inbox, not a rail", () => {
 describe("drift row -- statement plus an info affordance, no [Check] button", () => {
   /**
    * The prior `[Check]` button had no click handler ("an affordance that
-   * lies," `INTERFACE_DESIGN.md §1 F3`) and is removed, not wired -- design
-   * §6's second of exactly two allowed test rewrites. The statement plus
+   * lies") and is removed, not wired -- one of exactly two test rewrites
+   * the redesign allowed. The statement plus
    * `InfoPopover` replaces it; the popover's remediation slot carries the
    * CLI command instead of a fake in-app action.
    */

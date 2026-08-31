@@ -1,7 +1,7 @@
 """Behavioral tests for ``knotica status`` — deterministic vault counts.
 
 ``status`` reports mechanical counts (pages per topic, curated examples, unpushed
-commits) as a width-aware table or ``--json`` (INTERFACE_DESIGN §4.2). These
+commits) as a width-aware table or ``--json``. These
 tests pin the numbers against ground truth *computed from the fixture vault*
 (never a hardcoded literal that could drift): the count the command reports must
 equal what is actually on disk, and must track a real change (adding a page bumps
@@ -170,7 +170,7 @@ def test_unconfigured_vault_exits_three_with_the_setup_remediation(
 
 
 # ---------------------------------------------------------------------------
-# The three counts §4.2 names beside pages: curated, last lint, unpushed
+# The three counts reported beside pages: curated, last lint, unpushed
 # ---------------------------------------------------------------------------
 
 

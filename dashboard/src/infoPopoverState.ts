@@ -1,7 +1,7 @@
 import { signal } from "@preact/signals";
 
 /**
- * Module-level "at most one InfoPopover open" signal (design §7.1). A
+ * Module-level "at most one InfoPopover open" signal. A
  * popover identifies itself by its own `id`; opening one closes whatever
  * else was open -- two floating panels competing for the same
  * iframe-constrained viewport is worse than one closing early.

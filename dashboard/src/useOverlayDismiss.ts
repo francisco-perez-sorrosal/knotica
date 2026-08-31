@@ -10,7 +10,7 @@ export interface UseOverlayDismissOptions<TPanel extends HTMLElement> {
 /**
  * Shared Escape / outside-pointerdown / focus-out dismissal semantics for
  * the dashboard's non-modal overlays (`InfoPopover`, `TermHint`). Rule of
- * two going on three (design §2.3) -- a divergence between the two
+ * two going on three -- a divergence between the two
  * overlays' Escape handling would be an accessibility bug nobody would
  * notice from either component in isolation.
  *

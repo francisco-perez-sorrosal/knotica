@@ -14,12 +14,12 @@ here is the observable protocol-band write contract from INTERFACE_DESIGN:
   behavior as calling the delegated ``core.operations`` function directly on an
   identical twin vault -- exactly one commit per effective op, same commit
   subject grammar, same log entry;
-- idempotency (§1.5): re-``create_topic`` -> ``existed=true`` and no new commit;
+- idempotency: re-``create_topic`` -> ``existed=true`` and no new commit;
   identical re-``write_page`` -> ``changed=false`` and no commit; ``store_source``
   same key+content -> no-op success (no commit), same key + DIFFERENT content ->
   ``SOURCE_EXISTS``; duplicate ``curate_example`` -> ``appended=false``;
 - negative paths ride in the result content as ``{"error": {code, message, fix,
-  retryable}}`` with ``isError=True`` (§1.4): ``write_page`` to a missing topic
+  retryable}}`` with ``isError=True``: ``write_page`` to a missing topic
   -> ``TOPIC_NOT_FOUND``; targeting a reserved bookkeeping file -> ``RESERVED_NAME``;
   bad frontmatter -> ``INVALID_FRONTMATTER``; a reserved ``create_topic`` name
   -> ``RESERVED_NAME``;
@@ -55,7 +55,7 @@ from support.vault import (
     run_git,
 )
 
-# The §1.4 error-code enum, mirrored as wire strings. A failure result's
+# The error-code enum, mirrored as wire strings. A failure result's
 # error.code must be one of exactly these.
 ERROR_CODES = frozenset(
     {
@@ -183,11 +183,11 @@ def assert_success(result: Any) -> dict[str, Any]:
 
 
 def assert_error_shape(err: dict[str, Any], code: str) -> None:
-    """Assert the §1.4 error object shape and its expected non-retryable code."""
+    """Assert the error object shape and its expected non-retryable code."""
     assert set(err) >= {"code", "message", "fix", "retryable"}, (
         f"error object missing contract fields: {err!r}"
     )
-    assert err["code"] in ERROR_CODES, f"code not in the §1.4 enum: {err['code']!r}"
+    assert err["code"] in ERROR_CODES, f"code not in the enum: {err['code']!r}"
     assert err["code"] == code, f"expected {code}, got {err['code']!r}"
     assert isinstance(err["retryable"], bool), "retryable must be a bool"
     # None of these write-band failures are lock contention: all non-retryable.
@@ -363,7 +363,7 @@ def test_write_page_tool_matches_direct_core_commit_and_log(
 
 
 # ---------------------------------------------------------------------------
-# Idempotency by result-state (§1.5) -- a no-op mutating call makes no commit.
+# Idempotency by result-state -- a no-op mutating call makes no commit.
 # ---------------------------------------------------------------------------
 
 
@@ -453,7 +453,7 @@ def test_duplicate_curated_example_is_not_appended(
 
 
 # ---------------------------------------------------------------------------
-# Negative paths -- structured error envelopes in the result content (§1.4).
+# Negative paths -- structured error envelopes in the result content.
 # ---------------------------------------------------------------------------
 
 

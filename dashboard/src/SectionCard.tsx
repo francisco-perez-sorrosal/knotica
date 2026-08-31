@@ -3,14 +3,14 @@ import type { JSX } from "preact";
 import type { IconName } from "./icons";
 import { Icon } from "./icons";
 
-/** Shared verdict vocabulary for `data-tone` across the stage-body grammar (design §2). */
+/** Shared verdict vocabulary for `data-tone` across the stage-body grammar. */
 export type SectionTone = "bad" | "warn" | "good" | "neutral";
 
 export interface SectionCardProps {
   /** Rendered uppercase via `.microlabel` -- the card's section name. */
   title: string;
   icon?: IconName;
-  /** Sets a 3px left border only (design §2.1) -- never a fill. */
+  /** Sets a 3px left border only -- never a fill. */
   tone?: SectionTone;
   /** Right-aligned header slot: a status chip, an ⓘ, a quiet disclosure toggle. */
   headerActions?: JSX.Element;
@@ -18,14 +18,14 @@ export interface SectionCardProps {
   footer?: JSX.Element;
   /**
    * Only needed when two cards in the same stage share a title -- the
-   * `.microlabel` header is a heading in appearance only (design §2.1); no
+   * `.microlabel` header is a heading in appearance only; no
    * `<h3>`/`<h4>` is ever introduced here, so nothing else labels the card.
    */
   ariaLabel?: string;
 }
 
 /**
- * The stage-body grammar's container primitive (design §2.1). Every stage
+ * The stage-body grammar's container primitive. Every stage
  * interior is 2-4 of these in a fixed scan order: status -> data ->
  * configuration -> action. Never a disclosure -- no `aria-expanded` is ever
  * rendered here, so a card can sit inside a rail's own disclosure chain

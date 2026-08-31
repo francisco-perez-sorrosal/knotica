@@ -24,11 +24,11 @@ import type {
 } from "../../types";
 
 /**
- * The `promote` stage body (`INTERFACE_DESIGN.md §2.4`) — absorbs
+ * The `promote` stage body — absorbs
  * `ScoreboardPanel`'s branches scoreboard/promote/delete surface, scoped to
  * the one branch that matters here: the reviewed (open) compile branch.
  * `compile action=promote` and `branches action=promote kind="compile"`
- * resolve to the same core call (`§2.4` point 6); this stage collapses onto
+ * resolve to the same core call; this stage collapses onto
  * the latter (`client.branchPromote`) so there is exactly one promote
  * control and one scoreboard mount, never both `ScoreboardPanel` and
  * `CompilePanel` reaching for the same branch.
@@ -37,7 +37,7 @@ import type {
  * helpers already private to `ScoreboardPanel.tsx` rather than extracting a
  * shared module: `ScoreboardPanel.tsx` is out of this step's declared file
  * scope and is itself slated for dissolution once every stage that absorbs
- * a slice of it has landed (`IMPLEMENTATION_PLAN.md`'s M3 scope
+ * a slice of it has landed (a declared scope
  * clarification) — extracting a shared home now would edit a file about to
  * be deleted, for two five-line formatters.
  */

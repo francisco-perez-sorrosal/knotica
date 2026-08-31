@@ -2,8 +2,8 @@
 
 ``store_source`` persists a raw source *immutably* under
 ``sources/<topic>/<citation_key>.md`` with provenance frontmatter and exactly
-one git commit. The behaviors pinned here (vault constitution, INTERFACE_DESIGN
-§1.3–1.5, frozen provenance record):
+one git commit. The behaviors pinned here (vault constitution, the mutation
+discipline, frozen provenance record):
 
 1. **Immutable persistence** — the file lands under ``sources/<topic>/`` with a
    provenance record whose ``sha256`` is the body-only digest of the stored

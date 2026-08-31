@@ -60,7 +60,7 @@ DISPATCHER_NAMES = (
 #: because each of these is called mid-turn by the client-as-brain and most are
 #: multi-lane, so a lane prefix would state something false; `open_dashboard` is
 #: unlaned Tier 2. `note_capture` is here rather than a `notes` action because
-#: capture friction is fatal to the feature (INTERFACE_DESIGN.md §1).
+#: capture friction is fatal to the feature.
 CORE_AND_DASHBOARD = frozenset(
     {
         "curate_example",

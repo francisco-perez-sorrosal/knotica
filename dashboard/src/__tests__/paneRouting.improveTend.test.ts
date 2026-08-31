@@ -5,7 +5,7 @@ import type { PaneId } from "../types";
 
 /**
  * The `ImproveLane`/`TendLane` half of the dissolution
- * (`INTERFACE_DESIGN.md` — the four absorbed panes fold into `improve`; the
+ * (the four absorbed panes fold into `improve`; the
  * checklist panes fold into `tend`). Two things are pinned here:
  *
  * 1. `?pane=improve` and `?pane=tend` resolve to their own `PaneId`s — the
@@ -51,7 +51,7 @@ import type { PaneId } from "../types";
  *      not a fresh per-lane data source. This is the one part of the
  *      assumption set that is a genuine guess about spelling (a
  *      differently-named local variable holding the same signal would still
- *      satisfy the behavior); flagged in `LEARNINGS_test-engineer_step78.md`.
+ *      satisfy the behavior); flagged, not assumed.
  */
 
 interface FsModule {

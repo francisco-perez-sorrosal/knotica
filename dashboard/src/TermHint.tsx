@@ -7,7 +7,7 @@ import { useOverlayDismiss } from "./useOverlayDismiss";
 export interface TermHintProps {
   /**
    * Stable identity for the module single-open signal and `aria-controls`
-   * -- shares `InfoPopover`'s signal (design §2.3/B3): at most one overlay,
+   * -- shares `InfoPopover`'s signal: at most one overlay,
    * `InfoPopover` or `TermHint`, is ever open.
    */
   id: string;
@@ -20,13 +20,13 @@ export interface TermHintProps {
 }
 
 /**
- * The inline dotted-underline explanatory overlay (design §2.3) -- a second
+ * The inline dotted-underline explanatory overlay -- a second
  * overlay *class* sharing round 1's single-open signal, never a second
  * overlay *system* (B3). Always a real `<button>` trigger, never
  * hover-only; `role="note"`, never a confirmation surface -- `ArmedButton`
  * remains the sole confirm grammar.
  *
- * Forbidden placements (design §2.3): never inside a `<button>`, never
+ * Forbidden placements: never inside a `<button>`, never
  * inside any element carrying `aria-expanded`, never inside a `title=`.
  */
 export function TermHint({

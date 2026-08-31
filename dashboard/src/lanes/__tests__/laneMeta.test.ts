@@ -4,7 +4,7 @@ import { LANES } from "../../processModel";
 import { LANE_META } from "../laneMeta";
 
 /**
- * `LANE_META` census (design §9 CH-2): its keys must equal `LANES` exactly --
+ * `LANE_META` census: its keys must equal `LANES` exactly --
  * no more, no less. `PaneId`'s compile-time exhaustiveness (`Record<PaneId,
  * LaneMeta>`) already prevents a *missing* key from type-checking; this test
  * is the runtime backstop `crossLaneLinkCensus.test.ts`/`m5HomeCensus.test.tsx`

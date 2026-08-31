@@ -21,11 +21,11 @@ import type {
 
 /**
  * `dashboard/src/lanes/tend/TendLane.tsx` does not exist yet -- this is the
- * RED half of a paired implementation/test step for `INTERFACE_DESIGN.md`
- * §2.6 (Tend's doctor/lint/okf/migrate checklist) and the relocated
+ * RED half of a paired implementation/test step for Tend's
+ * doctor/lint/okf/migrate checklist and the relocated
  * `VaultPane.tsx:715` gate-note sentence. Loaded through a non-literal
  * dynamic `import()` specifier -- the same device `lanes/__tests__/LaneRail.test.tsx`
- * (Step 64) and `lanes/improve/__tests__/GateStage.test.tsx` (Step 72) used
+ * and `lanes/improve/__tests__/GateStage.test.tsx` used
  * for their own not-yet-existing modules: a literal `import { TendLane }
  * from "../TendLane"` would fail `tsc --noEmit` for the whole project the
  * moment this file lands; a dynamic import whose argument is not a string
@@ -34,13 +34,13 @@ import type {
  * error the paired implementation step is gated on.
  *
  * Load-bearing assumptions the paired implementer may satisfy differently
- * (full reasoning in `LEARNINGS_test-engineer_step66.md`; the paired
+ * (the paired
  * implementation wins on conflict):
  *
  *   1. `<TendLane client={...} vault={...} obsidianCtx={...} />` -- three
  *      props, no `topic` (Tend is per-vault, not per-topic --
  *      `CLAUDE.md`'s Home/Tend/Improve discriminator). **Declared change
- *      (implementer, Step 67)**: `TendLane` now also takes a required
+ *     **: `TendLane` now also takes a required
  *      `topic` prop, threading it through to its fifth stage,
  *      `DriftStage.tsx` -- `notes`'s own MCP dispatcher rejects an empty
  *      topic, so the one stage that reaches it cannot stay vault-wide the
@@ -64,8 +64,8 @@ import type {
  *      fully clean. The `ok`/`warn`/`bad` health-chip vocabulary is
  *      reused as a *decoration* on top of this (assumption 4 below), not as
  *      the source of `data-state`.
- *   4. `migrate` never calls the client (no MCP surface yet, per
- *      `INTERFACE_DESIGN.md §2.6`) and is always `pending`; it renders a
+ *   4. `migrate` never calls the client (no MCP surface yet)
+ *      and is always `pending`; it renders a
  *      copyable CLI handoff naming `knotica tend migrate --dry-run`.
  *   5. `doctor`, `lint`, and `okf`'s panel bodies are the moved-but-unedited
  *      `DoctorPanel`/`LintPanel`/`OkfStatus` content from `VaultPane.tsx`
@@ -75,7 +75,7 @@ import type {
  *      plain text findable by substring.
  *   6. OKF's dry-run/apply controls keep their exact current discipline
  *      (`VaultPane.tsx:676-709`), adjusted for the orchestrator's
- *      no-native-dialogs ruling (declared adjustment, implementer Step 65):
+ *      no-native-dialogs ruling (declared adjustment):
  *      dry-run fires immediately (`data-testid="tend-okf-repair-dry-run"`);
  *      apply (`data-testid="tend-okf-repair-apply"`) is gated behind an
  *      in-DOM two-click armed→confirm affordance -- first click arms,
@@ -89,15 +89,15 @@ import type {
  *      and nothing else changed -- so its normalized `textContent` can be
  *      compared verbatim rather than matched piecewise across the `<strong>`
  *      boundary (`getByText` does not recurse into child elements' own
- *      text, per `LEARNINGS_implementer_step63.md`'s documented gotcha).
+ *      text -- a documented gotcha of this suite family).
  *
  * Not tested here (out of this step's scope, or a later milestone's job):
  * the `drift` stage's own rendering/collapse-budget/mutation behavior
  * (covered standalone by `DriftStage.test.tsx`; this file only pins that it
  * is wired in as the checklist's fifth row), any lane-level `outcome`/"Terminal" summary
- * banner (`INTERFACE_DESIGN.md §2.6`'s own mockup reads "Terminal: clean"
+ * banner (the design's own mockup reads "Terminal: clean"
  * while simultaneously showing a check that needs a fix -- inconsistent with
- * C3 as literally stated, flagged in `LEARNINGS_test-engineer_step66.md`
+ * C3 as literally stated, flagged
  * rather than guessed at), and doctor's auto-repair-dry-run cascade
  * (`VaultPane.tsx`'s `doctorNeedsRepair` trigger) which is an orthogonal
  * mechanism this suite does not need to pin to prove the checklist contract.
@@ -265,7 +265,7 @@ describe("the checklist rail", () => {
     expect(screen.getByRole("list", { name: "tend stages" })).toBeTruthy();
   });
 
-  it("shows all five stages as pending before any check has resolved -- the honest §2.7 loading state", () => {
+  it("shows all five stages as pending before any check has resolved -- the honest loading state", () => {
     const { client } = fakeClient();
     const container = renderTendLane(client);
 
@@ -454,7 +454,7 @@ describe("okf's checklist state follows the strict 'clean' rule (C1)", () => {
   });
 });
 
-describe("the migrate stage has no MCP surface yet (INTERFACE_DESIGN.md §2.6)", () => {
+describe("the migrate stage has no MCP surface yet", () => {
   it("is always pending, regardless of the other three checks' results", async () => {
     const { client, doctorRun } = fakeClient();
     const container = renderTendLane(client);
@@ -490,8 +490,8 @@ describe("the migrate stage has no MCP surface yet (INTERFACE_DESIGN.md §2.6)",
 });
 
 describe("OKF repair keeps its two-phase discipline, gated by an in-DOM armed→confirm affordance (no native dialogs)", () => {
-  // Declared adjustment (implementer, Step 65): the orchestrator's no-native-dialogs ruling
-  // (`LEARNINGS.md § Orchestrator ruling — no native dialogs`) landed after this suite was
+  // Declared adjustment: the dashboard-wide no-native-dialogs rule
+  // landed after this suite was
   // drafted and bans `window.confirm()` dashboard-wide. The two tests below were rewritten to
   // pin the in-DOM two-click armed→confirm affordance `HealStage.tsx` established (one button:
   // first click arms, second click fires) instead of spying on `window.confirm`. The

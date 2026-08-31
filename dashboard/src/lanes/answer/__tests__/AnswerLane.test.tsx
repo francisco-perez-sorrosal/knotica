@@ -9,7 +9,7 @@ import type { QueryAnswer, WikiStatus } from "../../../types";
 /**
  * `dashboard/src/lanes/answer/AnswerLane.tsx` does not exist yet -- this is
  * the RED half of a paired implementation/test step for
- * `INTERFACE_DESIGN.md §2.3` (Answer's `ask -> cite -> react` rail). Loaded
+ * Answer's `ask -> cite -> react` rail. Loaded
  * through a non-literal dynamic `import()` specifier, the same device
  * `lanes/__tests__/LaneRail.test.tsx`, `lanes/improve/__tests__/ImproveLane.test.tsx`,
  * and `lanes/tend/__tests__/TendLane.test.tsx` used for their own
@@ -21,7 +21,7 @@ import type { QueryAnswer, WikiStatus } from "../../../types";
  * error the paired implementation step is gated on.
  *
  * `client.noteCapture`/`client.gapReport` do not exist on `ToolClient` yet
- * either (Step 94's own declared crossing into `toolClient.ts`/`types.ts`).
+ * either (its own declared crossing into `toolClient.ts`/`types.ts`).
  * `fakeClient` below supplies both as plain `vi.fn()`s on an object cast
  * `as unknown as ToolClient`, mirroring `AskPane.noLoopLink.test.tsx`'s own
  * `fakeClient` pattern -- this keeps the file type-checking today (the cast
@@ -29,23 +29,22 @@ import type { QueryAnswer, WikiStatus } from "../../../types";
  * exercising real calls once the paired implementation wires them in.
  *
  * Load-bearing assumptions about the not-yet-landed component (the paired
- * implementation wins on conflict; full reasoning in
- * `LEARNINGS_test-engineer_step95.md`):
+ * implementation wins on conflict):
  *
  *   1. `<AnswerLane client={...} topic={...} vault={...} obsidianCtx={...}
  *      status={...} />` -- the exact same five props `AskPane` already
- *      takes (`§2.3`'s "absorb `AskPane.tsx`'s existing ask/cite rendering
+ *      takes (the design's "absorb `AskPane.tsx`'s existing ask/cite rendering
  *      ... unchanged" reads as prop-surface-preserving, not just
  *      markup-preserving).
  *   2. The rail's three stages render in `AskPane.tsx`/`ImproveLane.tsx`
  *      convention: `<ol aria-label="answer stages">` of three
  *      `<li class="lane-stage" data-state="...">` nodes, the watermark one
- *      carrying `aria-current="step"` (`INTERFACE_DESIGN.md §1.5`'s
+ *      carrying `aria-current="step"` (the design's
  *      accessibility floor, already honored by `LaneRail.tsx`,
  *      `ImproveLane.tsx` and `TendLane.tsx` for every other lane built so
  *      far -- Answer is not carved out as an exception anywhere in the
  *      design doc).
- *   3. The three-phase transition `§2.7`'s Answer row implies is real, not
+ *   3. The three-phase transition the design's Answer row implies is real, not
  *      just a two-phase "idle -> answered" jump: submitting a question
  *      immediately completes `ask` (the question is locked in) and moves
  *      `cite` to `active` while the LLM call is in flight ("`cite` spinner
@@ -54,10 +53,10 @@ import type { QueryAnswer, WikiStatus } from "../../../types";
  *      `deriveSequenceStages`'s single-watermark model predicts if watermark
  *      advances `0 -> 1 -> 2` across submit-then-resolve, and it is the
  *      reading that makes `ask`'s form genuinely interactive (not merely
- *      labelled `pending`) before anything is typed -- the literal `§2.7`
+ *      labelled `pending`) before anything is typed -- the design's literal
  *      cell text ("Rail at `ask · pending`") is read as informal English
  *      ("an answer is pending"), not the `StageState` enum's `"pending"`
- *      value, which the interactivity rule (`§1.5`) would make read-only.
+ *      value, which the interactivity rule would make read-only.
  *   4. `react`'s four actions are plain, no-second-input clicks (no dialog,
  *      no free-text box) -- the mockup renders all four as one button row
  *      with nothing else, consistent with the "no native dialogs"
@@ -129,7 +128,7 @@ function answer(overrides: Partial<QueryAnswer> = {}): QueryAnswer {
 /** A query promise this suite can resolve on its own schedule, to observe the
  * in-flight (`cite` active/loading) state before the answer lands.
  *
- * **Implementer's fix (Step 94, declared deviation, zero assertion change)**:
+ * **Implementer's fix (declared deviation, zero assertion change)**:
  * the original draft returned the bare `resolve` local, which is only ever
  * assigned once `query()` actually runs -- but the destructured `{ resolve }`
  * a caller receives is a value snapshot taken at `deferredQuery()`'s own
@@ -201,7 +200,7 @@ async function askAndAwaitAnswer(): Promise<void> {
   await screen.findByRole("button", { name: "Good example" });
 }
 
-describe("the rail container (INTERFACE_DESIGN.md §1.5 accessibility floor)", () => {
+describe("the rail container (accessibility floor)", () => {
   it("labels the stage list with the lane name and renders exactly three stages", () => {
     const { client } = fakeClient();
     const container = renderAnswerLane(client);
@@ -351,7 +350,7 @@ describe("once an answer arrives -- ask and cite complete, react becomes current
   });
 });
 
-describe("react's four actions terminate inside Answer (§2.0 clause 2, §2.3 clause 2)", () => {
+describe("react's four actions terminate inside Answer (no cross-lane navigation)", () => {
   it("Good example calls curateExample with the unchanged verdict shape", async () => {
     const { client, curateExample } = fakeClient();
     renderAnswerLane(client);
@@ -487,7 +486,7 @@ describe("the lifecycle contract on React's verbs", () => {
   });
 });
 
-describe("ephemeral by design (§2.3's explicit decision: query stays a non-writer)", () => {
+describe("ephemeral by design (query stays a non-writer)", () => {
   it("does not restore cite/react state across a fresh mount", async () => {
     const { client } = fakeClient();
     renderAnswerLane(client);

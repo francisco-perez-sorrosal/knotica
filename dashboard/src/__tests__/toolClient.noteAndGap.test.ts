@@ -6,8 +6,8 @@ import { BridgeToolClient } from "../toolClient";
 /**
  * `BridgeToolClient`/`ToolClient` carry no `noteCapture`/`gapReport` methods
  * yet -- this is the RED half of a paired implementation/test step
- * (`INTERFACE_DESIGN.md §2.3`'s `react` stage; Answer's "Note it"/"Report
- * gap" actions, Step 94). Calling either method through a *typed*
+ * (the design's `react` stage; Answer's "Note it"/"Report
+ * gap" actions). Calling either method through a *typed*
  * `BridgeToolClient` reference would make `tsc --noEmit` fail for the whole
  * project the moment this file lands (the same failure mode a literal
  * `import { AnswerLane } from "../AnswerLane"` would cause in
@@ -27,8 +27,7 @@ import { BridgeToolClient } from "../toolClient";
  * reason="", reference_pages=None, vault="")`. Argument *names* on the wire
  * (`pages_used` vs `pages`, `reference_pages`) are asserted exactly; the two
  * new `ToolClient` method's own parameter order/defaults are a load-bearing
- * assumption of this suite (full reasoning in
- * `LEARNINGS_test-engineer_step95.md`; the paired implementation wins on
+ * assumption of this suite (the paired implementation wins on
  * conflict) -- chosen to mirror `curateExample`'s existing
  * `(topic, ..., pagesUsed: string[] = [], vault = "")` shape, the only
  * other flat lane-only tool `toolClient.ts` already wraps this way.

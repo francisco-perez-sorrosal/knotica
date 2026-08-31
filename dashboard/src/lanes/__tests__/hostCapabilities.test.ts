@@ -2,7 +2,7 @@ import { beforeAll, describe, expect, it } from "vitest";
 
 /**
  * Pure tier derivation from host capabilities, pinned from
- * `INTERFACE_DESIGN.md §3.4`'s dispatch table before the module exists.
+ * the design's dispatch table before the module exists.
  *
  * `deriveDispatchTier` turns a mount kind (`"http"` | `"bridge"`) plus
  * whatever capability object the host actually advertised into one of the
@@ -53,7 +53,7 @@ beforeAll(async () => {
   )) as HostCapabilitiesModule;
 });
 
-describe("deriveDispatchTier — the four dispatch tiers of INTERFACE_DESIGN.md §3.4", () => {
+describe("deriveDispatchTier — the four dispatch tiers", () => {
   it("resolves tier A when the bridge host advertises `message` — a turn can happen", () => {
     const result = hostCapabilities.deriveDispatchTier(
       { message: {} },

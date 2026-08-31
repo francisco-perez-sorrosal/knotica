@@ -8,11 +8,11 @@ import type { SessionStatus } from "../types";
 import { deriveDispatchTier, type DispatchTier } from "./hostCapabilities";
 
 /**
- * The shared handoff stage (`INTERFACE_DESIGN.md §3`, `dec-091`) -- the ASK /
+ * The shared handoff stage (`dec-091`) -- the ASK /
  * DISPATCH / WATCH shell every lane that hands a step to Claude embeds
  * (Learn's `pages`, Fill's `ingest`).
  *
- * Built on observation, with dispatch as progressive enhancement (§3.2): even
+ * Built on observation, with dispatch as progressive enhancement: even
  * at the weakest capability tier ("copy this text") the stage still watches
  * `fill(action="session_status")` and self-advances when the client writes,
  * so a lane can never dead-end just because dispatch is unavailable or
@@ -50,9 +50,9 @@ export interface HandoffStageProps {
   vault: string;
   /** The slash-command name to render, e.g. `"ingest"` or `"fill"`. */
   command: string;
-  /** The one-sentence ASK prose (`INTERFACE_DESIGN.md §3.2`). */
+  /** The one-sentence ASK prose. */
   ask: string;
-  /** Only the expanded/selected item polls (`§3.3`'s cost discipline). */
+  /** Only the expanded/selected item polls -- polling every item at once is the cost this avoids. */
   active: boolean;
   /**
    * The in-lane control for every `next.actor === "you"` state. Receives the
@@ -157,7 +157,7 @@ export function HandoffStage({
 }
 
 /**
- * Four capability tiers, one honest label each (`INTERFACE_DESIGN.md §3.4`).
+ * Four capability tiers, one honest label each.
  * The literal dispatch line renders at every tier, including A and B -- a
  * user who does not trust the button, or whose host silently drops the
  * request, is never stranded. It is a `CopyBlock` rather than a bare `<pre>`

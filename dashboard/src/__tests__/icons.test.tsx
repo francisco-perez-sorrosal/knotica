@@ -5,7 +5,7 @@ import { Icon } from "../icons";
 import type { IconName } from "../icons";
 
 /**
- * Exhaustive render smoke test for the 26-glyph inventory (design §4). A
+ * Exhaustive render smoke test for the 26-glyph inventory. A
  * missing case in `icons.tsx`'s `GLYPHS` record is a TypeScript compile
  * error, but this test is the runtime proof that every declared name
  * actually mounts an `<svg>` -- and that the shared stroke contract

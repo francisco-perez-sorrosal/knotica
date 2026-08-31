@@ -7,7 +7,7 @@ import type {
 
 /**
  * `deriveAttentionRows` -- the pure grouping function behind `HomeLane`
- * (`INTERFACE_DESIGN.md §2.1`, `dec-092`). Turns the cross-topic
+ * (`dec-092`). Turns the cross-topic
  * `wiki_status(view="attention")` payload into a flat list of actionable
  * rows: one per independent signal, never one per topic -- a topic that is
  * simultaneously blocked and waiting on you surfaces two rows, not one. A
@@ -15,7 +15,7 @@ import type {
  * is the fourth, correct urgency class.
  *
  * Routing (signal → lane, every gap-queue signal lands on `fill`; every
- * Improve-folded signal lands on `improve`, per `INTERFACE_DESIGN.md §2.4`):
+ * Improve-folded signal lands on `improve`):
  * `refused_awaiting_rework` → blocked/fill, `pending` → waiting/fill, open
  * gaps with no discovery → waiting/fill, open gaps the vault already answers
  * → waiting/fill, an aborted race → blocked/improve,

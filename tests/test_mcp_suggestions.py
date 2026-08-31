@@ -1,6 +1,6 @@
 """Behavioral contract tests for the MCP suggestion-queue tools.
 
-Derived from ``INTERFACE_DESIGN.md`` §D1/D3/D4/D5 -- never from the
+Derived from the documented queue contract -- never from the
 implementation. Two tools front the committed
 ``suggestions.jsonl`` queue: ``suggestions_read`` (pure, no ``discovery``
 import) and ``suggestions_review`` (the ``dry-run|apply`` two-phase mutating
@@ -120,8 +120,8 @@ def assert_error_shape(err: dict[str, Any], code: str | None = None) -> None:
 # ---------------------------------------------------------------------------
 # Suggestion-record seed builder (direct construction -- the join logic from
 # gap -> candidate -> record is already covered by tests/test_gapfill.py; this
-# file only needs a record shaped per INTERFACE_DESIGN.md §D2 to seed the
-# queue the tools read/mutate)
+# file only needs a record shaped per the frozen `suggestions.jsonl` schema
+# to seed the queue the tools read/mutate)
 # ---------------------------------------------------------------------------
 
 

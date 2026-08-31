@@ -8,9 +8,9 @@ import type { QueryAnswer, WikiStatus } from "../../../types";
 
 /**
  * `dashboard/src/lanes/improve/ProveStage.tsx` does not exist yet -- this is
- * the RED half of a paired step (`IMPLEMENTATION_PLAN.md` Step 73/74,
- * `INTERFACE_DESIGN.md` §2.4's `prove` row, §2.0 clause 2 -- "Improve's
- * `prove` stage embeds a probe instead of linking to Answer"). Loaded through
+ * the RED half of a paired step for Improve's `prove` row --
+ * "Improve's
+ * `prove` stage embeds a probe instead of linking to Answer". Loaded through
  * a non-literal dynamic `import()` specifier, the same device
  * `lanes/__tests__/LaneRail.test.tsx` and `lanes/improve/__tests__/GateStage.test.tsx`
  * used for their own not-yet-existing modules: a literal
@@ -21,8 +21,7 @@ import type { QueryAnswer, WikiStatus } from "../../../types";
  * with the missing-module error the paired implementation step is gated on.
  *
  * Load-bearing assumptions the paired implementer may satisfy differently
- * (the paired implementation wins on conflict; full reasoning in
- * `LEARNINGS_test-engineer_step74.md`):
+ * (the paired implementation wins on conflict):
  *
  *   1. `<ProveStage client={...} topic={...} vault={...} status={...}
  *      obsidianCtx={...} />` -- the probe needs the same inputs `AskPane`
@@ -37,7 +36,7 @@ import type { QueryAnswer, WikiStatus } from "../../../types";
  *      to).
  *   3. `client.query` is called positionally as `(topic, question, vault)`,
  *      exactly as `AskPane.tsx`'s own `ask()` already does today -- "the
- *      same `query` tool `AskPane` calls" (§2.4) names the tool, not a new
+ *      same `query` tool `AskPane` calls" names the tool, not a new
  *      wrapper.
  *   4. `prove` renders the compiled artifact's `prompt_diff mode="compiled"`
  *      through the real `PromptDiff` component (boundary mock, mirroring
@@ -320,10 +319,10 @@ describe("the compiled diff is the real PromptDiff, not reimplemented", () => {
 });
 
 /**
- * The mechanical check `INTERFACE_DESIGN.md §2.0` names explicitly:
+ * The mechanical check the lane split demands:
  * `grep -rn "onOpen" dashboard/src/lanes/improve/` must return no matches.
  * Automated here as a directory walk rather than left as a manual grep note
- * (Step 74's own "Done when"). Vacuously true today -- the directory this
+ * (the plan's own "Done when"). Vacuously true today -- the directory this
  * suite's own paired implementation step creates doesn't exist yet -- and a
  * real regression guard once `PromoteStage.tsx`/`ProveStage.tsx` and their
  * siblings land.
@@ -399,7 +398,7 @@ function linesMatchingOnOpen(files: string[]): string[] {
   return matches;
 }
 
-describe("no cross-lane navigation prop survives anywhere under lanes/improve (§2.0 clause 3)", () => {
+describe("no cross-lane navigation prop survives anywhere under lanes/improve", () => {
   it('finds zero onOpen* occurrences -- the automated equivalent of grep -rn "onOpen" dashboard/src/lanes/improve/', () => {
     expect(linesMatchingOnOpen(collectSourceFiles(improveLaneDir))).toEqual([]);
   });

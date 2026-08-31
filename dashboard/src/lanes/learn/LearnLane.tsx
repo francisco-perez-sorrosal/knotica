@@ -12,7 +12,7 @@ import { ProcessBrief } from "../ProcessBrief";
 import { ProcessOutcome } from "../ProcessOutcome";
 
 /**
- * `LearnLane` (`INTERFACE_DESIGN.md §2.2`) -- the four-stage
+ * `LearnLane` -- the four-stage
  * `source -> fetch/parse -> pages -> curate` rail. Absorbs `IngestPane.tsx`'s
  * journal polling and monotonic watermark derivation unchanged; the rail
  * merely groups the raw 8-stage ingest journal onto four positions a human
@@ -27,7 +27,7 @@ import { ProcessOutcome } from "../ProcessOutcome";
  * turn from this rail.
  *
  * `curate` is deliberately decoupled from the ingest run's own state
- * (`§2.2`: "a separate workflow server-side ... so an un-curated ingest is
+ * ("a separate workflow server-side ... so an un-curated ingest is
  * not stuck"): once the ingest run is terminal, `pages` reads `complete`
  * even with no curate run yet -- the one place the rail's terminal
  * (`committed page`) precedes its own last stage.
@@ -141,8 +141,7 @@ export function LearnLane({
   vault: string;
   // Accepted for prop-surface parity with `IngestPane.tsx` (this rail's own
   // stages carry no Obsidian links yet -- `IngestPane`'s timeline events
-  // did, but the timeline itself is out of this rail's scope, per
-  // `INTERFACE_DESIGN.md §2.2`).
+  // did, but the timeline itself is out of this rail's scope).
   obsidianCtx: ObsidianContext;
 }): JSX.Element {
   const [activity, setActivity] = useState<IngestActivity | null>(null);

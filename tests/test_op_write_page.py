@@ -3,8 +3,8 @@
 ``write_page`` is the transactional fat-write: one indivisible unit that
 secret-scrubs the content, writes the page atomically, appends ``log.md``,
 optionally upserts the page's line in the root ``index.md`` catalog, and makes
-exactly one git commit. The behaviors pinned here (from the vault constitution,
-INTERFACE_DESIGN §1.3–1.5, and the mutation-discipline design):
+exactly one git commit. The behaviors pinned here (from the vault constitution
+and the mutation-discipline design):
 
 1. **Happy path** — a valid page is written, one commit is made, one log entry
    is appended (frozen grammar), and the page content lands verbatim.

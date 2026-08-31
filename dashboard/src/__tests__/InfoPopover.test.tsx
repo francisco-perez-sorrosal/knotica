@@ -4,7 +4,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import { InfoPopover } from "../InfoPopover";
 
 /**
- * The non-modal three-slot overlay primitive (design §7.1). Every assertion
+ * The non-modal three-slot overlay primitive. Every assertion
  * here traces to one row of that interaction table: single-open, Escape +
  * focus return, outside-click, and the `role="note"` (never `dialog`)
  * accessibility-tree contract that keeps it distinct from `ArmedButton`'s

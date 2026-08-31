@@ -12,8 +12,8 @@ import type {
 
 /**
  * `dashboard/src/lanes/improve/PromoteStage.tsx` does not exist yet -- this is
- * the RED half of a paired step (`IMPLEMENTATION_PLAN.md` Step 73/74,
- * `INTERFACE_DESIGN.md` §2.4's `promote` row, §2.0 clause 2/3). Loaded through
+ * the RED half of a paired step for
+ * Improve's `promote` row. Loaded through
  * a non-literal dynamic `import()` specifier, the same device
  * `lanes/__tests__/LaneRail.test.tsx` and `lanes/improve/__tests__/GateStage.test.tsx`
  * used for their own not-yet-existing modules: a literal
@@ -25,8 +25,7 @@ import type {
  * gated on.
  *
  * Four load-bearing assumptions the paired implementer may satisfy
- * differently (the paired implementation wins on conflict; full reasoning in
- * `LEARNINGS_test-engineer_step74.md`):
+ * differently (the paired implementation wins on conflict):
  *
  *   1. `<PromoteStage client={...} topic={...} vault={...} status={...}
  *      onStatusRefresh={...} />` -- mirrors `ScoreboardPanel`'s own prop
@@ -37,9 +36,9 @@ import type {
  *      target, deliberately independent of whichever button copy the
  *      implementer chooses (today's two duplicate paths disagree: "Preview
  *      promote" in `ScoreboardPanel.tsx`, "Preview merge" in
- *      `CompilePanel.tsx` -- §2.4 point 6 collapses them into one, but not
+ *      `CompilePanel.tsx` -- the redesign collapses them into one, but not
  *      which copy wins).
- *   3. `§2.4` point 6's "one control" collapse resolves to the
+ *   3. That "one control" collapse resolves to the
  *      `branches action=promote kind="compile"` call
  *      (`client.branchPromote`) and never reaches the standalone
  *      `compile action=promote` call (`client.compilePromote`) -- the two

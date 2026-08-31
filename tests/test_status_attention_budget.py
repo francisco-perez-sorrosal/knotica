@@ -1,7 +1,7 @@
 """RISK-10 budget-gate fitness tests: ``wiki_status view="attention"`` at many-topic scale.
 
-The outline's own cost estimate for Home's cross-topic poll (`SYSTEMS_PLAN.md`'s RISK-10
-row) was "4-6 whole-vault git calls + O(1) file reads per topic" -- and it is **wrong**.
+The design outline's own cost estimate for Home's cross-topic poll was "4-6 whole-vault
+git calls + O(1) file reads per topic" -- and it is **wrong**.
 Reading `core/status.py::_attention_status` (and its per-topic siblings) shows it makes
 **zero** git subprocesses: every field it reports (pending suggestions,
 refused-awaiting-rework, compile-readiness, runner liveness) is a small local file read

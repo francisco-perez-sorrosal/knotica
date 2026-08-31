@@ -17,7 +17,7 @@ import type { MetricsWindow, WikiStatus } from "../../../types";
 /**
  * `dashboard/src/lanes/improve/ImproveLane.tsx` does not exist yet -- this is
  * the RED half of a paired implementation/test step for
- * `INTERFACE_DESIGN.md` §2.4's six-stage assembly. Loaded through a
+ * the design's six-stage assembly. Loaded through a
  * non-literal dynamic `import()` specifier -- the same device
  * `lanes/__tests__/LaneRail.test.tsx`, `lanes/improve/__tests__/GateStage.test.tsx`,
  * and `lanes/tend/__tests__/TendLane.test.tsx` used for their own
@@ -32,7 +32,7 @@ import type { MetricsWindow, WikiStatus } from "../../../types";
  * `HealStage`/`PromoteStage`/`ProveStage`) are boundary-mocked here, per
  * `dashboard/CLAUDE.md`'s own precedent (`GateStage.test.tsx` stubs
  * `PromptDiff` for the identical reason): each is already characterized by
- * its own dedicated suite (Steps 70/72/74), so re-exercising their internal
+ * its own dedicated suite (the paired steps/74), so re-exercising their internal
  * fetches/uPlot charts/two-phase billing here would test the same behavior
  * twice while adding real network/canvas machinery this *assembly* test does
  * not need. Only `ImproveLane`'s own wiring -- which stage mounts, what it is
@@ -40,8 +40,7 @@ import type { MetricsWindow, WikiStatus } from "../../../types";
  *
  * Load-bearing assumptions about the not-yet-landed assembly (the paired
  * implementation wins on conflict; each is independently falsified, not
- * tangled with its neighbours; full reasoning in
- * `LEARNINGS_test-engineer_step76.md`):
+ * tangled with its neighbours):
  *
  *   1. `<ImproveLane client={...} topic={...} vault={...} status={...}
  *      metrics={...} obsidianCtx={...} onStatusRefresh={...} />` -- `status`/
@@ -53,26 +52,25 @@ import type { MetricsWindow, WikiStatus } from "../../../types";
  *      `PromoteStage`, the three that already declare it.
  *   2. Each non-Home per-topic row's `wiki_status` payload carries
  *      `lanes.improve`, an array of `{id, state, reason}` in rail order
- *      (`core/status.py`, Step 48) -- already-derived server state. The
+ *      (`core/status.py`) -- already-derived server state. The
  *      watermark position is read directly off which entry's `state` is
  *      `"active"` or `"blocked"` (R5: at most one), never independently
  *      recomputed from `status.loop`/`status.gate`'s raw fields. The exact
  *      TypeScript shape of this block on `WikiStatus` is not asserted here
- *      (the type does not exist in `types.ts` yet, a testability gap flagged
- *      in `LEARNINGS_test-engineer_step76.md`); fixtures below reach it via
+ *      (the type does not exist in `types.ts` yet, a testability gap);
+ *      fixtures below reach it via
  *      a cast, matching the real Python payload's field names.
  *   3. Only the watermark stage (`active` or `blocked`) mounts its real,
  *      interactive body by default -- every other stage renders a
- *      precondition/one-line summary instead (`INTERFACE_DESIGN.md` §1.5,
- *      §2.4 rule 4; Step 75's own "Done when": "an ahead-of-watermark stage
+ *      precondition/one-line summary instead ("an ahead-of-watermark stage
  *      shows its precondition, never a disabled control"). What a `complete`
  *      stage does *on click* is deliberately not asserted here -- neither
- *      the plan nor `INTERFACE_DESIGN.md` names a mechanism, only an
+ *      the plan nor the design names a mechanism, only an
  *      end-state ("Expandable on click → interactive"), and guessing one
  *      would pin an assumption nothing grounds.
  *   4. Each stage row renders as `<li class="lane-stage" data-state="...">`
  *      inside `<ol aria-label="improve stages">` -- the "Class contract" and
- *      accessibility floor `INTERFACE_DESIGN.md` §1.5 states for *every* new
+ *      accessibility floor required of *every* new
  *      lane rail (`TendLane.tsx` already honors this), not a guess about
  *      `ImproveLane`'s
  *      internal composition. The watermark stage additionally carries
@@ -88,7 +86,7 @@ import type { MetricsWindow, WikiStatus } from "../../../types";
  * inside a second, `ImproveLane`-owned wrapper disclosure is a residual risk
  * this suite's boundary-mocked children cannot exercise (a stub renders no
  * `aria-expanded` element at all) -- flagged for the implementer and
- * verifier in `LEARNINGS_test-engineer_step76.md` rather than silently
+ * verifier rather than silently
  * assumed clean.
  */
 
@@ -198,7 +196,7 @@ interface ImproveStageStatus {
   readonly reason?: string | null;
 }
 
-/** Mirrors `core/status.py`'s `lanes` block (Step 48): one entry per rail
+/** Mirrors `core/status.py`'s `lanes` block: one entry per rail
  * stage, in order, each already-derived server state -- never a raw
  * watermark integer, and never business fields the client would have to
  * interpret itself. */
@@ -253,7 +251,7 @@ function baseMetrics(): MetricsWindow {
 
 /** `lanes` is not yet a declared field on `WikiStatus["topics"][number]`
  * (`types.ts`) -- a testability gap the implementer must close alongside
- * `ImproveLane.tsx` itself; recorded in `LEARNINGS_test-engineer_step76.md`.
+ * `ImproveLane.tsx` itself.
  * The cast below reaches it with the real Python payload's field names. */
 function baseStatus(lanes: { improve: ImproveStageStatus[] }): WikiStatus {
   return {
@@ -542,7 +540,7 @@ describe.each(STAGE_ORDER.map((id, index) => ({ id, index })))(
       expect(props.topic).toBe(TOPIC);
       expect(props.vault).toBe(VAULT);
 
-      // `InstrumentStage` self-fetches its own dataset inventory (§2.4) and
+      // `InstrumentStage` self-fetches its own dataset inventory and
       // takes no `status` prop -- every other stage reads the same object.
       if (id !== "instrument") {
         expect(props.status).toBe(status);

@@ -192,7 +192,7 @@ def canonicalize_log(text: str) -> str:
         "# Directory Update Log\n\n"
         "Append-only log of vault operations, newest first: one entry per mutating "
         "operation, written in the same commit as the operation itself. Native shape "
-        "follows [[SCHEMA]] §3."
+        "follows [[SCHEMA]] §3."  # id-citation-discipline:ignore -- durable vault SCHEMA note
     )
     return _render_okf_log(preamble, entries)
 

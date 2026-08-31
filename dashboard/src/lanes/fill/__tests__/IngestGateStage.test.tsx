@@ -20,19 +20,19 @@ import type {
 
 /**
  * `dashboard/src/lanes/fill/IngestGateStage.tsx` does not exist yet -- this is
- * the RED half of a paired implementation/test step (`IMPLEMENTATION_PLAN.md`
- * Steps 98/99, `INTERFACE_DESIGN.md §2.5`/`§3.3`, `dec-087`, `dec-091`). This
- * suite spawns *before* Step 98's implementer, per the RED-handshake fix: the
+ * the RED half of a paired implementation/test step for Fill's `ingest` and
+ * `gate` stages (`dec-087`, `dec-091`). This
+ * suite spawns *before* its paired implementer, per the RED-handshake fix: the
  * standalone run below must fail at collection with a missing-module error,
  * which the paired implementation step is gated on.
  *
  * Loaded through a non-literal dynamic `import()` -- the same device
- * `QueueStage.test.tsx` (Step 97) and `HandoffStage.test.tsx` (Step 88) used
+ * `QueueStage.test.tsx` and `HandoffStage.test.tsx` used
  * for their own not-yet-existing modules: a literal
  * `import { IngestGateStage } from "../IngestGateStage"` would fail
  * `tsc --noEmit` for the whole project the moment this file lands.
  *
- * `HandoffStage` itself is **not** RED here -- Steps 87/88 already landed it
+ * `HandoffStage` itself is **not** RED here -- the paired steps already landed it
  * (`dashboard/src/lanes/HandoffStage.tsx`), so it is imported directly (not
  * dynamically) and this suite drives the real component through
  * `IngestGateStage`'s embedding, exactly as `dec-091`'s "one shared shell"
@@ -40,26 +40,26 @@ import type {
  * not a reimplementation of the nine-state contract.
  *
  * Load-bearing assumptions the paired implementer may satisfy differently
- * (full reasoning in `LEARNINGS_test-engineer_step99.md`; the paired
+ * (the paired
  * implementation wins on conflict):
  *
  *   1. `<IngestGateStage client={...} topic={...} vault={...} status={...}
  *      onStatusRefresh={...} />` -- the same five props `QueueStage.tsx`
- *      already takes (Step 96), since both are Fill's rail-stage components
- *      assembled by the same `FillLane.tsx` (Step 100).
+ *      already takes, since both are Fill's rail-stage components
+ *      assembled by the same `FillLane.tsx`.
  *   2. The component self-fetches `client.suggestionsRead(topic, "approved",
  *      cursor, limit, vault)` on mount -- `approved` suggestions are exactly
  *      the ones in flight through `ingest`/`gate` (`pending` ones are
  *      `QueueStage`'s `approve` stage's job; this file makes no second call
  *      for `pending`).
  *   3. Renders exactly two `.lane-stage` elements, ids `ingest` then `gate`,
- *      in that order -- `INTERFACE_DESIGN.md §2.5`'s numbered rail (④⑤).
+ *      in that order -- the design's numbered rail (④⑤).
  *      `data-state` is read from `status.topics[].lanes.fill` by id,
  *      defaulting to `"pending"`, mirroring `QueueStage`'s own convention.
  *   4. Each approved suggestion renders as a collapsed row inside the
  *      `ingest` stage with an expand affordance named after the candidate's
  *      title; exactly one suggestion's rail can be expanded at a time
- *      (`ingest`'s new "singleton" state Step 98 introduces) -- expanding a
+ *      (`ingest`'s new "singleton" state `ingest` introduces) -- expanding a
  *      second item collapses the first, unmounting its `HandoffStage`
  *      instance entirely (not merely pausing its poll), so at most one
  *      `.handoff-stage` node ever exists in the DOM.
@@ -67,7 +67,7 @@ import type {
  *      `<HandoffStage client vault topic suggestionId command="fill" ask={...}
  *      active={true} renderYouControl={...} />` -- `command="fill"` because
  *      `commands/fill.md` (not `commands/ingest.md`) is the dispatch target
- *      named by `INTERFACE_DESIGN.md §2.5`'s "`ingest` embeds
+ *      named by the design's "`ingest` embeds
  *      `<HandoffStage command="fill" .../>`" instruction.
  *   6. `renderYouControl` supplies one labelled button per `next.actor
  *      === "you"` state and calls no client method itself (`not_started` ->
@@ -85,19 +85,19 @@ import type {
  *      -> "not yet gated" placeholder; `merged` -> a merged/closed indication
  *      naming that the originating gap is now resolved (`dec-087`'s gate-
  *      closes-the-gap decision, superseding the suggestion-keyed workaround
- *      `INTERFACE_DESIGN.md §2.5`'s N6 finding flagged); `refused` -> the
+ *      the design's N6 finding flagged); `refused` -> the
  *      dilution reason plus a `[Rework it]` affordance. No new suggestion is
  *      selected to view `gate` independently of `ingest` -- both stages
- *      always describe the same singleton-expanded item (Step 98: "exactly
+ *      always describe the same singleton-expanded item ("exactly
  *      one suggestion's rail is open at a time").
  *   8. `[Rework it]` declares no cross-lane navigation prop (`onOpen*`-shaped)
- *      anywhere in `IngestGateStage.tsx` -- extends Step 80's cross-lane-prop
- *      census technique to this file, which Step 80's own census excluded
+ *      anywhere in `IngestGateStage.tsx` -- extends the cross-lane-prop
+ *      census technique to this file, which that earlier census excluded
  *      (it scoped out everything under `dashboard/src/lanes/`).
  *
  * Not tested here (other steps' job): `QueueStage`'s `gap`/`discover`/
- * `approve` stages (Step 97), the assembled five-stage `FillLane` rail and
- * cross-stage selection wiring (Step 101), `HandoffStage`'s own nine-state/
+ * `approve` stages, the assembled five-stage `FillLane` rail and
+ * cross-stage selection wiring, `HandoffStage`'s own nine-state/
  * dispatch-tier contract (already covered by `HandoffStage.test.tsx`).
  */
 
@@ -445,7 +445,7 @@ function expandButtonFor(container: HTMLElement, title: string): HTMLElement {
  * two different moments -- `vi.waitFor`'s callback resolves the instant it
  * stops throwing, so a bare "has been called" check can win the race and
  * return before Preact's own re-render commits. Query-mechanism-only fix
- * (declared adjustment, `LEARNINGS_implementer_step98.md`): every
+ * (a declared adjustment): every
  * `expandButtonFor` call site waits on this DOM fact instead of (or in
  * addition to) the mock-call fact, mirroring `QueueStage.test.tsx`'s own
  * post-GREEN `find*` conversion for the identical race.
@@ -539,7 +539,7 @@ describe("loading the ingest+gate queue", () => {
 });
 
 // ---------------------------------------------------------------------------
-// Singleton expansion -- Step 99's central structural assertion
+// Singleton expansion -- the central structural assertion
 // ---------------------------------------------------------------------------
 
 describe("singleton expansion -- exactly one suggestion's rail is open at a time", () => {
@@ -603,7 +603,7 @@ describe("singleton expansion -- exactly one suggestion's rail is open at a time
 // The nine states render through the *real*, already-landed HandoffStage
 // ---------------------------------------------------------------------------
 
-describe("the expanded item's rail renders through the real HandoffStage (INTERFACE_DESIGN.md §3.3)", () => {
+describe("the expanded item's rail renders through the real HandoffStage", () => {
   it.each(ALL_NINE_STATES)(
     "%s narrates its own next.do sentence, proving the embedding is real, not reimplemented",
     async (_label, statusFor) => {
@@ -772,11 +772,11 @@ describe("the gate stage projects the expanded suggestion's own gate_outcome -- 
 // The rework path is in-lane -- no cross-lane navigation prop anywhere
 // ---------------------------------------------------------------------------
 
-describe("[Rework it] re-enters ingest in-lane -- no navigation-prop call (extends Step 80's census)", () => {
+describe("[Rework it] re-enters ingest in-lane -- no navigation-prop call (extends the cross-lane-prop census)", () => {
   it("IngestGateStage.tsx declares no onOpen*-shaped cross-lane navigation prop", async () => {
     // Non-literal specifiers -- `@types/node` is not a project dependency, so
     // a literal `import("fs")` fails `tsc --noEmit` even when the result is
-    // cast; the same device `crossLaneLinkCensus.test.ts` (Step 80) uses.
+    // cast; the same device `crossLaneLinkCensus.test.ts` uses.
     const FS_MODULE_NAME = "fs";
     const PATH_MODULE_NAME = "path";
     const URL_MODULE_NAME = "url";

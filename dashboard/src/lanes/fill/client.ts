@@ -165,7 +165,7 @@ export const fillToolCalls: ToolCallGroup<FillToolCalls> = {
     });
   },
 
-  /** The handoff stage's one read (`INTERFACE_DESIGN.md §3.3`). */
+  /** The handoff stage's one read (`dec-091`). */
   sessionStatus(
     topic: string,
     suggestionId: string,

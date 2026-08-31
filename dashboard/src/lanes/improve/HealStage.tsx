@@ -29,7 +29,7 @@ import type {
  *
  * `compile action=run` is a single billed call with no free preview leg
  * (unlike `gate`'s `run_once`, which mints a server-side nonce). Per the
- * orchestrator's no-native-dialogs ruling (`LEARNINGS.md`), a spend-immediately
+ * dashboard-wide no-native-dialogs rule, a spend-immediately
  * control with no nonce cycle gates on the shared `ArmedButton` two-click
  * affordance instead of `window.confirm()` — never native, and never a single
  * click.

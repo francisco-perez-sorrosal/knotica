@@ -19,7 +19,7 @@ const URGENCY_ORDER_EXPLANATION =
   "Blocked outranks waiting outranks running: stopped pipelines first, then things awaiting you, then things merely running.";
 
 /**
- * The urgency-tinted, ranked attention queue (design §3.2) --
+ * The urgency-tinted, ranked attention queue --
  * `deriveAttentionRows`'s flat, one-row-per-signal output, sorted by
  * `sortAttentionRows` before it reaches this component (rank is therefore
  * the caller's sort order, never re-derived here) and rendered as a

@@ -7,10 +7,10 @@ import { LANE_META, type LaneMeta, type LaneShape } from "./laneMeta";
 import { STAGE_STATE_LEGEND, STATE_ICON, stageMeta } from "./stageMeta";
 
 /**
- * The loop visualization that sits above a lane's rail (design §3.3). Six
+ * The loop visualization that sits above a lane's rail. Six
  * stacked boxes in document order say nothing about *shape*: the rail below
  * carries the content, this strip carries the position and whether the lane
- * closes back on itself. The redundancy is deliberate (design §8 R7) -- it
+ * closes back on itself. The redundancy is deliberate -- it
  * encodes structure a flat list cannot.
  *
  * The strip is a projection of state the lane already holds; it makes no

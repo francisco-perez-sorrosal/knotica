@@ -12,7 +12,7 @@ export interface InfoPopoverProps {
   /** Trigger `aria-label`, e.g. `"About Observe"`. */
   ariaLabel: string;
   whatThisIs: JSX.Element | string;
-  /** Omitted where the target has no states (design §3.4). */
+  /** Omitted where the target has no states. */
   whatTheStatesMean?: JSX.Element;
   whatToDoNext?: JSX.Element | string;
   /** One of three static positioning variants -- no measurement, no portal. */
@@ -22,7 +22,7 @@ export interface InfoPopoverProps {
 }
 
 /**
- * The non-modal, three-slot overlay primitive (design §3.4/§7.1) -- the
+ * The non-modal, three-slot overlay primitive -- the
  * direct fix for invisible-on-touch `title=` tooltips. Never a confirmation
  * surface: no destructive action, no primary button, no focus trap.
  * `role="note"`, never `role="dialog"`, encodes that in the a11y tree.

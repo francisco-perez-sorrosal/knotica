@@ -2,11 +2,19 @@
 """ID citation discipline checker (inbound isolation) -- knotica port.
 
 Scans code files (Python, TS, JS, etc.) for references to ephemeral pipeline
-identifiers -- REQ-*, AC-*, Step N, PM-N, dec-draft-<hash>, and citations of
-WIP.md / SYSTEMS_PLAN.md / IMPLEMENTATION_PLAN.md. Those identifiers live in
-documents that are deleted with .ai-work/ (or, for dec-draft-<hash>, are
-rewritten to dec-NNN by ADR finalize) -- so citations left behind in code or
-tests dangle the moment the pipeline that minted them completes.
+identifiers -- REQ-*, AC-*, Step N, PM-N, dec-draft-<hash>, citations of any
+.ai-work/-lifetime document (WIP.md, SYSTEMS_PLAN.md, INTERFACE_DESIGN.md,
+LEARNINGS*.md, ...), and bare section citations (`§2.4`). Those identifiers
+live in documents that are deleted with .ai-work/ (or, for dec-draft-<hash>,
+are rewritten to dec-NNN by ADR finalize) -- so citations left behind in code
+or tests dangle the moment the pipeline that minted them completes.
+
+The section-citation pattern earns its place from td-062: ~200 `§N.N` pointers
+accumulated across dashboard/src, and by the end *two different* documents
+named INTERFACE_DESIGN.md, with independent numbering, were cited from the
+same file -- so a reader could not tell which numbering a comment meant. A
+section citation of a published standard (WCAG, RFC) is legitimate and takes
+the escape hatch below.
 
 Ported from praxion's scripts/check_id_citation_discipline.py, adapted to
 knotica's repo layout. Key asymmetry (do not "simplify" this away): the ADR
@@ -199,10 +207,31 @@ PATTERNS: tuple[tuple[str, re.Pattern[str], str], ...] = (
     ),
     (
         "ephemeral-doc-ref",
-        re.compile(r"\b(?:WIP|SYSTEMS_PLAN|IMPLEMENTATION_PLAN)\.md\b"),
-        "reference to an ephemeral pipeline document (WIP.md / "
-        "SYSTEMS_PLAN.md / IMPLEMENTATION_PLAN.md) -- deleted with "
-        ".ai-work/; describe the behavior or decision inline instead",
+        re.compile(
+            r"\b(?:WIP|SYSTEMS_PLAN|IMPLEMENTATION_PLAN|INTERFACE_DESIGN|TRANSACTIONS_DESIGN"
+            r"|RESEARCH_FINDINGS|TASK_BRIEF|CONTEXT_REVIEW|IDEA_PROPOSAL|SPEC_DELTA"
+            r"|PRE_REFACTOR_PLAN|VERIFICATION_REPORT|REWORK_MANIFEST|TEST_RESULTS"
+            r"|TEST_BASELINE|LEARNINGS)(?:_[A-Za-z0-9_-]+)?\.md\b"
+        ),
+        "reference to an ephemeral pipeline document (anything under "
+        ".ai-work/<slug>/ -- WIP.md, SYSTEMS_PLAN.md, INTERFACE_DESIGN.md, "
+        "LEARNINGS*.md, ...) -- deleted at pipeline cleanup; describe the "
+        "behavior or decision inline, or cite a finalized dec-NNN instead",
+    ),
+    (
+        "section-citation",
+        # A section symbol followed by a section number is a pointer into a
+        # document, and in code that document is almost always the pipeline's
+        # own ephemeral design doc (td-062: ~200 such pointers accumulated,
+        # two different INTERFACE_DESIGN.md files with clashing numbering).
+        # A genuine standard citation (WCAG 2.2 s2.5.8, RFC ...) takes the
+        # escape hatch.
+        re.compile(r"§\s*\d"),
+        "section citation (e.g. §2.4) -- section numbers point into an "
+        "ephemeral design document that is deleted with .ai-work/, and two "
+        "such documents can share a filename with clashing numbering. State "
+        "the constraint itself, or cite a finalized dec-NNN. A citation of a "
+        "published standard takes the escape hatch.",
     ),
 )
 
@@ -230,6 +259,23 @@ def is_bash_shebang(path: Path) -> bool:
     if not text.startswith("#!"):
         return False
     return any(pattern.search(text) for pattern in _SHEBANG_PATTERNS)
+
+
+# A section symbol is a dangling pointer only when the document it points into
+# is ephemeral. A line naming a durable document -- or a published standard --
+# cites something a reader can still open years from now, so `DESIGN.md § 3`
+# and `WCAG 2.2 §2.5.8` are exactly the citations this project wants.
+DURABLE_CITATION_TARGETS = re.compile(
+    r"\b(?:DESIGN|CLAUDE|README|CONTRIBUTING|CHANGELOG|ROADMAP|TEST_TOPOLOGY"
+    r"|TECH_DEBT_LEDGER|TECH_DEBT_RESOLVED|DECISIONS_INDEX)\.md\b"
+    r"|\bdocs/|\bdec-\d{3}\b"
+    r"|\b(?:WCAG|RFC|PEP|ISO|ECMA|ARIA|Unicode)\b"
+)
+
+
+def cites_durable_document(line: str) -> bool:
+    """Return True if this line's section citation points at a durable target."""
+    return DURABLE_CITATION_TARGETS.search(line) is not None
 
 
 def is_excluded_path(path: Path) -> bool:
@@ -303,9 +349,12 @@ def scan_file(path: Path) -> list[tuple[int, str, str, str]]:
         if IGNORE_MARKER in line:
             continue
         for name, pattern, description in PATTERNS:
-            if pattern.search(line):
-                findings.append((line_no, name, description, line.rstrip()))
-                break  # one pattern report per line keeps output readable
+            if not pattern.search(line):
+                continue
+            if name == "section-citation" and cites_durable_document(line):
+                continue
+            findings.append((line_no, name, description, line.rstrip()))
+            break  # one pattern report per line keeps output readable
     return findings
 
 

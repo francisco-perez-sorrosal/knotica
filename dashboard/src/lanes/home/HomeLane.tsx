@@ -14,13 +14,13 @@ import { deriveAttentionRows, sortAttentionRows } from "./attentionRows";
 import { LaneCardGrid } from "./LaneCardGrid";
 
 /**
- * `HomeLane` (`INTERFACE_DESIGN.md §2.1`, `dec-092`; redesigned per
- * `INTERFACE_DESIGN.md §3.2`) -- the cross-topic attention inbox. No stage
+ * `HomeLane` (`dec-092`, redesigned on the shared design language of
+ * `dec-102`) -- the cross-topic attention inbox. No stage
  * rail, no per-stage state: a lane-card grid plus a flat attention queue (or
  * a success state), not a process rail.
  *
  * Self-fetches `client.wikiStatus("", vault, "attention")` on mount and on
- * every tick of its own `startVisibilityPausedPoll` (`§4.2` rule 3, `dec-092`)
+ * every tick of its own `startVisibilityPausedPoll` (`dec-092`)
  * at 10s -- independent of `App.tsx`'s 2s `view="summary"` poll every other
  * lane's rail reads from. Home is cross-topic, so it owns its own read. The
  * six `LaneCardGrid` cards and the drift row both read from this same
@@ -34,10 +34,10 @@ import { LaneCardGrid } from "./LaneCardGrid";
  * `(lane, stage)` pair sourced from `attentionMeta.ts`, never one it invents.
  *
  * The drift row renders unconditionally as a statement plus an
- * `InfoPopover` (design §3.2) -- the prior `[Check]` button had no click
- * handler ("an affordance that lies," design §1 F3) and is removed, not
+ * `InfoPopover` -- the prior `[Check]` button had no click
+ * handler ("an affordance that lies") and is removed, not
  * wired; resolving note anchors is still the one cost `attention` does not
- * pay unconditionally (`§4.2` rule 2), so the popover's remediation slot
+ * pay unconditionally, so the popover's remediation slot
  * offers the CLI command instead.
  */
 const ATTENTION_POLL_MS = 10_000;

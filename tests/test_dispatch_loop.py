@@ -71,8 +71,7 @@ def test_baseline_policy_missing_policy_is_rejected_naming_it(
     ``policy`` must be caught before falling through to
     ``LoopRunner.set_baseline_policy`` (which would otherwise report
     ``NOT_CONFIGURED`` for an empty string, an argument problem misfiled as a
-    configuration one). See LEARNINGS.md for the discrepancy this test caught
-    mid-session, since resolved."""
+    configuration one)."""
     del vault_config
     result = call_tool(_dispatch_server(), "loop", {"action": "baseline_policy", "topic": TOPIC})
     assert result.isError

@@ -73,8 +73,8 @@ _TOPIC_FIDELITY = "topic"
 _TIMESTAMP_FORMAT = "%Y-%m-%dT%H:%M:%SZ"
 
 #: Row-specific fix text for ``reanchor``'s ``PAGE_NOT_FOUND`` failure --
-#: ``INTERFACE_DESIGN.md`` § 8's error grammar table gives this row a
-#: fallback the generic :data:`~knotica.core.errors.DEFAULT_FIX` lacks: a
+#: the error grammar gives this row a fallback the generic
+#: :data:`~knotica.core.errors.DEFAULT_FIX` lacks: a
 #: user pointing at a deleted page can keep the note without an anchor.
 _PAGE_NOT_FOUND_FIX = (
     "Call `search` in this topic for the surviving page, or "

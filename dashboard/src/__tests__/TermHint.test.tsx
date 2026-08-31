@@ -5,7 +5,7 @@ import { InfoPopover } from "../InfoPopover";
 import { TermHint } from "../TermHint";
 
 /**
- * The inline dotted-underline explanatory overlay (design §2.3) -- a
+ * The inline dotted-underline explanatory overlay -- a
  * second overlay *class* sharing round 1's single-open signal
  * (`infoPopoverState.ts`), never a second overlay *system* (B3). At most
  * one overlay, `InfoPopover` or `TermHint`, is ever open.

@@ -23,13 +23,13 @@ import {
 import type { PaneId } from "../types";
 
 /**
- * The **whole target state** of the M5 Home wave (`IMPLEMENTATION_PLAN.md`
- * Step 112), written before Steps 113-115 land -- the M3/M4 lesson applied
+ * The **whole target state** of the M5 Home wave, written before the waves
+ * that follow land -- the M3/M4 lesson applied
  * directly a third time: a post-hoc census only catches a missed batch
  * because it asserts the *whole* target state, and both prior milestones
  * wrote their own census before any lane build started. This suite is that
  * backstop for M5. It is deliberately **RED on arrival** for the Home-repoint
- * groups and stays RED, shrinking one assertion at a time, until Step 115
+ * groups and stays RED, shrinking one assertion at a time, until the last wave
  * lands.
  *
  * Five independently falsifiable groups, matching the plan's own (a)-(e):
@@ -39,33 +39,33 @@ import type { PaneId } from "../types";
  *       `m4DissolutionCensus.test.tsx`/`crossLaneLinkCensus.test.ts` already
  *       established: comparing a not-yet-valid literal against `PaneId` via a
  *       typed equality check would fail `tsc --noEmit` for the *entire
- *       project* the moment this file lands, long before Step 115 adds the
- *       member) -- un-REDs at Step 115.
+ *       project* the moment this file lands, long before the later wave adds the
+ *       member) -- un-REDs when its wave lands.
  *   (b) `DEFAULT_PANE` is `"home"`, no longer the M1 interim `"tend"`
  *       stand-in, and the bare URL (no `?pane=`, no `?lane=`) resolves there
- *       through it -- un-REDs at Step 115.
+ *       through it -- un-REDs when its wave lands.
  *   (c) `PANE_BY_PARAM.get("home")` is `"home"`, no longer `"tend"`, and the
  *       `?lane=home` deep-link form (`resolveLaneFocus`) resolves the same
- *       way -- un-REDs at Step 115. Every *other* legacy key's resolution is
+ *       way -- un-REDs when its wave lands. Every *other* legacy key's resolution is
  *       asserted unchanged -- additive-only regression on the repoint,
  *       mirroring every prior milestone's own additive-only checks
  *       (`crossLaneLinkCensus.test.ts`'s own such group) -- already green.
  *   (d) the final six-lane surface renders end-to-end: `ImproveLane`/
  *       `TendLane`/`LearnLane`/`AnswerLane`/`FillLane` are regression-only
  *       (unaffected by this wave, already green); `HomeLane` un-REDs at Step
- *       113. The nav's Home tab un-REDs at Step 115; the nav's five existing
+ *       113. The nav's Home tab un-REDs when its wave lands; the nav's five existing
  *       tabs are regression-only, already green.
  *   (e) the promoted cross-lane-navigation census: a source-scan across
  *       every `.tsx` file under `dashboard/src/lanes/**` asserting
  *       `onOpen`-shaped props appear **only** inside `dashboard/src/lanes/
- *       home/**` -- extending M3's Step 83 one-time assertion and every
+ *       home/**` -- extending M3's one-time assertion and every
  *       per-lane negative check since (`ProveStage`, `IngestGateStage`,
  *       others) into one permanent, named regression net now that Home is
  *       the invariant's real occupant, not a placeholder. `lanes/home/`
  *       doesn't exist on disk yet, so this is **already green, vacuously**
  *       -- nothing yet exists to violate it, and it stays green once
  *       `HomeLane`'s own `onOpenLane` prop lands inside `lanes/home/`
- *       (Step 113), because that subtree is the one place this check
+ *      , because that subtree is the one place this check
  *       permits it.
  *
  * `HomeLane` does not exist on disk yet, so it is loaded through a
@@ -74,14 +74,13 @@ import type { PaneId } from "../types";
  * literal `import { HomeLane } from "../lanes/home/HomeLane"` would fail
  * `tsc --noEmit` for the whole project the instant this file lands.
  *
- * Load-bearing assumption (full reasoning in
- * `LEARNINGS_test-engineer_step112.md`): `HomeLane`'s smoke-render props
+ * Load-bearing assumption : `HomeLane`'s smoke-render props
  * (`client`, `vault`, `onOpenLane`) are a best-effort guess read off Step
  * 113's own implementation text (`client.wikiStatus("", vault, "attention")`
  * on mount; `onOpenLane: (lane: PaneId) => void` passed down from `App.tsx`),
  * not real code -- leaning on this codebase's established cross-cutting
  * invariant that every pane/lane tolerates `client: null` gracefully.
- * Whichever implementer lands Step 113 wins on conflict; if the real props
+ * Whichever implementer lands the lane wins on conflict; if the real props
  * differ enough to throw at render, that one sub-assertion stays RED past
  * its named un-RED step and names exactly which prop assumption to revisit
  * -- the backstop doing its job either way.
@@ -150,7 +149,7 @@ function collectSourceFiles(dir: string): string[] {
   return files;
 }
 
-describe("(a) PaneId reaches its final M5 union (un-REDs at Step 115)", () => {
+describe("(a) PaneId reaches its final M5 union", () => {
   function paneIdUnionMembers(): string[] {
     const match = typesSource.match(/export type PaneId = ([^;]+);/);
     if (!match) {
@@ -166,7 +165,7 @@ describe("(a) PaneId reaches its final M5 union (un-REDs at Step 115)", () => {
   });
 });
 
-describe("(b) DEFAULT_PANE lands on home, not the M1 interim tend stand-in (un-REDs at Step 115)", () => {
+describe("(b) DEFAULT_PANE lands on home, not the M1 interim tend stand-in", () => {
   it("DEFAULT_PANE is home", () => {
     expect(DEFAULT_PANE).toBe("home");
   });
@@ -177,7 +176,7 @@ describe("(b) DEFAULT_PANE lands on home, not the M1 interim tend stand-in (un-R
 });
 
 describe("(c) PANE_BY_PARAM repoints home to itself, not tend", () => {
-  describe("target-state repoint (un-REDs at Step 115)", () => {
+  describe("target-state repoint", () => {
     it("?pane=home now resolves to home, not tend", () => {
       expect(PANE_BY_PARAM.get("home")).toBe("home");
     });
@@ -286,7 +285,7 @@ describe("(d) the final six-lane surface renders end-to-end", () => {
       expectNonEmptyRender(container);
     });
 
-    it("renders HomeLane (un-REDs at Step 113)", async () => {
+    it("renders HomeLane", async () => {
       const { HomeLane } = (await import(HOME_LANE_MODULE_PATH)) as {
         HomeLane: HomeLaneComponent;
       };
@@ -297,7 +296,7 @@ describe("(d) the final six-lane surface renders end-to-end", () => {
     });
   });
 
-  describe("nav shows the Home tab (un-REDs at Step 115)", () => {
+  describe("nav shows the Home tab", () => {
     it("nav renders a Home tab", () => {
       expect(paneTabsBlock()).toMatch(/>\s*Home\s*[<{]/);
     });

@@ -289,7 +289,7 @@ def test_an_action_a_live_lane_does_not_declare_is_rejected(tree: Path) -> None:
 def test_a_dead_call_form_in_the_design_canon_is_rejected(tree: Path) -> None:
     """`DESIGN.md` § 4 is the canon an agent resolves "what does this expose?" against.
 
-    It declared a 35-tool surface two sections after § 3b correctly said 21, and
+    It declared a 35-tool surface two sections after `DESIGN.md` § 3b correctly said 21, and
     no check read it.
     """
     _edit(

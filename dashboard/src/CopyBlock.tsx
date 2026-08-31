@@ -6,7 +6,7 @@ import { Icon } from "./icons";
 const CONFIRMATION_DISPLAY_MS = 1400;
 
 /**
- * A mono code block with a copy affordance (design §3.2/§3.5) -- the
+ * A mono code block with a copy affordance -- the
  * remediation-hint and drift-check rendering the dashboard already carries
  * as plain prose or a bare `<code>`, upgraded to something a user can act
  * on without retyping.

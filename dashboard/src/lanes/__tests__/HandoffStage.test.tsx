@@ -22,7 +22,7 @@ import type { HostCapabilities, Mount } from "../hostCapabilities";
 /**
  * `dashboard/src/lanes/HandoffStage.tsx` does not exist yet -- this is the
  * RED half of a paired implementation/test step for the shared handoff stage
- * (`INTERFACE_DESIGN.md §3`, `dec-091`). Loaded through a non-literal dynamic
+ * (`dec-091`). Loaded through a non-literal dynamic
  * `import()` for the same reason every other not-yet-existing-module suite in
  * this tree does (`hostCapabilities.test.ts`, `QueueStage.test.tsx`): a
  * literal `import { HandoffStage } from "../HandoffStage"` would fail
@@ -33,27 +33,27 @@ import type { HostCapabilities, Mount } from "../hostCapabilities";
  * step is gated on.
  *
  * `SessionStatus` is mirrored locally rather than imported from `../../types`
- * -- Step 87 adds that type to `types.ts` alongside the component itself, so
+ * -- The paired step adds that type to `types.ts` alongside the component itself, so
  * it does not exist on disk yet either. The mirror below is this suite's own
- * copy of `INTERFACE_DESIGN.md §3.3`'s wire contract, not an import of the
+ * copy of the design's wire contract, not an import of the
  * real one; once the module lands, `HandoffStage.tsx`'s own `import type`
  * from `types.ts` is what actually proves the real shape matches.
  *
  * Load-bearing assumptions the paired implementer may satisfy differently
- * (full reasoning in `LEARNINGS_test-engineer_step88.md`; the paired
+ * (the paired
  * implementation wins on conflict):
  *
  *   1. `<HandoffStage client vault topic suggestionId command ask active
- *      renderYouControl />` -- the six data/config props Step 87 names
+ *      renderYouControl />` -- the six data/config props the design names
  *      verbatim, plus a `renderYouControl: (status: SessionStatus) =>
  *      JSX.Element | null` render prop for the `next.actor === "you"`
  *      control ("Submit / Rework / Open a session ... never invented inside
  *      this component").
  *   2. Neither `hostCapabilities` nor `mount` is a prop of `HandoffStage`
- *      itself -- Step 87's prop list has no such entries. Both are read off
+ *      itself -- that prop list has no such entries. Both are read off
  *      the `client` it already receives (`client.hostCapabilities`,
  *      `client.mount`), the two fields `dec-091`'s plumbing clause (5) and
- *      Step 85 add to `ToolClient` -- consistent with "no `mount ===
+ *      the paired steps add to `ToolClient` -- consistent with "no `mount ===
  *      'bridge'` string check anywhere outside `deriveDispatchTier`": the
  *      lane never re-derives the mount itself, it only forwards what the
  *      client already carries.
@@ -78,7 +78,7 @@ import type { HostCapabilities, Mount } from "../hostCapabilities";
  *   6. The conditional-poll pattern (`useEffect` guarded by `active`,
  *      immediate tick + `window.setInterval(tick, 3000)`, cleanup on
  *      unmount/dep-change) is the one `CompilePanel.tsx:56` established --
- *      cited in `IMPLEMENTATION_PLAN.md` Step 87, but that file was deleted
+ *      cited when this stage was designed, but that file was deleted
  *      in the M3 pane dissolution (`git show 97349b4^:dashboard/src/
  *      CompilePanel.tsx`). Recorded as a testability note, not a load-bearing
  *      assumption about `HandoffStage`'s own behavior: the poll-discipline
@@ -88,7 +88,7 @@ import type { HostCapabilities, Mount } from "../hostCapabilities";
  */
 
 // ---------------------------------------------------------------------------
-// Local mirror of INTERFACE_DESIGN.md §3.3's wire contract.
+// Local mirror of the design's wire contract.
 // ---------------------------------------------------------------------------
 
 type SessionState =
@@ -366,7 +366,7 @@ function youControlPresent(): HTMLElement | null {
 // The nine states: next.actor drives which affordance shows
 // ---------------------------------------------------------------------------
 
-describe("the nine states of INTERFACE_DESIGN.md §3.3 — next.actor drives the affordance", () => {
+describe("the nine handoff states — next.actor drives the affordance", () => {
   describe("next.actor: claude — the dispatch control shows, never the in-lane control", () => {
     it("waiting_on_client shows the dispatch control and never calls renderYouControl", async () => {
       const { client } = fakeClient({ responses: [WAITING_ON_CLIENT] });
@@ -465,7 +465,7 @@ describe("next.do narrates every one of the nine states — the anti-dead-end gu
 // Dispatch: four tiers, honest labels, the copyable floor always ships
 // ---------------------------------------------------------------------------
 
-describe("dispatch: four tiers, honest labels, zero hard dependency (INTERFACE_DESIGN.md §3.4)", () => {
+describe("dispatch: four tiers, honest labels, zero hard dependency", () => {
   beforeEach(() => {
     Object.defineProperty(navigator, "clipboard", {
       value: { writeText: vi.fn() },

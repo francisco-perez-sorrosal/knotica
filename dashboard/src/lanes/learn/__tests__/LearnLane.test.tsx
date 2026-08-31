@@ -9,8 +9,8 @@ import type { IngestActivity, IngestRun } from "../../../types";
 
 /**
  * `dashboard/src/lanes/learn/LearnLane.tsx` does not exist yet -- this is the
- * RED half of a paired implementation/test step for `INTERFACE_DESIGN.md`
- * §2.2 (Learn's `source -> fetch/parse -> pages -> curate` rail). Loaded
+ * RED half of a paired implementation/test step for Learn's
+ * `source -> fetch/parse -> pages -> curate` rail. Loaded
  * through a non-literal dynamic `import()` specifier, the same device
  * `lanes/improve/__tests__/ImproveLane.test.tsx` and
  * `lanes/answer/__tests__/AnswerLane.test.tsx` used for their own
@@ -21,17 +21,16 @@ import type { IngestActivity, IngestRun } from "../../../types";
  * type-checking while this file fails at *runtime* with the missing-module
  * error the paired implementation step is gated on.
  *
- * `HandoffStage` is a real, already-tested component (Step 88) -- stubbing
+ * `HandoffStage` is a real, already-tested component -- stubbing
  * it here is a boundary mock (its own poll/dispatch-tier machinery is out of
  * scope for this suite), not a mock of the unit under test, mirroring
  * `GateStage.test.tsx`'s `PromptDiff` stub for the identical reason.
  *
  * Load-bearing assumptions about the not-yet-landed component (the paired
- * implementation wins on conflict; full reasoning in
- * `LEARNINGS_test-engineer_step93.md`):
+ * implementation wins on conflict):
  *
  *   1. `<LearnLane client={...} topic={...} vault={...} obsidianCtx={...} />`
- *      -- the exact prop shape `IngestPane.tsx` already takes (§2.2's
+ *      -- the exact prop shape `IngestPane.tsx` already takes (the design's
  *      "behaviour-preserving move" reads as prop-surface-preserving too).
  *      `LearnLane` polls `client.ingestActivityRead(topic, vault, "")`
  *      itself, mirroring `IngestPane.tsx`'s own `useEffect` -- there is no
@@ -64,14 +63,14 @@ import type { IngestActivity, IngestRun } from "../../../types";
  *      `core/status_lanes.py::_learn_watermark` uses for the unrelated
  *      cross-topic Home projection) would fail it.
  *   4. `curate` is genuinely decoupled from the ingest run's own watermark
- *      (`§2.2`: "a separate workflow server-side... deliberately, so an
+ *      ("a separate workflow server-side... deliberately, so an
  *      un-curated ingest is not stuck"): its own state is read off whichever
  *      run in `activity.runs` has `workflow === "curate"`, independent of
  *      the ingest run's `terminal`/`stage_index`. Once the ingest run is
  *      `terminal`, `pages` renders `complete` (not stuck at `active`
  *      forever) even with no curate run yet -- this is the "terminal
- *      precedes the last stage" case `§2.2` states explicitly.
- *   5. **Not an assumption -- ground truth from the already-landed Step 91
+ *      precedes the last stage" case the design states explicitly.
+ *   5. **Not an assumption -- ground truth from the already-landed
  *      whole-target-state census** (`src/__tests__/m4DissolutionCensus.test.tsx`
  *      group (e)): `lanes/learn`'s subtree embeds **exactly one**
  *      `<HandoffStage ... command="ingest" ... />` JSX tag, full stop.
@@ -89,7 +88,7 @@ import type { IngestActivity, IngestRun } from "../../../types";
  *
  * Not tested here (out of this step's scope, or `HandoffStage`'s own already
  * -tested contract): the exact prose of each stage's `ask` copy, dispatch
- * tier affordances (`DispatchControl`'s A/B/C/D labels, Step 88), and the
+ * tier affordances (`DispatchControl`'s A/B/C/D labels), and the
  * per-stage "fact" text (paper title, section/page counts) beyond presence
  * where the design pins a concrete value.
  */
@@ -233,7 +232,7 @@ async function renderAndWaitForRail(
   return stageNodes(container);
 }
 
-describe("the rail's structural source (INTERFACE_DESIGN.md §2.2 identity, not a copy)", () => {
+describe("the rail's structural source (identity, not a copy)", () => {
   it("renders exactly the four stages LANE_STAGES.learn declares, in that order", async () => {
     const nodes = await renderAndWaitForRail(activityOf(null));
 
@@ -391,7 +390,7 @@ describe("the handoff embed at whichever stage is the client's current write (Ha
   );
 });
 
-describe("curate is optional -- the rail's one place the terminal precedes its last stage (§2.2)", () => {
+describe("curate is optional -- the rail's one place the terminal precedes its last stage", () => {
   it(
     "reads the lane's terminal as reaching 'committed page' once pages completes, " +
       "while curate is still pending -- a mutated 'AND curate complete' implementation fails this",

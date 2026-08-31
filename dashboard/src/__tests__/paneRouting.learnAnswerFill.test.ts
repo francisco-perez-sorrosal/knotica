@@ -50,8 +50,7 @@ import { PANE_BY_PARAM, resolvePane } from "../paneRouting";
  *      exact call already wired for `SourcesPane`, the pane it absorbs. This
  *      is the one part of the assumption set that is a genuine guess about
  *      spelling (a differently-named local variable holding the same signal
- *      would still satisfy the behavior); flagged in
- *      `LEARNINGS_test-engineer_step103.md`.
+ *      would still satisfy the behavior); flagged, not assumed.
  */
 
 interface FsModule {

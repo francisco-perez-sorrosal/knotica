@@ -7,7 +7,7 @@ import type { PaneId } from "../types";
 
 /**
  * The removal phase of the `ImproveLane`/`TendLane` dissolution
- * (`INTERFACE_DESIGN.md §2.0`) — this file's own enumeration is what named
+ * — this file's own enumeration is what named
  * the files to delete.
  *
  * **All eight pane modules are deleted**: `VaultPane.tsx`, `LoopPane.tsx`,
@@ -116,7 +116,7 @@ describe("no surviving file imports a dissolved pane module by its module specif
 });
 
 /**
- * `INTERFACE_DESIGN.md §2.0` clause 3 names exactly four retiring cross-lane
+ * The lane split names exactly four retiring cross-lane
  * prop identifiers (`onOpenArena`/`onOpenAsk`/`onOpenVault` on `LoopPane`,
  * `onOpenAsk`/`onOpenLoop` on `ArenaPane` — the ask pane's own `onOpenLoop`/
  * `onOpenArena` went earlier, with its cross-lane banners). The census below
@@ -135,7 +135,7 @@ const CROSS_LANE_PROPS = [
   "onOpenLoop",
 ] as const;
 
-describe("no survivor outside App.tsx/lanes declares a retiring cross-lane onOpen* prop (§2.0 clause 3)", () => {
+describe("no survivor outside App.tsx/lanes declares a retiring cross-lane onOpen* prop", () => {
   it("finds zero occurrences of the four retiring prop names", () => {
     const files = collectSourceFiles(srcDir).filter(
       (file) => !file.endsWith("/App.tsx") && !file.includes("/lanes/"),

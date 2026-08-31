@@ -459,7 +459,7 @@ def _session_status_payload(
 
 def _session_status_envelope(status: SessionStatus, topic: str) -> dict[str, Any]:
     """Translate :class:`~knotica.core.gapfill_session.SessionStatus` to the
-    §3.3 wire shape."""
+    wire shape."""
     return {
         "topic": topic,
         "suggestion_id": status.suggestion_id,

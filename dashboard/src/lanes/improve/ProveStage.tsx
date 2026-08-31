@@ -15,10 +15,10 @@ import { ProcessBrief } from "../ProcessBrief";
 import { ProcessOutcome } from "../ProcessOutcome";
 
 /**
- * The `prove` stage body (`INTERFACE_DESIGN.md §2.4`) — the compiled
+ * The `prove` stage body — the compiled
  * artifact's scalar, `prompt_diff mode=compiled`, and an **embedded probe**:
- * before/after `query` answer cards rendered in-lane. Per `§2.0` clause 2,
- * the probe's terminal state lives inside Improve, so this calls
+ * before/after `query` answer cards rendered in-lane. The probe's
+ * terminal state lives inside Improve, so this calls
  * `client.query` directly rather than linking to Answer — the same tool
  * `AnswerLane` itself calls, reusing the shared `AnswerCard`
  * (`answerPresentation.tsx`) for identical markdown-rendering and

@@ -327,8 +327,8 @@ def test_the_grandfather_forgives_exactly_the_section_each_record_lacks(
 def test_a_draft_is_not_gated_on_body_sections(corpus: Callable[..., int]) -> None:
     # A draft is in-flight; sections are demanded where the record is permanent.
     # (Frontmatter validity is still demanded of drafts -- see the module header.)
-    draft = adr("dec-draft-abc12345").replace(
+    draft = adr("dec-draft-abc12345").replace(  # id-citation-discipline:ignore
         "## Consequences\n\nThe consequences.\n\n", ""
-    )  # id-citation-discipline:ignore
+    )
 
     assert corpus({}, drafts={DRAFT_FILE: draft}) == 0

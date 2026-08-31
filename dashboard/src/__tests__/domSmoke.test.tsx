@@ -13,7 +13,7 @@ import { afterEach, describe, expect, it } from "vitest";
  * (`@vitest-environment` docblock) environment overrides that older Vitest
  * versions offered, so a per-file split is not available at this pin. The
  * suite is small enough (7 pre-existing files) that this is a non-issue in
- * practice; see `LEARNINGS_implementer_step58.md` for the version check.
+ * practice.
  *
  * `@testing-library/preact` auto-registers `afterEach(cleanup)` only when
  * `afterEach` is a test-runner global -- this project imports test globals

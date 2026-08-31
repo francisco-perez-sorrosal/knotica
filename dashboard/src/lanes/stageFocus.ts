@@ -3,7 +3,7 @@ import { useEffect, useState } from "preact/hooks";
 import type { LaneRailStageState } from "../types";
 
 /**
- * The client-owned **focus** axis (design §5.3) — *what the user is looking
+ * The client-owned **focus** axis — *what the user is looking
  * at* — held strictly orthogonal to the server-declared **state** —  *where
  * the process is*. `aria-current="step"` stays bound to state alone; focus
  * surfaces only as `data-focus` and the disclosure's `aria-expanded`.

@@ -16,7 +16,7 @@ asserts):
 
 * ``list_topics`` -> ``{"topics": [{"name", "page_count"}, ...]}``
 * ``read_page``   -> ``{"topic", "path", "frontmatter", "frontmatter_error", "body", "content"}``
-* ``search``      -> ``{"results", "next_cursor", "has_more", "total_count"}`` (the §1.6 envelope)
+* ``search``      -> ``{"results", "next_cursor", "has_more", "total_count"}`` (the cursor-pagination envelope)
 * ``list_links``  -> ``{"page", "direction", "out"?: [...], "in"?: [...]}`` (pointers, per direction)
 * ``lint_check``  -> ``{"violations": [...]}`` (empty list == mechanically clean; a success, not an error)
 """

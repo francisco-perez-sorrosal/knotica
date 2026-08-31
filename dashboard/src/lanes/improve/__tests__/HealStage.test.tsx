@@ -12,20 +12,20 @@ import type {
 
 /**
  * `dashboard/src/lanes/improve/HealStage.tsx` does not exist yet -- this is
- * the RED half of a paired implementation/test step for `INTERFACE_DESIGN.md`
- * §2.4's `heal` row. Loaded through a non-literal
+ * the RED half of a paired implementation/test step for
+ * Improve's `heal` row. Loaded through a non-literal
  * dynamic `import()` specifier for the same reason `GateStage.test.tsx`
  * (this file's sibling) uses one: a literal import of a module that
  * does not exist yet would fail `tsc --noEmit` for the whole project.
  *
  * Load-bearing assumptions the paired implementer may satisfy differently
- * (recorded in full in `LEARNINGS_test-engineer_step72.md`; the paired
+ * (the paired
  * implementation wins on conflict):
  *
  *   1. `<HealStage client={...} topic={...} vault={...} status={...}
  *      onStatusRefresh={...} />` -- mirrors `ArenaPane`'s own prop shape
  *      (the absorbed surface) minus the `onOpen*` cross-lane props, deleted
- *      per `INTERFACE_DESIGN.md` §2.0 clause 3.
+ *      because no cross-lane navigation survives inside Improve.
  *   2. `heal` "opens" -- fetches arena data and offers the compile control
  *      -- exactly when `status.gate.state === "fail"` ("the gate has
  *      refused"), and stays closed for every other `GateState`. This is
@@ -213,8 +213,8 @@ describe("heal opens only once the gate has refused (never independently reachab
 
 describe("compile is a spend-immediately action gated on an explicit click, never a silent trigger", () => {
   /**
-   * Declared adjustment (Step 71, per the orchestrator's no-native-dialogs
-   * ruling in `LEARNINGS.md`): `compile action=run` has no server-side nonce
+   * Declared adjustment (per the dashboard-wide no-native-dialogs
+   * rule): `compile action=run` has no server-side nonce
    * cycle to piggyback the confirmation on, so it gates on an in-DOM two-click
    * armed→confirm affordance rather than a single click. The original RED
    * assumption ("a click must happen" == exactly one click bills) predates

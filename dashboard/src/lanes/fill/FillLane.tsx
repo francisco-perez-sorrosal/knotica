@@ -8,10 +8,10 @@ import { IngestGateStage } from "./IngestGateStage";
 import { QueueStage } from "./QueueStage";
 
 /**
- * `FillLane` (`INTERFACE_DESIGN.md §2.5`) -- assembles Fill's five rail
+ * `FillLane` -- assembles Fill's five rail
  * stages behind one shared `<ol class="lane-rail">`: `gap`/`discover`/
- * `approve` from `QueueStage` (Step 96), `ingest`/`gate` from
- * `IngestGateStage` (Step 98). Mirrors `ImproveLane.tsx`/`TendLane.tsx`'s
+ * `approve` from `QueueStage`, `ingest`/`gate` from
+ * `IngestGateStage`. Mirrors `ImproveLane.tsx`/`TendLane.tsx`'s
  * "stages behind one rail" shape (M3), but is a pure assembly rather than a
  * stage-body builder: both absorbed components already render their own
  * unwrapped `<li class="lane-stage">` rows and derive their own per-stage
@@ -24,8 +24,8 @@ import { QueueStage } from "./QueueStage";
  * configured reads. `QueueStage` reads the `pending` suggestion queue plus
  * open gaps; `IngestGateStage` self-fetches the disjoint `approved` queue.
  *
- * REGISTER OBJECTION (carried from the paired RED suite,
- * `LEARNINGS_test-engineer_step101.md`): the plan's prose asks for the item
+ * REGISTER OBJECTION (carried from the paired RED suite): the plan's prose
+ * asks for the item
  * selected in `QueueStage`'s queue to be "threaded down to `IngestGateStage`
  * as the active item." The two components' queues are disjoint by domain
  * construction (`pending` vs `approved` suggestions) -- no suggestion is

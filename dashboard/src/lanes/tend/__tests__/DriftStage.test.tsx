@@ -23,18 +23,17 @@ import type {
 
 /**
  * `dashboard/src/lanes/tend/DriftStage.tsx` does not exist yet -- this is the
- * RED half of a paired implementation/test step for `INTERFACE_DESIGN.md`
- * §2.6's fifth Tend stage (`drift`), absorbing `NotesPane.tsx`'s browse view
+ * RED half of a paired implementation/test step for
+ * Tend's fifth checklist stage (`drift`), absorbing `NotesPane.tsx`'s browse view
  * and `NotesDriftView.tsx` behind one collapsed checklist row. Loaded through
  * a non-literal dynamic `import()` specifier -- the same device
- * `lanes/tend/__tests__/TendLane.test.tsx` (Step 66) used for its own
+ * `lanes/tend/__tests__/TendLane.test.tsx` used for its own
  * not-yet-existing module, so the rest of the tree keeps type-checking while
  * this file fails at *runtime* with the missing-module error the paired
  * implementation step (67) is gated on.
  *
  * Load-bearing assumptions the paired implementer may satisfy differently
- * (the paired implementation wins on conflict; record the actual call in
- * `LEARNINGS_implementer_step67.md` when made):
+ * (the paired implementation wins on conflict):
  *
  *   1. `<DriftStage client={...} topic={...} vault={...} />` -- three props,
  *      no `obsidianCtx` (neither `NotesPane.tsx` nor `NotesDriftView.tsx`
@@ -48,16 +47,16 @@ import type {
  *      maintains for every other topic-scoped pane (`NotesPane` included,
  *      today), not to invent a second topic picker.
  *   2. **Collapse budget is the whole stage, not just the drift queue.**
- *      §2.6's mockup renders `drift` as a single collapsed summary line
+ *      the design's mockup renders `drift` as a single collapsed summary line
  *      ("not checked — one git read per anchor [Check]"), unlike
  *      doctor/lint/okf which show real content immediately -- so both reads
  *      this stage needs (`notesList` for the merged browse listing,
  *      `notesDrift` for the per-anchor diff facts) are deferred together
  *      until the explicit `[Check]`/expand action, not just the expensive
  *      one. Zero calls to either on mount is the fitness-test contract this
- *      suite pins (mirroring Step 47's RISK-04 pattern).
+ *      suite pins (mirroring RISK-04 pattern).
  *   3. **The merge is real, not a relabeling.** "`NotesPane`'s browse view
- *      and `NotesDriftView` merge into the `drift` stage" (§2.6) is read
+ *      and `NotesDriftView` merge into the `drift` stage" is read
  *      literally: expand renders one list built from `notesList` (every
  *      note in the topic, browse-shaped), where anchors whose status is
  *      queue-eligible (`QUEUE_ELIGIBLE_STATUSES` --
@@ -67,17 +66,17 @@ import type {
  *      `notesDrift` item, joined by `note_id` + `anchor_index`. A note with
  *      no queue-eligible anchor renders as a plain browse card (archive/
  *      promote/detach), never fetching a diff for it. This is the "filter
- *      within the single surface, not a second surface" `§2.6` names.
+ *      within the single surface, not a second surface" rule.
  *   4. **D3, re-examined**: closer reading of `NotePromoteDialog.tsx` (as
- *      the plan's own Step 67 text instructs) shows it implements the
+ *      the plan's own text instructs) shows it implements the
  *      *`promote`* mutation only (`client.notesPromote`) -- it has no
  *      `reanchor`/`detach` logic at all. The actual `reanchor`/`detach`
  *      preview/confirm today is already a *single* shared implementation
  *      (`ActionConfirm` in `NotesDriftView.tsx`), reused as-is by both
  *      `NotesPane.tsx`'s card actions and `NotesDriftView.tsx`'s queue
  *      items. There is no live duplicate to collapse for those two verbs
- *      as the plan literally describes it -- flagged in
- *      `LEARNINGS_test-engineer_step68.md` rather than silently assumed
+ *      as the plan literally describes it -- flagged
+ *      rather than silently assumed
  *      away. This suite therefore pins the *regression* the plan's `Done
  *      when` actually cares about: exactly one preview/confirm banner shape
  *      is reachable for `reanchor`/`detach`, from any entry point, so a
@@ -93,7 +92,7 @@ import type {
  * `TendLane`'s fifth `<StageShell>` row and its checklist `data-state`
  * derivation (an implementation-time integration `TendLane.tsx` performs;
  * `DriftStage` is unit-tested standalone here, the same way `LaneRail.tsx`
- * was in Step 64 before `TendLane` consumed it in Step 65).
+ * was before `TendLane` consumed it).
  */
 
 interface DriftStageProps {
@@ -321,7 +320,7 @@ async function expandStage(): Promise<void> {
   await vi.waitFor(() => expect(screen.queryByText(/not checked/i)).toBeNull());
 }
 
-describe("the drift stage is collapsed by default (§2.6's honest 'not checked' state)", () => {
+describe("the drift stage is collapsed by default (the honest 'not checked' state)", () => {
   it("renders the collapsed summary and never calls notesList or notesDrift on mount", () => {
     const { client, notesList, notesDrift } = fakeClient();
     const container = renderDriftStage(client);
@@ -461,7 +460,7 @@ describe("the merged surface renders NotesDriftView's own facts for a queue-elig
   });
 });
 
-describe("the browse absorption is real -- a note with no drifted anchor still renders (§2.6's merge)", () => {
+describe("the browse absorption is real -- a note with no drifted anchor still renders (the browse/drift merge)", () => {
   it("renders a plain browse card, with archive/promote actions, for a note absent from the drift queue", async () => {
     const healthyNote = baseNote({
       note_id: "note-2",

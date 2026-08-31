@@ -997,7 +997,7 @@ def test_prepending_an_anchor_changes_the_anchor_of_record():
 # A correction never touches the anchor it corrects -- it appends a new one and
 # records, on the *new* entry, what kind of correction it is. `kind` is the
 # only field this schema extension adds to `AnchorRecord`. `superseded_by`
-# (named on the read-side `NoteAnchor` payload in INTERFACE_DESIGN.md) is
+# (named on the read-side `NoteAnchor` payload) is
 # derived from position and kind when that payload is built, never stored
 # here -- storing it would mean mutating an earlier, supposedly-immutable
 # anchor the instant a later one supersedes it, which is exactly the
@@ -1168,8 +1168,8 @@ def test_a_bullet_with_a_malformed_trailing_kind_segment_is_skipped_not_raised()
 
 def test_anchor_record_gains_kind_but_never_stores_superseded_by():
     """``kind`` is the only new field this schema extension adds to the
-    on-disk record. ``superseded_by`` -- named on INTERFACE_DESIGN.md's
-    read-side ``NoteAnchor`` payload -- is derived from position and kind
+    on-disk record. ``superseded_by`` -- named on the read-side
+    ``NoteAnchor`` payload -- is derived from position and kind
     when that payload is built; storing it here would mean mutating an
     earlier, supposedly-immutable anchor the instant a later one supersedes
     it, which breaks append-only outright. The second assertion is a forward

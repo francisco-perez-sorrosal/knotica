@@ -18,8 +18,7 @@ fresh every supervision cycle via ``resolve_watched_topics()``, never baked
 into the unit file. Two characterization tests at the end pin two
 shipped-but-noteworthy behaviors (a failed register command is not wrapped
 into a typed error, and does not roll back the unit file it already wrote)
-so a future change to either is a deliberate, visible diff -- see
-LEARNINGS.md for the open design question this surfaces.
+so a future change to either is a deliberate, visible diff.
 
 RED until ``knotica.service`` lands with this exact surface: every import
 below is deferred into the test body so collection succeeds
@@ -552,7 +551,7 @@ def test_status_reports_a_configured_topic_as_not_alive_with_no_heartbeat(
 
 
 # ---------------------------------------------------------------------------
-# Characterization -- two shipped-but-noteworthy behaviors (see LEARNINGS.md)
+# Characterization -- two shipped-but-noteworthy behaviors
 # ---------------------------------------------------------------------------
 
 

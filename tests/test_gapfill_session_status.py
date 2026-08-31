@@ -1,5 +1,5 @@
 """Behavioral contract tests for the Fill lane's read-only session projection
--- the nine-state watch contract at ``INTERFACE_DESIGN.md`` §3.3 (dec-091).
+-- the nine-state watch contract (dec-091).
 
 An approved suggestion's ingest session moves through branch and record state
 that only git (and the suggestion record) actually knows about -- the client
@@ -23,11 +23,10 @@ written -- the paired implementer step lands the module concurrently. The
 module is resolved lazily inside a helper so collection succeeds and the
 first run fails with ``ModuleNotFoundError`` inside each test body, not a
 collection error hiding the rest of the file. Written without reading the
-implementation; every assertion is derived from ``INTERFACE_DESIGN.md``
-§3.3's own predicate table.
+implementation; every assertion is derived from the contract's own
+predicate table.
 
-Three load-bearing assumptions the paired implementation wins on conflict
-(full reasoning in ``LEARNINGS_test-engineer_step51.md``):
+Three load-bearing assumptions the paired implementation wins on conflict:
 
 1. **Signature**: ``session_status(store, root, topic, suggestion_id)``,
    mirroring ``source_ingest.open_ingest``'s own parameter order -- there is
@@ -79,7 +78,7 @@ SOURCE_KEY = "session-status-fixture"
 HARNESS = "fake-session-status-gate"
 BASELINE = 0.80
 
-#: The read contract's own cost ceiling (INTERFACE_DESIGN.md §3.3, REQ-22b).
+#: The read contract's own cost ceiling (dec-091).
 MAX_GIT_SUBPROCESSES_PER_CALL = 3
 
 
@@ -303,7 +302,7 @@ def _merge_the_published_candidate(
 
 
 # ---------------------------------------------------------------------------
-# Per-state fixture builders -- one per INTERFACE_DESIGN.md §3.3 row
+# Per-state fixture builders -- one per state in the nine-state contract
 # ---------------------------------------------------------------------------
 
 
@@ -510,7 +509,7 @@ def test_the_projection_never_exceeds_its_git_subprocess_budget(
     fn(store, template_vault, TOPIC, suggestion_id)
 
     assert len(calls) <= MAX_GIT_SUBPROCESSES_PER_CALL, (
-        f"INTERFACE_DESIGN.md §3.3 budgets {MAX_GIT_SUBPROCESSES_PER_CALL} git subprocesses "
+        f"the read contract budgets {MAX_GIT_SUBPROCESSES_PER_CALL} git subprocesses "
         f"per suggestion; observed {len(calls)} for one call"
     )
 

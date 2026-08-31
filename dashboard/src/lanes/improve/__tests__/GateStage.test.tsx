@@ -21,8 +21,8 @@ import type {
 
 /**
  * `dashboard/src/lanes/improve/GateStage.tsx` does not exist yet -- this is
- * the RED half of a paired implementation/test step for `INTERFACE_DESIGN.md`
- * §2.4's `gate` row. Loaded through a non-literal
+ * the RED half of a paired implementation/test step for
+ * Improve's `gate` row. Loaded through a non-literal
  * dynamic `import()` specifier, the same device `lanes/__tests__/LaneRail.test.tsx`
  * used for its own not-yet-existing module: a literal `import { GateStage }
  * from "../GateStage"` would fail `tsc --noEmit` for the whole project the
@@ -32,13 +32,13 @@ import type {
  * missing-module error the paired implementation step is gated on.
  *
  * Four load-bearing assumptions the paired implementer may satisfy
- * differently (recorded in full in `LEARNINGS_test-engineer_step72.md`; the
+ * differently (the
  * paired implementation wins on conflict):
  *
  *   1. `<GateStage client={...} topic={...} vault={...} status={...}
  *      onStatusRefresh={...} />` -- mirrors `LoopPane`'s own prop shape
- *      minus the `onOpen*` cross-lane props, which `INTERFACE_DESIGN.md`
- *      §2.0 clause 3 deletes rather than relocates.
+ *      minus the `onOpen*` cross-lane props, which the lane split
+ *      deletes rather than relocates.
  *   2. The free preview leg of the billed `loop run_once` cycle is reached
  *      through a control carrying `data-testid="gate-run-once-preview"`;
  *      the billing leg's confirm control (rendered only once a preview has

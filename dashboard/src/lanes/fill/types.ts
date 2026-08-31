@@ -279,7 +279,7 @@ export interface SuggestionReviewResult {
   ingested_at?: string | null;
 }
 // ---------------------------------------------------------------------------
-// The handoff stage (`INTERFACE_DESIGN.md §3`) --
+// The handoff stage (`dec-091`) --
 // `fill(action="session_status")`'s read contract.
 // ---------------------------------------------------------------------------
 

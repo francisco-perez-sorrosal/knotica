@@ -1,12 +1,12 @@
 import { describe, expect, it, beforeAll } from "vitest";
 
 /**
- * Pins Step 117's `types.ts` split (`td-057`'s types half) so it cannot
+ * Pins the `types.ts` split (`td-057`'s types half) so it cannot
  * silently regrow. This is a **regression census over already-landed code**,
- * not a paired BDD step -- Step 117 shipped 120 declarations out of
+ * not a paired BDD step -- the split shipped 120 declarations out of
  * `dashboard/src/types.ts` into six `lanes/<lane>/types.ts` modules behind a
- * type-only barrel (see `LEARNINGS_implementer_step117.md`'s split-map
- * table); this suite is the backstop that keeps that map from drifting.
+ * type-only barrel; this suite is the backstop that keeps that map from
+ * drifting.
  * Green on first run is therefore expected, not a paired-step race.
  *
  * Four independently falsifiable groups:
@@ -29,7 +29,7 @@ import { describe, expect, it, beforeAll } from "vitest";
  *       depth) from anywhere in `dashboard/src`, or the lane's own
  *       `"./lanes/<lane>/types"` path -- and only from `types.ts` itself.
  *       No surviving file reaches into a lane's types module directly,
- *       matching the "no import site changes" guarantee Step 117 made.
+ *       matching the "no import site changes" guarantee the split made.
  *
  * `@types/node` is not a project dependency; `fs`/`path`/`url` are loaded via
  * a dynamic `import()` with a variable specifier, the same technique
@@ -170,7 +170,7 @@ describe("dashboard/src/types.ts keeps exactly the six cross-cutting declaration
 // ---------------------------------------------------------------------------
 
 /**
- * The exact Step 117 split map, transcribed from the landed
+ * The exact split map, transcribed from the landed
  * `dashboard/src/types.ts` barrel and cross-checked against each
  * `lanes/<lane>/types.ts` file's own declarations (120 total: improve 46,
  * tend 37, fill 26, home 6, learn 4, answer 1). Hardcoded rather than
@@ -370,7 +370,7 @@ describe("every moved declaration is still importable from the root barrel (roun
   }
 });
 
-describe("the census's own bookkeeping matches Step 117's recorded total", () => {
+describe("the census's own bookkeeping matches the split's recorded total", () => {
   it("120 moved declarations across the six lanes", () => {
     expect(TOTAL_MOVED_DECLARATIONS).toBe(120);
   });

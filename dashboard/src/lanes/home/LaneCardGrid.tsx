@@ -7,7 +7,7 @@ import { LANES } from "../../processModel";
 import type { AttentionStatus, PaneId } from "../../types";
 import { LANE_META } from "../laneMeta";
 
-/** Lanes with no cross-topic signal in `AttentionStatus` today (design §3.2's
+/** Lanes with no cross-topic signal in `AttentionStatus` today (the design's
  * card table: "none exists" for `learn`/`answer`) -- their stat reads `—`
  * with an `InfoPopover` explaining why, rather than a silent blank. */
 const NO_CROSS_TOPIC_SIGNAL: ReadonlySet<PaneId> = new Set(["learn", "answer"]);
@@ -19,7 +19,7 @@ function cardStat(lane: PaneId, attention: AttentionStatus | null): string {
       // "watched" was tried first but its substring collides with the
       // AttentionTable's "Watch" action button under a case-insensitive
       // accessible-name query (`HomeLane.test.tsx`'s "running class" test) --
-      // reworded rather than touching a test outside design §6's two allowed
+      // reworded rather than touching a test outside the design's two allowed
       // rewrites.
       const n = attention.totals.topics;
       return `${n} topic${n === 1 ? "" : "s"} tracked`;
@@ -41,14 +41,14 @@ function cardStat(lane: PaneId, attention: AttentionStatus | null): string {
 }
 
 /**
- * The six icon-led lane cards (design §3.2) -- every stat line comes
+ * The six icon-led lane cards -- every stat line comes
  * entirely from the single `wiki_status(view="attention")` call `HomeLane`
  * already makes (`AttentionStatus.totals`/`.last_lint`/`.drift`); no new
  * call, no new poll, no new endpoint. Rendered in `processModel.ts`'s own
  * `LANES` order, cast to `PaneId[]` -- safe because `laneMeta.test.ts`
  * asserts `LANE_META`'s keys equal `LANES` exactly.
  *
- * Markup contract (design §3.2): each card is an `<li>` wrapping a
+ * Markup contract: each card is an `<li>` wrapping a
  * `<button class="lane-card-open">` (the whole-card click target) plus a
  * sibling `<InfoPopover>` -- never a button nested inside a button.
  */

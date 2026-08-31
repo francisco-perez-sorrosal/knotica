@@ -1,4 +1,4 @@
-// The pure lane-rail state machine (INTERFACE_DESIGN.md §1.2-1.4).
+// The pure lane-rail state machine.
 //
 // Framework-free: no Preact import, no DOM, no fetch. Two derivation
 // functions turn a lane's process position into the four-state rail
@@ -8,7 +8,7 @@
 // once) is unrepresentable through this API rather than merely avoided by
 // convention.
 //
-// `LaneRail`/`LaneStage` below are the full wire contract from §1.2,
+// `LaneRail`/`LaneStage` below are the full wire contract,
 // carried verbatim for downstream assembly code. The two derive* functions
 // only ever produce a `DerivedStage` — the state-machine slice of a
 // `LaneStage` (`id`/`title`/`state`/`blocked`). Populating the remaining
@@ -41,7 +41,7 @@ export interface BlockedInfo {
   readonly fix: string;
 }
 
-// The dispatch contract (§3) has not been designed yet as of this module —
+// The dispatch contract has not been designed yet as of this module —
 // only its presence on a stage is contracted so far. Left opaque rather
 // than guessed at.
 export type HandoffSpec = Readonly<Record<string, unknown>>;
@@ -97,8 +97,8 @@ function toDerivedStage(
 }
 
 /**
- * Derives every stage's state from one monotonic `watermark` (R1-R5,
- * INTERFACE_DESIGN.md §1.3). `watermark === null` means the lane is idle —
+ * Derives every stage's state from one monotonic `watermark`. A
+ * `null` watermark means the lane is idle —
  * every stage renders pending, never omitted. A precondition failure at the
  * watermark stage is expressed by passing `blockedReason`; it never becomes
  * a separate position, only a modifier on the active one.
@@ -122,8 +122,8 @@ export function deriveSequenceStages(
 }
 
 /**
- * Derives every check's state from its own `status` alone (C1-C3,
- * INTERFACE_DESIGN.md §1.3) — independent peers, no watermark. `activeId`
+ * Derives every check's state from its own `status` alone — independent
+ * peers, no watermark. `activeId`
  * is UI focus, not a process position: it can only promote an otherwise
  * `pending` check to `active`. A `blocked` check keeps its remedy visible
  * and a `complete` check keeps its own state even while in focus.

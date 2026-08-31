@@ -4,7 +4,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import { SectionCard } from "../SectionCard";
 
 /**
- * The stage-body grammar's container primitive (design §2.1) -- header,
+ * The stage-body grammar's container primitive -- header,
  * body, optional footer, and the one hard rule that keeps it out of any
  * rail's own disclosure chain: it never carries `aria-expanded`.
  */

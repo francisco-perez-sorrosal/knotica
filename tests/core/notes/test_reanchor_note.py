@@ -920,7 +920,7 @@ def test_reanchor_targeting_a_page_that_no_longer_exists_fails_with_page_not_fou
 
 
 def test_reanchor_page_not_found_fix_text_names_detach_as_the_fallback(template_vault: Path):
-    """INTERFACE_DESIGN.md's error grammar table gives `reanchor`'s
+    """The error grammar gives `reanchor`'s
     `PAGE_NOT_FOUND` row a specific `fix` naming `notes action=detach` as the
     fallback for a user pointing at a deleted page -- the generic
     `DEFAULT_FIX` for `PAGE_NOT_FOUND` ('Call `search` in this topic.') drops
@@ -944,7 +944,7 @@ def test_reanchor_page_not_found_fix_text_names_detach_as_the_fallback(template_
     fix = str(error["fix"])
     assert "detach" in fix, (
         f"the fix text must name `notes action=detach` as the fallback for a deleted reanchor "
-        f"target, per INTERFACE_DESIGN.md's error grammar table; got {fix!r}"
+        f"target, per the error grammar; got {fix!r}"
     )
 
 

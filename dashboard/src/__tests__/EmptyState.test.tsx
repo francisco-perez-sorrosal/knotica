@@ -4,7 +4,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import { EmptyState } from "../EmptyState";
 
 /**
- * The centred icon/title/sentence/one-action template (design §3.2/§3.5)
+ * The centred icon/title/sentence/one-action template
  * replacing the bare `<p>Nothing needs you.</p>` and `<aside role="alert">`
  * patterns that carried no icon, no hierarchy, and no route to a fix.
  */

@@ -25,7 +25,7 @@ import type {
 } from "../../types";
 
 /**
- * Tend's fifth checklist stage (`INTERFACE_DESIGN.md §2.6`) -- merges the
+ * Tend's fifth checklist stage -- merges the
  * former notes browser and drift review queue into one collapsed-by-default
  * surface. Collapsed is the honest state: nothing is fetched, and nothing is
  * claimed clean or broken, until the operator pays the one-git-read-per-anchor
@@ -45,7 +45,7 @@ import type {
  *
  * The checklist row this stage backs is **always** `pending` -- unlike
  * doctor/lint/okf, drift never resolves to a verdict on its own; the honest
- * "not checked" state is the point (`§2.7`'s Tend row), so `TendLane` never
+ * "not checked" state is the point, so `TendLane` never
  * asks this component to report one.
  */
 

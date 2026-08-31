@@ -26,9 +26,8 @@ tool registry rather than a hand-written list:
    INGEST_STAGES` by identity, not a value-equal copy that could drift the
    moment either tuple changes independently.
 
-Expected API this file pins down for the implementation step (see
-`LEARNINGS_test-engineer.md` for which parts are assumptions, since the module
-does not exist to read from):
+Expected API this file pins down for the implementation step (written before
+the module existed to read from, so parts of it are assumptions):
 
 - `LANES: tuple[str, ...]` -- the six lane names, `"home"` first.
 - `LANE_STAGES: dict[str, tuple[Stage, ...]]` -- ordered per-lane stage rail;

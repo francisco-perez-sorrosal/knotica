@@ -5,7 +5,7 @@ import type { LaneRailStageState } from "../../types";
 import { LoopStrip, loopHeadline, type LoopStripStage } from "../LoopStrip";
 
 /**
- * The loop strip (design §3.3) is a projection of state the lane already
+ * The loop strip is a projection of state the lane already
  * declares -- these tests pin what the projection must never lose: the state
  * word as visible text, the return arc only where the lane is a cycle, and
  * no clickable node unless the caller can actually act on the click.

@@ -1,6 +1,6 @@
 """Behavioral contract tests for the MCP source-ingest session tools.
 
-Derived from ``INTERFACE_DESIGN.md``'s ingest-scoping section -- never from the
+Derived from the documented ingest-scoping contract -- never from the
 implementation. Two tools front an approved gap-fill suggestion's isolated
 ingest session: ``source_ingest_open`` (open/resume the candidate context) and
 ``source_ingest_submit`` (dry-run readiness check | apply -> hand the

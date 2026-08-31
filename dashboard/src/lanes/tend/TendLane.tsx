@@ -19,7 +19,7 @@ import { ProcessOutcome } from "../ProcessOutcome";
 import { DriftStage } from "./DriftStage";
 
 /**
- * `TendLane` (`INTERFACE_DESIGN.md §2.6`) — the per-vault mechanical checklist
+ * `TendLane` — the per-vault mechanical checklist
  * absorbing `VaultPane.tsx`'s "Checks" tabs (doctor/lint/okf/loop) plus a
  * fifth `drift` stage (`DriftStage.tsx`) merging `NotesPane.tsx`'s browse
  * view and `NotesDriftView.tsx`'s review queue. `VaultPane`/`NotesPane`/
@@ -32,20 +32,18 @@ import { DriftStage } from "./DriftStage";
  * threads the same ambient `topic` every other topic-scoped pane already
  * receives from `App.tsx`. `DoctorRemediations`
  * (the interactive select-paths/apply-repair workflow) is **not** ported in
- * this step: the paired test-engineer's `LEARNINGS_test-engineer_step66.md`
+ * this lane: the paired RED suite
  * explicitly scoped doctor's auto-repair cascade as "an orthogonal mechanism
  * this suite does not need to pin," and porting it would add a second
  * untested mutating-apply surface beyond what this step's RED contract
  * requires. Doctor's own per-check `remediation` text (already CLI-shaped,
  * e.g. "run `knotica tend doctor repair --apply`") still carries the fix
- * forward — recorded as a scoped-down, documented decision in
- * `LEARNINGS_implementer_step65.md`, not a silent omission.
+ * forward — a scoped-down, deliberate omission, not a silent one.
  *
- * Two rulings this step resolves (full reasoning in
- * `LEARNINGS_implementer_step65.md`):
+ * Two rulings this lane resolves:
  *
  *   (a) OKF's "Repair apply" no longer gates on `window.confirm()` — the
- *       orchestrator's no-native-dialogs ruling (`LEARNINGS.md`) forbids it
+ *       dashboard-wide no-native-dialogs rule forbids it
  *       dashboard-wide. It gates on the same in-DOM two-click armed→confirm
  *       affordance `HealStage.tsx` established (one button: first click
  *       arms, second click fires; a separate Cancel un-arms).
@@ -53,7 +51,7 @@ import { DriftStage } from "./DriftStage";
  *       C3's clean-iff-every-check-complete rule is a derived property of
  *       the four stages' own states, not a fifth thing to render, and this
  *       kind never derives `active` (no per-lane UI focus concept exists
- *       yet). `INTERFACE_DESIGN.md §2.6`'s own mockup text is inconsistent
+ *       yet). The design's own mockup text was inconsistent
  *       with C3 on this point (flagged, not followed) — no outcome banner
  *       renders here.
  */
@@ -236,7 +234,7 @@ export function TendLane({
     { id: "okf", title: "OKF", status: okfCheckStatus(okf) },
     { id: "migrate", title: "Migrate", status: "pending" },
     // Never resolves on its own -- the honest "not checked" state IS the
-    // point (§2.7's Tend row), so this stage never derives complete/blocked.
+    // point, so this stage never derives complete/blocked.
     { id: "drift", title: "Drift", status: "pending" },
   ]);
   const [doctorStage, lintStage, okfStage, migrateStage, driftStage] =
@@ -432,7 +430,7 @@ function OkfActions({
   );
 }
 
-/** No MCP surface exists for `migrate` yet (`INTERFACE_DESIGN.md §2.6`) — an honest "not
+/** No MCP surface exists for `migrate` yet — an honest "not
  * checked" stage rather than a fake poll, offering the CLI dry-run as a copyable handoff. */
 function MigrateHandoff(): JSX.Element {
   return (

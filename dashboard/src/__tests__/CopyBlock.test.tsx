@@ -5,7 +5,7 @@ import { CopyBlock } from "../CopyBlock";
 
 /**
  * The copy affordance replacing bare `<code>`/prose remediation hints
- * (design §3.5) -- the command a user is asked to run should be one click
+ * -- the command a user is asked to run should be one click
  * from the clipboard, not a retype.
  */
 

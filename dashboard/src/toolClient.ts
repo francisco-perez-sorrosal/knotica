@@ -49,7 +49,7 @@ export interface ToolClient
     description?: string,
     vault?: string,
   ): Promise<Record<string, unknown>>;
-  /** Capabilities the current mount advertises -- `{}` off-bridge. Read once by `deriveDispatchTier`; no lane re-derives `mount` itself (`INTERFACE_DESIGN.md §3.5`). */
+  /** Capabilities the current mount advertises -- `{}` off-bridge. Read once by `deriveDispatchTier`; no lane re-derives `mount` itself. */
   readonly hostCapabilities: HostCapabilities;
   /** Which transport this client speaks over -- fixed for the client's lifetime. */
   readonly mount: Mount;

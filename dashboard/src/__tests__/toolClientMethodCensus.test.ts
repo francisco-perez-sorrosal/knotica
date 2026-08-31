@@ -10,14 +10,14 @@ import { learnToolCalls } from "../lanes/learn/client";
 import { tendToolCalls } from "../lanes/tend/client";
 
 /**
- * Pins Step 119's `toolClient.ts` split (`td-057`'s client half) so the
+ * Pins the `toolClient.ts` split (`td-057`'s client half) so the
  * composed `ToolClient`'s method set cannot silently regrow, shrink, or
  * migrate to the wrong lane. This is a **regression census over
- * already-landed code**, not a paired BDD step -- Step 119 shipped 48 of
+ * already-landed code**, not a paired BDD step -- the split shipped 48 of
  * `ToolClient`'s 51 concrete tool-call methods out of
  * `dashboard/src/toolClient.ts` into six `lanes/<lane>/client.ts` groups
- * installed onto one prototype (see `LEARNINGS_implementer_step119.md`'s
- * split-map table); this suite is the backstop that keeps that map from
+ * installed onto one prototype; this suite is the backstop that keeps that
+ * map from
  * drifting. Green on first run is therefore expected, not a paired-step race.
  *
  * Four independently falsifiable groups:
@@ -26,7 +26,7 @@ import { tendToolCalls } from "../lanes/tend/client";
  *       prototype chain via `Object.getOwnPropertyNames`, never a
  *       hand-inspected list of the current code -- is exactly the pre-split
  *       51-name fixture below, transcribed from `git show
- *       HEAD:dashboard/src/toolClient.ts` (the state before Step 119 ran). A
+ *       HEAD:dashboard/src/toolClient.ts` (the state before the split ran). A
  *       method dropped, renamed, or silently reassigned fails this even
  *       though nothing else in the suite happens to call it.
  *   (2) every one of the six lane groups declares exactly its assigned
@@ -80,11 +80,10 @@ beforeAll(async () => {
 // ---------------------------------------------------------------------------
 // The pre-split fixture. Hardcoded, not derived from the tree this suite
 // pins -- transcribed from `git show HEAD:dashboard/src/toolClient.ts` (the
-// state before Step 119 ran) and cross-checked against
-// `LEARNINGS_implementer_step119.md`'s own split-map table.
+// state before the split ran).
 // ---------------------------------------------------------------------------
 
-/** The 48 methods Step 119 moved out of the shell, by destination lane. */
+/** The 48 methods the split moved out of the shell, by destination lane. */
 const MOVED_METHODS: Record<string, readonly string[]> = {
   improve: [
     "metricsRead",
@@ -138,7 +137,7 @@ const MOVED_METHODS: Record<string, readonly string[]> = {
     "gapsRead",
     // Post-split addition (gap dismissal affordance): the census counts it as
     // a moved-set member so groups (1)/(2) keep gating the live surface; the
-    // Step 119 transcription proper was the five methods around it.
+    // The transcription proper was the five methods around it.
     "reviewGap",
     "gapfillDiscover",
     "suggestionsReview",

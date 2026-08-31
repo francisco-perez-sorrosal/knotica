@@ -4,9 +4,9 @@ import { afterEach, describe, expect, it } from "vitest";
 import { StateList } from "../StateList";
 
 /**
- * The multi-item live readout primitive (design §2.4) -- the direct fix
+ * The multi-item live readout primitive -- the direct fix
  * for `.arena-lane`'s unstyled `<strong>/<span>/<em>` fragments. The state
- * word must always be visible text next to the icon: round 1 §2.5's
+ * word must always be visible text next to the icon: the design's
  * never-colour-alone floor, applied one level deeper.
  */
 

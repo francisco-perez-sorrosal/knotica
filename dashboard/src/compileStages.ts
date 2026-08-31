@@ -26,7 +26,7 @@ export function flywheelLabel(input: {
 }
 
 /**
- * `Curating` and `Ready` are not failures (design §7.3, the F4 fix). A fresh
+ * `Curating` and `Ready` are not failures. A fresh
  * topic that has not been compiled yet is the honest absence of a comparison,
  * not a red alarm — it reads `neutral`. `Ready` is actionable rather than
  * worrying, so it reads `info`. Only a genuinely in-flight compile keeps

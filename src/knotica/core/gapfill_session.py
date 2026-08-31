@@ -1,5 +1,5 @@
 """The Fill lane's read-only session-status projection -- the nine-state watch
-(``INTERFACE_DESIGN.md`` §3.3, ``dec-091``).
+(``dec-091``).
 
 An approved suggestion's ingest session moves through git-observable state
 that only branch existence, branch content, and the suggestion record's own
@@ -17,7 +17,7 @@ either side changed, and rail state is exactly the kind of thing the loop's
 own client-as-brain invariant does not extend to (the server, not the
 client, knows what git actually holds).
 
-**Cost discipline** (``INTERFACE_DESIGN.md`` §3.3): at most 2-3 git
+**Cost discipline**: at most 2-3 git
 subprocesses per call. One ``list_branch_tips`` covers WIP, candidate and
 quarantine existence in a single ``for-each-ref`` (rather than one call per
 namespace, as :mod:`knotica.core.candidate_gate` does for its own idle-reason
@@ -111,7 +111,7 @@ class SessionNextAction:
 
 @dataclass(frozen=True, slots=True)
 class SessionStatus:
-    """The full read contract for one suggestion's ingest session (§3.3)."""
+    """The full read contract for one suggestion's ingest session."""
 
     suggestion_id: str
     stage: str
@@ -329,7 +329,7 @@ def _written_content(topic: str, changed: list[str]) -> tuple[bool, tuple[str, .
 
 
 def _gate_outcome_summary(outcome: dict[str, object]) -> dict[str, object]:
-    """The four §3.3-contract fields, dropped from the record's full opaque blob."""
+    """The four wire-contract fields, dropped from the record's full opaque blob."""
     return {
         "verdict": outcome.get("verdict"),
         "scalar": outcome.get("scalar"),

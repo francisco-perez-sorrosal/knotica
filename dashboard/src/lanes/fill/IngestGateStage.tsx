@@ -21,9 +21,9 @@ import type {
 } from "../../types";
 
 /**
- * `IngestGateStage` (`INTERFACE_DESIGN.md §2.5`, ④⑤) -- Fill's two newest rail
+ * `IngestGateStage` -- Fill's two newest rail
  * stages: `ingest` hands a suggestion's source-writing session to Claude
- * through the shared `HandoffStage` shell (`§3`, `dec-091`); `gate` is a
+ * through the shared `HandoffStage` shell (`dec-091`); `gate` is a
  * read-only projection of that same suggestion's own `gate_outcome`, already
  * present from the `approved`-status read below -- **zero** new calls into
  * Improve's surface (`dec-087` clause 1).
@@ -40,7 +40,7 @@ import type {
  * item a person is actually looking at.
  *
  * Both stage bodies are rebuilt on the stage-body grammar
- * (`INTERFACE_DESIGN_2.md §5`, P2-2). `ingest`'s collapsed rows become a
+ * (`dec-105`). `ingest`'s collapsed rows become a
  * `StateList`, one per not-yet-expanded suggestion, coarsely stated from
  * `suggestion.gate_outcome` (already loaded by the one `suggestionsRead`
  * call above -- zero new calls). **Deviation from the design's literal
@@ -321,7 +321,7 @@ function affordanceFor(
  * the first click opens the panel, and dispatch is a second, explicit click
  * inside it.
  *
- * `[Rework it]` re-enters `ingest` in-lane (`INTERFACE_DESIGN.md §2.5`): it
+ * `[Rework it]` re-enters `ingest` in-lane: it
  * is the *same* control as "Open a session" once the suggestion's own
  * last-recorded `gate_outcome` was `refused`, so a single affordance covers
  * both the never-started and the already-refused reading with nothing to
@@ -412,8 +412,8 @@ function IngestYouControl({
  * Read-only projection of the expanded suggestion's own `gate_outcome` --
  * zero new calls, per `dec-087` clause 1. `merged` narrates that the
  * originating gap is now resolved: the gate closing its gap is Fill's
- * terminal state (`dec-087`). Rebuilt on the grammar (`INTERFACE_DESIGN_2.md
- * §5`): the verdict word moves from an inline chip into the card header, and
+ * terminal state (`dec-087`). Rebuilt on the stage-body
+ * grammar (`dec-105`): the verdict word moves from an inline chip into the card header, and
  * the scalar/baseline pair -- previously `scalar 0.62 (baseline 0.60)` inside
  * a sentence -- becomes a `StatGrid`.
  */
@@ -468,7 +468,7 @@ function GateStageBody({
 
 /** Matches `QueueStage.tsx`'s `StageShell` markup contract exactly, so both
  * halves of Fill's rail stay visually consistent under `FillLane`'s shared
- * `<ol class="lane-rail">` (assembled in Step 100). */
+ * `<ol class="lane-rail">`. */
 function StageShell({
   id,
   state,

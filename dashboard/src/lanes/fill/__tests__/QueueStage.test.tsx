@@ -16,11 +16,11 @@ import type {
 /**
  * `dashboard/src/lanes/fill/QueueStage.tsx` does not exist yet -- this is the
  * RED half of a paired implementation/test step absorbing `SourcesPane.tsx`'s
- * `gap`/`discover`/`approve` logic (`INTERFACE_DESIGN.md §2.5`) into three
+ * `gap`/`discover`/`approve` logic into three
  * rail stages, unchanged in behaviour -- the plan's own words: "a move, not
  * a rewrite," mirroring M3's `TendLane` absorption. Loaded through a
  * non-literal dynamic `import()` -- the same device `TendLane.test.tsx`
- * (Step 66) and `ImproveLane.test.tsx` used for their own not-yet-existing
+ * and `ImproveLane.test.tsx` used for their own not-yet-existing
  * modules: a literal `import { QueueStage } from "../QueueStage"` would fail
  * `tsc --noEmit` for the whole project the moment this file lands; a dynamic
  * import whose argument is not a string literal is left unresolved by
@@ -29,7 +29,7 @@ import type {
  * step is gated on.
  *
  * Load-bearing assumptions the paired implementer may satisfy differently
- * (full reasoning in `LEARNINGS_test-engineer_step97.md`; the paired
+ * (the paired
  * implementation wins on conflict):
  *
  *   1. `<QueueStage client={...} topic={...} vault={...} status={...}
@@ -44,21 +44,21 @@ import type {
  *      under one shared `<ol>`.
  *   3. Each `.lane-stage`'s `data-state` is read from
  *      `status.topics[topic].lanes.fill` (the server-derived rail states
- *      landed in M2 Step 48) by id, defaulting to `"pending"` when that id
+ *      landed in M2) by id, defaulting to `"pending"` when that id
  *      is absent from the array or when `status`/`lanes` is missing --
  *      mirroring `ImproveLane.tsx`'s "one data spine, states arrive as
  *      already-derived facts" convention (`declared?.state ?? "pending"`).
  *      Unlike `ImproveLane`, this suite does **not** gate the underlying
  *      content's visibility on that state (no progressive disclosure):
  *      `SourcesPane` renders its gap/discover/approve content
- *      unconditionally today, and Step 96's own "behaviour-preserving move,
+ *      unconditionally today, and that move's own "behaviour-preserving,
  *      not a rewrite" instruction rules out adding a new visibility gate as
  *      part of this move. `data-state` is asserted as a wrapper attribute
  *      only.
  *
  * REGISTER OBJECTION -- the dispatch brief for this step asked for tests of
  * "the dismiss affordance requiring a reason" and "resolved/dismissed
- * buckets." `IMPLEMENTATION_PLAN.md`'s own M4 `## Scope` section rules this
+ * buckets." The milestone's own declared scope rules this
  * out explicitly for this milestone's dashboard surface: the human
  * dismiss/reopen transition (`review_gap`) "is out of this milestone's
  * scope: it is a flat MCP tool already registered ... not a dashboard
@@ -73,10 +73,10 @@ import type {
  * carries `status: "open"`, matching `SourcesPane`'s own
  * `gapsRead(topic, "open", ...)` call -- there is nothing here to
  * characterize for the other two statuses because nothing today writes them
- * (`INTERFACE_DESIGN.md §2.5`'s own N6 finding).
+ * (the design's own N6 finding).
  *
- * Not tested here (later steps' job): `ingest`/`gate` (Step 98's
- * `IngestGateStage`) and the assembled five-stage `FillLane` rail (Step 100).
+ * Not tested here (a later step's job): `ingest`/`gate` (their own
+ * `IngestGateStage`) and the assembled five-stage `FillLane` rail.
  */
 
 interface QueueStageProps {

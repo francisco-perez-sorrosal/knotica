@@ -220,8 +220,8 @@ def test_vault_template_prompt_filenames_match_the_four_mcp_prompt_names() -> No
 # verb in `_STAYS_FLAT_VERBS` (they are not "dispatcher-absorbed" -- they
 # keep their own flat registration). But six of those seven ALSO carry a
 # `LANE_MEMBERSHIP` entry and so also appear in a lane's generated action
-# table (`INTERFACE_DESIGN.md`'s own worked `fill` example lists
-# `report_gap`/`gap_report` this way). Both paths ship permanently, so both
+# table (`fill` exposes `report_gap` as the `gap_report` action this way).
+# Both paths ship permanently, so both
 # need a routing-equivalence proof -- this closes exactly the gap the other
 # suite's exclusion leaves open.
 # ---------------------------------------------------------------------------

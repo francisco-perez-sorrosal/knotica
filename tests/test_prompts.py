@@ -5,8 +5,8 @@ first-use section (four locked operations; names register statically, bodies
 resolve lazily from the vault per invocation; prompt resolution mirrors schema
 resolution — root defaults at ``.knotica/prompts/``, topic overrides once
 divergence is earned; graceful unconfigured boot) and the interface design's
-prompt contracts (§2: protocol outlines, the verbatim topic-inference policy
-block, the body-requirements checklist).
+prompt contracts: protocol outlines, the verbatim topic-inference policy
+block, the body-requirements checklist.
 
 The pinned behaviors:
 

@@ -21,7 +21,7 @@ import { PromoteStage } from "./PromoteStage";
 import { ProveStage } from "./ProveStage";
 
 /**
- * `ImproveLane` (`INTERFACE_DESIGN.md §2.4`) — the six-stage `improve` rail
+ * `ImproveLane` — the six-stage `improve` rail
  * (`instrument`/`observe`/`gate`/`heal`/`promote`/`prove`) assembled behind
  * one navigable list, replacing the four independent tabbed panes
  * (`DatasetsPane`, `LoopPane`, `ArenaPane`, `AskPane`) this lane absorbs.
@@ -40,7 +40,7 @@ import { ProveStage } from "./ProveStage";
  * `deriveSequenceStages` wording, in favor of the "one data spine, states
  * arrive as already-derived facts" principle the paired RED suite pins.
  *
- * Progressive disclosure (`§2.4` rule 4): only the watermark stage (whose
+ * Progressive disclosure: only the watermark stage (whose
  * declared state is `active` or `blocked`) mounts its real, interactive
  * body. Every other stage — `pending` or `complete` — renders a one-line
  * summary instead, never a disabled control. This is why `ImproveLane`
@@ -50,7 +50,7 @@ import { ProveStage } from "./ProveStage";
  * position. Every railed lane hand-rolls for its own such reason, which is
  * why no shared shell survives. The `.lane-stage`/`aria-current="step"`
  * markup contract is kept identical to `TendLane.tsx`'s by hand, matching
- * its "Class contract" (`§1.5`).
+ * its "Class contract".
  *
  * `status`/`metrics` arrive as props from the app-level poll (mirroring
  * `LoopPane.tsx`'s own shape) — this lane never calls `client.wikiStatus`
@@ -85,7 +85,7 @@ const STAGE_SUMMARY: Record<StageId, string> = {
   prove: "Answers a question against the compiled program.",
 };
 
-/** The DOM id a loop-strip node scrolls to when it takes focus (§7.2). */
+/** The DOM id a loop-strip node scrolls to when it takes focus. */
 function rowDomId(id: string): string {
   return `improve-stage-${id}`;
 }
@@ -130,7 +130,7 @@ export function ImproveLane({
   }));
 
   // Focus is per topic+vault: switching either is a different process, so the
-  // stage the user had open no longer means anything (§7.2). An arrival request
+  // stage the user had open no longer means anything. An arrival request
   // is the one thing allowed to seed it, once — Improve is the only railed lane
   // whose stage bodies are focus-gated, so it is the only lane where landing on
   // a stage has to *open* it rather than merely scroll to it.
@@ -165,7 +165,7 @@ export function ImproveLane({
             declared={byId.get(id) ?? null}
             focused={focusedId === id}
             /* The "start here" cue belongs to the first row only, and only
-               while nothing at all is open (§7.2). */
+               while nothing at all is open. */
             startHere={focusedId === null && index === 0}
             onToggleFocus={() => toggleFocus(id)}
             client={client}
@@ -211,9 +211,9 @@ function ImproveStageRow({
 }): JSX.Element {
   const state: LaneRailStageState = declared?.state ?? "pending";
   // The server's axis. `aria-current="step"` is bound to this and nothing
-  // else — focus must never move the process marker (§5.3).
+  // else — focus must never move the process marker.
   const isDeclaredCurrent = state === "active" || state === "blocked";
-  // The §5.3 render matrix: a declared-current stage is always open; a
+  // The render matrix: a declared-current stage is always open; a
   // pending/complete stage opens only when the user focuses it.
   const open = isDeclaredCurrent || focused;
   const meta = stageMeta("improve", id);

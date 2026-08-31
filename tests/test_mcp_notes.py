@@ -160,9 +160,9 @@ def test_note_capture_happy_path_applies_defaults_and_returns_the_wire_envelope(
     vault_config: Path, template_vault: Path
 ) -> None:
     """A bare capture (topic + note only, no quote/pages) succeeds, defaults
-    intent to reflection, and returns the full wire envelope INTERFACE_DESIGN
-    §2 describes -- crucially a pre-composed `placement` sentence, not raw
-    data the caller must assemble."""
+    intent to reflection, and returns the full documented wire envelope --
+    crucially a pre-composed `placement` sentence, not raw data the caller
+    must assemble."""
     del template_vault
     server = build_verb_server()
     body = assert_success(capture(server, TOPIC, "just Goodhart with extra steps."))
@@ -1434,8 +1434,8 @@ def test_notes_reanchor_apply_makes_exactly_one_commit_and_appends_the_new_ancho
 def test_notes_reanchor_apply_with_no_page_or_quote_accepts_the_projected_match(
     vault_config: Path, template_vault: Path
 ) -> None:
-    """`INTERFACE_DESIGN.md` §1: `page` and `quote` empty means "accept the
-    projected match" -- the drift queue's one-click accept, not a separate
+    """`page` and `quote` empty means "accept the projected match" -- the
+    drift queue's one-click accept, not a separate
     code path from the explicit-arguments case above."""
     page = f"{TOPIC}/reanchor-accept-projection.md"
     quote = "a passage that has not drifted at all"
@@ -1584,8 +1584,7 @@ def test_notes_dispatcher_description_states_the_read_offer_guard_once_mutating(
     precondition in its own registered description (see
     `test_tool_description_guards.py`'s `_MUTATING_DISPATCHERS`) -- `notes`
     now exposes `reanchor`/`detach` and must join that guarded set, using the
-    same verbatim guard clause `suggestions_review` and `INTERFACE_DESIGN.md`
-    §1's own draft description both use.
+    same verbatim guard clause `suggestions_review` uses.
 
     (Once this goes green, `test_tool_description_guards.py` must move
     `notes` from its `_READ_ONLY_CONTROLS` negative control into
@@ -1811,7 +1810,7 @@ def test_notes_reanchor_targeting_a_page_that_no_longer_exists_fails_with_page_n
 def test_notes_reanchor_page_not_found_fix_text_names_detach_as_the_fallback(
     vault_config: Path, template_vault: Path
 ) -> None:
-    """`INTERFACE_DESIGN.md` §8's error grammar table gives this row a
+    """The error grammar gives this row a
     fallback the generic `PAGE_NOT_FOUND` fix lacks: a user pointing at a
     deleted page can keep the note without an anchor by detaching instead."""
     page = f"{TOPIC}/reanchor-fix-text-original.md"
@@ -1859,7 +1858,7 @@ def test_notes_reanchor_page_not_found_fix_text_names_detach_as_the_fallback(
 # rejected `INVALID_ARGUMENT` by the dispatcher's action-enum check, which
 # would have made a code-only assertion pass vacuously. `target=golden` and
 # `target=gap`-on-a-reflection assert the exact `message` from
-# `INTERFACE_DESIGN.md` §8 -- already shipped, verbatim, inside
+# the error grammar -- already shipped, verbatim, inside
 # `core.operations.promote_note`, so this is a pin, not a guess. The
 # bad-target/bad-mode/bad-verdict tests assert the rejection's `fix` is
 # distinct from the action-enum check's own fix text, since none of those
@@ -2155,8 +2154,8 @@ def test_notes_promote_with_an_explicit_question_uses_it_verbatim(
 def test_notes_promote_defaults_the_question_from_the_notes_own_text_when_it_already_is_a_question(
     vault_config: Path, template_vault: Path
 ) -> None:
-    """`INTERFACE_DESIGN.md` §1's schema: `question` "[d]efaults to the
-    note's own text when the note already is a question" -- read here as
+    """The `question` parameter "[d]efaults to the note's own text when the
+    note already is a question" -- read here as
     intent `question`, the same enum value `notes action=list`'s `intent`
     filter and `promote target=gap`'s intent gate both key off. This is the
     dispatcher's own defaulting logic (`promote_note` itself takes no

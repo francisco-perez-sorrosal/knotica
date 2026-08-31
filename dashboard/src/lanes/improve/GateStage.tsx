@@ -21,7 +21,7 @@ import type {
  * billed `loop run_once` trigger (`gateNowControls`). The billed cycle stays
  * on the shared two-phase nonce primitive (`TwoPhaseAction.tsx`) rather than
  * the armed→confirm affordance: `run_once` already mints a server-side nonce
- * and quote, so the orchestrator's no-native-dialogs ruling (`LEARNINGS.md`)
+ * and quote, so the dashboard-wide no-native-dialogs rule
  * is satisfied by that flow as-is — the ruling only reaches spend-immediately
  * actions with no free preview leg (see `HealStage.tsx`'s `compile action=run`).
  *
