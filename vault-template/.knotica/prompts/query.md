@@ -20,7 +20,7 @@ you need to investigate before answering.
 > **Topic-inference policy.** Call `list_topics`. If the caller passed an explicit
 > `topic`, use it (override always wins). Otherwise infer: if the material clearly
 > matches one existing topic, auto-place there; if it is ambiguous across topics or
-> warrants a new topic, ask the user, and on confirmation call `create_topic`. Always
+> warrants a new topic, ask the user, and on confirmation call `learn action=create_topic`. Always
 > pass the resolved topic explicitly to every tool — the server holds no active-topic
 > state.
 

@@ -55,7 +55,8 @@ DEFAULT_FIX: Mapping[ErrorCode, str] = MappingProxyType(
     {
         ErrorCode.NOT_CONFIGURED: ("Run `/knotica:setup` (Claude Code) or `knotica init` (CLI)."),
         ErrorCode.TOPIC_NOT_FOUND: (
-            "Call `list_topics` to see valid topics, or `create_topic` to make a new one."
+            "Call `list_topics` to see valid topics, or `learn action=create_topic` to"
+            " make a new one."
         ),
         ErrorCode.PAGE_NOT_FOUND: "Call `search` in this topic.",
         ErrorCode.RESERVED_NAME: (
@@ -81,17 +82,20 @@ DEFAULT_FIX: Mapping[ErrorCode, str] = MappingProxyType(
             "Check the search provider's status and your rate limits; transient"
             " rate limits and server errors clear on their own -- wait and re-run."
         ),
-        ErrorCode.SUGGESTION_NOT_FOUND: ("Call `suggestions_read` to list current suggestion_ids."),
+        ErrorCode.SUGGESTION_NOT_FOUND: (
+            "Call `fill action=suggestions_read` to list current suggestion_ids."
+        ),
         ErrorCode.SUGGESTION_NOT_APPROVED: (
-            "Approve it first: `suggestions_review(action=approve, mode=apply)`."
+            "Approve it first: `fill action=suggestions_review"
+            " suggestions_review_action=approve mode=apply`."
         ),
         ErrorCode.NOTE_NOT_FOUND: (
-            "Call `notes(action=list)` for this topic to see current note ids."
+            "Call `tend action=notes notes_action=list` for this topic to see current note ids."
         ),
         ErrorCode.ANCHOR_DEGRADED: (
-            "The note is saved and the quote is preserved. Call `notes(action=read)` to see"
-            " what the anchor actually recorded, and re-capture naming a more specific page"
-            " if the provenance matters."
+            "The note is saved and the quote is preserved. Call `tend action=notes"
+            " notes_action=read` to see what the anchor actually recorded, and re-capture"
+            " naming a more specific page if the provenance matters."
         ),
     }
 )

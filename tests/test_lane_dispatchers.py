@@ -51,6 +51,7 @@ from support.dispatch import (
     list_tools,
     payload_of,
     rendered_error_text,
+    tool_schema,
 )
 from support.vault import run_git
 
@@ -615,3 +616,80 @@ def test_a_missing_required_verb_argument_is_a_structured_error_not_a_type_error
     assert "INVALID_ARGUMENT" in text
     assert "loop_action" in text, "the fix must name the lane-side parameter"
     assert "TypeError" not in text and "positional argument" not in text
+
+
+# ---------------------------------------------------------------------------
+# `home` routes with narrations, and a lane says what it discarded
+# ---------------------------------------------------------------------------
+
+
+def test_home_returns_each_action_with_the_narration_and_stage_it_already_knows() -> None:
+    """The router's payload must carry what disambiguates two verbs in one lane.
+
+    `home` is the entry point `server.py` points skill-less clients at, and a
+    list of bare verb names routes no better than the tool list already did --
+    the disambiguating prose, including the **billed** markers, was computed
+    for the description and dropped one line before serialization.
+    """
+    payload = payload_of(call_tool(_lane_dispatch_server("home"), "home", {}))
+
+    lanes = {lane["id"]: lane for lane in payload["lanes"]}
+    fill_actions = {action["id"]: action for action in lanes["fill"]["actions"]}
+    stages = {stage["id"] for stage in lanes["fill"]["stages"]}
+
+    assert "gapfill_discover" in fill_actions
+    discover = fill_actions["gapfill_discover"]
+    assert discover["narration"], "every action must carry its narration"
+    assert "billed" in discover["narration"], "the billed marker must survive"
+    assert discover["stage"] in stages, "an action's stage must name a stage on the lane's rail"
+
+
+def test_a_lane_argument_the_chosen_action_does_not_take_is_reported_not_dropped(
+    vault_config: Path,
+) -> None:
+    """A lane's call shape is the union of its verbs', so a caller can pass an
+    argument the chosen action never sees. Dropping it in silence lets a call
+    succeed having ignored an argument the caller believed it passed."""
+    del vault_config
+    kwargs = {"action": "doctor", "mode": "dry-run"}
+    lane_kwargs = _lane_call_kwargs("vault_health", kwargs) | {"quote": "a note-capture argument"}
+
+    payload = payload_of(call_tool(_lane_dispatch_server("tend"), "tend", lane_kwargs))
+
+    assert payload.get("ignored_arguments") == ["quote"]
+
+
+def test_a_lane_call_that_passes_only_relevant_arguments_carries_no_ignored_note(
+    vault_config: Path,
+) -> None:
+    """The note is absent, not empty -- structural payload equality with the
+    flat verb has to hold for every call that passes nothing extra."""
+    del vault_config
+    kwargs = {"action": "doctor", "mode": "dry-run"}
+
+    payload = payload_of(
+        call_tool(_lane_dispatch_server("tend"), "tend", _lane_call_kwargs("vault_health", kwargs))
+    )
+
+    assert "ignored_arguments" not in payload
+
+
+def test_each_lane_publishes_its_action_table_as_a_schema_enum() -> None:
+    """The enum is what a model reads *before* it calls.
+
+    Advertised, not enforced: pydantic enforcement would answer an unknown
+    action with a raw validation string, losing the structured envelope and the
+    `record_rejected_action` signal -- both of which
+    `test_lane_action_deprecation.py` pins. So the schema carries the set and
+    `_reject` still decides.
+    """
+    from knotica.mcp_server.tools_dispatch_lane_common import lane_actions
+
+    for lane in ("learn", "answer", "improve", "fill", "tend"):
+        schema = tool_schema(_lane_dispatch_server(lane), lane)
+        published = schema["properties"]["action"].get("enum")
+        assert published is not None, f"{lane} publishes no action enum"
+        assert list(lane_actions(lane)) == [
+            action for action in published if action in lane_actions(lane)
+        ]
+        assert set(lane_actions(lane)) <= set(published)

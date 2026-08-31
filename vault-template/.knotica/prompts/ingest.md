@@ -21,7 +21,7 @@ Keep the user informed — and **emit stages in protocol order** (never report
 3. **Plan before store.** Call `ingest_progress(stage=plan, …)` with the page
    list *before* the first `store_source`. Do not postpone planning until after
    sources are stored.
-4. Mutating tools (`store_source`, `write_page`, `create_topic`) auto-log
+4. Mutating tools (`store_source`, `write_page`, `learn action=create_topic`) auto-log
    server-side — you do not need to duplicate those, but you **may** emit a
    `started` event just before a long `store_source`/`write_page`.
 5. When the ingest itself is finished, call `ingest_progress` with
@@ -37,7 +37,7 @@ Titles should be human-readable (e.g. "Fetching ar5iv HTML", "Planning 6 pages")
 > **Topic-inference policy.** Call `list_topics`. If the caller passed an explicit
 > `topic`, use it (override always wins). Otherwise infer: if the material clearly
 > matches one existing topic, auto-place there; if it is ambiguous across topics or
-> warrants a new topic, ask the user, and on confirmation call `create_topic`. Always
+> warrants a new topic, ask the user, and on confirmation call `learn action=create_topic`. Always
 > pass the resolved topic explicitly to every tool — the server holds no active-topic
 > state.
 
@@ -190,18 +190,20 @@ provenance:
 on the candidate context.
 
 **4. Stage held-out golden candidates (contamination guard).** Before or interleaved
-with page-writing, call `golden_review_save` to stage client-authored held-out
+with page-writing, call `improve action=golden golden_action=save` to stage client-authored held-out
 candidates derived from the source text — examples the wiki should answer after the
 ingest. Pass them as `accepted_json` — a JSON array of candidate objects
 (`question`, `reference_answer`, `citations`, `pages_used`; optional `support`).
 These stage disjoint from `qa.jsonl` and will reach the frozen set only
-through the `golden_review_load` → accept → `golden.freeze` flow below (never a direct
+through the `improve action=golden golden_action=load` → accept →
+`improve action=datasets datasets_action=freeze` flow below (never a direct
 freeze call). The contamination guard is the protocol ordering: stage the held-out
 candidates *before* the gate evaluates the ingest.
 
 **5. Review and freeze held-out golden candidates.** Any human freeze of the staged
-candidates must route through `golden_review_load` (reads the current frozen set),
-followed by acceptance and `golden.freeze` (atomically replaces the frozen set). This
+candidates must route through `improve action=golden golden_action=load` (reads the
+current frozen set), followed by acceptance and
+`improve action=datasets datasets_action=freeze` (atomically replaces the frozen set). This
 read-merge-freeze pattern is load-bearing — never call freeze without reading first,
 or prior golden entries will be lost.
 

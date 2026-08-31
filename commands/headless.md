@@ -6,7 +6,7 @@ allowed-tools:
   - Bash(claude mcp:*)
 ---
 Manage headless mode ($1 = on|off|status; default status). Headless is what powers the MCP
-tool `query`, `compile`, and the loop's eval scoring — not Arena's healing race, which is a
+tool `query`, `improve action=compile`, and the loop's eval scoring — not Arena's healing race, which is a
 deterministic mutator with a keyword scorer and makes no model call. It needs the `evals`
 extra (`anthropic`, `dspy`) and LLM credentials. The plugin's default `knotica` server is lean
 (no `evals` extra) and stays that way for ingest / client-as-brain use, which needs neither.

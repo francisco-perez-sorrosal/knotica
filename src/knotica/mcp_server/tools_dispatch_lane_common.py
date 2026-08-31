@@ -59,10 +59,11 @@ from collections.abc import Callable, Mapping
 from functools import reduce
 from operator import or_
 from types import MappingProxyType
-from typing import Any, cast
+from typing import Annotated, Any, cast
 
 from mcp.server.fastmcp import FastMCP
 from mcp.types import CallToolResult
+from pydantic import Field
 
 from knotica.core import process_model
 from knotica.core.errors import ErrorCode, KnoticaError
@@ -256,12 +257,35 @@ def _optional(annotations: list[Any]) -> Any:
     return reduce(or_, distinct) | None
 
 
+def _selector_annotation(lane: str, actions: tuple[str, ...]) -> Any:
+    """``str`` carrying the legal action set as a published schema ``enum``.
+
+    The enum is what a model reads before it calls, so advertising it moves a
+    misspelled action out of the round trip -- Bloch's hard-to-misuse row, and
+    the whole reason to publish it. It is attached as ``json_schema_extra``
+    rather than as a ``Literal``, which would have pydantic *enforce* it: the
+    host would then answer an unknown action with a raw validation string,
+    losing both the "return an envelope, never raise" contract (no ``code``,
+    no ``fix``, no ``retryable``) and the ``record_rejected_action`` signal --
+    the only instrument that sees which action a client *meant*. Advisory in
+    the schema, enforced at :func:`_reject`, is the shape that keeps all three.
+
+    The set is the live table **plus** the lane's declared superseded names, so
+    the deprecation seam is advertised as callable rather than as a typo.
+    """
+    published: list[Any] = list(actions) + list(_superseded_actions(lane))
+    return Annotated[str, Field(json_schema_extra={"enum": published})]
+
+
 def _lane_signature(lane: str, actions: tuple[str, ...]) -> inspect.Signature:
     """The union of the lane's verbs' own parameters, all optional.
 
     Every parameter is ``X | None = None`` so that :func:`_forwarded` can tell
     "the caller passed this" from "the caller left it out" and forward only the
     former -- which is what keeps each verb's own defaults intact.
+
+    The ``action`` selector is the exception: it is required, and carries the
+    legal set as a schema ``enum`` (see :func:`_selector_annotation`).
     """
     collected: dict[str, list[Any]] = {}
     for verb in actions:
@@ -270,7 +294,13 @@ def _lane_signature(lane: str, actions: tuple[str, ...]) -> inspect.Signature:
                 parameter.annotation if parameter.annotation is not inspect.Parameter.empty else Any
             )
             collected.setdefault(_lane_parameter_name(verb, parameter.name), []).append(annotation)
-    parameters = [inspect.Parameter(_SELECTOR, inspect.Parameter.KEYWORD_ONLY, annotation=str)] + [
+    parameters = [
+        inspect.Parameter(
+            _SELECTOR,
+            inspect.Parameter.KEYWORD_ONLY,
+            annotation=_selector_annotation(lane, actions),
+        )
+    ] + [
         inspect.Parameter(
             name,
             inspect.Parameter.KEYWORD_ONLY,
@@ -342,6 +372,7 @@ def _dispatch(lane: str, actions: tuple[str, ...], arguments: dict[str, Any]) ->
             )
         )
     forwarded = _forwarded(verb, arguments)
+    ignored = _ignored_arguments(verb, arguments)
     missing = _missing_required(verb, forwarded)
     if missing:
         return envelope.error_envelope(
@@ -352,7 +383,30 @@ def _dispatch(lane: str, actions: tuple[str, ...], arguments: dict[str, Any]) ->
                 fix=f"Pass {' and '.join(missing)} with the call.",
             )
         )
-    return handler(**forwarded)
+    return _with_ignored_arguments(handler(**forwarded), ignored)
+
+
+def _ignored_arguments(verb: str, arguments: Mapping[str, Any]) -> list[str]:
+    """Supplied arguments this lane accepts but the chosen verb does not take.
+
+    A lane's call shape is the *union* of its verbs' parameters (see
+    :func:`_lane_signature`), so ``fill`` legitimately advertises the eval
+    cadence knobs ``loop`` contributes. Passing one to ``gapfill_discover``
+    used to be dropped in silence by :func:`_forwarded` -- the call succeeded
+    having ignored an argument the caller believed it had passed, on a billed
+    action. The discarded names are already known here; saying them is free.
+    """
+    accepted = {_lane_parameter_name(verb, name) for name in _handler_parameters(verb)}
+    return sorted(
+        name for name, value in arguments.items() if value is not None and name not in accepted
+    )
+
+
+def _with_ignored_arguments(result: ToolResult, ignored: list[str]) -> ToolResult:
+    """Note the discarded argument names on a success envelope; leave a failure alone."""
+    if not ignored or result.isError or result.structuredContent is None:
+        return result
+    return envelope.success_result({**result.structuredContent, "ignored_arguments": ignored})
 
 
 def _missing_required(verb: str, forwarded: Mapping[str, Any]) -> list[str]:
@@ -401,13 +455,37 @@ def _home_payload() -> dict[str, Any]:
                         {"id": stage.id, "title": stage.title, "handoff": stage.handoff}
                         for stage in process_model.LANE_STAGES[lane]
                     ],
-                    "actions": list(lane_actions(lane)),
+                    "actions": _lane_action_entries(lane),
                 }
                 for lane in process_model.LANES
                 if lane != "home"
             ]
         }
     )
+
+
+def _lane_action_entries(lane: str) -> list[dict[str, Any]]:
+    """``home``'s per-action rows: the verb, what it does, where on the rail.
+
+    The narration is the same string the lane's own description renders, and it
+    is the part a router actually needs -- it is what disambiguates
+    ``gapfill_discover`` from ``suggestions_read``, and it is where the billed
+    markers live. Emitting bare verb names dropped it one line before
+    serialization and sent the caller back to read a lane description instead.
+    """
+    rail = [stage.id for stage in process_model.LANE_STAGES[lane]]
+    narrations = _lane_narrations(lane)
+    entries = []
+    for verb in lane_actions(lane):
+        position = narrations[verb][0][0]
+        entries.append(
+            {
+                "id": verb,
+                "narration": "; ".join(narration for _position, narration in narrations[verb]),
+                "stage": rail[position] if position < len(rail) else None,
+            }
+        )
+    return entries
 
 
 def _register_router(mcp: FastMCP, lane: str, purpose: str) -> None:

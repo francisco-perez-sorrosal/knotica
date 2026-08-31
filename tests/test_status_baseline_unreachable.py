@@ -8,8 +8,11 @@ topic. The two numbers that prove it were reported on different surfaces --
 ``gate.baseline`` from loop-state and the measured scalar from
 ``metrics.jsonl`` -- so nothing named the condition.
 
-These pin ``loop.baseline_unreachable``: the object that names it, and the four
-distinct reasons the finding is deliberately withheld.
+These pin ``gate.baseline_unreachable``: the object that names it, and the four
+distinct reasons the finding is deliberately withheld. ``gate`` is the parent
+**both** views use -- the summary view also emits a deprecated
+``loop.baseline_unreachable`` mirror for one release, which is pinned here so
+its removal is a deliberate act rather than an accident.
 """
 
 from __future__ import annotations
@@ -72,8 +75,9 @@ def _seed(
 
 
 def _unreachable(vault: Path, store: LocalFSStore) -> dict | None:
+    """The summary view's finding, read under its canonical parent."""
     payload = gather_wiki_status(store, vault, topic=TOPIC)
-    return payload["loop"]["baseline_unreachable"]
+    return payload["gate"]["baseline_unreachable"]
 
 
 def test_names_both_scalars_when_the_baseline_outranks_the_corpus(
@@ -200,3 +204,47 @@ def test_the_attention_view_withholds_the_finding_across_a_harness_change(
     store = _seed(template_vault, _record(0.60), baseline=0.95, baseline_harness="older-instrument")
 
     assert _attention_gate(template_vault, store) is None
+
+
+# ---------------------------------------------------------------------------
+# One signal, one parent -- the two views must not disagree about where it hangs
+# ---------------------------------------------------------------------------
+
+
+def test_the_summary_view_still_mirrors_the_finding_under_loop_for_one_release(
+    template_vault: Path,
+) -> None:
+    """The deprecated mirror the dashboard's existing read still depends on.
+
+    Delete this test in the same change that deletes the mirror; until then a
+    silent removal would blank the Improve gate stage with no test failing.
+    """
+    store = _seed(template_vault, _record(0.6562), baseline=0.9548)
+
+    payload = gather_wiki_status(store, template_vault, topic=TOPIC)
+
+    assert payload["loop"]["baseline_unreachable"] == payload["gate"]["baseline_unreachable"]
+
+
+def test_both_views_hang_the_finding_off_the_same_parent(template_vault: Path) -> None:
+    """A model that learned the field from one view must find it in the other.
+
+    The summary payload carries a populated ``gate`` block of its own, so a
+    wrong guess about the parent lands on a real object and reads as an
+    authoritative "not present" rather than as a miss -- which is why agreement
+    is asserted rather than left to convention.
+    """
+    store = _seed(template_vault, _record(0.6562), baseline=0.9548)
+
+    summary = gather_wiki_status(store, template_vault, topic=TOPIC)
+    attention = gather_wiki_status(store, template_vault, view="attention")
+    row = next(r for r in attention["topics"] if r["topic"] == TOPIC)
+
+    parents = {
+        parent
+        for payload in (summary, row)
+        for parent, block in payload.items()
+        if isinstance(block, dict) and "baseline_unreachable" in block
+    }
+    assert "gate" in parents, "both views must report the finding under `gate`"
+    assert parents <= {"gate", "loop"}, f"a third parent appeared for one signal: {sorted(parents)}"

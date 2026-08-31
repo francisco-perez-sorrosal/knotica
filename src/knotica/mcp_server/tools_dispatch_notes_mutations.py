@@ -87,15 +87,17 @@ _GOLDEN_DEFERRED_MESSAGE = (
     "stay disjoint, so the choice is one-way and needs its own review gate"
 )
 _GOLDEN_DEFERRED_FIX = (
-    "Promote to the training set instead: `notes action=promote target=trainset`. "
-    "Golden promotion runs through `golden_review`, not this action."
+    "Promote to the training set instead: `improve action=notes notes_action=promote "
+    "target=trainset`. Golden promotion runs through `improve action=golden "
+    "golden_action=save`, not this action."
 )
 _GAP_INTENT_FIX = (
     "Ask the user whether the wiki is actually wrong. If it is, they can change "
     "the note's intent in Obsidian, or file it directly with `gap_report`."
 )
 _NO_LIVE_PAGES_FIX = (
-    "Anchor the note to a live KB page first (`notes action=reanchor`), then promote again."
+    "Anchor the note to a live KB page first (`tend action=notes notes_action=reanchor`), "
+    "then promote again."
 )
 
 

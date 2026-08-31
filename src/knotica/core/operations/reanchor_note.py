@@ -78,7 +78,7 @@ _TIMESTAMP_FORMAT = "%Y-%m-%dT%H:%M:%SZ"
 #: user pointing at a deleted page can keep the note without an anchor.
 _PAGE_NOT_FOUND_FIX = (
     "Call `search` in this topic for the surviving page, or "
-    "`notes action=detach` to keep the note without an anchor."
+    "`tend action=notes notes_action=detach` to keep the note without an anchor."
 )
 
 

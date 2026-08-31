@@ -266,11 +266,14 @@ def _scope_status(store: VaultStore, vault_name: str, *, scope: str) -> dict[str
 def _attention_status(store: VaultStore, vault_path: Path, vault_name: str) -> dict[str, Any]:
     """The ``view="attention"`` payload: the cross-topic inbox, on a hard budget.
 
-    Reports, for every topic in the vault, the items a person can act on --
-    the same set ``knotica status --nudge`` renders (pending suggestions,
-    refused-awaiting-rework, compile-readiness) -- plus per-topic runner
-    liveness, so a cross-topic surface never has to ask "is anything running?"
-    one topic at a time.
+    Reports, for every topic in the vault, the honest fields its two consumers
+    -- ``knotica status --nudge`` and the dashboard's Home rail -- derive the
+    same seven attention signals from: pending suggestions,
+    refused-awaiting-rework, open gaps with no discovery yet, an aborted arena
+    race, compile-readiness, runner liveness, and an unreachable gate baseline.
+    Which of them *means* a row is the client's call, so this docstring names
+    the fields, never the rules -- ``cli/status.py`` and
+    ``dashboard/src/lanes/home/attentionRows.ts`` are where a signal is added.
 
     Three costs ``view="summary"`` pays are deliberately *not* paid here
     (dec-092), because a projection that costs what summary costs is not a
@@ -531,7 +534,12 @@ def _gate_and_loop(
     """
     if len(topics) != 1:
         return (
-            {"state": "unknown", "baseline": None, "last_scalar": None},
+            {
+                "state": "unknown",
+                "baseline": None,
+                "last_scalar": None,
+                "baseline_unreachable": None,
+            },
             {
                 "runner": {
                     "alive": False,
@@ -555,7 +563,15 @@ def _gate_and_loop(
     compile_state = read_compile_state(store, row.topic)
     last_scalar = _last_known_scalar(row, state, compile_state)
     last_harness = str(row.last_eval["harness_version"]) if row.last_eval else None
-    gate = compute_gate(state, last_scalar=last_scalar, last_harness_version=last_harness)
+    gate = {
+        **compute_gate(state, last_scalar=last_scalar, last_harness_version=last_harness),
+        # Null in the healthy case; an object naming both scalars when the bar
+        # outranks the corpus. A condition that refuses every future candidate
+        # must not have to be inferred by comparing `baseline_scalar` against a
+        # metrics record on another surface. It hangs off `gate` because it is a
+        # gate finding -- the parent `view="attention"` has always used.
+        "baseline_unreachable": _baseline_unreachable(row.topic, row.last_eval, state),
+    }
     arena = read_arena_state(store, row.topic)
     pending = _pending_loop_candidates(vault_path, state)
     metrics_hint: dict[str, Any] | None = None
@@ -584,11 +600,10 @@ def _gate_and_loop(
             if state is not None and state.baseline_scalar is not None
             else None
         ),
-        # Null in the healthy case; an object naming both scalars when the bar
-        # outranks the corpus. A condition that refuses every future candidate
-        # must not have to be inferred by comparing `baseline_scalar` against a
-        # metrics record on another surface.
-        "baseline_unreachable": _baseline_unreachable(row.topic, row.last_eval, state),
+        # Deprecated mirror of `gate.baseline_unreachable`, kept for one release
+        # so the dashboard's existing `loop.baseline_unreachable` read keeps
+        # working; `gate` is the parent both views now agree on.
+        "baseline_unreachable": gate["baseline_unreachable"],
         "pending_candidates": pending,
         "metrics_hint": metrics_hint,
     }
@@ -642,7 +657,7 @@ def _baseline_unreachable(
         ),
         "fix": (
             f"Lower the bar to what the corpus actually measures: "
-            f"`loop action=rebaseline mode=latest topic={topic}`."
+            f"`improve action=loop loop_action=rebaseline mode=latest topic={topic}`."
         ),
     }
 

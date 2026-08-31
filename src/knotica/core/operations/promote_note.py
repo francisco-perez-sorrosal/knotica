@@ -84,7 +84,8 @@ _GOLDEN_DEFERRED_MESSAGE = (
 _GOLDEN_DEFERRED_FIX = (
     "Promote to the training set instead: "
     "`improve action=notes notes_action=promote target=trainset`. "
-    "Golden promotion runs through `golden_review`, not this action."
+    "Golden promotion runs through `improve action=golden golden_action=save`, "
+    "not this action."
 )
 
 # INTERFACE_DESIGN section 8's "Promote a note with no question to ask" row,
