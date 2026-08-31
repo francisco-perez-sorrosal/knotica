@@ -13,7 +13,7 @@ pipeline_tier: lightweight
 affected_files:
   - src/knotica/core/lint.py
   - src/knotica/core/status.py
-  - src/knotica/evals/harness.py
+  - src/knotica/evals/harness/
   - src/knotica/evals/scalar.py
 ---
 

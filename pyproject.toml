@@ -174,5 +174,5 @@ ignore_missing_imports = true
 # ONE rule in the two modules that subclass dspy; every other strict check
 # still applies to them, and hand-written dspy stubs were rejected as a worse
 # option (a fast-moving untyped library's stubs become a confident lie).
-module = ["knotica.evals.program", "knotica.evals.harness"]
+module = ["knotica.evals.program", "knotica.evals.harness.evaluate"]
 disallow_subclassing_any = false

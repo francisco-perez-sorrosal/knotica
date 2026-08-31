@@ -14,8 +14,8 @@ affected_files:
   - src/knotica/evals/scorer.py
   - src/knotica/evals/cache.py
   - src/knotica/evals/judge.py
-  - src/knotica/evals/golden.py
-  - src/knotica/evals/harness.py
+  - src/knotica/evals/golden/
+  - src/knotica/evals/harness/
 affected_reqs:
   - REQ-SCALAR-01
   - REQ-SCALAR-03

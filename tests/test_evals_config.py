@@ -48,6 +48,8 @@ threaded by passing a config to ``harness_version`` rather than mutating module
 state, which is the cleaner (no-hidden-global) shape.
 """
 
+import hashlib
+import json
 import re
 import subprocess
 import sys
@@ -58,6 +60,7 @@ from knotica.cli.status import COMPILE_READY_MIN_EXAMPLES
 from knotica.core.errors import KnoticaError
 from knotica.evals import config
 from knotica.evals.config import (
+    DEFAULT_CONFIG,
     DEFAULT_THRESHOLD,
     JUDGE_SNAPSHOT,
     MAX_TOTAL_TOKENS_PER_RUN,
@@ -294,6 +297,54 @@ def test_the_fingerprint_ignores_the_thread_count() -> None:
     assert harness_version(SAMPLE_JUDGE_PROMPT_HASH, parallel) == baseline, (
         "the thread count is execution config, not instrument config"
     )
+
+
+def test_the_fingerprint_derives_only_from_its_five_declared_inputs() -> None:
+    # The load-bearing property behind every deferred refactor of the eval code:
+    # the instrument fingerprint is a pure function of five DECLARED values and
+    # nothing else -- no module source, no file content, no import path, no
+    # package layout. Restructuring the `evals/harness/` or `evals/golden/`
+    # packages therefore cannot rotate `harness_version`, and cannot refreeze any
+    # topic's baseline. That was long believed to be a cost of splitting them;
+    # this test converts the belief into a checked property.
+    #
+    # Recomputing the digest here from the declared inputs alone is what makes it
+    # a real check: a sixth input folded into `harness_version` -- a source hash,
+    # a `__file__`, a module name -- makes the recomputation disagree, and this
+    # test fails rather than a topic's history silently breaking.
+    expected_runner_config_hash = _sha256_canonical(
+        {
+            "dspy_version": config._installed_dspy_version(),
+            "failure_score": DEFAULT_CONFIG.failure_score,
+        }
+    )
+    expected = _sha256_canonical(
+        {
+            "judge_prompt_hash": SAMPLE_JUDGE_PROMPT_HASH,
+            "judge_snapshot": DEFAULT_CONFIG.judge_snapshot,
+            "runner_config_hash": expected_runner_config_hash,
+            "scalar_formula_version": DEFAULT_CONFIG.scalar_formula_version,
+            "worker_snapshot": DEFAULT_CONFIG.worker_snapshot,
+        }
+    )
+
+    assert harness_version(SAMPLE_JUDGE_PROMPT_HASH) == expected, (
+        "the fingerprint must be exactly sha256 over {judge_prompt_hash, judge_snapshot, "
+        "runner_config_hash, scalar_formula_version, worker_snapshot} -- if this fails, an "
+        "undeclared input (source content, file path, or module layout) has been folded in, "
+        "and every stored scalar's harness_version is about to rotate for a non-instrument change"
+    )
+
+
+def _sha256_canonical(payload: dict[str, object]) -> str:
+    """Digest a payload the way the fingerprint does: sorted-key compact JSON, sha256.
+
+    Written out here rather than imported from ``evals.config`` so the expectation
+    is computed independently of the implementation it checks -- importing the
+    module's own helper would make the recomputation agree by construction.
+    """
+    canonical = json.dumps(payload, sort_keys=True, ensure_ascii=False, separators=(",", ":"))
+    return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
 
 
 def test_the_fingerprint_is_sensitive_to_the_judge_prompt_hash() -> None:

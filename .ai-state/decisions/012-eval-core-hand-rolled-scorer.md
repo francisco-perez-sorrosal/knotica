@@ -9,7 +9,7 @@ tags: [evals, phase-2, scorer, dspy, evaluate, sia, triple-consumer, build-vs-ad
 made_by: user
 branch: worktree-pipeline-eval-harness
 pipeline_tier: standard
-affected_files: [src/knotica/evals/scorer.py, src/knotica/evals/program.py, src/knotica/evals/harness.py, src/knotica/evals/__init__.py, pyproject.toml]
+affected_files: [src/knotica/evals/scorer.py, src/knotica/evals/program.py, src/knotica/evals/harness/, src/knotica/evals/__init__.py, pyproject.toml]
 affected_reqs: [REQ-SCALAR-01, REQ-SCALAR-03, REQ-RUN-04]
 dissent: Keeping the hand-rolled devset for-loop and deferring dspy to Phase 3a would keep Phase 2 free of dspy and its large transitive tree (litellm et al.), at the cost of not exercising the DSPy leg now and re-wiring the runner at 3a — the tradeoff the user judged not worth making.
 ---

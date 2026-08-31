@@ -24,7 +24,7 @@ affected_files:
   - src/knotica/core/loop_factory.py
   - src/knotica/core/loop_cadence_config.py
   - src/knotica/core/loop_state.py
-  - src/knotica/evals/harness.py
+  - src/knotica/evals/harness/
 dissent: Adding a billed per-variant eval path to a self-healing loop is how an unattended watcher becomes an unbounded spend; the abort alone fixes the reported incident and costs nothing.
 ---
 

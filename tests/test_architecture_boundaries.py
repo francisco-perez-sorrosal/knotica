@@ -209,7 +209,7 @@ RAW_WRITE_FUNCTION_ALLOWLIST = frozenset(
         # `.knotica/datasets/golden.staging.jsonl` -- deliberately never
         # committed (a human reviews it before the accept step freezes it via
         # VaultTransaction).
-        "evals/golden.py::_write_staging",
+        "evals/golden/synthesize.py::_write_staging",
         # Backs up and patches the Claude Desktop app's own config file --
         # external application state, never vault content. Public because
         # `cli/desktop.py` calls it: the Desktop-entry shape is defined once,
@@ -643,12 +643,12 @@ def test_raw_write_scanner_detects_the_allowlisted_golden_staging_write() -> Non
     # `_write_staging` that silently stopped the allowlist entry from matching
     # would leave the allowlist entry dead and this guard would be the only
     # thing to notice.
-    tree = _parse(SRC_ROOT / "evals" / "golden.py")
+    tree = _parse(SRC_ROOT / "evals" / "golden" / "synthesize.py")
     detected = {name for name, _line in _raw_write_calls(tree)}
     assert "write_text" in detected, (
-        "expected the raw-write scanner to detect golden.py's _write_staging "
+        "expected the raw-write scanner to detect synthesize.py's _write_staging "
         "write_text call -- if this fails, the allowlist entry "
-        "'evals/golden.py::_write_staging' matches nothing"
+        "'evals/golden/synthesize.py::_write_staging' matches nothing"
     )
 
 

@@ -51,7 +51,8 @@ PINNED negotiables (reconciliation points if the implementation diverges)
    (or a corrupt recorded digest) can break the match.
 
 Written concurrently with the implementation (disjoint files); RED until
-``evals/golden.py`` lands.
+``evals/golden`` lands (a single module then, the ``evals/golden/`` package now --
+this suite exercises it through its public import surface either way).
 --------------------------------------------------------------------------------
 """
 

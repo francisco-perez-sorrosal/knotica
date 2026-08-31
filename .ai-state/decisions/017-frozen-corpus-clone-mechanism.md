@@ -10,7 +10,7 @@ made_by: agent
 agent_type: systems-architect
 branch: worktree-pipeline-eval-harness
 pipeline_tier: standard
-affected_files: [src/knotica/core/vcs.py, src/knotica/evals/harness.py]
+affected_files: [src/knotica/core/vcs.py, src/knotica/evals/harness/]
 affected_reqs: [REQ-CORPUS-01, REQ-CORPUS-02, REQ-CORPUS-03]
 dissent: A git worktree (git worktree add) rooted at a SHA is cheaper than a full clone (shares the object store, no network/copy cost) and would pin the corpus just as well; a full clone was chosen for isolation simplicity and Phase-4 relocation symmetry, accepting the extra copy cost of a local-only MVP.
 ---

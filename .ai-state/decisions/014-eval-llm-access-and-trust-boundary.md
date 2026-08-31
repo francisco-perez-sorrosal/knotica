@@ -9,7 +9,7 @@ tags: [evals, phase-2, llm, anthropic, judge, trust-boundary, security, cost-acc
 made_by: user
 branch: worktree-pipeline-eval-harness
 pipeline_tier: standard
-affected_files: [src/knotica/evals/llm.py, src/knotica/evals/runner.py, src/knotica/evals/judge.py, src/knotica/evals/cache.py, src/knotica/evals/harness.py, src/knotica/cli/eval.py, pyproject.toml]
+affected_files: [src/knotica/evals/llm.py, src/knotica/evals/runner.py, src/knotica/evals/judge.py, src/knotica/evals/cache.py, src/knotica/evals/harness/, src/knotica/cli/eval.py, pyproject.toml]
 affected_reqs: [REQ-RUN-01, REQ-RUN-02, REQ-RUN-03, REQ-JUDGE-01, REQ-JUDGE-02, REQ-JUDGE-03, REQ-JUDGE-04]
 dissent: The Claude Agent SDK (SIA's own SDK, subscription-credit capable) would avoid provisioning a knotica-owned API key and align the eval runner with the Phase-3b SIA runtime, at the cost of coarse per-run cost accounting (a credit pool hides per-run USD) and lower determinism — a poor trade for an objective function whose whole point is a stable, cost-bearing scalar.
 re_affirms: dec-007

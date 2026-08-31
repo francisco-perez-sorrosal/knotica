@@ -13,8 +13,8 @@ pipeline_tier: standard
 affected_files:
   - src/knotica/evals/runner.py
   - src/knotica/evals/program.py
-  - src/knotica/evals/golden.py
-  - src/knotica/evals/harness.py
+  - src/knotica/evals/golden/
+  - src/knotica/evals/harness/
   - src/knotica/core/page.py
 affected_reqs: [REQ-01, REQ-02, REQ-03, REQ-04, REQ-05]
 re_affirms: dec-006

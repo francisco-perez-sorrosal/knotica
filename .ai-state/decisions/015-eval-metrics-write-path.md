@@ -10,7 +10,7 @@ made_by: agent
 agent_type: systems-architect
 branch: worktree-pipeline-eval-harness
 pipeline_tier: standard
-affected_files: [src/knotica/evals/harness.py, src/knotica/evals/config.py, tests/test_architecture_boundaries.py]
+affected_files: [src/knotica/evals/harness/, src/knotica/evals/config.py, tests/test_architecture_boundaries.py]
 affected_reqs: [REQ-METRICS-01, REQ-METRICS-02, REQ-METRICS-03, REQ-CORPUS-03]
 dissent: Bumping metrics.jsonl schema_version to add first-class dataset_sha / judge_prompt_hash / model_snapshot / cost_usd columns would make every reproducibility field queryable in one flat record, at the cost of a template/constitution migration and breaking the record-schema-freeze promise that Phase 2 is a pure addition.
 re_affirms: dec-006

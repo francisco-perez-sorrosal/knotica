@@ -58,7 +58,9 @@ NOTES (interface facts and one reconciled contract)
   git clone-into-existing-dir failure -- while still leaving the source byte-identical.
   This suite pins both halves: the typed refusal and the untouched source.
 
-Written concurrently with ``evals/harness.py`` (disjoint files).
+Written concurrently with the implementation (disjoint files), which has since
+become the ``evals/harness/`` package -- this suite exercises it through its
+public import surface, so the split needed no edit here.
 ================================================================================
 """
 

@@ -11,7 +11,7 @@ agent_type: systems-architect
 branch: worktree-eval-error-visibility
 pipeline_tier: standard
 affected_files:
-  - src/knotica/evals/harness.py
+  - src/knotica/evals/harness/
   - src/knotica/evals/scorer.py
   - src/knotica/evals/error_capture.py
 affected_reqs: [REQ-01, REQ-02, REQ-03, REQ-07]

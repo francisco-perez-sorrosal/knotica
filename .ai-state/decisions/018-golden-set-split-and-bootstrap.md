@@ -10,7 +10,7 @@ made_by: agent
 agent_type: systems-architect
 branch: worktree-pipeline-eval-harness
 pipeline_tier: standard
-affected_files: [src/knotica/evals/golden.py, src/knotica/cli/eval.py]
+affected_files: [src/knotica/evals/golden/, src/knotica/cli/eval.py]
 affected_reqs: [REQ-GOLDEN-01, REQ-GOLDEN-02, REQ-GOLDEN-03, REQ-GOLDEN-04]
 dissent: Deferring the trainset/held-out split until Phase 3a (when DSPy actually consumes qa.jsonl) would keep Phase 2 tighter to its scope, at the real risk of retrofitting a split after examples accumulate — which risks leakage that silently contaminates the eval scalar the whole loop trusts.
 re_affirms: dec-006

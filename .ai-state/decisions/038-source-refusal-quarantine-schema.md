@@ -15,7 +15,7 @@ affected_files:
   - src/knotica/core/source_gate.py
   - src/knotica/core/gapfill/
   - src/knotica/evals/train_bootstrap.py
-  - src/knotica/evals/golden.py
+  - src/knotica/evals/golden/
 affected_reqs: [REQ-05, REQ-06, REQ-07, REQ-08]
 re_affirms: dec-030
 dissent: A single gate_outcome field leaves a refused source at status=approved, so every ingest-queue consumer must remember the compound filter status==approved AND gate_outcome is null; a distinct terminal refused status would make the negative state self-evident to a status-only filter, at the cost of a new status-enum value and the migration/surfacing it drags through suggestions_read, wiki_status, and the dashboard.
