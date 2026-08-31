@@ -1042,6 +1042,10 @@ different reason that closing the §3 gap never addressed: each covers code outs
 model *by design*, so Note 1's prohibition on synthetic subsystem names applies permanently rather
 than pending a refinement pass.
 
+This table is machine-read: `scripts/test_group.py::cmd_check` parses it as the orphan-walk
+allowlist, so a test file may stay un-grouped exactly as long as it holds a row here — and a new
+file in neither a group's selectors nor this table fails `make verify`.
+
 | Un-grouped file | Tests | Covers | Why no group |
 |---|---:|---|---|
 | `test_spine.py` | 21 | `tests/conftest.py` + `tests/support/` | Test infrastructure; no group's `file_dependencies` covers it (Note 3). Also the most expensive single un-grouped file at ~16.6 s. |
@@ -1068,10 +1072,11 @@ either filename would have misled a glob in the opposite direction.
 > the tree of **2026-08-06** — after the duplicate-consolidation and `td-031` passes, and again when
 > `test_mcp_gaps_read.py` was split out of `test_mcp_suggestions.py` — and the suite has grown since.
 > Read them as "the partition held exactly when it was measured", never as today's totals; only
-> `make verify`'s topology check is live. `scripts/test_group.py::cmd_check` validates that every
-> declared selector and dependency resolves, but it does **not** walk `tests/` for files no group
-> claims, so an orphaned file cannot make it fail. That orphan check is the fix that would turn this
-> prose into a gate (see F-CO-06 of the pre-release coherence review).
+> `make verify`'s topology check is live. Since 2026-08-30 that check **is** the partition gate:
+> `scripts/test_group.py::cmd_check` walks `tests/` and fails on any file that no group's
+> selectors claim and the un-grouped table below does not document (the F-CO-06 fix from the
+> pre-release coherence review). The file counts here stay a dated sample; the partition itself
+> no longer depends on prose.
 
 **Re-measured 2026-08-30** (files only, no test-count re-run): 213 test files, of which the four
 below are un-grouped for the reasons this section gives. `test_gapfill_topic_guard.py` and

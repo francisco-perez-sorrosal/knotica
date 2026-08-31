@@ -49,6 +49,18 @@ dissent: A one-line strongest objection.
 
 Body.
 
+## Decision
+
+The decision.
+
+## Considered Options
+
+The options.
+
+## Consequences
+
+The consequences.
+
 ## Disconfirmation
 
 - **Falsifier.** Something measurable.
@@ -280,3 +292,43 @@ def test_rejects_an_index_missing_a_decision(corpus: Callable[..., int], capsys)
 
     assert exit_code == 1
     assert "absent from DECISIONS_INDEX.md" in capsys.readouterr().err
+
+
+# ---------------------------------------------------------------------------
+# Check 7 -- the four universal body sections
+# ---------------------------------------------------------------------------
+
+
+def test_rejects_a_record_missing_its_consequences(
+    corpus: Callable[..., int], capsys: pytest.CaptureFixture[str]
+) -> None:
+    # The dec-109 defect: a gate-behaviour change shipped with no consequences
+    # record, so a future reader weighing reversal had nothing to weigh.
+    body = adr("dec-001").replace("## Consequences\n\nThe consequences.\n\n", "")
+
+    assert corpus({"001-a.md": body}) == 1
+    assert "no `## Consequences` section" in capsys.readouterr().err
+
+
+def test_the_grandfather_forgives_exactly_the_section_each_record_lacks(
+    corpus: Callable[..., int], capsys: pytest.CaptureFixture[str], checker: ModuleType
+) -> None:
+    # dec-014 predates the check and never recorded its options -- forgiven. The
+    # forgiveness is per-section: the same record missing `## Decision` still
+    # fails, and an id outside the closed set gets no forgiveness at all.
+    without_options = adr("dec-014").replace("## Considered Options\n\nThe options.\n\n", "")
+    assert corpus({"014-a.md": without_options}) == 0
+
+    also_without_decision = without_options.replace("## Decision\n\nThe decision.\n\n", "")
+    assert corpus({"014-a.md": also_without_decision}) == 1
+    assert "no `## Decision` section" in capsys.readouterr().err
+
+
+def test_a_draft_is_not_gated_on_body_sections(corpus: Callable[..., int]) -> None:
+    # A draft is in-flight; sections are demanded where the record is permanent.
+    # (Frontmatter validity is still demanded of drafts -- see the module header.)
+    draft = adr("dec-draft-abc12345").replace(
+        "## Consequences\n\nThe consequences.\n\n", ""
+    )  # id-citation-discipline:ignore
+
+    assert corpus({}, drafts={DRAFT_FILE: draft}) == 0

@@ -36,6 +36,13 @@ resting on it.
    index is generated and says so, but nothing stopped a hand edit -- and one
    happened, leaving three rows with an unescaped pipe inside a Summary cell.
 
+7. **Every finalized ADR carries the four universal body sections** (Context,
+   Decision, Considered Options, Consequences). dec-109 shipped without its
+   Consequences and passed -- a future reader weighing reversal had no
+   consequences record to weigh, and only a coherence audit noticed. Three
+   early records that predate this check are grandfathered for the one section
+   they lack; the set is closed -- nothing may join it.
+
 Checks 3-6 verify the property a reader depends on, not byte-equality with a
 fresh generation: a check that fails on cosmetic diffs gets muted, and a muted
 check is the state this script exists to leave behind.
@@ -156,6 +163,45 @@ def _check_disconfirmation(identifier: str, frontmatter: dict[str, Any]) -> list
     return failures
 
 
+#: The body sections every ADR carries regardless of category (adr-conventions
+#: § Body sections). `## Disconfirmation` is architectural-only and checked
+#: above; `## Prior Decision` applies only when superseding.
+REQUIRED_SECTIONS = ("## Context", "## Decision", "## Considered Options", "## Consequences")
+
+#: Grandfathered omissions: records finalized before this check existed
+#: (2026-08-30) whose options were never written down. Retro-writing a
+#: `## Considered Options` into a months-old decision record would fabricate
+#: history, so each keeps exactly the gap it shipped with. The set is closed:
+#: a new record missing any section fails, and so do these three if they ever
+#: lose a section they do carry.
+GRANDFATHERED_SECTIONS: dict[str, frozenset[str]] = {
+    "dec-014": frozenset({"## Considered Options"}),
+    "dec-021": frozenset({"## Considered Options"}),
+    "dec-022": frozenset({"## Considered Options"}),
+}
+
+
+def _check_required_sections(identifier: str, frontmatter: dict[str, Any]) -> list[str]:
+    """Every finalized ADR carries the four universal body sections.
+
+    dec-109 shipped without `## Consequences` and every gate stayed green -- the
+    negative half of a gate-behaviour change existed only obliquely under its
+    Disconfirmation falsifier, so a future reader weighing reversal had no
+    consequences record to weigh. The section list is the conventions' own; the
+    check is presence, not quality -- prose depth stays a review judgment.
+    """
+    path = frontmatter.get("__path")
+    if not isinstance(path, Path):
+        return []
+    body = path.read_text(encoding="utf-8")
+    forgiven = GRANDFATHERED_SECTIONS.get(identifier, frozenset())
+    return [
+        f"{identifier}: body has no `{section}` section"
+        for section in REQUIRED_SECTIONS
+        if section not in body and section not in forgiven
+    ]
+
+
 def _check_affected_files(identifier: str, frontmatter: dict[str, Any]) -> list[str]:
     """Every `affected_files` entry resolves on disk.
 
@@ -260,6 +306,7 @@ def main() -> int:
 
         failures.extend(_check_supersession(identifier, frontmatter, finalized))
         failures.extend(_check_disconfirmation(identifier, frontmatter))
+        failures.extend(_check_required_sections(identifier, frontmatter))
         failures.extend(_check_affected_files(identifier, frontmatter))
 
     failures.extend(_check_index_freshness(finalized))

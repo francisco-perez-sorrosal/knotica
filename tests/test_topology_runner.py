@@ -62,16 +62,22 @@ def build_topology(
     arg: str = "tests/probe/test_probe.py",
     strategy: str = "pytest-globs",
     extra_note: str = "",
+    ungrouped: list[str] | None = None,
 ) -> str:
     """Render a synthetic topology whose table and blocks are free to disagree."""
     rows = "\n".join(f"| `src/knotica/{gid}/` | `{gid}` | why |" for gid in table_ids)
     blocks = "\n".join(GROUP_BLOCK.format(gid=gid, arg=arg, strategy=strategy) for gid in block_ids)
+    # The header always renders (the parser hard-errors without it, as it does
+    # on the committed file); only the rows vary.
+    sanctioned = "\n".join(f"| `{name}` | 1 | x | why |" for name in (ungrouped or []))
     return (
         "# Test Topology\n\n"
         "## Subsystems\n\n"
         "| Component | Group | Why |\n|---|---|---|\n"
         f"{rows}\n\n"
         f"### Note 1 — a note\n\n{extra_note}\n\n"
+        "| Un-grouped file | Tests | Covers | Why no group |\n|---|---:|---|---|\n"
+        f"{sanctioned}\n\n"
         "## Test Groups\n\n"
         f"{blocks}\n"
     )
@@ -88,6 +94,11 @@ def check_synthetic(
     probe = tmp_path / "tests" / "probe"
     probe.mkdir(parents=True)
     (probe / "test_probe.py").write_text("")
+    # A minimal source tree so the block template's `src/knotica/**`
+    # file_dependencies resolves -- the synthetic pass-cases need it.
+    source = tmp_path / "src" / "knotica"
+    source.mkdir(parents=True)
+    (source / "marker.py").write_text("")
 
     def check(**kwargs: object) -> int:
         topology.write_text(build_topology(**kwargs))
@@ -181,3 +192,57 @@ def test_running_an_unknown_group_reports_the_valid_ids(runner: ModuleType, caps
 
     assert exit_code == 2
     assert "vault-substrate" in capsys.readouterr().err
+
+
+def test_check_rejects_a_test_file_no_group_claims(
+    check_synthetic: Callable[..., int], runner: ModuleType, capsys
+) -> None:
+    # The orphan walk: a file the tree holds but the topology never heard of
+    # used to fall out of the scoped inner loop silently — the full suite ran
+    # it, every scoped run skipped it, and `--check` stayed green (F-CO-06).
+    orphan = runner.REPO_ROOT / "tests" / "probe" / "test_orphan.py"
+
+    exit_code_before = check_synthetic(table_ids=["g"], block_ids=["g"])
+    orphan.write_text("")
+    exit_code_after = check_synthetic(table_ids=["g"], block_ids=["g"])
+
+    assert exit_code_before == 0
+    assert exit_code_after == 1
+    assert "test_orphan.py" in capsys.readouterr().err
+
+
+def test_check_honours_the_un_grouped_table(
+    check_synthetic: Callable[..., int], runner: ModuleType
+) -> None:
+    # The topology is the single membership declaration, so an exception is
+    # legal exactly when that same document carries its row.
+    (runner.REPO_ROOT / "tests" / "probe" / "test_orphan.py").write_text("")
+
+    exit_code = check_synthetic(table_ids=["g"], block_ids=["g"], ungrouped=["test_orphan.py"])
+
+    assert exit_code == 0
+
+
+def test_the_committed_un_grouped_table_matches_the_tree(runner: ModuleType) -> None:
+    """The live partition assertion the topology's prose check cannot make.
+
+    Both directions: a file in neither a group nor the table is an orphan the
+    gate rejects; a table row for a file some group actually claims means the
+    table overstates the exception and should lose the row.
+    """
+    text = runner.TOPOLOGY_PATH.read_text(encoding="utf-8")
+    claimed: set[Path] = set()
+    for group in runner.load_groups():
+        for arg in runner.selector_args(group):
+            path = runner.REPO_ROOT / arg
+            if path.is_dir():
+                claimed.update(p for p in path.rglob("test_*.py") if "__pycache__" not in p.parts)
+            elif path.exists():
+                claimed.add(path)
+    unclaimed = {
+        p.name
+        for p in (runner.REPO_ROOT / "tests").rglob("test_*.py")
+        if "__pycache__" not in p.parts and p not in claimed
+    }
+
+    assert unclaimed == runner.documented_ungrouped(text)

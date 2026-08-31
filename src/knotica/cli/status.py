@@ -160,10 +160,11 @@ def render_nudge(console: Console, payload: dict[str, Any], vault: ResolvedVault
     rather than raising: ``last_lint.stale`` (a staleness line only -- never a
     re-walked count) and ``drift`` (one unconditional line stating drift is
     not checked from the CLI -- there is no expand affordance here, so an
-    anchor is never resolved). ``totals.notes.drifted`` -- a ``summary``-only
-    key the ``attention`` payload does not compute -- is likewise read
-    defensively so it silently contributes nothing once both callers have
-    switched over, rather than reading a stale value or raising.
+    anchor is never resolved). There is deliberately no drifted-notes item:
+    the attention payload never computes ``totals.notes.drifted`` (resolving
+    note anchors is exactly the cost dec-092's cheap view refuses to pay), so
+    a clause reading it could never fire and would document a signal the
+    nudge cannot deliver.
     """
     console.data(f"Active KB: {vault.name} ({vault.path})")
     topics = payload["topics"]
@@ -178,7 +179,6 @@ def render_nudge(console: Console, payload: dict[str, Any], vault: ResolvedVault
     # then dereference.
     compile_ready = sum(1 for t in topics if t.get("compile_ready"))
     running = sum(1 for t in topics if (t.get("runner") or {}).get("alive"))
-    drifted = payload["totals"].get("notes", {}).get("drifted", 0)
     # The three signals below mirror the dashboard Home inbox's derivations
     # exactly (`attentionRows.ts`) -- the CLI nudge once rendered only four of
     # the seven attention signals, so a jammed gate or a rotting gap queue was
@@ -209,8 +209,6 @@ def render_nudge(console: Console, payload: dict[str, Any], vault: ResolvedVault
         items.append(f"{compile_ready} topic(s) compile-ready")
     if running:
         items.append(f"{running} runner(s) running")
-    if drifted:
-        items.append(f"{drifted} notes drifted")
     if items:
         console.data("Needs attention: " + ", ".join(items))
 

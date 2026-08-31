@@ -73,6 +73,14 @@ SUPPORTED_STRATEGY = "pytest-globs"
 SUBSYSTEMS_TABLE = re.compile(r"^## Subsystems$(.*?)^### ", re.DOTALL | re.MULTILINE)
 SUBSYSTEMS_ROW = re.compile(r"^\|[^|]+\|\s*`([a-z][a-z0-9-]*)`\s*\|", re.MULTILINE)
 
+# The un-grouped table documents every test file that legitimately belongs to
+# no group (test infrastructure and dev-tooling gates covering code outside
+# `src/knotica/`). Bounded to the table whose header names it -- the fitness
+# tables' first column is also a backticked `test_*.py`, but those files are
+# group-claimed and must stay visible to the orphan walk.
+UNGROUPED_TABLE = re.compile(r"^\| Un-grouped file \|.*\n(?:\|.*\n)+", re.MULTILINE)
+UNGROUPED_ROW = re.compile(r"^\|\s*`(test_[a-z0-9_]+\.py)`", re.MULTILINE)
+
 
 def declared_group_ids(text: str) -> set[str]:
     """Return the group ids the `## Subsystems` table names.
@@ -85,6 +93,20 @@ def declared_group_ids(text: str) -> set[str]:
     if table is None:
         sys.exit("error: could not locate the '## Subsystems' table — the topology is malformed")
     return set(SUBSYSTEMS_ROW.findall(table.group(1)))
+
+
+def documented_ungrouped(text: str) -> set[str]:
+    """Return the file names the topology's un-grouped table sanctions.
+
+    Parsed from the table rather than restated here: the topology is the single
+    membership declaration, so leaving a file out of every group is legal only
+    when that same document says why. A new exception earns its row before the
+    check will honour it.
+    """
+    table = UNGROUPED_TABLE.search(text)
+    if table is None:
+        sys.exit("error: could not locate the un-grouped table — the topology is malformed")
+    return set(UNGROUPED_ROW.findall(table.group(0)))
 
 
 def load_groups() -> list[dict[str, Any]]:
@@ -191,6 +213,29 @@ def cmd_check(groups: list[dict[str, Any]]) -> int:
         for dep in group.get("file_dependencies", []):
             if not list(REPO_ROOT.glob(dep)):
                 failures.append(f"{gid}: file_dependencies matches nothing -> {dep}")
+
+    # The orphan walk: every test file the tree holds is either claimed by some
+    # group's selectors or documented in the topology's un-grouped table. This
+    # is the converse of the selector checks above -- those prove the topology's
+    # claims resolve, only this proves the tree has no file the topology never
+    # heard of, which is how a new test silently falls out of the scoped inner
+    # loop while the full suite stays green.
+    claimed: set[Path] = set()
+    for group in groups:
+        for arg in selector_args(group):
+            path = REPO_ROOT / arg
+            if path.is_dir():
+                claimed.update(p for p in path.rglob("test_*.py") if "__pycache__" not in p.parts)
+            elif path.exists():
+                claimed.add(path)
+    sanctioned = documented_ungrouped(TOPOLOGY_PATH.read_text(encoding="utf-8"))
+    for path in sorted((REPO_ROOT / "tests").rglob("test_*.py")):
+        if "__pycache__" in path.parts or path in claimed or path.name in sanctioned:
+            continue
+        failures.append(
+            f"{path.relative_to(REPO_ROOT)}: no group claims it and the un-grouped table "
+            "does not document it -- add it to a group's selector args, or give it a row"
+        )
 
     if failures:
         print(f"topology check FAILED ({len(failures)} problem(s)):", file=sys.stderr)

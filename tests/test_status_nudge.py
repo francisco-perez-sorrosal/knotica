@@ -7,11 +7,11 @@ reaching ``gather_wiki_status`` -- not from prose), and ``render_nudge``
 must render correctly from the attention payload's actual shape rather
 than ``summary``'s.
 
-RED against the code as it stands today: ``home.py``/``status.py`` do not
-pass ``view=`` at all (implicit ``"summary"`` default), and ``render_nudge``
-still reads ``payload["totals"]["notes"]["drifted"]``, a key the attention
-payload never computes -- every attention-shaped fixture below either fails
-the assertion or raises a ``KeyError`` until the CLI is switched over.
+Both callers pass ``view="attention"`` now, and ``render_nudge`` carries
+no drifted-notes clause at all: the attention payload never computes
+``totals.notes.drifted`` (anchor resolution is the cost dec-092's cheap
+view refuses), so the clause was dead code documenting a signal the nudge
+could not deliver -- its absence is pinned below.
 """
 
 from __future__ import annotations
@@ -68,7 +68,7 @@ def test_nudge_states_the_active_kb_even_with_no_topics() -> None:
 
 
 # ---------------------------------------------------------------------------
-# The drifted-notes clause: one line, only when there is something to say
+# No drifted-notes clause: the nudge renders only signals its view computes
 # ---------------------------------------------------------------------------
 
 
@@ -85,17 +85,23 @@ def _payload_with(*, drifted: int) -> dict[str, object]:
     }
 
 
-def test_nudge_appends_a_drifted_notes_clause_when_notes_have_drifted() -> None:
+def test_nudge_never_renders_a_drifted_notes_line() -> None:
+    """The clause was deleted, not made conditional -- pin the deletion.
+
+    The attention view never computes ``totals.notes.drifted``, so a clause
+    reading it could only fire on a ``summary``-shaped payload no caller sends;
+    a stale summary payload carrying the key must render nothing for it.
+    """
     console, out = _console()
 
     render_nudge(
         console, _payload_with(drifted=2), ResolvedVault(name="main", path=Path("/data/knotica"))
     )
 
-    assert "2 notes drifted" in out.getvalue()
+    assert "drifted" not in out.getvalue()
 
 
-def test_nudge_says_nothing_about_notes_when_none_have_drifted() -> None:
+def test_nudge_says_nothing_when_there_is_nothing_to_say() -> None:
     """The nudge's contract: it prints nothing when there is nothing to say."""
     console, out = _console()
 
@@ -103,9 +109,8 @@ def test_nudge_says_nothing_about_notes_when_none_have_drifted() -> None:
         console, _payload_with(drifted=0), ResolvedVault(name="main", path=Path("/data/knotica"))
     )
 
-    assert "notes drifted" not in out.getvalue()
     assert "Needs attention" not in out.getvalue(), (
-        "with zero pending/refused/compile-ready/drifted, the attention line must not appear at all"
+        "with zero pending/refused/compile-ready signals, the attention line must not appear at all"
     )
 
 
