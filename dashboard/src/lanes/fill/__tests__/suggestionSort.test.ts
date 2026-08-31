@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { sortSuggestions } from "../suggestionSort";
+import { mergeGhosts, sortSuggestions } from "../suggestionSort";
 import type { SuggestionRecord, SuggestionReputability } from "../types";
 
 /**
@@ -56,5 +56,37 @@ describe("sortSuggestions", () => {
       record("first", 1, { tier: "peer_reviewed", score: 0.9, signals: [] }),
     ];
     expect(ids(sortSuggestions(rows, "newest"))).toEqual(["second", "first"]);
+  });
+});
+
+describe("mergeGhosts anchors each ghost against the list it is spliced into", () => {
+  const live = (id: string, rank: number): SuggestionRecord =>
+    record(id, rank, null);
+
+  it("holds two stacked ghosts in the slots the reader last saw them in", () => {
+    // `loaded` is the ghost-free payload; the anchors index THAT list, so
+    // `g-1` sits before `c` and `g-3` before `e` no matter which lands first.
+    const loaded = [live("a", 1), live("b", 2), live("c", 3), live("d", 4), live("e", 5)];
+    const ghosts = [
+      { index: 2, record: live("g-1", 90) },
+      { index: 4, record: live("g-2", 91) },
+    ];
+
+    expect(ids(mergeGhosts(loaded, ghosts, "newest"))).toEqual([
+      "a",
+      "b",
+      "g-1",
+      "c",
+      "d",
+      "g-2",
+      "e",
+    ]);
+  });
+
+  it("drops a ghost the payload carries again -- the live record always wins", () => {
+    const loaded = [live("a", 1), live("b", 2)];
+    const ghosts = [{ index: 0, record: live("b", 99) }];
+
+    expect(ids(mergeGhosts(loaded, ghosts, "newest"))).toEqual(["a", "b"]);
   });
 });

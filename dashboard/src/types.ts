@@ -15,6 +15,7 @@
 
 import type {
   ArenaStage,
+  BaselineUnreachable,
   CompileStatus,
   GateState,
   LoopPendingCandidate,
@@ -131,6 +132,12 @@ export interface WikiStatus {
     state: GateState;
     baseline: number | null;
     last_scalar: number | null;
+    /** Non-null when the baseline sits above the default branch's own measured
+     * scalar — a state in which nothing can pass the gate, so every refusal's
+     * diff blames the candidate for a shortfall the bar created. Lives under
+     * `gate` in both `wiki_status` views; `loop.baseline_unreachable` is the
+     * deprecated mirror kept for one release. */
+    baseline_unreachable?: BaselineUnreachable | null;
   };
   llm: LlmAvailability;
   loop: {
@@ -146,16 +153,9 @@ export interface WikiStatus {
     arena_message?: string | null;
     baseline_frozen?: boolean;
     baseline_scalar?: number | null;
-    /** Non-null when the baseline sits above the default branch's own measured
-     * scalar — a state in which nothing can pass the gate, so every refusal's
-     * diff blames the candidate for a shortfall the bar created. */
-    baseline_unreachable?: {
-      baseline: number;
-      last_scalar: number;
-      generation?: number | null;
-      message: string;
-      fix: string;
-    } | null;
+    /** @deprecated Mirror of `gate.baseline_unreachable`, kept for one release
+     * so a server that predates the move still renders. Read `gate`'s first. */
+    baseline_unreachable?: BaselineUnreachable | null;
     /** Gate policy: "latest" tracks reality; "best" is a high-water mark. */
     baseline_policy?: "latest" | "best";
     pending_candidates?: LoopPendingCandidate[];
@@ -213,8 +213,11 @@ export type {
   LoopBaselinePolicyResult,
   LoopRebaselineResult,
   LoopCadenceConfig,
+  LoopCadencePreview,
+  LoopCadenceResult,
   LoopRunEvalResult,
   BaselineProbeResult,
+  BaselineUnreachable,
   PromptDiffLineType,
   PromptDiffLine,
   PromptDiffHunk,

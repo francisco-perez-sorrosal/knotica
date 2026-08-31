@@ -112,7 +112,10 @@ export function ObserveStage({
     void (async () => {
       try {
         const result = await client.loopCadence(topic, {}, vault);
-        if (cancelled) return;
+        // A read carries no overrides, so the spend gate cannot fire and the
+        // preview branch is unreachable here -- narrowed rather than asserted,
+        // because a payload that surprises us should leave the default alone.
+        if (cancelled || "confirm_nonce" in result) return;
         setCadence(result);
         setRunEvalThreads(String(result.eval_num_threads));
       } catch {

@@ -173,8 +173,11 @@ def render_nudge(console: Console, payload: dict[str, Any], vault: ResolvedVault
 
     pending = sum(t["suggestions"]["pending"] for t in topics)
     refused = sum(t["suggestions"]["refused_awaiting_rework"] for t in topics)
-    compile_ready = sum(1 for t in topics if t["compile_ready"])
-    running = sum(1 for t in topics if t.get("runner", {}).get("alive"))
+    # `or {}` rather than a `.get` default: a payload that nulls `runner`
+    # explicitly hands back `None`, which `.get("runner", {})` would return and
+    # then dereference.
+    compile_ready = sum(1 for t in topics if t.get("compile_ready"))
+    running = sum(1 for t in topics if (t.get("runner") or {}).get("alive"))
     drifted = payload["totals"].get("notes", {}).get("drifted", 0)
     # The three signals below mirror the dashboard Home inbox's derivations
     # exactly (`attentionRows.ts`) -- the CLI nudge once rendered only four of

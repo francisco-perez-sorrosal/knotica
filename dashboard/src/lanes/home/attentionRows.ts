@@ -18,18 +18,21 @@ import type {
  * Improve-folded signal lands on `improve`, per `INTERFACE_DESIGN.md §2.4`):
  * `refused_awaiting_rework` → blocked/fill, `pending` → waiting/fill, open
  * gaps with no discovery → waiting/fill, an aborted race → blocked/improve,
- * `compile_ready` → waiting/improve, `runner.alive` → running/improve.
+ * `gate.baseline_unreachable` → blocked/improve, `compile_ready` →
+ * waiting/improve, `runner.alive` → running/improve.
  * `action` is `"Watch"` only for `running` rows, `"Open"` otherwise. Each row
  * also carries its own `kind` -- one per branch below, never derived from
  * `urgency`/`lane` (three branches share `waiting`, three share `fill`) -- so
  * `attentionMeta.ts` can attach a rationale *and a destination stage* per
  * signal rather than per urgency class.
  *
- * The two later branches close the surface holes that made Home lie. A topic
+ * The three later branches close the surface holes that made Home lie. A topic
  * with open gaps and no suggestions tripped nothing, so "nothing needs you"
  * rendered over a stalled queue; an arena race refused before scoring was
- * visible only to someone already standing in Improve → Heal on that topic.
- * Both are now signals the server sends and this function reads.
+ * visible only to someone already standing in Improve → Heal on that topic;
+ * and a gate baseline above the corpus's own scalar jammed every candidate
+ * with nothing on Home to say so. All three are now signals the server sends
+ * and this function reads.
  */
 export function deriveAttentionRows(payload: AttentionStatus): AttentionRow[] {
   return payload.topics.flatMap(rowsForTopic);

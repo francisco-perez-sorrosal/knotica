@@ -21,17 +21,24 @@ const CONFIRMATION_DISPLAY_MS = 1400;
  * `actionLabel` turns the 24x24 icon button into a labelled one. When it is
  * present the `aria-label` is dropped deliberately: the visible text is then
  * the accessible name, and carrying both would double-label the control.
+ *
+ * `onCopied` fires only on a clipboard write that actually succeeded. It
+ * exists for the surfaces where copying *is* the action rather than a
+ * fallback -- the handoff panel's C/D tiers, where there is no dispatch button
+ * and the copy is the only signal a payload ever left.
  */
 export function CopyBlock({
   code,
   label,
   copyText,
   actionLabel,
+  onCopied,
 }: {
   code: string;
   label?: string;
   copyText?: string;
   actionLabel?: string;
+  onCopied?: () => void;
 }): JSX.Element {
   const [status, setStatus] = useState<"idle" | "copied" | "failed">("idle");
 
@@ -39,6 +46,7 @@ export function CopyBlock({
     try {
       await navigator.clipboard.writeText(copyText ?? code);
       setStatus("copied");
+      onCopied?.();
     } catch {
       setStatus("failed");
     }

@@ -566,6 +566,80 @@ describe("dispatch: four tiers, honest labels, zero hard dependency (INTERFACE_D
 });
 
 // ---------------------------------------------------------------------------
+// A successful dispatch confirms itself at every tier — the uncontrolled
+// `next.actor === "claude"` mount included, where nothing is lifted to a
+// parent to hold the flag.
+// ---------------------------------------------------------------------------
+
+describe("a dispatch that succeeded says so, wherever the panel is mounted", () => {
+  beforeEach(() => {
+    Object.defineProperty(navigator, "clipboard", {
+      value: { writeText: vi.fn(async () => undefined) },
+      configurable: true,
+    });
+  });
+
+  it("tier A — the send is confirmed and the button is gone, so a second click cannot double-send", async () => {
+    const { client, sendMessage } = fakeClient({
+      responses: [WAITING_ON_CLIENT],
+      hostCapabilities: { message: {} },
+      mount: "bridge",
+    });
+    renderHandoffStage(client);
+    await vi.waitFor(() => expect(dispatchControlPresent()).toBe(true));
+
+    fireEvent.click(screen.getByRole("button", { name: /send to claude/i }));
+
+    expect(await screen.findByText(/sent to your claude session/i)).toBeTruthy();
+    expect(screen.queryByRole("button", { name: /send to claude/i })).toBeNull();
+    expect(sendMessage).toHaveBeenCalledTimes(1);
+  });
+
+  it("tier D — a successful copy IS the dispatch, and says only what it can see", async () => {
+    const { client } = fakeClient({
+      responses: [WAITING_ON_CLIENT],
+      hostCapabilities: { message: {}, updateModelContext: {} },
+      mount: "http",
+    });
+    renderHandoffStage(client);
+    await vi.waitFor(() => expect(dispatchControlPresent()).toBe(true));
+
+    fireEvent.click(screen.getByRole("button", { name: /copy the instruction/i }));
+
+    // "Copied", never "Sent": nothing was dispatched — the user holds the
+    // text. The copy affordance itself stays, so a re-copy is still possible.
+    expect(await screen.findByText(/^copied\.$/i)).toBeTruthy();
+    expect(screen.queryByText(/sent to your claude session/i)).toBeNull();
+    expect(
+      screen.getByRole("button", { name: /copy the instruction/i }),
+    ).toBeTruthy();
+  });
+
+  it("tier C — a copy that the host rejected claims nothing", async () => {
+    Object.defineProperty(navigator, "clipboard", {
+      value: {
+        writeText: vi.fn(async () => {
+          throw new Error("denied");
+        }),
+      },
+      configurable: true,
+    });
+    const { client } = fakeClient({
+      responses: [WAITING_ON_CLIENT],
+      hostCapabilities: {},
+      mount: "bridge",
+    });
+    renderHandoffStage(client);
+    await vi.waitFor(() => expect(dispatchControlPresent()).toBe(true));
+
+    fireEvent.click(screen.getByRole("button", { name: /copy the instruction/i }));
+
+    expect(await screen.findByText(/copy failed/i)).toBeTruthy();
+    expect(screen.queryByText(/^copied\.$/i)).toBeNull();
+  });
+});
+
+// ---------------------------------------------------------------------------
 // Conditional polling discipline (dec-091 clause 2, the process-state lens's
 // cost budget) — only the active item polls, only at 3 s.
 // ---------------------------------------------------------------------------

@@ -389,7 +389,10 @@ function IngestYouControl({
           </p>
           {/* Named only once the dispatch has actually gone: before that the
               follow-up is the dispatch, and stamping a NEXT STEP on an
-              un-sent payload would point past a step nobody has taken. The
+              un-sent payload would point past a step nobody has taken. At the
+              copy-the-text tiers "gone" means a successful clipboard write --
+              the panel has no button there, so without that signal this block
+              would be unreachable on the HTTP mount entirely. The
               outcome itself stays `external` -- this claims nothing about the
               session's progress, only where the work lands when it finishes. */}
           {dispatched ? <ProcessOutcome process="fill.ingest_dispatch" /> : null}

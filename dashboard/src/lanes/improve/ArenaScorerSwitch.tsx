@@ -6,7 +6,7 @@ import { ProcessBrief } from "../ProcessBrief";
 import { ProcessOutcome } from "../ProcessOutcome";
 import { Spinner } from "../../icons";
 import type { ToolClient } from "../../toolClient";
-import type { LoopCadenceConfig } from "../../types";
+import type { LoopCadenceConfig, LoopCadencePreview } from "../../types";
 
 /**
  * The one control that switches `[loop] arena_scorer` from the dashboard.
@@ -17,11 +17,18 @@ import type { LoopCadenceConfig } from "../../types";
  * untouched. The server validates the value before writing, so a rejected
  * value never lands on disk and surfaces here as the typed error.
  *
- * Asymmetric by design: switching **to** `eval` is a two-click
- * armed→confirm, because it arms one full golden-set eval **per variant** on
- * every future race — the click itself bills nothing, but the consequence is
- * a spending decision and gets the deliberate treatment. Switching back to
- * `heuristic` is a single quiet click: going free needs no guard.
+ * Asymmetric by design: switching **to** `eval` is two clicks, because it arms
+ * one full golden-set eval **per variant** on every future race — the click
+ * itself bills nothing, but the consequence is a spending decision and gets
+ * the deliberate treatment. Switching back to `heuristic` is a single quiet
+ * click: going free needs no guard.
+ *
+ * The two clicks are the **server's** two phases, not a client-side dialog on
+ * top of one call: the first click makes the free `arena_scorer="eval"` call,
+ * which writes nothing and returns a quote plus a short-lived `confirm_nonce`;
+ * the second redeems that nonce. So the arm state is the server's preview
+ * envelope rather than a local boolean, and the estimate the confirm is
+ * offered against is the server's own words.
  */
 
 /** Mirrors `core/loop_cadence_config.py`'s `ARENA_SCORERS`; the server is the
@@ -52,34 +59,50 @@ export function ArenaScorerSwitch({
   testId?: string;
   onSwitched?: (config: LoopCadenceConfig) => void | Promise<void>;
 }): JSX.Element {
-  const [armed, setArmed] = useState(false);
-  const [busy, setBusy] = useState(false);
+  /** The server's phase-1 envelope, or `null` when nothing is armed. */
+  const [armed, setArmed] = useState<LoopCadencePreview | null>(null);
+  const [busy, setBusy] = useState<"preview" | "confirm" | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [savedAs, setSavedAs] = useState<string | null>(null);
 
   const target =
     current === ARENA_SCORER_EVAL ? ARENA_SCORER_HEURISTIC : ARENA_SCORER_EVAL;
 
-  async function applyScorer(): Promise<void> {
+  /**
+   * One call expression for both legs, so the confirm leg is provably the
+   * preview leg plus the nonce. `confirm` is empty on every free call —
+   * including every `heuristic` write, which the server does not gate.
+   */
+  async function callCadence(confirm: string): Promise<void> {
     if (!client || busy) return;
-    setBusy(true);
+    // Only the gated write has a free leg; a `heuristic` write applies at once
+    // and is therefore never "previewing".
+    setBusy(
+      target === ARENA_SCORER_EVAL && !confirm ? "preview" : "confirm",
+    );
     setError(null);
     setSavedAs(null);
     try {
-      const config = await client.loopCadence(
+      const result = await client.loopCadence(
         topic,
         { arenaScorer: target },
         vault,
+        confirm,
       );
+      if ("confirm_nonce" in result) {
+        // Nothing was written; hold the quote and wait for the second click.
+        setArmed(result);
+        return;
+      }
+      setArmed(null);
       // The server echoes the resolved config back — confirm from that, never
       // from the value we sent.
-      setSavedAs(config.arena_scorer);
-      await onSwitched?.(config);
+      setSavedAs(result.arena_scorer);
+      await onSwitched?.(result);
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : String(cause));
     } finally {
-      setBusy(false);
-      setArmed(false);
+      setBusy(null);
     }
   }
 
@@ -88,9 +111,6 @@ export function ArenaScorerSwitch({
       <div class="card-inline-actions">
         {target === ARENA_SCORER_EVAL ? (
           <>
-            {/* Sibling of the button, never a child: the accessible name
-                stays `Use eval scorer`. `warn`, not `cost` — this click
-                spends nothing; it arms what the *next* race will spend. */}
             {/* Sibling of the button, never a child: the accessible name
                 stays `Use eval scorer`. The brief carries the `arms billing`
                 chip -- this click spends nothing; it arms what the *next*
@@ -101,16 +121,16 @@ export function ArenaScorerSwitch({
               term="why swap it"
             />
             <ArmedButton
-              armed={armed}
-              busy={busy}
+              armed={armed !== null}
+              busy={busy !== null}
               disabled={!client}
               label="Use eval scorer"
               armedLabel="Confirm — future races bill per variant"
-              busyLabel="Switching…"
+              busyLabel={busy === "preview" ? "Checking…" : "Switching…"}
               testId={testId}
-              onArm={() => setArmed(true)}
-              onConfirm={() => void applyScorer()}
-              onCancel={() => setArmed(false)}
+              onArm={() => void callCadence("")}
+              onConfirm={() => void callCadence(armed?.confirm_nonce ?? "")}
+              onCancel={() => setArmed(null)}
             />
           </>
         ) : (
@@ -118,9 +138,9 @@ export function ArenaScorerSwitch({
             type="button"
             class="ghost"
             data-testid={testId}
-            disabled={!client || busy}
-            aria-busy={busy || undefined}
-            onClick={() => void applyScorer()}
+            disabled={!client || busy !== null}
+            aria-busy={busy !== null || undefined}
+            onClick={() => void callCadence("")}
           >
             {busy ? (
               <>
@@ -133,6 +153,12 @@ export function ArenaScorerSwitch({
           </button>
         )}
       </div>
+      {armed ? (
+        /* The server's own quote, not a restatement of it: the estimate is
+           what the free leg exists to fetch, and dropping it on the floor
+           would make the round trip pure ceremony. */
+        <p class="muted saved-note">{armed.estimated_cost}</p>
+      ) : null}
       {savedAs ? (
         /* Timing is the load-bearing fact here: both runners (the supervised
            service and the CLI watcher) rebuild from config every tick, so the

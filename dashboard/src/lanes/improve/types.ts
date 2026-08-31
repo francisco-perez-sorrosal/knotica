@@ -448,6 +448,20 @@ export interface LoopRebaselineResult {
   message: string;
 }
 
+/**
+ * The server's finding that the frozen gate baseline sits above the default
+ * branch's own measured scalar — nothing can pass, so every refusal's diff
+ * blames the candidate for a shortfall the bar created. One shape, two mount
+ * points on `WikiStatus` while the deprecated `loop` mirror survives.
+ */
+export interface BaselineUnreachable {
+  baseline: number;
+  last_scalar: number;
+  generation?: number | null;
+  message: string;
+  fix: string;
+}
+
 export interface LoopCadenceConfig {
   topic: string;
   eval_min_interval_hours: number;
@@ -456,6 +470,35 @@ export interface LoopCadenceConfig {
   /** `"heuristic"` (free, not gate-comparable) or `"eval"` (billed per variant). */
   arena_scorer: string;
 }
+
+/**
+ * Phase 1 of the `arena_scorer="eval"` write — nothing was written.
+ *
+ * The server gates that one key behind the same `confirm_nonce` envelope the
+ * billed actions use: switching onto the eval scorer arms one golden-set eval
+ * *per variant* on every future race, and those races fire autonomously. It is
+ * a separate interface rather than optional fields on `LoopCadenceConfig`
+ * because the preview carries no cadence at all — typing the three cadence
+ * keys as present on a payload that omits them would be a lie a consumer acts
+ * on.
+ */
+export interface LoopCadencePreview {
+  action: "cadence";
+  topic: string;
+  /** The scorer still in force. The write did NOT happen. */
+  arena_scorer: string;
+  requested_arena_scorer: string;
+  estimated_cost: string;
+  confirm_nonce: string;
+  ttl: number;
+  message: string;
+}
+
+/**
+ * Discriminated by `confirm_nonce` presence — `"confirm_nonce" in result`
+ * narrows it, and phase 1 is the only thing that mints one.
+ */
+export type LoopCadenceResult = LoopCadenceConfig | LoopCadencePreview;
 
 /** Discriminated by ``confirm_nonce`` presence: preview (phase 1) vs executed (phase 2). */
 export interface LoopRunEvalResult {

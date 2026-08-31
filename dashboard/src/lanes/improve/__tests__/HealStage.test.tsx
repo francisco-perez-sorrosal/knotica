@@ -94,19 +94,35 @@ function fakeClient(overrides: Partial<ToolClient> = {}): ToolClient {
     arenaStatus: vi.fn().mockResolvedValue(fakeArenaStatus()),
     arenaHistory: vi.fn().mockResolvedValue(fakeArenaHistory()),
     compileRun: vi.fn(),
-    loopCadence: vi.fn().mockImplementation((_topic, writeArgs) =>
-      Promise.resolve({
-        topic: TOPIC,
-        eval_min_interval_hours: 0,
-        eval_window: "",
-        eval_num_threads: 4,
-        // Echo semantics, like the server: a read reports heuristic until a
-        // write lands; a write echoes the resolved value back.
-        arena_scorer:
-          (writeArgs as { arenaScorer?: string } | undefined)?.arenaScorer ??
-          "heuristic",
+    loopCadence: vi
+      .fn()
+      .mockImplementation((_topic, writeArgs, _vault, confirm) => {
+        const requested = (writeArgs as { arenaScorer?: string } | undefined)
+          ?.arenaScorer;
+        // The server's spend gate: `eval` with no nonce writes nothing and
+        // quotes; everything else applies in one call.
+        if (requested === "eval" && !confirm) {
+          return Promise.resolve({
+            action: "cadence",
+            topic: TOPIC,
+            arena_scorer: "heuristic",
+            requested_arena_scorer: "eval",
+            estimated_cost: "~1 full golden-set eval per raced variant",
+            confirm_nonce: "scorer-nonce",
+            ttl: 300,
+            message: "nothing was written",
+          });
+        }
+        return Promise.resolve({
+          topic: TOPIC,
+          eval_min_interval_hours: 0,
+          eval_window: "",
+          eval_num_threads: 4,
+          // Echo semantics, like the server: a read reports heuristic until a
+          // write lands; a write echoes the resolved value back.
+          arena_scorer: requested ?? "heuristic",
+        });
       }),
-    ),
     ...overrides,
   } as unknown as ToolClient;
 }
@@ -361,14 +377,15 @@ describe("an aborted race explains itself and names the next step", () => {
 
     fireEvent.click(await screen.findByTestId("heal-arena-scorer"));
 
-    // The stage's open READ of the standing config is sanctioned; a write
-    // (any call carrying overrides) is not until the second click.
+    // The stage's open READ of the standing config is sanctioned, and so is
+    // the arm click's FREE leg -- what must not happen before the second
+    // click is a call carrying the nonce, which is the only thing that writes.
     const loopCadence = client.loopCadence as unknown as ReturnType<typeof vi.fn>;
+    expect(loopCadence.mock.calls.filter((call) => call[3])).toHaveLength(0);
     expect(
-      loopCadence.mock.calls.filter((call) => call[1] !== undefined),
-    ).toHaveLength(0);
-    expect(
-      screen.getByRole("button", { name: /future races bill per variant/i }),
+      await screen.findByRole("button", {
+        name: /future races bill per variant/i,
+      }),
     ).toBeTruthy();
   });
 
@@ -389,18 +406,25 @@ describe("an aborted race explains itself and names the next step", () => {
     );
 
     fireEvent.click(await screen.findByTestId("heal-arena-scorer"));
+    // The arm click is a server round trip now (the free quote leg), so the
+    // confirm is only clickable once that envelope has landed.
+    await screen.findByRole("button", {
+      name: /future races bill per variant/i,
+    });
     fireEvent.click(screen.getByTestId("heal-arena-scorer"));
 
     const loopCadence = client.loopCadence as unknown as ReturnType<typeof vi.fn>;
     await vi.waitFor(() =>
-      expect(
-        loopCadence.mock.calls.filter((call) => call[1] !== undefined),
-      ).toHaveLength(1),
+      expect(loopCadence.mock.calls.filter((call) => call[3])).toHaveLength(1),
     );
-    const writeCall = loopCadence.mock.calls.find(
-      (call) => call[1] !== undefined,
-    );
-    expect(writeCall).toEqual([TOPIC, { arenaScorer: "eval" }, VAULT]);
+    const writeCall = loopCadence.mock.calls.find((call) => call[3]);
+    // The write leg is the arm leg plus the server's nonce -- nothing else.
+    expect(writeCall).toEqual([
+      TOPIC,
+      { arenaScorer: "eval" },
+      VAULT,
+      "scorer-nonce",
+    ]);
     await vi.waitFor(() => expect(onStatusRefresh).toHaveBeenCalled());
   });
 
@@ -419,6 +443,11 @@ describe("an aborted race explains itself and names the next step", () => {
     );
 
     fireEvent.click(await screen.findByTestId("heal-arena-scorer"));
+    // The arm click is a server round trip now (the free quote leg), so the
+    // confirm is only clickable once that envelope has landed.
+    await screen.findByRole("button", {
+      name: /future races bill per variant/i,
+    });
     fireEvent.click(screen.getByTestId("heal-arena-scorer"));
 
     // The click's outcome is visible as CHANGED STATE, not only a note: the
@@ -475,6 +504,11 @@ describe("an aborted race explains itself and names the next step", () => {
     );
 
     fireEvent.click(await screen.findByTestId("heal-arena-scorer"));
+    // The arm click is a server round trip now (the free quote leg), so the
+    // confirm is only clickable once that envelope has landed.
+    await screen.findByRole("button", {
+      name: /future races bill per variant/i,
+    });
     fireEvent.click(screen.getByTestId("heal-arena-scorer"));
 
     await vi.waitFor(() => expect(arenaStatus).toHaveBeenCalledTimes(2));
@@ -498,7 +532,6 @@ describe("an aborted race explains itself and names the next step", () => {
     );
 
     fireEvent.click(await screen.findByTestId("heal-arena-scorer"));
-    fireEvent.click(screen.getByTestId("heal-arena-scorer"));
 
     const alert = await screen.findByRole("alert");
     expect(alert.textContent).toContain("arena_scorer must be one of");

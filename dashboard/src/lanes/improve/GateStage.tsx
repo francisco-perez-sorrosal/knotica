@@ -54,7 +54,10 @@ export function GateStage({
 }): JSX.Element {
   const pendingCandidates = status?.loop.pending_candidates ?? [];
   const pendingCount = pendingCandidates.filter((row) => row.pending).length;
-  const baselineUnreachable = status?.loop.baseline_unreachable ?? null;
+  // `gate` is the parent both `wiki_status` views now agree on; `loop` is the
+  // deprecated mirror, read only so a server one release behind still renders.
+  const baselineUnreachable =
+    status?.gate.baseline_unreachable ?? status?.loop.baseline_unreachable ?? null;
 
   // Both legs go through one call expression, so the confirm leg is provably
   // the preview leg plus the nonce — mirrors `LoopPane.tsx`'s `gateCandidate`.

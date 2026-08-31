@@ -45,7 +45,10 @@ export function sortSuggestions(
  * A row the reader has just decided, held on screen after the server dropped
  * it from the filtered payload.
  *
- * `index` is the position it occupied in the list that was clicked in. Under
+ * `index` is the position it occupied **in `loaded`** -- the ghost-free list it
+ * is spliced back into -- not in the merged view it was clicked in. The two
+ * differ by one slot per ghost already standing above it, and measuring
+ * against the merged view is what made stacked ghosts creep upward. Under
  * `priority` it is unused -- the comparator re-derives the same slot from the
  * snapshot's own score and rank -- but `newest` is the wire's order and has no
  * comparator to re-derive anything from, so the remembered position is the
@@ -76,8 +79,11 @@ export function mergeGhosts(
     return sortSuggestions([...loaded, ...absent.map((ghost) => ghost.record)], mode);
   }
   const rows = [...loaded];
-  // Ascending, so splicing an earlier ghost cannot shift a later one's anchor.
-  for (const ghost of [...absent].sort((a, b) => a.index - b.index)) {
+  // Descending: every anchor indexes `loaded`, so inserting the deepest ghost
+  // first leaves each shallower anchor still pointing at the same live row.
+  // Ascending would shift each later anchor by one slot per ghost already
+  // spliced above it -- the creep this ordering exists to prevent.
+  for (const ghost of [...absent].sort((a, b) => b.index - a.index)) {
     rows.splice(Math.min(ghost.index, rows.length), 0, ghost.record);
   }
   return rows;

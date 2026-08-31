@@ -547,6 +547,22 @@ def test_nudge_reports_an_aborted_arena_race() -> None:
     assert _has_line_with(out.getvalue(), "arena race(s) aborted")
 
 
+def test_nudge_survives_an_explicitly_nulled_runner_and_an_absent_compile_ready() -> None:
+    """A payload variant that *nulls* a block rather than omitting it must cost
+    one signal, not the whole nudge -- ``.get("runner", {})`` hands back the
+    ``None`` it was given, and a bracket read of an absent key raises."""
+    console, out = _console()
+    payload = _parity_payload(
+        suggestions={"pending": 2, "refused_awaiting_rework": 0, "total": 2},
+        runner=None,
+    )
+    payload["topics"][0].pop("compile_ready", None)
+
+    render_nudge(console, payload, ResolvedVault(name="main", path=Path("/data")))
+
+    assert _has_line_with(out.getvalue(), "2 pending suggestion(s)")
+
+
 def test_nudge_renders_a_pre_parity_payload_one_signal_short_not_raising() -> None:
     """An older server omits the gate/arena/gaps blocks entirely."""
     console, out = _console()

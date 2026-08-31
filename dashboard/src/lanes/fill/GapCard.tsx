@@ -2,6 +2,7 @@ import type { JSX } from "preact";
 
 import { ProcessBrief } from "../ProcessBrief";
 import { GapOriginBadge } from "./badges";
+import { verbLabel } from "./verbLabel";
 import type { GapRecord } from "../../types";
 
 /**
@@ -92,7 +93,7 @@ export function GapCard({
               aria-busy={busy || undefined}
               onClick={onConfirmDismiss}
             >
-              {busy ? "Dismissing…" : "Confirm dismiss"}
+              {verbLabel(busy, busy ? "Dismissing…" : "Confirm dismiss")}
             </button>
             <button type="button" class="ghost" disabled={busy} onClick={onCancelDismiss}>
               Cancel

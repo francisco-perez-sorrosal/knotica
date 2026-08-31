@@ -1,8 +1,9 @@
 import { useState } from "preact/hooks";
 import type { JSX } from "preact";
 
-import { Icon, Spinner } from "../../icons";
+import { Icon } from "../../icons";
 import { GapOriginBadge, ReputabilityBadge, tierKey } from "./badges";
+import { verbLabel } from "./verbLabel";
 import type { GateOutcome, SuggestionAction, SuggestionRecord, SuggestionStatus } from "./types";
 
 /**
@@ -11,24 +12,6 @@ import type { GateOutcome, SuggestionAction, SuggestionRecord, SuggestionStatus 
  * to. Word and glyph both, so the re-toned left edge is never the only carrier
  * (WCAG 1.4.1).
  */
-/**
- * The busy form of one triage verb. The row already carries `aria-busy`, but
- * the row cannot say *which* verb is running -- so the word is kept and the
- * spinner is added beside it, rather than the label being swapped for a bare
- * ellipsis that erases the button's accessible name exactly when a reader
- * most needs it.
- */
-function verbLabel(running: boolean, label: string): JSX.Element {
-  return running ? (
-    <>
-      <Spinner />
-      {label}
-    </>
-  ) : (
-    <>{label}</>
-  );
-}
-
 const GHOST_DECISION: Partial<Record<SuggestionStatus, { glyph: string; text: string }>> = {
   approved: { glyph: "✓", text: "approved — queued for ingest" },
   rejected: { glyph: "✕", text: "rejected" },

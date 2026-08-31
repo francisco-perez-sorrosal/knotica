@@ -1403,11 +1403,26 @@ describe("gap dismissal -- the one gap-side decision, cascading by design", () =
     await vi.waitFor(() => expect(onStatusRefresh).toHaveBeenCalled());
     expect(gapsRead).toHaveBeenCalled();
     expect(suggestionsRead).toHaveBeenCalled();
+    // In the GAP stage, where the control that produced it lives -- not two
+    // stages below in Approve, where the cascade count would go unread and
+    // the terminal Next would sit under a queue it says nothing about.
     await vi.waitFor(() =>
-      expect(
-        container.textContent ?? "",
-      ).toContain("2 linked suggestions closed with it"),
+      expect(stageNodes(container)[GAP].textContent ?? "").toContain(
+        "2 linked suggestions closed with it",
+      ),
     );
+    const gapStage = stageNodes(container)[GAP];
+    expect(
+      within(gapStage).getByText(/2 linked suggestions closed with it/)
+        .closest("[role='status']"),
+    ).toBeTruthy();
+    // The sixth answer lands beside it, and nowhere else.
+    expect(within(gapStage).getByText(/NEXT STEP/)).toBeTruthy();
+    expect(
+      within(stageNodes(container)[APPROVE]).queryByText(
+        /linked suggestions closed with it/,
+      ),
+    ).toBeNull();
   });
 
   it("cancelling the form calls nothing and closes it", async () => {

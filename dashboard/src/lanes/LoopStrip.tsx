@@ -67,9 +67,11 @@ export function loopHeadline(
     return `${prefix}${noun} COMPLETE — nothing left to run`;
   }
   // An unknown rail is not an idle one: idle says the process has not started,
-  // unknown says the server found nothing to say either way.
-  const unrecorded =
-    stages.length > 0 && stages.every((stage) => stage.state === "unknown");
+  // unknown says the server found nothing to say either way. `some`, not
+  // `every` -- the state union admits a per-stage `unknown`
+  // (`laneRailState.ts`), and IDLE over a partly-unrecorded rail would make
+  // exactly the claim `unknown` exists to withhold.
+  const unrecorded = stages.some((stage) => stage.state === "unknown");
   if (unrecorded) {
     return `${prefix}${noun} UNKNOWN — nothing recorded yet`;
   }

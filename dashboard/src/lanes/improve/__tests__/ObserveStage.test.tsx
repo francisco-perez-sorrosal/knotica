@@ -87,6 +87,20 @@ interface LoopCadenceConfigFixture {
   arena_scorer: string;
 }
 
+/** The server's phase-1 envelope for `arena_scorer="eval"`: nothing written,
+ *  a quote and a nonce returned. Carries no cadence keys, exactly as the
+ *  server's does. */
+interface LoopCadencePreviewFixture {
+  action: "cadence";
+  topic: string;
+  arena_scorer: string;
+  requested_arena_scorer: string;
+  estimated_cost: string;
+  confirm_nonce: string;
+  ttl: number;
+  message: string;
+}
+
 interface LoopRunEvalResultFixture {
   action: "run_eval";
   topic: string;
@@ -107,7 +121,8 @@ interface ObserveClientFixture {
     topic: string,
     overrides?: Record<string, unknown>,
     vault?: string,
-  ) => Promise<LoopCadenceConfigFixture>;
+    confirm?: string,
+  ) => Promise<LoopCadenceConfigFixture | LoopCadencePreviewFixture>;
   loopRunEval: (
     topic: string,
     confirm?: string,
@@ -191,9 +206,45 @@ function cadenceFixture(
  * straight to `<ObserveStage client={...} />` and to `expect(...)`
  * assertions on the individual mock functions -- both work fine against the
  * inferred shape. */
+function scorerPreviewFixture(): LoopCadencePreviewFixture {
+  return {
+    action: "cadence",
+    topic: "agentic-systems",
+    arena_scorer: "heuristic",
+    requested_arena_scorer: "eval",
+    estimated_cost: "~1 full golden-set eval per raced variant",
+    confirm_nonce: "scorer-nonce",
+    ttl: 300,
+    message: "nothing was written",
+  };
+}
+
+/** Models the server's spend gate: `arena_scorer="eval"` with no `confirm`
+ *  writes nothing and quotes; everything else applies in one call. */
+function cadenceGate(current = "heuristic") {
+  return vi
+    .fn()
+    .mockImplementation(
+      (
+        _topic: string,
+        overrides?: { arenaScorer?: string },
+        _vault?: string,
+        confirm?: string,
+      ) => {
+        const requested = overrides?.arenaScorer;
+        if (requested === "eval" && !confirm) {
+          return Promise.resolve(scorerPreviewFixture());
+        }
+        return Promise.resolve(
+          cadenceFixture({ arena_scorer: requested ?? current }),
+        );
+      },
+    );
+}
+
 function makeClient(overrides: Partial<ObserveClientFixture> = {}) {
   return {
-    loopCadence: vi.fn().mockResolvedValue(cadenceFixture()),
+    loopCadence: cadenceGate(),
     loopRunEval: vi.fn().mockResolvedValue({
       action: "run_eval",
       topic: "agentic-systems",
@@ -378,7 +429,7 @@ describe("the arena scorer is switchable in place, asymmetrically guarded", () =
     expect(await screen.findByText("heuristic")).toBeTruthy();
   });
 
-  it("never writes on the first click -- arming only relabels the control", async () => {
+  it("never writes on the first click -- it fetches the server's free quote", async () => {
     const client = makeClient();
     render(
       <ObserveStage
@@ -393,11 +444,20 @@ describe("the arena scorer is switchable in place, asymmetrically guarded", () =
     await vi.waitFor(() => expect(client.loopCadence).toHaveBeenCalledTimes(1));
     fireEvent.click(await screen.findByTestId("observe-arena-scorer"));
 
-    // Still only the read-only mount call.
-    expect(client.loopCadence).toHaveBeenCalledTimes(1);
+    // The arm click DOES reach the server -- but on the free leg: no nonce is
+    // sent, so the server writes nothing and returns the quote instead. That
+    // is the two-phase protocol, not a client-side dialog over one call.
+    await vi.waitFor(() => expect(client.loopCadence).toHaveBeenCalledTimes(2));
+    const mock = client.loopCadence as unknown as ReturnType<typeof vi.fn>;
+    expect(mock.mock.calls.filter((call) => call[3])).toHaveLength(0);
     expect(
-      screen.getByRole("button", { name: /future races bill per variant/i }),
+      await screen.findByRole("button", {
+        name: /future races bill per variant/i,
+      }),
     ).toBeTruthy();
+    // The quote the free leg exists to fetch is on screen, in the server's
+    // own words.
+    expect(screen.getByText(/per raced variant/)).toBeTruthy();
   });
 
   it("writes arena_scorer=eval only after the second, explicit confirm", async () => {
@@ -414,9 +474,15 @@ describe("the arena scorer is switchable in place, asymmetrically guarded", () =
 
     await vi.waitFor(() => expect(client.loopCadence).toHaveBeenCalledTimes(1));
     fireEvent.click(await screen.findByTestId("observe-arena-scorer"));
+    // The arm click is a server round trip now (the free quote leg), so the
+    // confirm is only clickable once that envelope has landed.
+    await screen.findByRole("button", {
+      name: /future races bill per variant/i,
+    });
     fireEvent.click(screen.getByTestId("observe-arena-scorer"));
 
-    await vi.waitFor(() => expect(client.loopCadence).toHaveBeenCalledTimes(2));
+    // Three calls: the mount read, the free arm, and the confirm that writes.
+    await vi.waitFor(() => expect(client.loopCadence).toHaveBeenCalledTimes(3));
     const loopCadenceMock = client.loopCadence as unknown as ReturnType<
       typeof vi.fn
     >;
@@ -424,16 +490,19 @@ describe("the arena scorer is switchable in place, asymmetrically guarded", () =
       "agentic-systems",
       { arenaScorer: "eval" },
       "main",
+      "",
+    ]);
+    // The write leg is the arm leg plus the server's nonce -- nothing else.
+    expect(loopCadenceMock.mock.calls[2]).toEqual([
+      "agentic-systems",
+      { arenaScorer: "eval" },
+      "main",
+      "scorer-nonce",
     ]);
   });
 
   it("confirms a saved switch from the server's echo, naming when it takes effect", async () => {
-    const client = makeClient({
-      loopCadence: vi
-        .fn()
-        .mockResolvedValueOnce(cadenceFixture({ arena_scorer: "heuristic" }))
-        .mockResolvedValueOnce(cadenceFixture({ arena_scorer: "eval" })),
-    });
+    const client = makeClient({ loopCadence: cadenceGate() });
     render(
       <ObserveStage
         client={client}
@@ -446,6 +515,11 @@ describe("the arena scorer is switchable in place, asymmetrically guarded", () =
 
     await vi.waitFor(() => expect(client.loopCadence).toHaveBeenCalledTimes(1));
     fireEvent.click(await screen.findByTestId("observe-arena-scorer"));
+    // The arm click is a server round trip now (the free quote leg), so the
+    // confirm is only clickable once that envelope has landed.
+    await screen.findByRole("button", {
+      name: /future races bill per variant/i,
+    });
     fireEvent.click(screen.getByTestId("observe-arena-scorer"));
 
     // The confirmation comes off the server's resolved echo, and it carries
@@ -459,11 +533,7 @@ describe("the arena scorer is switchable in place, asymmetrically guarded", () =
   });
 
   it("switches back to the heuristic on a single click -- going free needs no guard", async () => {
-    const client = makeClient({
-      loopCadence: vi
-        .fn()
-        .mockResolvedValue(cadenceFixture({ arena_scorer: "eval" })),
-    });
+    const client = makeClient({ loopCadence: cadenceGate("eval") });
     render(
       <ObserveStage
         client={client}
@@ -490,10 +560,11 @@ describe("the arena scorer is switchable in place, asymmetrically guarded", () =
   });
 
   it("reports a rejected write instead of silently showing the old value", async () => {
+    // Mount read resolves; the arm leg is the one the server rejects.
     const loopCadence = vi
       .fn()
       .mockResolvedValueOnce(cadenceFixture())
-      .mockRejectedValueOnce(new Error("[loop] arena_scorer must be one of"));
+      .mockRejectedValue(new Error("[loop] arena_scorer must be one of"));
     const client = makeClient({ loopCadence });
     render(
       <ObserveStage
@@ -507,7 +578,6 @@ describe("the arena scorer is switchable in place, asymmetrically guarded", () =
 
     await vi.waitFor(() => expect(loopCadence).toHaveBeenCalledTimes(1));
     fireEvent.click(await screen.findByTestId("observe-arena-scorer"));
-    fireEvent.click(screen.getByTestId("observe-arena-scorer"));
 
     const alert = await screen.findByRole("alert");
     expect(alert.textContent).toContain("arena_scorer must be one of");

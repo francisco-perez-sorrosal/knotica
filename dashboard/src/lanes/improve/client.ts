@@ -39,7 +39,7 @@ import type {
   GoldenReview,
   GoldenSaveResult,
   LoopBaselinePolicyResult,
-  LoopCadenceConfig,
+  LoopCadenceResult,
   LoopOnceResult,
   LoopRebaselineResult,
   LoopRunEvalResult,
@@ -115,6 +115,13 @@ export interface ImproveToolCalls {
     vault?: string,
   ): Promise<LoopRebaselineResult>;
   baselineProbe(topic: string, vault?: string): Promise<BaselineProbeResult>;
+  /**
+   * Reads with no overrides; writes additively with them. One override —
+   * `arenaScorer: "eval"` — is spend-gated server-side: the bare call returns
+   * a `LoopCadencePreview` (nothing written) and the call must be repeated
+   * with that envelope's `confirm_nonce` as `confirm` to apply. Every other
+   * write, `arenaScorer: "heuristic"` included, applies in one call.
+   */
   loopCadence(
     topic: string,
     overrides?: {
@@ -124,7 +131,8 @@ export interface ImproveToolCalls {
       arenaScorer?: string;
     },
     vault?: string,
-  ): Promise<LoopCadenceConfig>;
+    confirm?: string,
+  ): Promise<LoopCadenceResult>;
   loopRunEval(
     topic: string,
     confirm?: string,
@@ -377,7 +385,8 @@ export const improveToolCalls: ToolCallGroup<ImproveToolCalls> = {
       arenaScorer?: string;
     } = {},
     vault = "",
-  ): Promise<LoopCadenceConfig> {
+    confirm = "",
+  ): Promise<LoopCadenceResult> {
     return this.call(LANE, {
       action: "loop",
       loop_action: "cadence",
@@ -386,6 +395,7 @@ export const improveToolCalls: ToolCallGroup<ImproveToolCalls> = {
       eval_window: overrides.evalWindow,
       eval_num_threads: overrides.evalNumThreads,
       arena_scorer: overrides.arenaScorer,
+      confirm,
       vault,
     });
   },

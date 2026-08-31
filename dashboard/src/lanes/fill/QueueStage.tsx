@@ -158,6 +158,15 @@ export function QueueStage({
    * outcome parked there would vanish at the moment it needed reading.
    */
   const [decidedProcess, setDecidedProcess] = useState<ProcessId | null>(null);
+  /**
+   * The gap stage's own outcome channel, split from the queue's for the same
+   * reason `gapsError` is split from `error`: the two stages are independent
+   * queues, and parking a gap's outcome in the Approve stage put the sentence
+   * -- and the cascade count that is its whole point -- two stages below the
+   * control that produced it.
+   */
+  const [gapAnnouncement, setGapAnnouncement] = useState("");
+  const [gapDismissed, setGapDismissed] = useState(false);
   const [reasonDraft, setReasonDraft] = useState<Record<string, string>>({});
   const [rejectOpenId, setRejectOpenId] = useState<string | null>(null);
   const [gaps, setGaps] = useState<GapsReadResult | null>(null);
@@ -225,12 +234,12 @@ export function QueueStage({
       setGapReasonDraft("");
       const closed = result.cascaded_suggestion_ids.length;
       await Promise.all([loadGaps(), load(), onStatusRefresh?.()]);
-      setAnnouncement(
+      setGapAnnouncement(
         closed > 0
           ? `Dismissed gap — ${closed} linked suggestion${closed === 1 ? "" : "s"} closed with it.`
           : "Dismissed gap.",
       );
-      setDecidedProcess(GAP_DISMISS_PROCESS);
+      setGapDismissed(true);
     } catch (cause) {
       setGapsError(cause instanceof Error ? cause.message : String(cause));
     } finally {
@@ -299,14 +308,13 @@ export function QueueStage({
    * slot it occupied in the list that was clicked in, so it comes back exactly
    * there rather than at the end of a fifty-row queue.
    */
-  async function decide(
-    suggestionId: string,
-    action: SuggestionAction,
-    index: number,
-    reason = "",
-  ) {
+  async function decide(suggestionId: string, action: SuggestionAction, reason = "") {
     if (!client || busy) return;
     const snapshot = suggestions.find((row) => row.suggestion_id === suggestionId);
+    // Anchored in `loaded`, the ghost-free list `mergeGhosts` splices into --
+    // never in the merged view that was clicked, which already carries every
+    // earlier ghost and would push this one a slot too high for each of them.
+    const anchor = loaded.findIndex((row) => row.suggestion_id === suggestionId);
     setBusy({ id: suggestionId, action });
     setError(null);
     try {
@@ -317,7 +325,16 @@ export function QueueStage({
         delete next[suggestionId];
         return next;
       });
-      setGhosts((prev) => nextGhosts(prev, suggestionId, action, index, reason, snapshot));
+      setGhosts((prev) =>
+        nextGhosts(
+          prev,
+          suggestionId,
+          action,
+          anchor < 0 ? loaded.length : anchor,
+          reason,
+          snapshot,
+        ),
+      );
       const [fresh] = await Promise.all([load(), onStatusRefresh?.()]);
       setAnnouncement(announce(action, snapshot, fresh));
       setDecidedProcess(DECISION_PROCESS[action] ?? null);
@@ -394,6 +411,19 @@ export function QueueStage({
         ) : (
           <p class="muted">No open gaps right now.</p>
         )}
+
+        {/* Visible, not `sr-only`: the queue's outcome has a ghost row to
+            carry it, a dismissed gap has nothing -- the card simply leaves the
+            list, and the cascade count is the one number that justifies having
+            asked for a reason. Mounted from first paint and keyed for the same
+            reason the queue's is: a live region inserted in the same commit as
+            its text is not reliably announced, and its preceding sibling
+            alternates between a `<ul>` and a bare `<p>`. */}
+        <p key="gap-live" class="muted sources-partial-note" role="status">
+          {gapAnnouncement}
+        </p>
+
+        {gapDismissed ? <ProcessOutcome process={GAP_DISMISS_PROCESS} /> : null}
       </StageShell>
 
       <StageShell id="discover" state={stateOf("discover")} position={2}>
@@ -553,7 +583,7 @@ export function QueueStage({
           </div>
         ) : (
           <ul class="triage-list">
-            {suggestions.map((suggestion, index) => (
+            {suggestions.map((suggestion) => (
               <SuggestionRow
                 key={suggestion.suggestion_id}
                 suggestion={suggestion}
@@ -562,9 +592,9 @@ export function QueueStage({
                 ghost={!loadedIds.has(suggestion.suggestion_id)}
                 rejectOpen={rejectOpenId === suggestion.suggestion_id}
                 reasonDraft={reasonDraft[suggestion.suggestion_id] ?? ""}
-                onApprove={() => void decide(suggestion.suggestion_id, "approve", index)}
-                onDefer={() => void decide(suggestion.suggestion_id, "defer", index)}
-                onWithdraw={() => void decide(suggestion.suggestion_id, "withdraw", index)}
+                onApprove={() => void decide(suggestion.suggestion_id, "approve")}
+                onDefer={() => void decide(suggestion.suggestion_id, "defer")}
+                onWithdraw={() => void decide(suggestion.suggestion_id, "withdraw")}
                 onOpenReject={() => setRejectOpenId(suggestion.suggestion_id)}
                 onCancelReject={() => setRejectOpenId(null)}
                 onReasonChange={(value) =>
@@ -574,7 +604,6 @@ export function QueueStage({
                   void decide(
                     suggestion.suggestion_id,
                     "reject",
-                    index,
                     reasonDraft[suggestion.suggestion_id] ?? "",
                   )
                 }

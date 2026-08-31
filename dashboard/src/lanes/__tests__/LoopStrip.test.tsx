@@ -158,6 +158,15 @@ describe("the headline narrates declared state, never focus", () => {
       loopHeadline("improve", "cycle", stages("unknown", "unknown")),
     );
   });
+
+  it("reads unknown when only SOME stages are unrecorded, never idle", () => {
+    // IDLE asserts the process has not started; one unrecorded stage means
+    // the server declined to say -- the exact claim `unknown` exists to
+    // withhold. `some`, not `every`.
+    expect(loopHeadline("improve", "cycle", stages("pending", "unknown"))).toBe(
+      "IMPROVE · CYCLE UNKNOWN — nothing recorded yet",
+    );
+  });
 });
 
 describe("an unknown stage is rendered honestly, never as pending", () => {

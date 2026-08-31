@@ -183,14 +183,29 @@ export function HandoffDispatchPanel({
   const { tier, dispatchLine, dispatchText } = dispatch;
   const [dispatching, setDispatching] = useState(false);
   const [failure, setFailure] = useState<string | null>(null);
+  /**
+   * Held here as well as lifted, and ORed with the prop: an uncontrolled call
+   * site (`HandoffStage`'s own `claude`-actor mount passes neither `dispatched`
+   * nor `onDispatched`) otherwise returned to the pre-click state on success --
+   * indistinguishable from a click that did nothing, whose likely recovery is
+   * a second click that sends the payload twice. A controlled call site keeps
+   * its lift-to-parent survival across the actor flip.
+   */
+  const [locallySent, setLocallySent] = useState(false);
   const programmatic = tier === "A" || tier === "B";
+  const sent = dispatched || locallySent;
+
+  function markSent(): void {
+    setLocallySent(true);
+    onDispatched?.();
+  }
 
   async function run(send: () => Promise<void>): Promise<void> {
     setDispatching(true);
     setFailure(null);
     try {
       await send();
-      onDispatched?.();
+      markSent();
     } catch (cause) {
       // A host can reject or silently drop the request; saying so is what
       // keeps the copy affordance below an honest fallback rather than a
@@ -203,11 +218,24 @@ export function HandoffDispatchPanel({
 
   return (
     <div class="handoff-dispatch">
-      {dispatched ? (
+      {sent ? (
+        // Two honest claims, one per floor. At A/B the host took the payload,
+        // so "sent" is a fact; at C/D nothing was dispatched — the user holds
+        // the text — so the only fact is that it is on the clipboard. Neither
+        // claims progress the panel cannot see; both name the poll.
         <p class="handoff-dispatched" role="status">
           <Spinner />
-          <strong>Sent to your Claude session.</strong> Continue there — this
-          list updates as the session writes.
+          {programmatic ? (
+            <>
+              <strong>Sent to your Claude session.</strong> Continue there —
+              this list updates as the session writes.
+            </>
+          ) : (
+            <>
+              <strong>Copied.</strong> Paste it into your Claude session — this
+              list updates as the session writes.
+            </>
+          )}
         </p>
       ) : programmatic ? (
         <>
@@ -238,10 +266,16 @@ export function HandoffDispatchPanel({
         </p>
       ) : null}
 
+      {/* At C/D the copy IS the dispatch — there is no button to press, so a
+          successful clipboard write is the only signal the payload ever left,
+          and without it the phase-6 follow-up would be unreachable on the
+          mount most users are on. At A/B the copy is the fallback beside a
+          working button and must not claim the send happened. */}
       <CopyBlock
         code={dispatchLine}
         copyText={dispatchText}
         actionLabel={programmatic ? "Copy it instead" : "Copy the instruction"}
+        onCopied={programmatic ? undefined : markSent}
       />
     </div>
   );
