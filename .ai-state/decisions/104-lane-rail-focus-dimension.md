@@ -14,7 +14,6 @@ dissent: Adding a second state axis to a rail deliberately built around one mono
 affected_files:
   - dashboard/src/lanes/stageFocus.ts
   - dashboard/src/lanes/improve/ImproveLane.tsx
-  - dashboard/src/lanes/LaneRail.tsx
   - dashboard/src/lanes/LoopStrip.tsx
 ---
 

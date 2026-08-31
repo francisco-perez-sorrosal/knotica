@@ -13,7 +13,6 @@ pipeline_tier: full
 affected_files:
   - dashboard/package.json
   - dashboard/vitest.config.ts
-  - dashboard/src/lanes/LaneRail.tsx
 ---
 
 ## Context
