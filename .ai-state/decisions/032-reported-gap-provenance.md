@@ -11,7 +11,7 @@ agent_type: orchestrator
 branch: worktree-hackathon-loop-ideas
 pipeline_tier: lightweight
 re_affirms: dec-025
-affected_files: [src/knotica/core/records.py, src/knotica/core/gapfill/, src/knotica/mcp_server/tools_suggestions.py]
+affected_files: [src/knotica/core/records/, src/knotica/core/gapfill/, src/knotica/mcp_server/tools_suggestions.py]
 ---
 
 ## Context

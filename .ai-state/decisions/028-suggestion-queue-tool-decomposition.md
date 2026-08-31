@@ -12,7 +12,7 @@ branch: worktree-hackathon-loop-ideas
 pipeline_tier: standard
 affected_files:
   - src/knotica/mcp_server/
-  - src/knotica/core/records.py
+  - src/knotica/core/records/
   - src/knotica/core/status.py
   - dashboard/src/
 affected_reqs: []

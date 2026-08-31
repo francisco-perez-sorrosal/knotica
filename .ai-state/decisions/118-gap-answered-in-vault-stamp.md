@@ -11,7 +11,7 @@ agent_type: implementer
 branch: main
 pipeline_tier: standard
 affected_files:
-  - src/knotica/core/records.py
+  - src/knotica/core/records/
   - src/knotica/core/gapfill/drain.py
   - src/knotica/core/status.py
   - src/knotica/core/status_counts.py

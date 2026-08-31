@@ -1,7 +1,7 @@
 """Behavioral contract tests for the ``SuggestionRecord`` schema (``knotica.core.records``).
 
-Derived from ``INTERFACE_DESIGN.md`` §D2 (the frozen ``suggestions.jsonl`` schema
-v1 sample) — never from the implementation. ``SuggestionRecord`` mirrors
+Derived from the frozen ``suggestions.jsonl`` schema v1 sample — never from
+the implementation. ``SuggestionRecord`` mirrors
 ``GapRecord``: a frozen, ``kw_only`` dataclass with a self-describing
 ``schema_version``, an enum-validated ``status``, and a
 ``to_json_line``/``from_json_line`` pair that tolerates unknown future fields.
@@ -27,7 +27,7 @@ def _records_module():
     return knotica.core.records
 
 
-# The exact denormalized field set from INTERFACE_DESIGN.md §D2 -- this is the
+# The exact denormalized field set of the frozen schema -- this is the
 # regression lock. A future field must be added here deliberately, never
 # discovered by accident.
 SUGGESTION_RECORD_FIELDS = frozenset(

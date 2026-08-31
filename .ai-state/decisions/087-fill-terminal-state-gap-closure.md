@@ -11,7 +11,7 @@ agent_type: systems-architect
 branch: worktree-process-swimlanes
 pipeline_tier: full
 affected_files:
-  - src/knotica/core/records.py
+  - src/knotica/core/records/
   - src/knotica/core/gapfill/
   - src/knotica/core/source_gate.py
   - src/knotica/mcp_server/tools_gaps.py

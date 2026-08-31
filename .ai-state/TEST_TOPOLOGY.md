@@ -372,7 +372,7 @@ file_dependencies:
   - "src/knotica/core/page.py"
   - "src/knotica/core/process_model.py"
   - "src/knotica/core/prompts.py"
-  - "src/knotica/core/records.py"
+  - "src/knotica/core/records/"
   - "src/knotica/core/schema.py"
   - "src/knotica/core/scrub.py"
   - "src/knotica/core/status.py"

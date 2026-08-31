@@ -25,9 +25,11 @@ every file rather than trusting the recorded set. Both entries are now gone.
 pre-transaction writer from it; ``core/gapfill.py`` was split into the
 ``core/gapfill/`` package (td-042), six modules of 92-421 lines behind one
 re-exporting ``__init__``, so the largest exemption this list ever carried
-needed no successor entry. A paid-down exemption is removed, never kept. That is
-the argument for a mechanical check over a hand-maintained list, and it is the
-argument that extended this ratchet to ``tests/``.
+needed no successor entry. ``core/records.py`` followed it (td-009): now the
+``core/records/`` package, one module per record family. A paid-down exemption
+is removed, never kept. That is the argument for a mechanical check over a
+hand-maintained list, and it is the argument that extended this ratchet to
+``tests/``.
 
 **``tests/`` is scanned because it was the same blind spot, one directory over.**
 The ratchet originally measured ``src/knotica`` only, so the 800-line ceiling
@@ -86,27 +88,11 @@ OVER_CEILING_BASELINE: dict[str, int] = {
     "evals/harness.py": 1241,
     "core/loop.py": 1189,
     "evals/golden.py": 975,
-    # Raised 947 -> 955 for `GapRecord.decided_reason`: an additive optional
-    # field (mirrors `SuggestionRecord.decided_reason`) so the human gap
-    # transition's reason survives a re-read instead of existing only in the
-    # one-shot tool result. One field, one docstring, one line each in
-    # `to_json_line`/`from_json_line` -- not extractable from a frozen record's
-    # own (de)serialization pair.
-    #
-    # Raised 955 -> 981 for `SuggestionRecord.extra`: unknown top-level fields
-    # are now carried and re-emitted, not just tolerated on read. Every drain
-    # and every gap dismissal rewrites the whole queue through
-    # parse->serialize, so a dropped field was erased from every record in the
-    # topic by a routine refresh. The carrier field, its partition on parse and
-    # its merge on emit live inside the frozen record's own (de)serialization
-    # pair and are not extractable from it.
-    #
-    # Raised 981 -> 994 for `GapRecord.answered_in_vault_at` (td-070): the
-    # drain-time stamp that lets Home say "the vault already answers this gap"
-    # without paying for discovery. Same shape as `decided_reason` above -- one
-    # field, its docstring, one line each in `to_json_line`/`from_json_line` --
-    # and equally inseparable from the frozen record's own (de)serialization.
-    "core/records.py": 994,
+    # `core/records.py` was here at 994, raised four times as record fields
+    # landed. It is now the `core/records/` package (td-009) -- one module per
+    # record family, 117-268 lines each -- so the entry is deleted with no
+    # successor, the rule-3 outcome. That is the second exemption this list has
+    # paid off by splitting rather than by shrinking in place.
 }
 
 

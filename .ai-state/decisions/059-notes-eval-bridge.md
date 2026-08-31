@@ -13,7 +13,7 @@ pipeline_tier: standard
 affected_files:
   - src/knotica/core/operations/curate_example.py
   - src/knotica/core/gapfill/
-  - src/knotica/core/records.py
+  - src/knotica/core/records/
 affected_reqs: [REQ-11]
 dissent: Routing note questions to the trainset makes them permanently ineligible for the golden set (freeze() enforces disjointness), so a deliberately narrow v1 choice silently forecloses the higher-value destination for every question it touches.
 re_affirmed_by:

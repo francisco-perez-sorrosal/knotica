@@ -11,7 +11,7 @@ agent_type: systems-architect
 branch: worktree-hackathon-loop-ideas
 pipeline_tier: standard
 affected_files:
-  - src/knotica/core/records.py
+  - src/knotica/core/records/
   - src/knotica/core/gap_classifier.py
 affected_reqs: [REQ-06, REQ-08]
 re_affirms: dec-006
