@@ -20,18 +20,12 @@ from dataclasses import dataclass
 from datetime import datetime
 from datetime import time as _time_of_day
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Protocol
+from typing import Any, Protocol
 
 from knotica.core import branch_namespaces
 from knotica.core.arena import ArenaState, ScoreFn, ScorerInfo, VariantSpec
 from knotica.core.arena_resolve import run_arena_and_resolve
 from knotica.core.best_effort import best_effort
-from knotica.core.loop_attempt import (
-    is_same_content_retry,
-    note_attempt,
-    record_failed_attempt,
-    retry_hold,
-)
 from knotica.core.loop_state import (
     LoopDecision,
     LoopStage,
@@ -45,13 +39,8 @@ from knotica.core.loop_state import (
 )
 from knotica.core.transaction import VaultTransaction, vault_mutation_span
 from knotica.core.vault_layout import SCORED_FAMILIES, family_of
-from knotica.core.vcs import VaultVcs, discarded_clone
+from knotica.core.vcs import VaultVcs
 from knotica.store import LocalFSStore, VaultStore
-
-if TYPE_CHECKING:
-    # Type-only: ``gap_classifier`` is imported lazily at its use site by design.
-    from knotica.core.gap_classifier import RegressionClassification
-    from knotica.core.records import GapRecord
 
 __all__ = [
     "DEFAULT_BRANCH_PREFIX",
@@ -230,282 +219,13 @@ class LoopRunner:
     ) -> LoopCycleResult:
         """Eval the default branch when its HEAD moved since the last observation.
 
-        This is the autonomous "observe" leg: content lands on the default branch
-        (an ingest, a page edit), the watcher notices, evals on a clone, and
-        merges the metrics commit back so the chart moves without any manual
-        step. With ``auto_baseline`` the first observation freezes itself as the
-        gate baseline — a fresh topic becomes fully gated with zero setup. A
-        regression below baseline triggers the arena self-correction on the
-        prompt substrate (content on the default branch is human-owned and is
-        never reverted here).
+        The autonomous "observe" leg and the billing boundary every caller
+        patches. Thin delegator; the procedure lives in
+        :mod:`knotica.core.loop_observe`.
         """
-        state = read_loop_state(self._store, self._topic) or empty_loop_state(self._topic)
-        default = self._vcs.default_branch()
-        head = self._vcs.head_sha()
+        from knotica.core import loop_observe
 
-        def _declined(message: str) -> LoopCycleResult:
-            """A no-op cycle: observed, chose not to evaluate, wrote nothing."""
-            return LoopCycleResult(
-                acted=False,
-                branch=default,
-                sha=head,
-                decision=LoopDecision.none,
-                scalar=None,
-                message=message,
-            )
-
-        cursor = state.cursors.get(default)
-        if cursor == head:
-            return _declined("default branch unchanged since last observation")
-        if cursor is not None and not self._content_changed_since(cursor, head):
-            # Only bookkeeping moved since the cursor (loop-state / metrics / log
-            # commits written by the loop itself). Deliberately no state write:
-            # the cursor stays put until real content lands, so the loop never
-            # commits (or evals) in response to its own writes.
-            return _declined("only loop bookkeeping changed since last observation")
-
-        hold = self._observation_hold(head)
-        if hold is not None:
-            return _declined(hold)
-
-        retrying = is_same_content_retry(state, head, content_changed=self._content_changed_since)
-
-        # ``force`` clears BOTH pacing holds, not cadence alone. Both pace the
-        # *unattended* watcher; neither is a correctness gate. The retry floor in
-        # particular cannot see its own precondition being fixed -- freezing a
-        # golden set is a ``.knotica/`` write, which ``is_same_content_retry``
-        # ignores by design -- so waiting it out was the only way past it. ``force``
-        # reaches here solely from a two-phase, cost-quoted human confirm; every
-        # autonomous caller leaves it false, which
-        # ``test_loop_blocked_failure_backoff`` pins along with the incident this
-        # floor exists to prevent.
-        if not force:
-            failure_hold = retry_hold(
-                self._root, self._topic, state, same_content_retry=retrying, now=self._now_fn()
-            )
-            if failure_hold is not None:
-                return _declined(failure_hold)
-
-            cadence_hold = self._cadence_hold(state, self._now_fn())
-            if cadence_hold is not None:
-                return _declined(cadence_hold)
-
-        self._ensure_union_log_merge()
-        started_at = self._now_fn()
-        note_attempt(self._root, self._topic, at=started_at)
-        # What the vault currently records, kept for the failure path to compare
-        # against — ``state`` below becomes the in-flight attempt, which is not
-        # the same thing and would compare equal to itself.
-        stored = state
-        attempt = state.model_copy(
-            update={
-                "stage": LoopStage.evaluating,
-                "candidate_branch": default,
-                "candidate_sha": head,
-                "last_error": None,
-                "last_eval_started_at": started_at,
-            }
-        )
-        # ``evaluating`` → ``failed`` is ONE attempt, so a re-attempt of a failure
-        # already on record must not pay a commit for its first half either (see
-        # :mod:`knotica.core.loop_attempt`). Liveness meanwhile stays visible via
-        # the gitignored heartbeat/progress files, never via commits.
-        state = (
-            attempt
-            if retrying
-            else write_loop_state(
-                self._store, self._root, attempt, title=f"observing {default}@{head[:12]}"
-            )
-        )
-        # Pin the eval clone AFTER the state commit above: the live side then has
-        # no loop-authored commits the merge would have to reconcile — only
-        # concurrent human activity, which the union log.md attribute absorbs.
-        eval_ref = self._vcs.head_sha()
-        try:
-            outcome = self._evaluate(self._topic, self._root, eval_ref)
-        except Exception as exc:  # noqa: BLE001 — surface into loop-state, keep runner alive
-            # Do NOT mark_processed here: the cursor must stay unadvanced so the
-            # next tick still sees content-changed against this same head and
-            # re-attempts the eval, paced by the attempt clock ``note_attempt``
-            # advanced above. Whether the failure is *written* at all is
-            # loop_attempt's call — an attempt recording nothing new costs no commit.
-            record_failed_attempt(
-                self._store,
-                self._root,
-                stored=stored,
-                attempt=state,
-                branch=default,
-                head=head,
-                exc=exc,
-                same_content=retrying,
-            )
-            return LoopCycleResult(
-                acted=True,
-                branch=default,
-                sha=head,
-                decision=LoopDecision.fail,
-                scalar=None,
-                message=f"observation eval failed: {exc}",
-            )
-
-        with discarded_clone(outcome.clone_root):
-            # Bring the metrics commit home so the chart reflects the observation.
-            # The merge, the post-merge head read, and the cursor-advancing state
-            # write are ONE atomic span: a concurrent pass must not move the default
-            # branch's HEAD between the merge and ``mark_processed`` (that would mark
-            # someone else's commit observed and silently skip a real content change).
-            with self._mutation_span():
-                result_branch = f"{RESULT_BRANCH_PREFIX}{eval_ref[:12]}"
-                self._vcs.fetch_ref_from(outcome.clone_root, "HEAD", result_branch)
-                self._vcs.checkout_branch(default)
-                self._vcs.merge_branch(result_branch, ff_only=False)
-                if self._push_remote:
-                    self._vcs.push(self._push_remote, default)
-                self._prune_result_branches()
-
-                scalar = float(outcome.scalar)
-                baseline = state.baseline_scalar
-                updates: dict[str, object] = {
-                    "last_scalar": scalar,
-                    "last_generation": int(outcome.generation),
-                    "last_harness_version": outcome.harness_version,
-                    "candidate_branch": None,
-                    "candidate_sha": None,
-                    "last_error": None,
-                    "pending_retry": False,
-                }
-                # A baseline is only comparable under the instrument that produced it.
-                # When the harness fingerprint rotates (judge prompt edit, model
-                # rotation, dspy upgrade), the first observation on the new instrument
-                # re-freezes the reference — the old scalar is not a valid bar anymore.
-                instrument_changed = (
-                    baseline is not None
-                    and state.baseline_harness_version is not None
-                    and state.baseline_harness_version != outcome.harness_version
-                )
-                if baseline is None and auto_baseline:
-                    updates |= {
-                        "baseline_scalar": scalar,
-                        "baseline_harness_version": outcome.harness_version,
-                        "baseline_corpus_ref": outcome.corpus_ref,
-                        "baseline_golden_manifest_sha": self._golden_manifest_sha(),
-                        "stage": LoopStage.passed,
-                        "last_decision": LoopDecision.pass_,
-                    }
-                    message = f"first observation auto-froze baseline at {scalar:.4f}"
-                elif instrument_changed and auto_baseline:
-                    assert baseline is not None  # implied by ``instrument_changed``
-                    updates |= {
-                        "baseline_scalar": scalar,
-                        "baseline_harness_version": outcome.harness_version,
-                        "baseline_corpus_ref": outcome.corpus_ref,
-                        "baseline_golden_manifest_sha": self._golden_manifest_sha(),
-                        "stage": LoopStage.passed,
-                        "last_decision": LoopDecision.pass_,
-                    }
-                    message = (
-                        f"instrument changed; baseline re-frozen at {scalar:.4f} "
-                        f"(was {float(baseline):.4f} under a previous harness)"
-                    )
-                elif (
-                    baseline is not None
-                    and scalar > float(baseline)
-                    and state.baseline_policy == "best"
-                ):
-                    # High-water-mark policy: a better reading raises the bar itself.
-                    updates |= {
-                        "baseline_scalar": scalar,
-                        "baseline_harness_version": outcome.harness_version,
-                        "baseline_corpus_ref": outcome.corpus_ref,
-                        "baseline_golden_manifest_sha": self._golden_manifest_sha(),
-                        "stage": LoopStage.passed,
-                        "last_decision": LoopDecision.pass_,
-                    }
-                    message = f"new high-water baseline {scalar:.4f} (was {float(baseline):.4f})"
-                elif baseline is None or scalar >= float(baseline):
-                    updates |= {"stage": LoopStage.passed, "last_decision": LoopDecision.pass_}
-                    message = f"observation {scalar:.4f} holds baseline"
-                else:
-                    message = (
-                        f"observation {scalar:.4f} regressed below baseline {float(baseline):.4f}"
-                    )
-
-                # Mark the POST-merge head processed so the metrics commit itself never
-                # re-triggers an observation (the merge moved HEAD past ``head``).
-                merged_head = self._vcs.head_sha()
-                state = write_loop_state(
-                    self._store,
-                    self._root,
-                    state.model_copy(update=updates).mark_processed(default, merged_head),
-                    title=message,
-                )
-
-            # A re-frozen (instrument-changed) baseline is by definition not a
-            # regression: cross-instrument scalars are incomparable.
-            regressed = (
-                baseline is not None
-                and scalar < float(baseline)
-                and not (instrument_changed and auto_baseline)
-            )
-            if regressed:
-                assert baseline is not None  # implied by ``regressed``
-                redirect = self._maybe_redirect_to_gaps(
-                    state, default, merged_head, scalar, float(baseline), outcome
-                )
-                if redirect is not None:
-                    return redirect
-            if regressed and self._arena_enabled and self._arena_score is not None:
-                return self._heal_prompts_after_regression(state, default, merged_head, scalar)
-            if regressed:
-                write_loop_state(
-                    self._store,
-                    self._root,
-                    state.model_copy(
-                        update={"stage": LoopStage.failed, "last_decision": LoopDecision.fail}
-                    ),
-                    title="observation regression (arena disabled)",
-                )
-                return LoopCycleResult(
-                    acted=True,
-                    branch=default,
-                    sha=head,
-                    decision=LoopDecision.fail,
-                    scalar=scalar,
-                    message=message,
-                )
-            return LoopCycleResult(
-                acted=True,
-                branch=default,
-                sha=head,
-                decision=LoopDecision.pass_,
-                scalar=scalar,
-                message=message,
-            )
-
-    def _observation_hold(self, head: str) -> str | None:
-        """Reason to defer this observation, or ``None`` to proceed.
-
-        Two independent guards: a live ingest run (measure the ingest once, at
-        its boundary — bounded by staleness so a crashed ingest cannot block
-        forever), and a HEAD-stability window (a burst of commits coalesces
-        into one eval; active only when ``observe_quiet_seconds`` > 0).
-        """
-        from knotica.core.ingest_activity import has_active_ingest
-
-        if has_active_ingest(self._store, stale_after_seconds=self._ingest_hold_stale_seconds):
-            self._pending_head = None
-            return "observation held: ingest in progress"
-        if self._observe_quiet_seconds <= 0.0:
-            return None
-        now = self._clock()
-        if head != self._pending_head:
-            self._pending_head = head
-            self._pending_since = now
-            return f"observation settling ({self._observe_quiet_seconds:g}s quiet window)"
-        if now - self._pending_since < self._observe_quiet_seconds:
-            return f"observation settling ({self._observe_quiet_seconds:g}s quiet window)"
-        self._pending_head = None
-        return None
+        return loop_observe.observe_default(self, auto_baseline=auto_baseline, force=force)
 
     def _golden_manifest_sha(self) -> str | None:
         """Digest of the golden set a baseline frozen right now was measured on.
@@ -530,34 +250,14 @@ class LoopRunner:
     def _cadence_hold(self, state: LoopState, now: datetime) -> str | None:
         """Reason to defer this observation eval on cadence grounds, or ``None``.
 
-        Called only from :meth:`observe_default` — never from :meth:`poll_once`
-        or :meth:`_process_candidate`, whose candidate-gate evals stay eager
-        always. All-defaults (``eval_min_interval_hours == 0`` and
-        ``eval_window is None``) is the byte-identical fast path: this method
-        returns ``None`` before touching either knob, so scheduling is
-        unchanged from pre-cadence behavior.
+        Kept as a method rather than called as a free function, because the
+        candidate-gate path's contract is that it never consults cadence at
+        all -- and the test that proves it spies on this attribute. Thin
+        delegator; the procedure lives in :mod:`knotica.core.loop_observe`.
         """
-        if self._eval_min_interval_hours == 0 and self._eval_window is None:
-            return None
-        if self._eval_min_interval_hours > 0 and state.last_eval_started_at is not None:
-            elapsed_hours = (now - state.last_eval_started_at).total_seconds() / 3600.0
-            if elapsed_hours < self._eval_min_interval_hours:
-                return (
-                    f"cadence held: {elapsed_hours:.2f}h since last eval start "
-                    f"< {self._eval_min_interval_hours:g}h interval"
-                )
-        if self._eval_window is not None and not self._within_window(now.time()):
-            return (
-                f"cadence held: outside eval window {self._eval_window[0]}-{self._eval_window[1]}"
-            )
-        return None
+        from knotica.core import loop_observe
 
-    def _within_window(self, now_time: _time_of_day) -> bool:
-        """``True`` if ``now_time`` falls inside ``self._eval_window`` (supports midnight wrap)."""
-        start, end = self._eval_window  # type: ignore[misc]  # guarded by caller
-        if start <= end:
-            return start <= now_time <= end
-        return now_time >= start or now_time <= end
+        return loop_observe.cadence_hold(self, state, now)
 
     def _ensure_union_log_merge(self) -> None:
         """Self-heal the ``log.md merge=union`` attribute into the vault (idempotent)."""
@@ -638,214 +338,6 @@ class LoopRunner:
                 pass
             return True
         return False
-
-    def _maybe_redirect_to_gaps(
-        self,
-        state: LoopState,
-        default: str,
-        head: str,
-        scalar: float,
-        baseline: float,
-        outcome: EvalOutcome,
-    ) -> LoopCycleResult | None:
-        """Classify a regression's cause; redirect to a gap record when the arena is futile.
-
-        Every knowledge-cause verdict (``genuine_gap``/``dilution``) is persisted
-        as a gap record regardless of route -- a mixed regression still logs its
-        knowledge gaps for P3 while the arena heals the prompt-recoverable ones.
-        The route only decides whether to *skip* the arena: it returns a fail
-        result (arena skipped) only when *every* regressed id is a knowledge cause
-        (a missing or displaced reference page that racing prompt variants cannot
-        recover). Otherwise returns ``None`` so the caller runs the unchanged
-        arena heal: a prompt-recoverable fault in the mix, a manifest without a
-        diagnostic delta, or an absent eval-run manifest all fall through. Any
-        genuine classifier failure is isolated here and surfaced on loop-state --
-        it never blocks the heal path and writes no unverified gap record.
-
-        The classifier reads the eval *clone* store only; gap records are written
-        to the live vault so the next observe (bookkeeping-only diff under
-        ``.knotica/gaps/``) and the out-of-process P3 reader both see them.
-        """
-
-        def _record_classification_failure(exc: BaseException) -> None:
-            write_loop_state(
-                self._store,
-                self._root,
-                state.model_copy(update={"last_error": f"gap classification skipped: {exc}"}),
-                title="gap classification failed; falling through to arena heal",
-            )
-
-        with best_effort(on_error=_record_classification_failure) as attempt:
-            classified = self._classify_and_persist_gaps(outcome, scalar, baseline)
-            if classified is None:
-                return None
-            classification, records = classified
-        if attempt.failed:
-            return None
-
-        if classification.route != "REDIRECT":
-            # A prompt-recoverable fault is in the mix: the knowledge gaps are
-            # already persisted above; let the caller run the arena heal.
-            return None
-
-        # Every regressed id is a knowledge cause -- the arena is futile. Absorb
-        # the gap-record commit into the cursor so the next observe sees only
-        # bookkeeping under ``.knotica/gaps/`` (this state write is bookkeeping too).
-        gap_head = self._vcs.head_sha()
-        generation = int(outcome.generation)
-        write_loop_state(
-            self._store,
-            self._root,
-            state.model_copy(
-                update={"stage": LoopStage.failed, "last_decision": LoopDecision.fail}
-            ).mark_processed(default, gap_head),
-            title=f"regression redirected to {len(records)} knowledge gaps at gen-{generation}",
-        )
-        return LoopCycleResult(
-            acted=True,
-            branch=default,
-            sha=head,
-            decision=LoopDecision.fail,
-            scalar=scalar,
-            message=f"regression logged as {len(records)} gaps; arena skipped",
-        )
-
-    def _classify_and_persist_gaps(
-        self, outcome: EvalOutcome, scalar: float, baseline: float
-    ) -> tuple[RegressionClassification, list[GapRecord]] | None:
-        """Classify a regression from the clone manifest and persist knowledge gaps.
-
-        Returns ``None`` when no diagnostic substrate exists (missing or absent
-        eval-run manifest on the clone) -- the caller falls through to the
-        unchanged arena heal. Exceptions propagate to the caller's isolation
-        boundary; this helper owns only the classify -> build -> write sequence.
-        """
-        from knotica.core.gap_classifier import (
-            build_gap_records,
-            classify_regression,
-            prior_generation_of,
-            read_regression_manifest,
-            regressed_ids_from_manifest,
-            write_gap_records,
-        )
-
-        generation = int(outcome.generation)
-        clone_root = outcome.clone_root
-        try:
-            manifest = read_regression_manifest(clone_root, self._topic, generation)
-        except FileNotFoundError:
-            # No eval-run manifest on this clone (e.g. a fake/test eval, or a
-            # generation that wrote none): no diagnostic substrate -- fall
-            # through to the unchanged arena heal, byte-identical.
-            return None
-        if manifest is None:
-            return None
-        classification = classify_regression(
-            store=LocalFSStore(clone_root),
-            topic=self._topic,
-            clone_root=clone_root,
-            generation=generation,
-            manifest=manifest,
-            regressed_ids=regressed_ids_from_manifest(manifest),
-        )
-        records = build_gap_records(
-            classification.verdicts,
-            topic=self._topic,
-            generation=generation,
-            scalar_at_detection=scalar,
-            baseline_scalar=baseline,
-            prior_generation=prior_generation_of(manifest),
-        )
-        write_gap_records(self._store, self._root, self._topic, records)
-        self._maybe_discover_for_gaps()
-        return classification, records
-
-    def _maybe_discover_for_gaps(self) -> None:
-        """Opt-in: drain the just-written open ``genuine_gap``s into staged suggestions.
-
-        Off by default -- when ``discover_on_regression`` is disabled this returns
-        immediately, so the regression path is byte-identical to pre-P3 (no
-        ``discovery`` import, no extra commit). When enabled, it runs the P3
-        discovery drain for the topic's open ``genuine_gap``s in its **own**
-        ``VaultTransaction`` (never piggybacked on the gap-record commit, dec-008),
-        capped by ``max_gaps`` (the fixed-budget defense). It is failure-isolated
-        exactly like the classifier: a discovery error is swallowed so the heal
-        path always proceeds -- the loop-side drain is best-effort bookkeeping, and
-        the on-demand ``knotica gapfill discover`` CLI is the error-surfacing path.
-        ``gapfill`` is imported lazily (and referenced as a module attribute) so the
-        drain stays off the runtime path when the flag is off.
-        """
-        if not self._discover_on_regression:
-            return
-        from knotica.core import gapfill
-
-        with best_effort():
-            service = gapfill.build_default_discovery_service()
-            gapfill.refresh_suggestions_for_gaps(
-                self._store,
-                self._root,
-                self._topic,
-                service=service,
-                max_gaps=self._gapfill_max_gaps,
-            )
-
-    def _heal_prompts_after_regression(
-        self, state: LoopState, default: str, head: str, scalar: float
-    ) -> LoopCycleResult:
-        """Race prompt variants after a default-branch regression (content stays)."""
-        baseline = float(state.baseline_scalar or 0.0)
-        state = write_loop_state(
-            self._store,
-            self._root,
-            state.model_copy(update={"stage": LoopStage.racing}),
-            title="arena racing after observation regression",
-        )
-
-        def _resolve(arena: ArenaState, *, won: bool) -> LoopCycleResult:
-            # The winner's promotion commit moved HEAD; absorb it into the cursor.
-            merged_head = self._vcs.head_sha()
-            write_loop_state(
-                self._store,
-                self._root,
-                state.model_copy(
-                    update={
-                        "stage": LoopStage.passed if won else LoopStage.failed,
-                        "last_decision": LoopDecision.pass_ if won else LoopDecision.fail,
-                        "last_error": None if won else arena.message,
-                    }
-                ).mark_processed(default, merged_head),
-                title=(
-                    f"arena healed regression via {arena.winner_id}"
-                    if won
-                    else "arena no-winner after regression"
-                ),
-            )
-            return LoopCycleResult(
-                acted=True,
-                branch=default,
-                sha=head,
-                decision=LoopDecision.pass_ if won else LoopDecision.fail,
-                scalar=float(arena.winner_scalar or scalar) if won else scalar,
-                message=(
-                    f"regression healed: arena winner {arena.winner_id}"
-                    if won
-                    else f"regression persists: {arena.message}"
-                ),
-            )
-
-        return run_arena_and_resolve(
-            store=self._store,
-            root=self._root,
-            topic=self._topic,
-            arena_score=self._arena_score,
-            arena_scorer_info=self._arena_scorer_info,
-            arena_variants=self._arena_variants,
-            arena_n=self._arena_n,
-            candidate_branch=None,
-            baseline=baseline,
-            on_win=lambda arena: _resolve(arena, won=True),
-            on_lose=lambda arena: _resolve(arena, won=False),
-        )
 
     def set_baseline_policy(self, policy: str) -> LoopState:
         """Persist the gate policy: ``latest`` (track reality) or ``best`` (ratchet)."""

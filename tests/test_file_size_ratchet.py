@@ -76,18 +76,22 @@ OVER_CEILING_BASELINE: dict[str, int] = {
     # scorer-descriptor field (loop), and one row in each of the two decision
     # tables for the `withdraw` transition (gapfill). None of it is a procedure
     # that could live elsewhere. The one part that was -- the ~50-line
-    # `hold_preview` -- moved to `core/loop_holds.py`, which is why `core/loop.py`
-    # lands at 1168 rather than 1211.
-    # Raised 1234 -> 1241 (harness) and 1168 -> 1189 (loop) for the
-    # lint-attribution instrument fix and the rebaseline freeze guard: the
-    # harness's scalar input filter must sit beside the scalar composition it
-    # feeds, and the guard must sit inside `rebaseline` -- the one freeze-time
-    # entry point that could create an unreachable bar. td-008 still names the
-    # real fix for these two (td-042, which named gapfill's, is paid: that
-    # module is now the `core/gapfill/` package and carries no entry here).
-    "evals/harness.py": 1241,
-    "core/loop.py": 1189,
-    "evals/golden.py": 975,
+    # `hold_preview` -- moved to `core/loop_holds.py`. It was later raised
+    # 1234 -> 1241 (harness) and 1168 -> 1189 (loop) for the lint-attribution
+    # instrument fix and the rebaseline freeze guard: the harness's scalar
+    # input filter must sit beside the scalar composition it feeds, and the
+    # guard must sit inside `rebaseline` -- the one freeze-time entry point
+    # that could create an unreachable bar.
+    #
+    # `core/loop.py` was here at 1189 and is gone (td-008): the fourth
+    # extraction pass moved the observe leg to `core/loop_observe.py` and the
+    # regression -> gap redirect to `core/loop_gap_redirect.py`, landing the
+    # module at ~680. Deleted with no successor, the rule-3 outcome and the
+    # third exemption this list has paid off by splitting rather than by
+    # shrinking in place. `evals/harness.py` (1241) and `evals/golden.py`
+    # (975) followed in the same pass (td-002): each is now a package of
+    # focused modules, the largest at 303 lines, deleted with no successor
+    # once Gate 0 proved the instrument fingerprint layout-independent.
     # `core/records.py` was here at 994, raised four times as record fields
     # landed. It is now the `core/records/` package (td-009) -- one module per
     # record family, 117-268 lines each -- so the entry is deleted with no
@@ -100,10 +104,13 @@ OVER_CEILING_BASELINE: dict[str, int] = {
 #: Recorded when the ratchet was extended to ``tests/``; same rules as above.
 TESTS_OVER_CEILING_BASELINE: dict[str, int] = {
     "test_mcp_notes.py": 2506,
-    "test_evals_harness.py": 1565,
+    # 1565 -> 1567 / 1372 -> 1373: the td-002 package split's mechanical
+    # import-path edits (harness/golden became packages); no test semantics
+    # moved. td-030 still owns both files' paydown.
+    "test_evals_harness.py": 1567,
     "core/notes/test_anchor.py": 1534,
     "core/notes/test_resolve.py": 1489,
-    "test_evals_golden.py": 1372,
+    "test_evals_golden.py": 1373,
     "core/notes/test_reanchor_note.py": 1112,
     "test_search.py": 1086,
     "core/notes/test_capture_note.py": 950,

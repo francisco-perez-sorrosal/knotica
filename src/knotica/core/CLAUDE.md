@@ -26,7 +26,7 @@ Adding an operation: put it here, give it exactly one transaction, and let the M
 
 ## The loop cluster
 
-`loop.py` plus its siblings (`loop_state`, `loop_heartbeat`, `loop_progress`, `loop_factory`, `loop_promote`, `loop_retry_backoff`, `loop_attempt`, `loop_cadence_config`, `arena`, `arena_resolve`, `candidate_gate`, `branch_namespaces`, `branch_scoreboard`, `branch_delete`, `best_effort`).
+`loop.py` plus its siblings (`loop_observe`, `loop_gap_redirect`, `loop_state`, `loop_heartbeat`, `loop_progress`, `loop_factory`, `loop_promote`, `loop_retry_backoff`, `loop_attempt`, `loop_cadence_config`, `arena`, `arena_resolve`, `candidate_gate`, `branch_namespaces`, `branch_scoreboard`, `branch_delete`, `best_effort`).
 
 - **`loop_factory.build_loop_runner` is the one construction seam.** Both real call sites — the CLI watcher and the service daemon — go through it. When a knob has to reach every runner, resolve it *in the factory*, not at each call site: a caller that forgets is how documented config silently reaches nothing.
 - **`branch_namespaces.py` declares every branch prefix once.** Never hardcode a `loop/...` string elsewhere.

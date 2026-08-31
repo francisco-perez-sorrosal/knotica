@@ -50,7 +50,7 @@ tables so sentinel TT01 can resolve them.
 | `src/knotica/evals/error_capture.py` (carve-out from §3a `evals/`) | `eval-harness` | The shared leaf both `harness.py` and `scorer.py` import; it exists only to serve the harness's per-example outcome seam. |
 | `src/knotica/programs/` | `query-compile` | DSPy query compile (MIPROv2 + bootstrap fallback) → compiled artifact + `CompiledRunner`. Optimization is a distinct concern from measurement: a compile-artifact change should not force a re-run of the LLM-judge suite. |
 | §3b **Query compile & promote** (the `core/` half: `compile_run.py`, `compile_state.py`, `compile_promote.py`, `compiled.py`, `query_engine.py`, `trainset.py`, `models_config.py`, `prompt_diff.py`) | `query-compile` | The `core/` half of the same chain: the run pipeline, its pollable state file, promote, the artifact reader, the unified `query_engine` facade, the trainset counts the gate reads, the `[models]` overrides, and the deterministic `query.md` diff. It ships and breaks with `programs/` — an artifact-format change touches the DSPy program and its lifecycle in one edit. Note 2 already subtracted these eight modules from the `vault-semantics` residual on concern grounds; **this row is the §3 anchor that subtraction previously lacked.** |
-| §3b **Autonomous loop lifecycle** (`loop.py` + `loop_state`, `loop_heartbeat`, `loop_progress`, `loop_factory`, `loop_promote`, `loop_retry_backoff`, `loop_attempt`, `loop_cadence_config`, `arena`, `arena_resolve`, `candidate_gate`, `branch_namespaces`, `branch_scoreboard`, `branch_delete`, `best_effort`) | `loop-runtime` | The autonomous watcher: observe → gate → heal, together with the arena, branch and pacing siblings the §3 cell now names outright instead of leaving to prose (note 2). The most expensive group by construction — real git clones, worktrees, arena races, flock contention. |
+| §3b **Autonomous loop lifecycle** (`loop.py` + `loop_observe`, `loop_gap_redirect`, `loop_state`, `loop_heartbeat`, `loop_progress`, `loop_factory`, `loop_promote`, `loop_retry_backoff`, `loop_attempt`, `loop_cadence_config`, `arena`, `arena_resolve`, `candidate_gate`, `branch_namespaces`, `branch_scoreboard`, `branch_delete`, `best_effort`) | `loop-runtime` | The autonomous watcher: observe → gate → heal, together with the arena, branch and pacing siblings the §3 cell now names outright instead of leaving to prose (note 2). The most expensive group by construction — real git clones, worktrees, arena races, flock contention. |
 | `src/knotica/discovery/` | `discovery-network` | Pure outbound-network boundary: no vault read/write, no state, single inward edge to `core.errors`, enforced by the `mcp_server ⊬ discovery` import-boundary test. The most cleanly dependency-closed group in the project. |
 | §3b **Gap-fill spine**, P1 (`core/gap_classifier.py` + `records.GapRecord`) | `gapfill-spine` | P1 — regression → fault-class diagnosis, producing the `GapRecord` queue. |
 | §3b **Gap-fill spine**, P3 (`core/gapfill/` + `records.SuggestionRecord` + `mcp_server/tools_suggestions.py` + `cli/gapfill.py`) | `gapfill-spine` | P3 — gap × ranked-candidate join, suggestion queue, approval surface. |
@@ -115,7 +115,7 @@ under it. The claimed subtractions, by group:
 |---|---|
 | `vault-substrate` | `vault_layout.py` |
 | `notes-overlay` | `notes/`, `notes_config.py`, `operations/capture_note.py`, `operations/promote_note.py`, `operations/reanchor_note.py` |
-| `loop-runtime` | `loop.py`, `loop_state.py`, `loop_heartbeat.py`, `loop_progress.py`, `loop_factory.py`, `loop_promote.py`, `loop_retry_backoff.py`, `loop_attempt.py`, `loop_cadence_config.py`, `arena.py`, `arena_resolve.py`, `candidate_gate.py`, `branch_namespaces.py`, `branch_scoreboard.py`, `branch_delete.py`, `best_effort.py` |
+| `loop-runtime` | `loop.py`, `loop_observe.py`, `loop_gap_redirect.py`, `loop_state.py`, `loop_heartbeat.py`, `loop_progress.py`, `loop_factory.py`, `loop_promote.py`, `loop_retry_backoff.py`, `loop_attempt.py`, `loop_cadence_config.py`, `arena.py`, `arena_resolve.py`, `candidate_gate.py`, `branch_namespaces.py`, `branch_scoreboard.py`, `branch_delete.py`, `best_effort.py` |
 | `query-compile` | `compile_run.py`, `compile_promote.py`, `compile_state.py`, `compiled.py`, `query_engine.py`, `models_config.py`, `prompt_diff.py`, `trainset.py` |
 | `gapfill-spine` | `gap_classifier.py`, `gapfill/`, `gapfill_config.py`, `source_gate.py`, `source_ingest.py`, `operations/candidate_scope.py` |
 | `guillotine-audit` | `operations/guillotine.py` |
@@ -652,7 +652,7 @@ notes: >-
 id: loop-runtime
 title: Loop runtime — the autonomous observe / gate / heal watcher
 subsystems:
-  - "src/knotica/core/loop.py + loop_state.py + loop_heartbeat.py + loop_progress.py + loop_factory.py + loop_promote.py + loop_retry_backoff.py + loop_attempt.py + loop_cadence_config.py + arena.py + arena_resolve.py + candidate_gate.py + branch_namespaces.py + branch_scoreboard.py + branch_delete.py + best_effort.py"
+  - "src/knotica/core/loop.py + loop_observe.py + loop_gap_redirect.py + loop_state.py + loop_heartbeat.py + loop_progress.py + loop_factory.py + loop_promote.py + loop_retry_backoff.py + loop_attempt.py + loop_cadence_config.py + arena.py + arena_resolve.py + candidate_gate.py + branch_namespaces.py + branch_scoreboard.py + branch_delete.py + best_effort.py"
 tier: e2e
 selectors:
   - strategy: pytest-globs
@@ -678,6 +678,7 @@ selectors:
       - tests/test_loop_factory_cadence_wiring.py
       - tests/test_loop_flock_contention.py
       - tests/test_loop_noop_attempt_characterization.py
+      - tests/test_loop_observe_characterization.py
       - tests/test_loop_progress.py
       - tests/test_loop_rebaseline.py
       - tests/test_loop_runner.py
@@ -689,6 +690,8 @@ selectors:
       - tests/test_td011_eval_rearm.py
 file_dependencies:
   - "src/knotica/core/loop.py"
+  - "src/knotica/core/loop_observe.py"
+  - "src/knotica/core/loop_gap_redirect.py"
   - "src/knotica/core/loop_state.py"
   - "src/knotica/core/loop_heartbeat.py"
   - "src/knotica/core/loop_progress.py"

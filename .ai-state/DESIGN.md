@@ -122,14 +122,16 @@ for the gate, but it is not a component and owns no responsibility. The gate pro
 |---|---|
 | `src/knotica/` | 1 |
 | `src/knotica/cli/` | 23 |
-| `src/knotica/core/` | 65 |
+| `src/knotica/core/` | 67 |
 | `src/knotica/core/gapfill/` | 7 |
 | `src/knotica/core/notes/` | 8 |
 | `src/knotica/core/operations/` | 13 |
 | `src/knotica/core/records/` | 8 |
 | `src/knotica/dashboard/` | 1 |
 | `src/knotica/discovery/` | 10 |
-| `src/knotica/evals/` | 16 |
+| `src/knotica/evals/` | 14 |
+| `src/knotica/evals/golden/` | 8 |
+| `src/knotica/evals/harness/` | 8 |
 | `src/knotica/guillotine/` | 9 |
 | `src/knotica/mcp_server/` | 49 |
 | `src/knotica/okf/` | 11 |
