@@ -1,7 +1,7 @@
 ---
-id: dec-draft-cd68c020
+id: dec-110
 title: One lint-attribution rule for both counters, bumping the scalar formula to v2
-status: proposed
+status: accepted
 category: behavioral
 date: 2026-08-30
 summary: core.lint.topic_of_violation is THE per-topic counting rule shared by the eval harness and wiki_status; the harness change is an instrument change, so SCALAR_FORMULA_VERSION bumps 1→2 and the existing cross-instrument gate machinery absorbs it

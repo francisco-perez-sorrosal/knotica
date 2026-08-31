@@ -1,7 +1,7 @@
 ---
-id: dec-draft-0991c12f
+id: dec-109
 title: An unreachable baseline is refused at freeze time and surfaced on Home — never auto-lowered
-status: proposed
+status: accepted
 category: behavioral
 date: 2026-08-30
 summary: rebaseline mode=best refuses to freeze a high-water mark above the newest measurement (the one entry point that can create the baseline_unreachable state); the finding joins the Home attention inbox as a blocked row deep-linking Improve→Gate; drift-created unreachability still requires a human rebaseline by design
