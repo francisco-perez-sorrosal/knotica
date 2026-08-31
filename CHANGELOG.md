@@ -1,3 +1,89 @@
+## v0.3.0 (2026-08-31)
+
+### Feat
+
+- **ux**: Home parity across surfaces, a gap-dismiss affordance, process docs caught up
+- **home**: surface the two conditions the attention inbox could not see
+- **dashboard**: make every follow-up a destination the user can reach
+- **chrome**: engrave the lifecycle on the chrome trio and the CLI migrate
+- **improve**: engrave the lifecycle on the seven remaining Improve processes
+- **handoff**: engrave the lifecycle on the two ingest handoffs
+- **fill**: engrave the lifecycle on discovery and the four triage verbs
+- **answer**: engrave the lifecycle on Answer's four verbs and the probe
+- **tend**: engrave the lifecycle on the five mutating tend processes
+- **dashboard**: render the lifecycle brief and outcome on the eval pair
+- **dashboard**: declare the process lifecycle contract as a registry
+- **dashboard**: give Ingest's you-controls a real, informative flow
+- **dashboard**: let CopyBlock carry a payload and a visible label
+- **dashboard**: finish the busy-affordance census across every lane
+- **dashboard**: put the busy affordance on the shared action primitives
+- **dashboard**: add the house busy affordance
+- **dashboard**: the scorer switch shows its outcome as changed state
+- **dashboard**: the scorer switch confirms when it takes effect
+- **dashboard**: Heal's arena variants describe what each one tries
+- **dashboard**: rank and rationale the Home attention queue
+- **core**: each arena variant records what it changed
+- **core**: group dataset roles by producer, not consumer
+- **dashboard**: the Instrument file roles show what they are and how they compose
+- **dashboard**: triage the Fill approve queue by priority, densely
+- **core**: a reported gap cannot create a topic
+- **dashboard**: switch the arena scorer where the abort is reported
+- **loop**: the cadence action reads and writes arena_scorer
+- **dashboard**: the heal view explains each variant, the abort, and the next step
+- **dashboard**: rebuild the Instrument interior on the stage-body grammar
+- **dashboard**: rebuild the Observe interior on the stage-body grammar
+- **dashboard**: append the stage-body grammar CSS, delete dead arena-lane rules
+- **dashboard**: add the stage-body grammar's four presentation primitives
+- **core**: derive improve stage states from vault evidence
+- **dashboard**: render the unknown stage state honestly
+- **dashboard**: give the improve rail a focus axis, and stop calling healthy states failures
+- **dashboard**: loop strip above every railed lane, rail restyled
+- **dashboard**: Home lane-card grid + attention table + drift popover
+- **dashboard**: restructure chrome into context row, pill nav, creation drawer
+- **dashboard**: add the overlay and shared presentation primitives
+- **dashboard**: add the 26-glyph inline icon set
+- **dashboard**: adopt neutral-ramp token spec and mono voice
+
+### Fix
+
+- **gates,ci**: the surface gate reads fences and frontmatter, and dashboard.yml joins the hardened five
+- **core,hooks**: honest rails, honest records, and the gate's one flake made deterministic
+- **dashboard**: uniform spend grammar, contrast as a gate, dead shell deleted, safe reads
+- **gates**: the partition and the ADR body become checked properties, and a dead clause leaves
+- **dashboard,cli**: outcomes render where their controls live, and every send confirms
+- **mcp**: every fix text names a call the client can make, and the schema says what the prose knew
+- **fill**: the queue's contracts become true — reopen re-sources, drains don't clobber, the gate outranks both writers
+- **loop**: the instrument guard reaches all four baseline consumers, and spend gets its gate
+- **loop,fill,improve**: honest instruments, a guarded gate, a self-healing queue
+- **fill**: discovery stops re-proposing what the vault already holds
+- **fill**: un-strand approved suggestions — dismiss cascades, refusals name the exit
+- **dashboard**: stop erasing a button's accessible name while it is busy
+- **fill**: branch the fill command on session state, not next.actor
+- **dashboard**: a decided suggestion transforms in place, never vanishes
+- **cli**: the watcher reads the arena scorer from config, every tick
+- **dashboard**: sweep round-2's orphaned stage-interior CSS
+- **dashboard**: neutral-tone text uses --muted to clear the AA floor
+- **dashboard**: stop the TermHint body inheriting uppercase from its host label
+- **dashboard**: let the HTTP mount recover when the server comes back
+- **dashboard**: clear the AA contrast floor for light-theme semantic tones
+- **dashboard**: default the HTTP mount's MCP endpoint to same-origin
+- **dashboard**: size the runner-liveness readout as a chip, not a numeric display
+- **template**: the seeded prompts name the lane-dispatcher forms
+- **dashboard**: re-point every client call at its lane dispatcher
+
+### Refactor
+
+- **core**: lift the per-topic record counts out of the status views
+- **dashboard**: give the single crossing point its own module
+- **dashboard**: split the process registry by id namespace
+- **dashboard**: extract HandoffDispatchPanel and widen renderYouControl
+- **dashboard**: rebuild Answer's react body and Fill's ingest/gate on the grammar
+- **dashboard**: rebuild the Promote and Prove stages on the grammar
+- **dashboard**: rebuild the Heal stage on the stage-body grammar
+- **dashboard**: rebuild the Gate stage on the stage-body grammar
+- **dashboard**: extract useOverlayDismiss, refactor InfoPopover onto it
+- **dashboard**: extract the creation drawer from App.tsx
+
 ## v0.2.0 (2026-08-28)
 
 ### BREAKING CHANGE
