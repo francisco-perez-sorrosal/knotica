@@ -37,7 +37,10 @@ from knotica.core.loop_state import (
     LoopStage,
     LoopState,
     empty_loop_state,
+    eval_records,
+    newest_eval_scalar,
     read_loop_state,
+    refuse_unreachable,
     write_loop_state,
 )
 from knotica.core.transaction import VaultTransaction, vault_mutation_span
@@ -195,12 +198,24 @@ class LoopRunner:
         harness_version: str | None = None,
         corpus_ref: str | None = None,
     ) -> LoopState:
-        """Freeze the gate baseline into loop-state (does not run eval)."""
+        """Freeze the gate baseline into loop-state (does not run eval).
+
+        Shares :meth:`rebaseline`'s reachability refusal -- a manual freeze
+        above what the corpus measures jams the queue the same way (skipped
+        honestly when there is no same-instrument history to compare against).
+        ``harness_version`` defaults to the *current* instrument rather than
+        ``None``, which would silently disarm both guards keyed on it
+        (``compute_gate``'s mismatch branch, ``observe_default``'s re-freeze).
+        """
+        from knotica.core.gate_inputs import current_harness_version
+
+        instrument = harness_version if harness_version is not None else current_harness_version()
+        refuse_unreachable(float(scalar), newest_eval_scalar(self._store, self._topic, instrument))
         state = read_loop_state(self._store, self._topic) or empty_loop_state(self._topic)
         state = state.model_copy(
             update={
                 "baseline_scalar": float(scalar),
-                "baseline_harness_version": harness_version,
+                "baseline_harness_version": instrument,
                 "baseline_corpus_ref": corpus_ref,
                 "baseline_golden_manifest_sha": self._golden_manifest_sha(),
                 "stage": LoopStage.idle,
@@ -858,16 +873,13 @@ class LoopRunner:
         candidate and arena variant by construction (the exact state
         ``status._baseline_unreachable`` calls "always a misconfiguration"),
         so freezing one knowingly is not a legitimate outcome — a field
-        report proved the queue it silently jams.
+        report proved the queue it silently jams. :meth:`set_baseline` shares
+        the refusal.
         """
-        from knotica.core.errors import ErrorCode, KnoticaError
-        from knotica.core.metrics import read_metrics_window
-
         cleaned = mode.strip().lower()
         if cleaned not in {"latest", "best"}:
             raise ValueError(f"rebaseline mode must be 'latest' or 'best', got {mode!r}")
-        window = read_metrics_window(self._store, self._topic)
-        records = list(window["records"])
+        records = eval_records(self._store, self._topic)
         if not records:
             raise ValueError(f"topic {self._topic!r} has no metrics history to rebaseline from")
         current_instrument = records[-1].harness_version
@@ -875,19 +887,7 @@ class LoopRunner:
         chosen = (
             max(comparable, key=lambda r: float(r.scalar)) if cleaned == "best" else comparable[-1]
         )
-        newest = comparable[-1]
-        if float(chosen.scalar) > float(newest.scalar):
-            raise KnoticaError(
-                ErrorCode.INVALID_ARGUMENT,
-                f"refusing to freeze baseline {float(chosen.scalar):.4f}: the newest "
-                f"measurement on this instrument is {float(newest.scalar):.4f}, so that "
-                "bar would be unreachable and every candidate would fail by construction",
-                fix=(
-                    "Rebaseline with mode='latest' to freeze what the corpus currently "
-                    "measures, or restore the corpus and re-run an eval before re-picking "
-                    "the high-water mark."
-                ),
-            )
+        refuse_unreachable(float(chosen.scalar), float(comparable[-1].scalar))
         state = read_loop_state(self._store, self._topic) or empty_loop_state(self._topic)
         return write_loop_state(
             self._store,

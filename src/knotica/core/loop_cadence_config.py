@@ -5,7 +5,10 @@ Side-effect-free w.r.t. ``config.toml``, mirroring
 ``[loop]`` table of ``~/.config/knotica/config.toml``, never a socket, never a
 module-level cache. A missing file or a missing table is not an error. A
 present-but-malformed value raises the typed ``NOT_CONFIGURED`` error naming
-the fix.
+the fix. Each key's validator is public because the *writer* of this table must
+reject a bad value before the file is opened; a validator reached from a
+caller-supplied argument raises ``INVALID_ARGUMENT`` instead (``from_argument``),
+because a bad argument is not a broken install.
 
 At all-defaults (``eval_min_interval_hours=0``, ``eval_window=None``,
 ``eval_num_threads=4``) this resolver's callers must observe byte-identical
@@ -31,6 +34,9 @@ __all__ = [
     "LoopCadenceConfig",
     "resolve_loop_cadence_config",
     "validate_arena_scorer",
+    "validate_eval_min_interval_hours",
+    "validate_eval_num_threads",
+    "validate_eval_window",
 ]
 
 #: The ``[loop]`` table this module reads from ``config.toml``.
@@ -95,13 +101,13 @@ def resolve_loop_cadence_config(
     section = _load_loop_section(config_path)
 
     raw_interval = section.get("eval_min_interval_hours", 0.0)
-    interval = _resolve_interval(raw_interval)
+    interval = validate_eval_min_interval_hours(raw_interval)
 
     raw_window = section.get("eval_window")
-    window = _resolve_window(raw_window)
+    window = validate_eval_window(raw_window)
 
     raw_threads = section.get("eval_num_threads", _DEFAULT_NUM_THREADS)
-    threads = _resolve_num_threads(raw_threads)
+    threads = validate_eval_num_threads(raw_threads)
 
     raw_scorer = section.get("arena_scorer", _DEFAULT_ARENA_SCORER)
     scorer = validate_arena_scorer(raw_scorer)
@@ -114,8 +120,8 @@ def resolve_loop_cadence_config(
     )
 
 
-def validate_arena_scorer(raw_scorer: object) -> str:
-    """Normalize an ``arena_scorer`` value, or raise the typed ``NOT_CONFIGURED`` error.
+def validate_arena_scorer(raw_scorer: object, *, from_argument: bool = False) -> str:
+    """Normalize an ``arena_scorer`` value, or raise the typed error naming the fix.
 
     Public because a *writer* must reject a bad value before it reaches
     ``config.toml`` -- validating only on the next read would leave a config
@@ -128,17 +134,21 @@ def validate_arena_scorer(raw_scorer: object) -> str:
             f" {'|'.join(sorted(ARENA_SCORERS))}, got {raw_scorer!r}.",
             f'Set arena_scorer = "heuristic" (free, not gate-comparable) or "eval"'
             f" (real golden-set eval per variant, billed) under [{LOOP_CONFIG_SECTION}].",
+            from_argument=from_argument,
+            argument_fix='Pass arena_scorer="heuristic" or "eval".',
         )
     return raw_scorer.strip().lower()
 
 
-def _resolve_interval(raw_interval: object) -> float:
+def validate_eval_min_interval_hours(raw_interval: object, *, from_argument: bool = False) -> float:
+    """Normalize ``eval_min_interval_hours``, or raise the typed error naming the fix."""
     if isinstance(raw_interval, bool) or not isinstance(raw_interval, (int, float)):
         raise _config_error(
             f"[{LOOP_CONFIG_SECTION}] eval_min_interval_hours must be a number,"
             f" got {raw_interval!r}.",
             f"Set eval_min_interval_hours to a non-negative number under"
             f" [{LOOP_CONFIG_SECTION}] (e.g. 24).",
+            from_argument=from_argument,
         )
     if raw_interval < 0:
         raise _config_error(
@@ -146,11 +156,13 @@ def _resolve_interval(raw_interval: object) -> float:
             f" got {raw_interval!r}.",
             f"Set eval_min_interval_hours to a non-negative number under"
             f" [{LOOP_CONFIG_SECTION}] (e.g. 24).",
+            from_argument=from_argument,
         )
     return float(raw_interval)
 
 
-def _resolve_window(raw_window: object) -> str | None:
+def validate_eval_window(raw_window: object, *, from_argument: bool = False) -> str | None:
+    """Normalize ``eval_window``, or raise the typed error naming the fix."""
     if raw_window is None:
         return None
     if not isinstance(raw_window, str):
@@ -159,17 +171,20 @@ def _resolve_window(raw_window: object) -> str | None:
             f" {type(raw_window).__name__}.",
             f'Set eval_window to a "HH:MM-HH:MM" range under [{LOOP_CONFIG_SECTION}]'
             f' (e.g. "22:00-02:00").',
+            from_argument=from_argument,
         )
-    _parse_window(raw_window)  # raises NOT_CONFIGURED on malformed input
+    _parse_window(raw_window, from_argument=from_argument)  # raises on malformed input
     return raw_window
 
 
-def _resolve_num_threads(raw_threads: object) -> int:
+def validate_eval_num_threads(raw_threads: object, *, from_argument: bool = False) -> int:
+    """Normalize ``eval_num_threads``, or raise the typed error naming the fix."""
     if isinstance(raw_threads, bool) or not isinstance(raw_threads, int):
         raise _config_error(
             f"[{LOOP_CONFIG_SECTION}] eval_num_threads must be an integer, got {raw_threads!r}.",
             f"Set eval_num_threads to an integer between 1 and {MAX_NUM_THREADS}"
             f" under [{LOOP_CONFIG_SECTION}].",
+            from_argument=from_argument,
         )
     if not 1 <= raw_threads <= MAX_NUM_THREADS:
         raise _config_error(
@@ -177,23 +192,24 @@ def _resolve_num_threads(raw_threads: object) -> int:
             f" {MAX_NUM_THREADS}, got {raw_threads!r}.",
             f"Set eval_num_threads to an integer between 1 and {MAX_NUM_THREADS}"
             f" under [{LOOP_CONFIG_SECTION}].",
+            from_argument=from_argument,
         )
     return raw_threads
 
 
-def _parse_window(raw_window: str) -> tuple[time, time]:
+def _parse_window(raw_window: str, *, from_argument: bool = False) -> tuple[time, time]:
     """Parse a ``"HH:MM-HH:MM"`` string into ``(start, end)`` times.
 
-    Raises the typed ``NOT_CONFIGURED`` error on any unparseable input.
+    Raises the typed error naming the fix on any unparseable input.
     """
     parts = raw_window.split(_WINDOW_SEPARATOR)
     if len(parts) != 2:
-        raise _malformed_window_error(raw_window)
+        raise _malformed_window_error(raw_window, from_argument=from_argument)
     try:
         start = _parse_time(parts[0])
         end = _parse_time(parts[1])
     except ValueError as exc:
-        raise _malformed_window_error(raw_window) from exc
+        raise _malformed_window_error(raw_window, from_argument=from_argument) from exc
     return start, end
 
 
@@ -204,12 +220,13 @@ def _parse_time(raw_time: str) -> time:
     return time(hour=int(hour_str), minute=int(minute_str))
 
 
-def _malformed_window_error(raw_window: str) -> KnoticaError:
+def _malformed_window_error(raw_window: str, *, from_argument: bool = False) -> KnoticaError:
     return _config_error(
         f'[{LOOP_CONFIG_SECTION}] eval_window is not a valid "HH:MM-HH:MM"'
         f" range, got {raw_window!r}.",
         f'Set eval_window to a "HH:MM-HH:MM" range under [{LOOP_CONFIG_SECTION}]'
         f' (e.g. "22:00-02:00").',
+        from_argument=from_argument,
     )
 
 
@@ -228,6 +245,20 @@ def _load_loop_section(config_path: str | os.PathLike[str] | None) -> Mapping[st
     return section if isinstance(section, Mapping) else {}
 
 
-def _config_error(message: str, fix: str) -> KnoticaError:
-    """Build the typed ``NOT_CONFIGURED`` error for a malformed ``[loop]`` value."""
+def _config_error(
+    message: str,
+    fix: str,
+    *,
+    from_argument: bool = False,
+    argument_fix: str | None = None,
+) -> KnoticaError:
+    """Build the typed error for a rejected ``[loop]`` value, coded by caller.
+
+    A malformed *file* is a misconfiguration (``NOT_CONFIGURED``, whose fix is
+    "edit the config"). A value the caller just passed to the tool that writes
+    that file is not: telling an agent to hand-edit ``config.toml`` sends it
+    down a setup path when the correction is one argument away.
+    """
+    if from_argument:
+        return KnoticaError(ErrorCode.INVALID_ARGUMENT, message, fix=argument_fix or fix)
     return KnoticaError(ErrorCode.NOT_CONFIGURED, message, fix=fix)

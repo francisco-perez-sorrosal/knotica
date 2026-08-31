@@ -1,13 +1,17 @@
-"""Topic-scalar composition for the eval harness -- the locked v1 formula, pure.
+"""Topic-scalar composition for the eval harness -- the locked v2 formula, pure.
 
 This module owns the *topic-level* composition that turns per-example quality,
 topic lint-cleanliness, and a token-cost signal into one stable scalar in
-``[0, 1]`` (``SCALAR_FORMULA_VERSION == 1``). The per-example quality weights
+``[0, 1]`` (the version this module declares is
+:data:`SCALAR_FORMULA_VERSION`). v2 changed one *input*, not the expression:
+``lint_violations`` now counts only findings attributable to the scored topic,
+so vault-level findings no longer shade a topic's cleanliness. The per-example
+quality weights
 (``w_qa`` / ``w_cite``) live in the scorer, not here -- this module blends the
 already-composed mean quality with lint-cleanliness and applies the cost
 discount.
 
-The formula (locked v1 policy)::
+The formula (locked v2 policy)::
 
     lint_cleanliness = max(0, 1 - lint_violations / L_ref)   # L_ref = max(1, n_content_pages)
     Q                = (1 - w_lint) * quality_answers + w_lint * lint_cleanliness

@@ -27,6 +27,7 @@ from __future__ import annotations
 import difflib
 import json
 import uuid
+from collections import Counter
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from datetime import UTC, datetime
@@ -36,6 +37,7 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, Field
 
+from knotica.core.errors import ErrorCode, KnoticaError
 from knotica.core.prompts import PROMPTS_DIR, resolve_prompt
 from knotica.core.transaction import VaultTransaction
 from knotica.store import VaultStore
@@ -288,6 +290,7 @@ def race_variants(
     race still runs, it just cannot say what each variant changed.
     """
     cleaned = _clean_topic(topic)
+    _reject_duplicate_ids(variants)
     root = Path(vault_root)
     race_id = uuid.uuid4().hex[:12]
     info = scorer or HEURISTIC_SCORER
@@ -562,6 +565,25 @@ def heuristic_arena_score(topic: str, root: Path, body: str) -> float:
     if "citation discipline is mandatory" not in text and "citations" not in text:
         score = min(score, 0.42)
     return min(0.99, score)
+
+
+def _reject_duplicate_ids(variants: Sequence[VariantSpec]) -> None:
+    """Refuse a variant set whose ids collide.
+
+    Scored rows are looked up by id to inherit their pending row's
+    ``change_summary``/``diff``, so a duplicate id silently attributes one
+    variant's change to the other -- wrong provenance on the one field that
+    survives once the bodies are gone. Reachable from a caller-supplied
+    ``--arena-variants`` file, so it is an argument error, not an assertion.
+    """
+    counts = Counter(spec.id for spec in variants)
+    duplicates = sorted(variant_id for variant_id, count in counts.items() if count > 1)
+    if duplicates:
+        raise KnoticaError(
+            ErrorCode.INVALID_ARGUMENT,
+            f"arena variant ids must be unique; duplicated: {', '.join(duplicates)}",
+            fix="Give every variant its own id in the variants file.",
+        )
 
 
 def _clean_topic(topic: str) -> str:

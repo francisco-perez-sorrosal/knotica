@@ -714,3 +714,48 @@ def test_gap_record_commit_does_not_retrigger_a_fresh_observation(
     assert second.acted is False, (
         "a gap-record commit is bookkeeping and must not trigger a fresh eval cycle"
     )
+
+
+@pytest.mark.parametrize(
+    ("candidate_scalar", "why"),
+    [
+        (0.90, "a scalar above the stale bar must not be read as an improvement"),
+        (0.10, "a scalar below the stale bar must not be read as a regression"),
+    ],
+)
+def test_gate_refuses_a_candidate_measured_under_a_different_instrument(
+    template_vault: Path, candidate_scalar: float, why: str
+) -> None:
+    """Cross-instrument scalars are not comparable, and this is the one consumer
+    of the baseline that merges or reverts branches.
+
+    A formula bump (or a judge/model rotation) rotates ``harness_version``
+    without changing the vault, so every stored baseline becomes
+    cross-instrument at once. Comparing anyway reads a rescaled ruler as the
+    candidate having got better or worse -- in *both* directions, which is why
+    the refusal is symmetric.
+    """
+    store = LocalFSStore(template_vault)
+    runner = LoopRunner(
+        template_vault,
+        TOPIC,
+        evaluate=_fake_evaluate(candidate_scalar),
+        branch_prefix="loop/c/",
+        arena_enabled=False,
+    )
+    runner.set_baseline(0.5707, harness_version="v1-instrument")
+    _open_candidate(template_vault, "# candidate under a new instrument\n")
+
+    result = runner.poll_once()
+
+    assert result.acted is True, "the eval ran; the refusal is about the comparison"
+    assert result.decision is LoopDecision.none, why
+    assert VaultVcs(template_vault).branch_exists(CANDIDATE), (
+        "a refused candidate is neither merged nor deleted"
+    )
+    assert "rebaseline" in result.message, "the refusal must name the way out"
+
+    state = read_loop_state(store, TOPIC)
+    assert state is not None
+    assert state.baseline_scalar == 0.5707, "the stale bar is left alone, not silently re-frozen"
+    assert state.last_error is not None and "not comparable" in state.last_error

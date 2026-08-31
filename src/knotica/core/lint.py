@@ -202,8 +202,12 @@ def topic_of_violation(path: str) -> str | None:
     """
     first, _, rest = path.partition("/")
     if first == _SOURCES_DIR:
-        topic = rest.partition("/")[0]
-        return topic or None
+        # A topic segment only: a file sitting directly under ``sources/`` has
+        # no topic to attribute to, and naming one after it would invent a
+        # phantom topic whose count no surface reads back -- the finding would
+        # vanish from the per-topic buckets AND from the vault-level remainder.
+        topic, separator, _ = rest.partition("/")
+        return topic if separator else None
     if first and rest and not first.startswith("."):
         return first
     return None

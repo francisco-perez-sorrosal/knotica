@@ -486,6 +486,10 @@ def test_a_core_read_path_completes_while_the_write_lock_is_held(template_vault:
         ("agentic-systems/page.md", "agentic-systems"),
         ("agentic-systems/.knotica/SCHEMA.md", "agentic-systems"),
         ("sources/agentic-systems/wheeler-sep.md", "agentic-systems"),
+        # A file directly under sources/ has no topic segment: naming one after
+        # it invents a phantom topic no surface reads back, so the finding
+        # vanishes from the per-topic buckets AND the vault-level remainder.
+        ("sources/orphan.md", None),
         ("log.md", None),
         ("index.md", None),
         (".knotica/schema.md", None),

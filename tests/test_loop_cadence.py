@@ -265,7 +265,10 @@ def test_candidate_gate_poll_once_never_consults_cadence_hold(template_vault: Pa
         eval_window=(time(9, 0), time(17, 0)),
         now_fn=clock,
     )
-    runner.set_baseline(0.50, harness_version="fake-cadence-gate")
+    # Same instrument the shared `_fake_evaluate` reports: a baseline frozen
+    # under a different one is refused by the gate as incomparable, which is a
+    # different concern from the cadence non-consultation this pins.
+    runner.set_baseline(0.50, harness_version="fake-char")
     _open_candidate(template_vault, "# candidate prompt\n")
 
     with patch.object(LoopRunner, "_cadence_hold", wraps=runner._cadence_hold) as spy_cadence_hold:

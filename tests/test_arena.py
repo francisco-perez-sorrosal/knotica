@@ -5,6 +5,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from knotica.core.arena import (
+    PROMPTS_DIR,
     ScorerInfo,
     ArenaStage,
     VariantSpec,
@@ -149,3 +150,69 @@ def test_race_without_a_base_body_leaves_the_change_fields_honestly_absent(
 
     assert state.variants[0].change_summary is None
     assert state.variants[0].diff is None
+
+
+def test_race_rejects_duplicate_variant_ids(template_vault: Path) -> None:
+    """Scored rows inherit their pending row's change fields *by id*, so a
+    duplicate silently attributes one variant's change to the other -- wrong
+    provenance on the one field that survives once the bodies are gone.
+    Reachable from a caller-supplied ``--arena-variants`` file."""
+    import pytest
+
+    from knotica.core.errors import ErrorCode, KnoticaError
+
+    store = LocalFSStore(template_vault)
+    topic = "agentic-systems"
+    base = load_base_query_body(store, topic)
+    variants = [
+        VariantSpec(id="v1", label="a", body=base + "\n# a\n"),
+        VariantSpec(id="v1", label="b", body=base + "\n# b\n"),
+    ]
+
+    with pytest.raises(KnoticaError) as caught:
+        race_variants(
+            store,
+            template_vault,
+            topic,
+            variants,
+            baseline_scalar=0.5,
+            score=lambda _topic, _root, _body: 0.9,
+            scorer=_COMPARABLE_SCORER,
+        )
+
+    assert caught.value.code is ErrorCode.INVALID_ARGUMENT
+    assert "v1" in str(caught.value)
+
+
+def test_supplied_variants_race_without_the_vault_prompt_defaults(template_vault: Path) -> None:
+    """A caller that brought its own bodies has already routed around the
+    prompt defaults, so an absent ``query.md`` must degrade to absent change
+    fields (what ``race_variants`` documents) rather than abort the race --
+    which is how a regression heal was left un-dispositioned."""
+    from knotica.core.arena_resolve import run_arena_and_resolve
+
+    store = LocalFSStore(template_vault)
+    topic = "agentic-systems"
+    for path in (query_prompt_path(topic), f"{PROMPTS_DIR}/query.md"):
+        if store.exists(path):
+            (template_vault / path).unlink()
+
+    resolved: dict[str, ArenaStage] = {}
+    run_arena_and_resolve(
+        store=store,
+        root=template_vault,
+        topic=topic,
+        arena_score=lambda _topic, _root, _body: 0.9,
+        arena_scorer_info=_COMPARABLE_SCORER,
+        arena_variants=[VariantSpec(id="v1", label="a", body="# supplied body\n")],
+        arena_n=1,
+        candidate_branch=None,
+        baseline=0.5,
+        on_win=lambda arena: resolved.setdefault("stage", arena.stage),
+        on_lose=lambda arena: resolved.setdefault("stage", arena.stage),
+    )
+
+    assert resolved["stage"] is ArenaStage.completed, "the race ran without prompt defaults"
+    state = read_arena_state(store, topic)
+    assert state is not None
+    assert state.variants[0].change_summary is None, "no base body means no change summary"

@@ -28,6 +28,7 @@ from knotica.core.arena import (
     load_base_query_body,
     race_variants,
 )
+from knotica.core.best_effort import best_effort
 from knotica.store import VaultStore
 
 if TYPE_CHECKING:
@@ -56,13 +57,19 @@ def run_arena_and_resolve(
     pre-set state args that genuinely diverge between the two call sites).
     """
     assert arena_score is not None
-    # Loaded once even when the caller supplied ready-made variants: the base
-    # body is what the per-variant change summary/diff is derived against.
-    base_body = load_base_query_body(store, topic)
-    variants = arena_variants or generate_variant_bodies(
-        base_body,
-        n=arena_n,
-    )
+    # The base body is what the per-variant change summary/diff is derived
+    # against, so it is wanted on both paths -- but only the generate path
+    # genuinely *requires* it. A caller that brought its own bodies has already
+    # routed around the vault's prompt defaults, and ``race_variants`` documents
+    # ``base_body=None`` as a degradation (no summary, no diff) rather than a
+    # reason to abort the race, so an absent default must not become one.
+    base_body: str | None
+    if arena_variants is None:
+        base_body = load_base_query_body(store, topic)
+        variants = generate_variant_bodies(base_body, n=arena_n)
+    else:
+        base_body = _optional_base_body(store, topic)
+        variants = arena_variants
     arena = race_variants(
         store,
         root,
@@ -78,6 +85,14 @@ def run_arena_and_resolve(
     )
     won = arena.stage == ArenaStage.completed and arena.winner_id is not None
     return on_win(arena) if won else on_lose(arena)
+
+
+def _optional_base_body(store: VaultStore, topic: str) -> str | None:
+    """The topic's base query prompt, or ``None`` when the vault has no default."""
+    body: str | None = None
+    with best_effort():
+        body = load_base_query_body(store, topic)
+    return body
 
 
 def _baseline_manifest_sha(store: VaultStore, topic: str) -> str | None:

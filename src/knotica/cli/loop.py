@@ -34,6 +34,7 @@ from knotica.cli.common import (
 )
 from knotica.core.arena import VariantSpec
 from knotica.core.config import diagnose
+from knotica.core.errors import KnoticaError
 from knotica.core.gapfill_config import resolve_gapfill_config
 from knotica.core.loop import (
     DEFAULT_BRANCH_PREFIX,
@@ -43,6 +44,7 @@ from knotica.core.loop import (
     build_loop_runner,
     harness_evaluate,
 )
+from knotica.core.loop_cadence_config import LoopCadenceConfig, resolve_loop_cadence_config
 from knotica.core.loop_heartbeat import clear_heartbeat, write_heartbeat
 from knotica.core.loop_progress import read_progress
 from knotica.core.loop_state import LoopDecision
@@ -175,7 +177,14 @@ def run(args: argparse.Namespace) -> int:
     runner = _build_runner(args, vault)
 
     if args.set_baseline is not None:
-        state = runner.set_baseline(args.set_baseline)
+        # Shares `--rebaseline`'s reachability refusal, so it shares its
+        # failure grammar: a refused freeze is a message and exit 1, not a
+        # traceback.
+        try:
+            state = runner.set_baseline(args.set_baseline)
+        except KnoticaError as error:
+            print(f"knotica loop: {error}", file=sys.stderr)
+            return EXIT_ERROR
         print(
             f"baseline frozen at {state.baseline_scalar} for topic={state.topic}",
             file=sys.stderr,
@@ -192,7 +201,7 @@ def run(args: argparse.Namespace) -> int:
     if args.rebaseline:
         try:
             state = runner.rebaseline(args.rebaseline)
-        except ValueError as error:
+        except (ValueError, KnoticaError) as error:
             print(f"knotica loop: {error}", file=sys.stderr)
             return EXIT_ERROR
         print(
@@ -266,16 +275,14 @@ def _watch(runner: LoopRunner, args: argparse.Namespace, vault: Path) -> int:
     beater = threading.Thread(target=_beat_forever, name="loop-heartbeat", daemon=True)
     write_heartbeat(vault, args.topic, interval_seconds=interval)
     beater.start()
+    # `None` until the first successful read: the runner built above already
+    # resolved this table, so the first read only records the digest.
+    cadence: LoopCadenceConfig | None = None
     try:
         while True:
             _tick(runner, observe=not args.no_observe)
             time.sleep(interval)
-            # Rebuild per tick, the same pattern the supervised service uses:
-            # loop state lives in the vault, not the runner, and a fresh build
-            # re-resolves `[loop]` config -- so a scorer switched from the
-            # dashboard reaches the very next tick of a long-lived watcher
-            # instead of waiting for a restart.
-            runner = _build_runner(args, vault)
+            runner, cadence = _refresh_runner(runner, cadence, args, vault)
     except KeyboardInterrupt:
         print("loop stopped", file=sys.stderr)
         return EXIT_SUCCESS
@@ -283,6 +290,39 @@ def _watch(runner: LoopRunner, args: argparse.Namespace, vault: Path) -> int:
         stop_beating.set()
         beater.join(timeout=2.0)
         clear_heartbeat(vault, args.topic)
+
+
+def _refresh_runner(
+    runner: LoopRunner,
+    cadence: LoopCadenceConfig | None,
+    args: argparse.Namespace,
+    vault: Path,
+) -> tuple[LoopRunner, LoopCadenceConfig | None]:
+    """Rebuild the runner only when the resolved ``[loop]`` table actually changed.
+
+    A rebuild picks up a scorer switched from the dashboard without a restart --
+    that is the whole point of rebuilding at all. But the runner also holds the
+    observe debounce (``_pending_head``/``_pending_since``) in memory, so
+    rebuilding on *every* tick resets the quiet window on every tick and watch
+    mode never observes again. Keying the rebuild on the config digest gives a
+    steady-state watcher one long-lived runner and still reacts on the very next
+    tick after a change.
+
+    A config that has gone unreadable logs and keeps the current runner: a
+    transient bad ``[loop]`` value must not kill an unattended watcher that was
+    healthy a second ago.
+    """
+    try:
+        current = resolve_loop_cadence_config()
+        if cadence is None or current == cadence:
+            return runner, current
+        return _build_runner(args, vault), current
+    except KnoticaError as error:
+        print(
+            f"knotica loop: [loop] config unusable ({error}); keeping current settings",
+            file=sys.stderr,
+        )
+        return runner, cadence
 
 
 def _tick(runner: LoopRunner, *, observe: bool) -> bool:

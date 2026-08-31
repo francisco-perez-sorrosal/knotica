@@ -16,12 +16,15 @@ from __future__ import annotations
 from datetime import UTC, datetime
 from enum import StrEnum
 from pathlib import Path
-from typing import Any, Literal
+from typing import TYPE_CHECKING, Any, Literal
 
 from pydantic import BaseModel, Field, field_validator
 
 from knotica.core.transaction import VaultTransaction
 from knotica.store import VaultStore
+
+if TYPE_CHECKING:
+    from knotica.core.records import MetricsRecord
 
 __all__ = [
     "LOOP_STATE_FILENAME",
@@ -29,8 +32,11 @@ __all__ = [
     "LoopStage",
     "LoopState",
     "compute_gate",
+    "eval_records",
     "loop_state_path",
+    "newest_eval_scalar",
     "read_loop_state",
+    "refuse_unreachable",
     "write_loop_state",
 ]
 
@@ -193,6 +199,68 @@ def compute_gate(
         "baseline": baseline,
         "last_scalar": float(scalar),
     }
+
+
+def eval_records(store: VaultStore, topic: str) -> list["MetricsRecord"]:
+    """``topic``'s metrics history, restricted to real eval instruments.
+
+    ``metrics.jsonl`` is mixed-provenance: a cold-start probe appends a fixed
+    ``0.0`` under a synthetic harness label with no examples. Ranking a
+    baseline against one is meaningless (the same predicate
+    ``status._baseline_unreachable`` applies), and freezing *at* one would set a
+    bar of 0.0 under a non-instrument, which passes everything.
+    """
+    from knotica.core.metrics import (
+        BASELINE_PROBE_HARNESS_VERSION,
+        LEGACY_BASELINE_PROBE_HARNESS_VERSIONS,
+        read_metrics_window,
+    )
+
+    probes = {BASELINE_PROBE_HARNESS_VERSION, *LEGACY_BASELINE_PROBE_HARNESS_VERSIONS}
+    window = read_metrics_window(store, topic)
+    return [
+        record
+        for record in window["records"]
+        if record.harness_version not in probes and int(record.n_examples or 0) > 0
+    ]
+
+
+def newest_eval_scalar(store: VaultStore, topic: str, harness_version: str | None) -> float | None:
+    """Newest same-instrument eval scalar, or ``None`` when there is none.
+
+    ``None`` means *unknowable*, never *zero*: with no comparable history there
+    is no reachable bar to measure a candidate freeze against.
+    """
+    if harness_version is None:
+        return None
+    comparable = [r for r in eval_records(store, topic) if r.harness_version == harness_version]
+    return float(comparable[-1].scalar) if comparable else None
+
+
+def refuse_unreachable(scalar: float, newest: float | None) -> None:
+    """Refuse a baseline the corpus cannot currently reach.
+
+    Shared by both freeze-time entry points (``LoopRunner.rebaseline`` and
+    ``LoopRunner.set_baseline``): a bar above the newest same-instrument
+    measurement fails every candidate and every arena variant by construction,
+    jamming the queue with no surface saying why. ``newest is None`` means there
+    is no comparable history, so nothing can be refused honestly.
+    """
+    from knotica.core.errors import ErrorCode, KnoticaError
+
+    if newest is None or scalar <= newest:
+        return
+    raise KnoticaError(
+        ErrorCode.INVALID_ARGUMENT,
+        f"refusing to freeze baseline {scalar:.4f}: the newest measurement on this "
+        f"instrument is {newest:.4f}, so that bar would be unreachable and every "
+        "candidate would fail by construction",
+        fix=(
+            "Rebaseline with mode='latest' to freeze what the corpus currently "
+            "measures, or restore the corpus and re-run an eval before re-picking "
+            "the high-water mark."
+        ),
+    )
 
 
 def empty_loop_state(topic: str) -> LoopState:

@@ -247,12 +247,86 @@ def process_candidate(
         if source_gate.classify_candidate(branch) == "source":
             return source_gate.gate_source_candidate(runner, state, branch, sha, outcome)
 
+        stale = _stale_baseline_instrument(state, outcome)
+        if stale is not None:
+            return _refuse_stale_baseline(runner, state, branch, sha, outcome, stale)
+
         passed = float(outcome.scalar) >= float(state.baseline_scalar or 0.0)
         if passed:
             return runner._keep(state, branch, sha, outcome)
         if runner._arena_enabled and runner._arena_score is not None:
             return runner._race_then_resolve(state, branch, sha, outcome)
         return discard(runner, state, branch, sha, outcome)
+
+
+def _stale_baseline_instrument(state: LoopState, outcome: "EvalOutcome") -> str | None:
+    """The frozen baseline's instrument when it no longer matches, else ``None``.
+
+    A scalar is only comparable under the instrument that produced it. Three
+    other consumers of ``baseline_scalar`` already treat a mismatch as
+    inadmissible -- ``loop_state.compute_gate`` returns ``unknown``,
+    ``status._baseline_unreachable`` bails, and ``observe_default`` re-freezes.
+    This is the fourth, and the only one that merges or reverts branches: a
+    formula bump that merely rescaled the ruler must not be read as the
+    candidate having got better or worse.
+    """
+    frozen = state.baseline_harness_version
+    if not frozen or not outcome.harness_version or frozen == outcome.harness_version:
+        return None
+    return frozen
+
+
+def _refuse_stale_baseline(
+    runner: "LoopRunner",
+    state: LoopState,
+    branch: str,
+    sha: str,
+    outcome: "EvalOutcome",
+    frozen_instrument: str,
+) -> LoopCycleResult:
+    """Neither merge nor revert: record the measurement, name the way out.
+
+    Deliberately *not* an exception -- this is a steady-state condition that
+    persists until a human re-freezes, and raising it every tick would kill an
+    unattended watcher. The candidate is marked processed so the refusal costs
+    exactly one eval rather than one per tick; re-submitting it after the
+    rebaseline re-gates it.
+    """
+    message = (
+        f"gate refused: baseline {float(state.baseline_scalar or 0.0):.4f} was frozen under "
+        f"instrument {frozen_instrument!r} but this candidate measured "
+        f"{float(outcome.scalar):.4f} under {outcome.harness_version!r}; "
+        "cross-instrument scalars are not comparable"
+    )
+    write_loop_state(
+        runner._store,
+        runner._root,
+        state.model_copy(
+            update={
+                "stage": LoopStage.failed,
+                "last_scalar": float(outcome.scalar),
+                "last_generation": int(outcome.generation),
+                "last_harness_version": outcome.harness_version,
+                "last_decision": LoopDecision.none,
+                "candidate_branch": None,
+                "candidate_sha": None,
+                "last_error": message,
+            }
+        ).mark_processed(branch, sha),
+        title=f"gate refused {branch}: stale baseline instrument",
+    )
+    return LoopCycleResult(
+        acted=True,
+        branch=branch,
+        sha=sha,
+        decision=LoopDecision.none,
+        scalar=float(outcome.scalar),
+        message=(
+            f"{message}. Re-freeze the bar under the current instrument with "
+            "`improve action=loop loop_action=rebaseline mode=latest`, then re-submit "
+            "the candidate."
+        ),
+    )
 
 
 def keep(

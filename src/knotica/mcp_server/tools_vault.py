@@ -29,6 +29,9 @@ from knotica.core.loop_cadence_config import (
     LOOP_CONFIG_SECTION,
     resolve_loop_cadence_config,
     validate_arena_scorer,
+    validate_eval_min_interval_hours,
+    validate_eval_num_threads,
+    validate_eval_window,
 )
 from knotica.core.loop_state import read_loop_state
 from knotica.core.models_config import resolve_models_config
@@ -343,8 +346,9 @@ def _loop_rebaseline_payload(
     # moved. ``mode="best"`` re-picks the high-water mark *among reachable
     # bars*: when that mark sits above the newest measurement the runner now
     # refuses with a typed error rather than freezing a bar the corpus cannot
-    # clear (the ``baseline_unreachable`` misconfiguration, caught at its one
-    # freeze-time entry point). Note that ``mode`` is this operation's own
+    # clear (the ``baseline_unreachable`` misconfiguration, caught at both
+    # freeze-time entry points -- ``set_baseline`` shares the refusal). Note
+    # that ``mode`` is this operation's own
     # argument, NOT the topic's ongoing ``baseline_policy``; they are named
     # alike and mean different things, which is the misreading this field
     # exists to prevent.
@@ -380,29 +384,30 @@ def _loop_rebaseline_payload(
 
 
 def _loop_cadence_payload(
+    vault_path: Path,
     topic: str,
     *,
     eval_min_interval_hours: float | None,
     eval_window: str | None,
     eval_num_threads: int | None,
     arena_scorer: str | None,
+    confirm: str = "",
 ) -> dict[str, Any]:
     """Read (no params) or additively write (any param) the ``[loop]`` config."""
     cleaned = topic.strip().strip("/")
     if not cleaned or "/" in cleaned:
         raise TopicNotFoundError(topic or "(empty)")
-    if (
-        eval_min_interval_hours is not None
-        or eval_window is not None
-        or eval_num_threads is not None
-        or arena_scorer is not None
-    ):
-        _write_loop_cadence_config(
-            eval_min_interval_hours=eval_min_interval_hours,
-            eval_window=eval_window,
-            eval_num_threads=eval_num_threads,
-            arena_scorer=arena_scorer,
-        )
+    updates = _validated_cadence_updates(
+        eval_min_interval_hours=eval_min_interval_hours,
+        eval_window=eval_window,
+        eval_num_threads=eval_num_threads,
+        arena_scorer=arena_scorer,
+    )
+    if updates:
+        preview = _arena_scorer_spend_gate(vault_path, cleaned, updates, confirm)
+        if preview is not None:
+            return preview
+        _write_loop_cadence_config(updates)
     resolved = resolve_loop_cadence_config()
     return envelope.read_ok(
         {
@@ -415,14 +420,99 @@ def _loop_cadence_payload(
     )
 
 
-def _write_loop_cadence_config(
+def _validated_cadence_updates(
     *,
     eval_min_interval_hours: float | None,
     eval_window: str | None,
     eval_num_threads: int | None,
     arena_scorer: str | None,
-) -> None:
-    """Additively merge ``[loop]`` keys into ``config.toml``.
+) -> dict[str, object]:
+    """The supplied ``[loop]`` keys, every one validated; empty when none were.
+
+    **All four** are checked before any of them is written. Validating one key
+    and writing the rest raw leaves a config the resolver refuses to parse --
+    the caller gets an error *and* every unrelated ``[loop]`` reader
+    (``build_loop_runner``, the cadence check, the CLI watcher) breaks until a
+    human edits the file by hand. ``from_argument`` codes the refusal as a bad
+    argument rather than a broken install, because that is what it is here.
+    """
+    updates: dict[str, object] = {}
+    if eval_min_interval_hours is not None:
+        updates["eval_min_interval_hours"] = validate_eval_min_interval_hours(
+            eval_min_interval_hours, from_argument=True
+        )
+    if eval_window is not None:
+        updates["eval_window"] = validate_eval_window(eval_window, from_argument=True)
+    if eval_num_threads is not None:
+        updates["eval_num_threads"] = validate_eval_num_threads(
+            eval_num_threads, from_argument=True
+        )
+    if arena_scorer is not None:
+        updates["arena_scorer"] = validate_arena_scorer(arena_scorer, from_argument=True)
+    return updates
+
+
+def _arena_scorer_spend_gate(
+    vault_path: Path, topic: str, updates: dict[str, object], confirm: str
+) -> dict[str, Any] | None:
+    """Two-phase confirm for ``arena_scorer="eval"``; ``None`` means proceed.
+
+    Switching the arena onto the eval-backed scorer commits strictly more spend
+    than ``run_eval`` does -- every future gate-failure race bills one
+    golden-set eval *per variant*, and those races fire autonomously from the
+    daemon with no human present. A billed decision that big cannot be one
+    unconfirmed call when a single eval is two. Switching back to ``heuristic``
+    is free and needs no gate.
+    """
+    if updates.get("arena_scorer") != "eval":
+        return None
+    if confirm.strip():
+        if _consume_arena_scorer_nonce(vault_path, topic, confirm.strip()) is not None:
+            dispatch_telemetry.record_two_phase(
+                "loop", "cadence", topic, outcome=dispatch_telemetry.OUTCOME_CONFIRMED
+            )
+            return None
+        dispatch_telemetry.record_two_phase(
+            "loop", "cadence", topic, outcome=dispatch_telemetry.OUTCOME_STALE_CONFIRM
+        )
+    nonce = _mint_arena_scorer_nonce(vault_path, topic)
+    dispatch_telemetry.record_two_phase(
+        "loop", "cadence", topic, outcome=dispatch_telemetry.OUTCOME_PREVIEW
+    )
+    current = resolve_loop_cadence_config()
+    return envelope.read_ok(
+        {
+            "action": "cadence",
+            "topic": topic,
+            "arena_scorer": current.arena_scorer,
+            "requested_arena_scorer": "eval",
+            "estimated_cost": (
+                "~1 full golden-set eval per raced variant, on every future "
+                "gate-failure race (a 4-variant race over a 21-question set is 84 "
+                "worker+judge pairs) -- races fire autonomously from the loop daemon"
+            ),
+            "confirm_nonce": nonce,
+            "ttl": confirm_nonce.NONCE_TTL_SECONDS,
+            "message": (
+                "nothing was written: arena_scorer='eval' is a spending decision. "
+                "Call again passing this nonce as `confirm` to apply it."
+            ),
+        }
+    )
+
+
+def _mint_arena_scorer_nonce(vault_path: Path, topic: str) -> str:
+    return confirm_nonce.mint(vault_path, "arena-scorer", topic, {})
+
+
+def _consume_arena_scorer_nonce(
+    vault_path: Path, topic: str, confirm: str
+) -> dict[str, Any] | None:
+    return confirm_nonce.consume(vault_path, "arena-scorer", topic, confirm)
+
+
+def _write_loop_cadence_config(updates: dict[str, object]) -> None:
+    """Additively merge validated ``[loop]`` keys into ``config.toml``.
 
     Reuses ``core.config_write``'s read/dump/atomic-write primitives (no
     bespoke TOML-dump logic here) -- every sibling top-level key and every
@@ -430,24 +520,16 @@ def _write_loop_cadence_config(
     untouched because only the ``loop`` dict key is mutated before the
     re-serialize.
 
-    ``arena_scorer`` is validated **before** the file is opened: a rejected
-    value must leave the config byte-identical, because a written-then-rejected
-    value would break every unrelated ``[loop]`` reader until a human edited
-    the file by hand.
+    Every value here is already validated (see
+    :func:`_validated_cadence_updates`): a rejected write must leave the config
+    byte-identical, so this function opens the file only once nothing can be
+    rejected.
     """
-    scorer = validate_arena_scorer(arena_scorer) if arena_scorer is not None else None
     path = config_file_path()
     path.parent.mkdir(parents=True, exist_ok=True)
     data = read_config(path)
     section = dict(data.get(LOOP_CONFIG_SECTION, {}))
-    if eval_min_interval_hours is not None:
-        section["eval_min_interval_hours"] = eval_min_interval_hours
-    if eval_window is not None:
-        section["eval_window"] = eval_window
-    if eval_num_threads is not None:
-        section["eval_num_threads"] = eval_num_threads
-    if scorer is not None:
-        section["arena_scorer"] = scorer
+    section.update(updates)
     data[LOOP_CONFIG_SECTION] = section
     atomic_write(path, dump_config_toml(data))
 

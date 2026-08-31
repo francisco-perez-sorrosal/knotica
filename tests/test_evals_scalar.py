@@ -1,4 +1,4 @@
-"""Behavioral spec for the locked v1 topic-scalar composition.
+"""Behavioral spec for the locked v2 topic-scalar composition.
 
 `scalar.compose` folds four signals into one dimensionless number in ``[0,1]``:
 mean per-example quality, topic lint-cleanliness, and a hinged, budget-relative,
@@ -7,8 +7,9 @@ scalar drift -- every hand-computed constant below encodes the *shape* of the
 formula, so a change to any term (a dropped hinge, a missing clamp, a re-weighted
 blend) turns a test red rather than shipping a quietly different objective.
 
-The locked v1 policy under test (constants versioned by
-``SCALAR_FORMULA_VERSION = 1``):
+The locked v2 policy under test (constants versioned by
+``SCALAR_FORMULA_VERSION = 2``; v2 changed the *meaning* of ``lint_violations``
+-- topic-attributable findings only -- not the expression below):
 
     lint_cleanliness = max(0, 1 - lint_violations / L_ref)   # L_ref = max(1, n_content_pages)
     Q                = (1 - w_lint) * quality_answers + w_lint * lint_cleanliness   # w_lint = 0.15

@@ -58,7 +58,9 @@ _LOOP_DISPATCH_DESCRIPTION = (
     "`eval_min_interval_hours`, `eval_window`, `eval_num_threads`, "
     "`arena_scorer`) the `[loop]` config. `arena_scorer` ('heuristic'|'eval') "
     "picks what the prompt arena races with; 'eval' is gate-comparable and "
-    "bills one golden-set eval per variant on every future race. "
+    "bills one golden-set eval per variant on every future race, so switching "
+    "TO 'eval' is two-phase like the billed actions below (switching back to "
+    "'heuristic' is free and applies in one call). "
     "Does NOT: compile a new prompt when the gate refuses (`improve "
     "action=compile` does), and does NOT touch the live vault — the cycle works "
     "on a clone and returns branches for review. "
@@ -142,11 +144,13 @@ def _dispatch_payload(
         return _loop_rebaseline_payload(store, vault_path, topic, mode)
     if cleaned_action == "cadence":
         return _loop_cadence_payload(
+            vault_path,
             topic,
             eval_min_interval_hours=eval_min_interval_hours,
             eval_window=eval_window,
             eval_num_threads=eval_num_threads,
             arena_scorer=arena_scorer,
+            confirm=confirm,
         )
     return _loop_run_eval_payload(
         store, vault_path, topic, confirm=confirm, num_threads=num_threads
