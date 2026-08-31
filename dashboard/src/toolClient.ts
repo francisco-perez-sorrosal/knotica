@@ -16,6 +16,10 @@ import { learnToolCalls, type LearnToolCalls } from "./lanes/learn/client";
 import { tendToolCalls, type TendToolCalls } from "./lanes/tend/client";
 import type { PaneId } from "./types";
 
+/** What the SDK's `callTool` resolves to -- named so the raw result can be held
+ *  in a `let` across the try/catch below without falling back to implicit any. */
+type CallToolResult = Awaited<ReturnType<Client["callTool"]>>;
+
 /**
  * The single client type every lane component holds.
  *
@@ -27,8 +31,7 @@ import type { PaneId } from "./types";
  * one place, as they always have.
  */
 export interface ToolClient
-  extends
-    HomeToolCalls,
+  extends HomeToolCalls,
     LearnToolCalls,
     AnswerToolCalls,
     ImproveToolCalls,
@@ -64,9 +67,9 @@ export interface ToolClient
  * below is then a genuine check over the whole merged member set, not just
  * over the handful of methods the class body declares.
  */
+// biome-ignore lint/correctness/noUnusedVariables: merged with the class of the same name below; Biome does not model interface/class declaration merging.
 interface BaseToolClient
-  extends
-    HomeToolCalls,
+  extends HomeToolCalls,
     LearnToolCalls,
     AnswerToolCalls,
     ImproveToolCalls,
@@ -183,7 +186,7 @@ export class HttpToolClient extends BaseToolClient {
     timeoutMs?: number,
   ): Promise<T> {
     await this.connect();
-    let result;
+    let result: CallToolResult;
     try {
       result = await this.client.callTool(
         { name, arguments: args },

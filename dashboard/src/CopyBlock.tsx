@@ -67,7 +67,11 @@ export function CopyBlock({
         {actionLabel}
       </button>
       <span class="copy-block-status" aria-live="polite">
-        {status === "copied" ? "Copied" : status === "failed" ? "Copy failed" : ""}
+        {status === "copied"
+          ? "Copied"
+          : status === "failed"
+            ? "Copy failed"
+            : ""}
       </span>
     </div>
   );

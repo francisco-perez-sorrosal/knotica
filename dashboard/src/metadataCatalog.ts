@@ -59,7 +59,8 @@ const CATALOG: Array<{ pattern: string; entry: MetadataCatalogEntry }> = [
     pattern: ".knotica/prompts/*",
     entry: {
       title: "Operation prompt",
-      purpose: "Root default prompt body for a Knotica operation — also the DSPy/SIA evolvable substrate.",
+      purpose:
+        "Root default prompt body for a Knotica operation — also the DSPy/SIA evolvable substrate.",
     },
   },
   {
@@ -74,7 +75,8 @@ const CATALOG: Array<{ pattern: string; entry: MetadataCatalogEntry }> = [
     pattern: ".knotica/locks/*",
     entry: {
       title: "Lock file",
-      purpose: "Coordination artifact under the hidden .knotica locks directory.",
+      purpose:
+        "Coordination artifact under the hidden .knotica locks directory.",
     },
   },
   {
@@ -121,7 +123,8 @@ const CATALOG: Array<{ pattern: string; entry: MetadataCatalogEntry }> = [
     pattern: "*/.knotica/arena-history.jsonl",
     entry: {
       title: "Arena history",
-      purpose: "Append-only log of completed arena races and promotion outcomes for scoreboard review.",
+      purpose:
+        "Append-only log of completed arena races and promotion outcomes for scoreboard review.",
     },
   },
   {
@@ -136,7 +139,8 @@ const CATALOG: Array<{ pattern: string; entry: MetadataCatalogEntry }> = [
     pattern: "*/.knotica/eval.toml",
     entry: {
       title: "Eval budget config",
-      purpose: "Frozen per-topic token/USD ceilings written at generation 0 for the eval harness.",
+      purpose:
+        "Frozen per-topic token/USD ceilings written at generation 0 for the eval harness.",
     },
   },
   {
@@ -191,7 +195,8 @@ const CATALOG: Array<{ pattern: string; entry: MetadataCatalogEntry }> = [
     pattern: "*/.knotica/datasets/*",
     entry: {
       title: "Topic dataset",
-      purpose: "Train or held-out QA artifacts under the topic datasets directory.",
+      purpose:
+        "Train or held-out QA artifacts under the topic datasets directory.",
     },
   },
   {
@@ -206,7 +211,8 @@ const CATALOG: Array<{ pattern: string; entry: MetadataCatalogEntry }> = [
     pattern: "*/.knotica/compiled/MANIFEST.json",
     entry: {
       title: "Compiled artifact manifest",
-      purpose: "Metadata for the compiled query program (version, metrics snapshot, train/golden counts).",
+      purpose:
+        "Metadata for the compiled query program (version, metrics snapshot, train/golden counts).",
     },
   },
   {
@@ -235,14 +241,16 @@ const CATALOG: Array<{ pattern: string; entry: MetadataCatalogEntry }> = [
     pattern: ".knotica/*",
     entry: {
       title: "Vault metadata",
-      purpose: "Hidden Knotica substrate at the vault root (prompts, locks, activity).",
+      purpose:
+        "Hidden Knotica substrate at the vault root (prompts, locks, activity).",
     },
   },
   {
     pattern: "*/.knotica/*",
     entry: {
       title: "Topic metadata",
-      purpose: "Hidden per-topic Knotica state (loop, compile, metrics, datasets, compiled).",
+      purpose:
+        "Hidden per-topic Knotica state (loop, compile, metrics, datasets, compiled).",
     },
   },
 ];
@@ -260,7 +268,9 @@ function patternMatches(pattern: string, path: string): boolean {
   const patParts = pattern.split("/");
   const pathParts = path.split("/");
   if (patParts.length !== pathParts.length) return false;
-  return patParts.every((part, index) => part === "*" || part === pathParts[index]);
+  return patParts.every(
+    (part, index) => part === "*" || part === pathParts[index],
+  );
 }
 
 /** Resolve catalog entry for a vault-relative metadata path. */

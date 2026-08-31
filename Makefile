@@ -16,7 +16,7 @@ LOG_DIR := $(HOME)/Library/Logs/knotica
 
 .PHONY: help start install verify doctor desktop clean-tool \
         init dashboard dashboard-stop dashboard-restart ps creds \
-        test-group test-groups process-model-ts dashboard-rebuild \
+        test-group test-groups process-model-ts dashboard-rebuild dashboard-lint \
         daemon-install daemon-restart daemon-status daemon-uninstall daemon-logs
 
 help:  ## Show available targets
@@ -58,7 +58,7 @@ install:  ## Sync the venv and (re)install the knotica CLI with headless evals s
 # of them need only filesystem stats; the surface check additionally imports and
 # builds the server, because the tool registry is the claim it is checking and
 # there is no cheaper honest way to read it.
-verify:  ## Run the canonical checks: topology, ADRs, architecture, surface, types, tests, lint
+verify: dashboard-lint  ## Run the canonical checks: TS lint, topology, ADRs, architecture, surface, types, tests, lint
 	$(UV) run --extra evals python scripts/test_group.py --check
 	$(UV) run --extra evals python scripts/check_adr_health.py
 	$(UV) run --extra evals python scripts/check_architecture_coverage.py
@@ -69,6 +69,25 @@ verify:  ## Run the canonical checks: topology, ADRs, architecture, surface, typ
 	$(UV) run --extra evals pytest
 	$(UV) run --extra evals ruff check .
 	$(UV) run --extra evals ruff format --check .
+
+# Biome is `ruff check` + `ruff format --check` for the TypeScript/CSS half of
+# the tree, so `verify` would be half a gate without it. It runs as a
+# prerequisite rather than a trailing step because it is the cheapest check in
+# the chain (~0.2s, no imports, no venv) and because leaving the TS half for
+# last is how it stayed unlinted until td-053.
+#
+# The Node toolchain is a CONTRIBUTOR requirement only -- an installed user
+# never needs one (see dashboard/CLAUDE.md). Missing deps fail loudly with the
+# fix rather than silently skipping, because a gate that quietly no-ops is
+# worse than no gate.
+dashboard-lint:  ## Lint + format-check dashboard/ with Biome
+	@if [ ! -x dashboard/node_modules/.bin/biome ]; then \
+	  echo "biome is not installed in dashboard/."; \
+	  echo "make verify lints the TypeScript half of the tree, which needs the dashboard's dev deps."; \
+	  echo "Install them with: npm --prefix dashboard install"; \
+	  exit 1; \
+	fi
+	npm --prefix dashboard run --silent lint
 
 # Scoped test runs derived from `.ai-state/TEST_TOPOLOGY.md`. These targets read
 # the topology rather than restating group membership, so there is exactly one

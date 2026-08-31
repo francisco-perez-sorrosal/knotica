@@ -60,7 +60,9 @@ export function ProcessBrief({
         align={align}
         body={
           <>
-            <span class="microlabel process-brief-slot">Why this is necessary</span>
+            <span class="microlabel process-brief-slot">
+              Why this is necessary
+            </span>
             <span class="process-brief-text">{meta.why}</span>
             <span class="microlabel process-brief-slot">What it will do</span>
             <span class="process-brief-text">{meta.willDo}</span>

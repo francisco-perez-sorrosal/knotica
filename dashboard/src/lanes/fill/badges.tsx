@@ -21,7 +21,10 @@ const TIER_TREATMENT: Record<string, { glyph: string; tone: string }> = {
 };
 
 /** Gap origin -> (shape glyph, tone class, label) -- shape + label, never color alone. */
-const ORIGIN_TREATMENT: Record<GapOrigin, { glyph: string; tone: string; label: string }> = {
+const ORIGIN_TREATMENT: Record<
+  GapOrigin,
+  { glyph: string; tone: string; label: string }
+> = {
   measured: { glyph: "◆", tone: "ok", label: "measured" }, // eval-proven
   reported: { glyph: "✎", tone: "warn", label: "reported" }, // conversationally filed
   retracted: { glyph: "⌫", tone: "warn", label: "retracted" }, // guillotine-weakened
@@ -36,7 +39,11 @@ export function tierKey(reputability: SuggestionReputability | null): string {
   return reputability?.tier ?? "none";
 }
 
-export function GapOriginBadge({ origin }: { origin?: GapOrigin | null }): JSX.Element | null {
+export function GapOriginBadge({
+  origin,
+}: {
+  origin?: GapOrigin | null;
+}): JSX.Element | null {
   if (!origin) return null; // older records carry no provenance -- omit the badge
   const treatment = ORIGIN_TREATMENT[origin];
   if (!treatment) return null;
@@ -64,10 +71,12 @@ export function ReputabilityBadge({
   reputability: SuggestionReputability | null;
 }): JSX.Element | null {
   if (!reputability) return null;
-  const treatment = TIER_TREATMENT[reputability.tier] ?? TIER_TREATMENT.general_web;
+  const treatment =
+    TIER_TREATMENT[reputability.tier] ?? TIER_TREATMENT.general_web;
   return (
     <span class={`health-chip sources-reputability ${treatment.tone}`}>
-      <span aria-hidden="true">{treatment.glyph}</span> {reputability.tier.replace(/_/g, " ")}
+      <span aria-hidden="true">{treatment.glyph}</span>{" "}
+      {reputability.tier.replace(/_/g, " ")}
     </span>
   );
 }

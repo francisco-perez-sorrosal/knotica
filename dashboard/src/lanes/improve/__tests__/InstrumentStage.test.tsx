@@ -348,9 +348,7 @@ async function openDetails(
   render(
     <InstrumentStage client={client} topic="agentic-systems" vault="main" />,
   );
-  fireEvent.click(
-    await screen.findByRole("button", { name: /show details/i }),
-  );
+  fireEvent.click(await screen.findByRole("button", { name: /show details/i }));
 }
 
 function rowTexts(family: HTMLElement): string[] {
@@ -429,9 +427,7 @@ describe("the per-role breakdown groups the roles and shows the composition", ()
     await openDetails();
 
     const note = screen.getByText(/Freeze writes those into the held-out/);
-    expect(
-      note.closest("[aria-label='GOLDEN PIPELINE']"),
-    ).not.toBeNull();
+    expect(note.closest("[aria-label='GOLDEN PIPELINE']")).not.toBeNull();
   });
 
   it("gives an unrecognised group its own family instead of dropping the row", async () => {

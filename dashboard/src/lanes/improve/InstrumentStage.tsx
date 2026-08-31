@@ -276,7 +276,9 @@ export function InstrumentStage({
           ) : null}
           {/* The note above is the outcome and owns the live region; this adds
               the step the numbers it printed are owed to. */}
-          {note && noteProcess ? <ProcessOutcome process={noteProcess} /> : null}
+          {note && noteProcess ? (
+            <ProcessOutcome process={noteProcess} />
+          ) : null}
           {error ? <aside role="alert">{error}</aside> : null}
         </>
       </SectionCard>
@@ -309,9 +311,9 @@ export function InstrumentStage({
             <Stat label={hint("trainset")} value={trainsetRow?.count} />
           </StatGrid>
           <p class="muted">
-            Crawled and labelled pages the compiler optimises the prompt
-            program against. Separate from held-out on purpose: a question the
-            model trained on measures nothing.
+            Crawled and labelled pages the compiler optimises the prompt program
+            against. Separate from held-out on purpose: a question the model
+            trained on measures nothing.
           </p>
         </>
       </SectionCard>
@@ -417,7 +419,8 @@ interface DatasetFamily {
  */
 function datasetFamilies(inventory: DatasetsInventory): JSX.Element {
   const seal = inventory.files.find((row) => row.role === "seal") ?? null;
-  const heldOut = inventory.files.find((row) => row.role === "held_out") ?? null;
+  const heldOut =
+    inventory.files.find((row) => row.role === "held_out") ?? null;
   // A seal with no held-out row to guard stays a row of its own — losing it
   // silently would be worse than an odd-looking one.
   const guard = seal && heldOut ? seal : null;

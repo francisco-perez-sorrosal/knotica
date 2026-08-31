@@ -22,7 +22,8 @@ function record(
   } as unknown as SuggestionRecord;
 }
 
-const ids = (rows: SuggestionRecord[]): string[] => rows.map((row) => row.suggestion_id);
+const ids = (rows: SuggestionRecord[]): string[] =>
+  rows.map((row) => row.suggestion_id);
 
 describe("sortSuggestions", () => {
   it("falls back to rank when neither record carries a reputability block", () => {
@@ -35,7 +36,10 @@ describe("sortSuggestions", () => {
       record("unrated", 1, null),
       record("barely", 9, { tier: "general_web", score: 0.01, signals: [] }),
     ];
-    expect(ids(sortSuggestions(rows, "priority"))).toEqual(["barely", "unrated"]);
+    expect(ids(sortSuggestions(rows, "priority"))).toEqual([
+      "barely",
+      "unrated",
+    ]);
   });
 
   it("returns a new array and leaves the caller's own order untouched", () => {
@@ -66,7 +70,13 @@ describe("mergeGhosts anchors each ghost against the list it is spliced into", (
   it("holds two stacked ghosts in the slots the reader last saw them in", () => {
     // `loaded` is the ghost-free payload; the anchors index THAT list, so
     // `g-1` sits before `c` and `g-3` before `e` no matter which lands first.
-    const loaded = [live("a", 1), live("b", 2), live("c", 3), live("d", 4), live("e", 5)];
+    const loaded = [
+      live("a", 1),
+      live("b", 2),
+      live("c", 3),
+      live("d", 4),
+      live("e", 5),
+    ];
     const ghosts = [
       { index: 2, record: live("g-1", 90) },
       { index: 4, record: live("g-2", 91) },

@@ -189,7 +189,12 @@ export interface ImproveToolCalls {
 
 export const improveToolCalls: ToolCallGroup<ImproveToolCalls> = {
   metricsRead(topic: string, vault = ""): Promise<MetricsWindow> {
-    return this.call(LANE, { action: "metrics_read", topic, limit: 100, vault });
+    return this.call(LANE, {
+      action: "metrics_read",
+      topic,
+      limit: 100,
+      vault,
+    });
   },
 
   arenaStatus(topic: string, vault = ""): Promise<ArenaStatus> {

@@ -14,7 +14,10 @@ afterEach(cleanup);
 describe("SectionCard", () => {
   it("renders a titled header, body, and footer", () => {
     render(
-      <SectionCard title="MEASUREMENT" footer={<button type="button">Run eval now</button>}>
+      <SectionCard
+        title="MEASUREMENT"
+        footer={<button type="button">Run eval now</button>}
+      >
         <p>body content</p>
       </SectionCard>,
     );
@@ -32,7 +35,11 @@ describe("SectionCard", () => {
 
   it("never carries aria-expanded -- a card is never a disclosure", () => {
     const { container } = render(
-      <SectionCard title="ARENA" tone="bad" headerActions={<span>4 racing</span>}>
+      <SectionCard
+        title="ARENA"
+        tone="bad"
+        headerActions={<span>4 racing</span>}
+      >
         body
       </SectionCard>,
     );

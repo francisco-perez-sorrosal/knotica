@@ -68,7 +68,12 @@ export function GapCard({
 
       {!dismissOpen ? (
         <div class="sources-reject-actions">
-          <button type="button" class="ghost" disabled={disabled} onClick={onRequestDismiss}>
+          <button
+            type="button"
+            class="ghost"
+            disabled={disabled}
+            onClick={onRequestDismiss}
+          >
             Dismiss…
           </button>
           <ProcessBrief process="fill.gap_dismiss" term="why close it" />
@@ -82,7 +87,9 @@ export function GapCard({
               value={reasonDraft}
               disabled={busy}
               placeholder="Why is this gap not worth sourcing?"
-              onInput={(event) => onReasonChange((event.target as HTMLTextAreaElement).value)}
+              onInput={(event) =>
+                onReasonChange((event.target as HTMLTextAreaElement).value)
+              }
             />
           </label>
           <div class="sources-reject-actions">
@@ -95,7 +102,12 @@ export function GapCard({
             >
               {verbLabel(busy, busy ? "Dismissing…" : "Confirm dismiss")}
             </button>
-            <button type="button" class="ghost" disabled={busy} onClick={onCancelDismiss}>
+            <button
+              type="button"
+              class="ghost"
+              disabled={busy}
+              onClick={onCancelDismiss}
+            >
               Cancel
             </button>
           </div>

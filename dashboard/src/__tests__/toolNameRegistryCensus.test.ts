@@ -162,10 +162,7 @@ describe("every tool name the client reaches the transport with is registered", 
     const methods = collectPrototypeMethodNames(client).filter(
       (name) => !TRANSPORT_METHODS.includes(name),
     );
-    const invoke = client as unknown as Record<
-      string,
-      () => Promise<unknown>
-    >;
+    const invoke = client as unknown as Record<string, () => Promise<unknown>>;
 
     await Promise.all(methods.map((name) => invoke[name]()));
 
@@ -185,10 +182,7 @@ describe("every tool name the client reaches the transport with is registered", 
     const methods = collectPrototypeMethodNames(client).filter(
       (name) => !TRANSPORT_METHODS.includes(name),
     );
-    const invoke = client as unknown as Record<
-      string,
-      () => Promise<unknown>
-    >;
+    const invoke = client as unknown as Record<string, () => Promise<unknown>>;
 
     await Promise.all(methods.map((name) => invoke[name]()));
 
@@ -198,10 +192,7 @@ describe("every tool name the client reaches the transport with is registered", 
   it("routes every lane-action call through its lane dispatcher with an action selector", async () => {
     const { app, calls } = recordingApp();
     const client = new BridgeToolClient(app);
-    const invoke = client as unknown as Record<
-      string,
-      () => Promise<unknown>
-    >;
+    const invoke = client as unknown as Record<string, () => Promise<unknown>>;
     const methods = collectPrototypeMethodNames(client).filter(
       (name) => !TRANSPORT_METHODS.includes(name),
     );
@@ -224,20 +215,23 @@ describe("every tool name the client reaches the transport with is registered", 
 // ---------------------------------------------------------------------------
 
 describe("every tool-name literal in the client sources is registered", () => {
-  it.each(CLIENT_SOURCES)("%s passes only registered tool names", (relative) => {
-    const source = fsModule.readFileSync(
-      pathModule.join(srcDir, ...relative.split("/")),
-      "utf-8",
-    );
-    const literals = [
-      ...source.matchAll(/this\.call(?:<[^>]*>)?\(\s*"([^"]+)"/g),
-    ].map((match) => match[1]);
-    const unregistered = [
-      ...new Set(literals.filter((name) => !REGISTERED_TOOLS.includes(name))),
-    ].sort();
+  it.each(CLIENT_SOURCES)(
+    "%s passes only registered tool names",
+    (relative) => {
+      const source = fsModule.readFileSync(
+        pathModule.join(srcDir, ...relative.split("/")),
+        "utf-8",
+      );
+      const literals = [
+        ...source.matchAll(/this\.call(?:<[^>]*>)?\(\s*"([^"]+)"/g),
+      ].map((match) => match[1]);
+      const unregistered = [
+        ...new Set(literals.filter((name) => !REGISTERED_TOOLS.includes(name))),
+      ].sort();
 
-    expect(unregistered).toEqual([]);
-  });
+      expect(unregistered).toEqual([]);
+    },
+  );
 });
 
 // ---------------------------------------------------------------------------

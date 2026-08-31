@@ -62,13 +62,17 @@ export const STATE_ICON: Record<LaneRailStageState, IconName> = {
 const LEARN: Record<string, StageMeta> = {
   source: {
     icon: null,
-    whatThisIs: "Resolves the topic's schema and stores its source in the vault.",
-    whatToDoNext: "Point the lane at a source; the rail advances once it is stored.",
+    whatThisIs:
+      "Resolves the topic's schema and stores its source in the vault.",
+    whatToDoNext:
+      "Point the lane at a source; the rail advances once it is stored.",
   },
   fetch_parse: {
     icon: null,
-    whatThisIs: "Fetches the stored source and parses it into page-sized chunks.",
-    whatToDoNext: "Runs on its own once a source is stored. Nothing to do here.",
+    whatThisIs:
+      "Fetches the stored source and parses it into page-sized chunks.",
+    whatToDoNext:
+      "Runs on its own once a source is stored. Nothing to do here.",
   },
   pages: {
     icon: null,
@@ -103,8 +107,10 @@ const ANSWER: Record<string, StageMeta> = {
 const IMPROVE: Record<string, StageMeta> = {
   instrument: {
     icon: "stage:instrument",
-    whatThisIs: "Prepares the reviewed and held-out datasets an eval cycle reads.",
-    whatToDoNext: "Bootstrap or review this topic's datasets, then open Observe.",
+    whatThisIs:
+      "Prepares the reviewed and held-out datasets an eval cycle reads.",
+    whatToDoNext:
+      "Bootstrap or review this topic's datasets, then open Observe.",
   },
   observe: {
     icon: "stage:observe",
@@ -114,7 +120,8 @@ const IMPROVE: Record<string, StageMeta> = {
   },
   gate: {
     icon: "stage:gate",
-    whatThisIs: "Reviews the pending candidate against the frozen gate baseline.",
+    whatThisIs:
+      "Reviews the pending candidate against the frozen gate baseline.",
     whatToDoNext: "Read the verdict, then accept or refuse the candidate.",
   },
   heal: {
@@ -130,7 +137,8 @@ const IMPROVE: Record<string, StageMeta> = {
   },
   prove: {
     icon: "stage:prove",
-    whatThisIs: "Answers a question against the compiled program to prove the loop closed.",
+    whatThisIs:
+      "Answers a question against the compiled program to prove the loop closed.",
     whatToDoNext: "Ask a question here and read the cited answer.",
   },
 };

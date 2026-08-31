@@ -13,7 +13,12 @@ import { TermHint } from "../../TermHint";
 import type { IconName } from "../../icons";
 import type { SectionTone } from "../../SectionCard";
 import type { ToolClient } from "../../toolClient";
-import type { ArenaHistory, ArenaStatus, ArenaVariant, WikiStatus } from "../../types";
+import type {
+  ArenaHistory,
+  ArenaStatus,
+  ArenaVariant,
+  WikiStatus,
+} from "../../types";
 
 /**
  * The `heal` stage body — absorbs `ArenaPane`'s status/history/leaderboard and
@@ -224,18 +229,22 @@ export function HealStage({
       </SectionCard>
 
       {aborted ? (
-        <SectionCard title="WHY THE RACE ABORTED" icon="state:blocked" tone="warn">
+        <SectionCard
+          title="WHY THE RACE ABORTED"
+          icon="state:blocked"
+          tone="warn"
+        >
           <>
             {arenaStatus?.message ? (
               // The server's own reason, verbatim — this card never re-words it.
               <p data-testid="heal-abort-reason">{arenaStatus.message}</p>
             ) : null}
             <p class="muted">
-              Aborted means the race stopped before ranking anything: the
-              scorer and the gate baseline are different instruments, so no
-              ranking between them would mean anything. The variants above
-              were generated but never judged against the gate — nothing was
-              promoted and nothing was lost.
+              Aborted means the race stopped before ranking anything: the scorer
+              and the gate baseline are different instruments, so no ranking
+              between them would mean anything. The variants above were
+              generated but never judged against the gate — nothing was promoted
+              and nothing was lost.
             </p>
             <span class="microlabel">NEXT STEP</span>
             {configuredScorer === "eval" ? (
@@ -254,8 +263,8 @@ export function HealStage({
             ) : (
               <p class="muted">
                 Make races gate-comparable by switching the arena to the
-                eval-backed scorer. The next race reads the config
-                automatically — no restart needed.
+                eval-backed scorer. The next race reads the config automatically
+                — no restart needed.
               </p>
             )}
             {/* `current` is the standing config: while it is not `eval` the
@@ -276,16 +285,15 @@ export function HealStage({
             />
             <p class="muted">
               The button writes <code>{'arena_scorer = "eval"'}</code> under{" "}
-              <code>[loop]</code> in{" "}
-              <code>~/.config/knotica/config.toml</code> — the same edit by
-              hand does the same thing.
+              <code>[loop]</code> in <code>~/.config/knotica/config.toml</code>{" "}
+              — the same edit by hand does the same thing.
             </p>
             <p class="muted">
               Prerequisites: a frozen golden set (Instrument → Freeze) and the{" "}
-              <code>evals</code> extra (<code>uv sync --extra evals</code>).
-              The eval scorer bills one golden-set eval per variant. Without
-              the prerequisites the runner falls back to the heuristic and the
-              race aborts again rather than scoring on the wrong instrument.
+              <code>evals</code> extra (<code>uv sync --extra evals</code>). The
+              eval scorer bills one golden-set eval per variant. Without the
+              prerequisites the runner falls back to the heuristic and the race
+              aborts again rather than scoring on the wrong instrument.
             </p>
           </>
         </SectionCard>
@@ -300,7 +308,10 @@ export function HealStage({
                 stays `Compile now` and the armed→confirm contract is
                 untouched. The brief carries the chip plus the two answers the
                 chip alone cannot give -- why now, and what it writes. */}
-            <ProcessBrief process="improve.compile_run" term="why re-optimise" />
+            <ProcessBrief
+              process="improve.compile_run"
+              term="why re-optimise"
+            />
             <ArmedButton
               armed={armed}
               busy={busy}
@@ -355,7 +366,10 @@ function stageChip(arenaStatus: ArenaStatus | null): JSX.Element {
  * `status` — the icon and the colour are redundancy on top of it, never the
  * only carrier of the verdict.
  */
-const VARIANT_PRESENTATION: Record<string, { icon: IconName; tone: SectionTone }> = {
+const VARIANT_PRESENTATION: Record<
+  string,
+  { icon: IconName; tone: SectionTone }
+> = {
   pending: { icon: "state:pending", tone: "neutral" },
   scored: { icon: "state:running", tone: "neutral" },
   winner: { icon: "state:complete", tone: "good" },
@@ -481,7 +495,11 @@ function VariantDiffToggle({
         {open ? "▾ diff" : "▸ diff"}
       </button>
       {open ? (
-        <div class="prompt-diff-panel" aria-label={`${label}'s diff`}>
+        <div
+          class="prompt-diff-panel"
+          role="group"
+          aria-label={`${label}'s diff`}
+        >
           <pre class="variant-diff-body">{diff}</pre>
         </div>
       ) : null}

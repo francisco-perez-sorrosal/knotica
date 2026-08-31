@@ -14,7 +14,6 @@ export const LEARN_PROCESSES: Record<
   Extract<ProcessId, `learn.${string}`>,
   ProcessMeta
 > = {
-
   "learn.ingest_dispatch": {
     lane: "learn",
     stage: "pages",

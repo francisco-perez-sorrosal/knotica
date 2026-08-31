@@ -22,9 +22,18 @@ export type LoopStage =
  * against the gate baseline, so no variant was measured. Distinct from
  * `reverted`, which means the race ran and nobody won. */
 export type ArenaStage =
-  "idle" | "racing" | "promoting" | "completed" | "reverted" | "aborted";
+  | "idle"
+  | "racing"
+  | "promoting"
+  | "completed"
+  | "reverted"
+  | "aborted";
 export type DatasetRole =
-  "trainset" | "held_out" | "seal" | "candidates" | "reviewed";
+  | "trainset"
+  | "held_out"
+  | "seal"
+  | "candidates"
+  | "reviewed";
 
 export interface DatasetFileRow {
   role: DatasetRole;
@@ -169,7 +178,12 @@ export interface LoopProgress {
   examples?: ExampleOutcome[];
 }
 export type CompileStage =
-  "idle" | "running" | "optimizing" | "evaluating" | "completed" | "failed";
+  | "idle"
+  | "running"
+  | "optimizing"
+  | "evaluating"
+  | "completed"
+  | "failed";
 
 export interface CompileHistoryEntry {
   history_id: string;
@@ -223,7 +237,11 @@ export interface CompilePromoteResult {
 }
 
 export type ScoreboardEntryKind =
-  "default" | "compile" | "loop_candidate" | "loop_result" | "arena_variant";
+  | "default"
+  | "compile"
+  | "loop_candidate"
+  | "loop_result"
+  | "arena_variant";
 
 export interface ScoreboardEntry {
   kind: ScoreboardEntryKind;

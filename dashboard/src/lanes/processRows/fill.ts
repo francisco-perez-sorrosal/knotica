@@ -17,7 +17,6 @@ export const FILL_PROCESSES: Record<
   Extract<ProcessId, `fill.${string}`>,
   ProcessMeta
 > = {
-
   "fill.gapfill_discover": {
     lane: "fill",
     stage: "discover",

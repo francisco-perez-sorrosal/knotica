@@ -224,9 +224,7 @@ describe("waiting class", () => {
       attentionPayload([WAITING_TOPIC]),
       onOpenAnchor,
     );
-    await vi.waitFor(() =>
-      expect(container.textContent).toMatch(/gap-fill/),
-    );
+    await vi.waitFor(() => expect(container.textContent).toMatch(/gap-fill/));
     fireEvent.click(within(container).getByRole("button", { name: /open/i }));
     expect(onOpenAnchor).toHaveBeenCalledTimes(1);
     expect(onOpenAnchor).toHaveBeenCalledWith("fill", "approve");
@@ -243,9 +241,7 @@ describe("running class", () => {
     await vi.waitFor(() =>
       expect(container.textContent).toMatch(/agentic-systems/),
     );
-    fireEvent.click(
-      within(container).getByRole("button", { name: /watch/i }),
-    );
+    fireEvent.click(within(container).getByRole("button", { name: /watch/i }));
     expect(onOpenAnchor).toHaveBeenCalledTimes(1);
     expect(onOpenAnchor).toHaveBeenCalledWith("improve", "observe");
   });
@@ -253,9 +249,7 @@ describe("running class", () => {
 
 describe("empty state -- the success state", () => {
   it("renders 'Nothing needs you' when every topic is quiet", async () => {
-    const { container } = await renderHomeLane(
-      attentionPayload([QUIET_TOPIC]),
-    );
+    const { container } = await renderHomeLane(attentionPayload([QUIET_TOPIC]));
     await vi.waitFor(() =>
       expect(container.textContent).toMatch(/nothing needs you/i),
     );
@@ -298,9 +292,7 @@ describe("drift row -- statement plus an info affordance, no [Check] button", ()
     const { container } = await renderHomeLane(
       attentionPayload([BLOCKED_TOPIC]),
     );
-    await vi.waitFor(() =>
-      expect(container.textContent).toMatch(/drift/i),
-    );
+    await vi.waitFor(() => expect(container.textContent).toMatch(/drift/i));
     expect(container.textContent).toMatch(/not checked/i);
     expect(
       within(container).getByRole("button", { name: /about note drift/i }),

@@ -42,11 +42,16 @@ jobs:
       - run: npm ci
         working-directory: dashboard
       # Ordered cheapest to most-derived, so the first red step names the failure
-      # class: behaviour (test), types/bundle (build), stale committed artifact
-      # (diff). `vitest run` transpiles from source via dashboard/vitest.config.ts
+      # class: style (biome), behaviour (test), types/bundle (build), stale
+      # committed artifact (diff). Biome leads because it is the cheapest of the
+      # four and reads only the source tree; it lints AND format-checks in one
+      # pass (`biome check`), which is why there is no separate format step.
+      # `vitest run` transpiles from source via dashboard/vitest.config.ts
       # and reads nothing the build produces, so it is free to run first — and it
       # must, or a `tsc` error would mask a broken characterization. `tsc --noEmit`
       # inside `npm run build` still typechecks the tests (tsconfig include: src).
+      - run: npm run lint
+        working-directory: dashboard
       - run: npm test
         working-directory: dashboard
       - run: npm run build

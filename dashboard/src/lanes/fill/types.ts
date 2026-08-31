@@ -33,7 +33,10 @@ export interface GapStatusSummary {
 }
 
 export type ReputabilityTier =
-  "peer_reviewed" | "preprint_known_lab" | "established_org" | "general_web";
+  | "peer_reviewed"
+  | "preprint_known_lab"
+  | "established_org"
+  | "general_web";
 
 export interface SuggestionReputability {
   tier: ReputabilityTier;
@@ -60,7 +63,11 @@ export interface SuggestionCandidate {
 }
 
 export type SuggestionStatus =
-  "pending" | "approved" | "rejected" | "deferred" | "ingested";
+  | "pending"
+  | "approved"
+  | "rejected"
+  | "deferred"
+  | "ingested";
 
 export type GateOutcomeVerdict = "merged" | "refused";
 
@@ -247,7 +254,11 @@ export interface GapsReadResult {
  * verbs.
  */
 export type SuggestionAction =
-  "approve" | "reject" | "defer" | "mark_ingested" | "withdraw";
+  | "approve"
+  | "reject"
+  | "defer"
+  | "mark_ingested"
+  | "withdraw";
 
 export interface SuggestionReviewResult {
   mode: "dry-run" | "apply";

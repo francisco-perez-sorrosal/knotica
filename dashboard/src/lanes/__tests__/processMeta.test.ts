@@ -354,8 +354,9 @@ describe("G4 — every row answers all six questions", () => {
     );
     expect(conditional.length).toBeGreaterThan(0);
     for (const [, meta] of conditional) {
-      expect(resolveNextAnchor(meta.next, "a-verdict-this-build-cannot-know"))
-        .not.toBeNull();
+      expect(
+        resolveNextAnchor(meta.next, "a-verdict-this-build-cannot-know"),
+      ).not.toBeNull();
     }
   });
 });
@@ -382,7 +383,10 @@ describe("G5 — no process points at a destination the model does not declare",
           offenders.push(`${id} -> lane ${anchor.lane}`);
           continue;
         }
-        if (anchor.stage !== null && !stageIds(anchor.lane).includes(anchor.stage)) {
+        if (
+          anchor.stage !== null &&
+          !stageIds(anchor.lane).includes(anchor.stage)
+        ) {
           offenders.push(`${id} -> ${anchor.lane}:${anchor.stage}`);
         }
       }
@@ -412,9 +416,9 @@ describe("G5 — no process points at a destination the model does not declare",
 
 describe("G6 — Home routes, every other lane acts", () => {
   it("registers no process whose trigger lives on Home", () => {
-    expect(ROWS.filter(([, meta]) => meta.lane === "home").map(([id]) => id)).toEqual(
-      [],
-    );
+    expect(
+      ROWS.filter(([, meta]) => meta.lane === "home").map(([id]) => id),
+    ).toEqual([]);
   });
 
   it("never sends a follow-up to a stage Home does not have", () => {

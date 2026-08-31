@@ -99,9 +99,7 @@ export function CreateDrawer({
       await onRefreshStatus(true);
       onCreatedTopic(name);
     } catch (cause) {
-      setNewTopicError(
-        cause instanceof Error ? cause.message : String(cause),
-      );
+      setNewTopicError(cause instanceof Error ? cause.message : String(cause));
     } finally {
       setNewTopicBusy(false);
     }

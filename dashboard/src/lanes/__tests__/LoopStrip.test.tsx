@@ -32,7 +32,9 @@ const ALL_PENDING = stages(
 );
 
 function nodes(container: Element): HTMLElement[] {
-  return Array.from(container.querySelectorAll<HTMLElement>(".loop-strip-item"));
+  return Array.from(
+    container.querySelectorAll<HTMLElement>(".loop-strip-item"),
+  );
 }
 
 describe("the strip renders one node per declared stage", () => {
@@ -65,7 +67,9 @@ describe("shape decides the track and the return arc", () => {
       <LoopStrip lane="improve" stages={ALL_PENDING} />,
     );
 
-    expect(container.querySelector(".loop-strip")?.getAttribute("data-shape")).toBe("cycle");
+    expect(
+      container.querySelector(".loop-strip")?.getAttribute("data-shape"),
+    ).toBe("cycle");
     expect(container.querySelector(".loop-strip-arc")).toBeTruthy();
     expect(screen.getByText(/prove returns to instrument/i)).toBeTruthy();
   });
@@ -75,7 +79,9 @@ describe("shape decides the track and the return arc", () => {
       <LoopStrip lane="learn" stages={stages("complete", "active")} />,
     );
 
-    expect(container.querySelector(".loop-strip")?.getAttribute("data-shape")).toBe("line");
+    expect(
+      container.querySelector(".loop-strip")?.getAttribute("data-shape"),
+    ).toBe("line");
     expect(container.querySelector(".loop-strip-arc")).toBeNull();
   });
 
@@ -84,7 +90,9 @@ describe("shape decides the track and the return arc", () => {
       <LoopStrip lane="tend" stages={stages("complete", "pending")} />,
     );
 
-    expect(container.querySelector(".loop-strip")?.getAttribute("data-shape")).toBe("checks");
+    expect(
+      container.querySelector(".loop-strip")?.getAttribute("data-shape"),
+    ).toBe("checks");
     expect(container.querySelector(".loop-strip-arc")).toBeNull();
   });
 });
@@ -104,7 +112,8 @@ describe("a node is a control only when the caller can act on it", () => {
       <LoopStrip lane="improve" stages={ALL_PENDING} onFocus={onFocus} />,
     );
 
-    const buttons = container.querySelectorAll<HTMLButtonElement>("button.loop-node");
+    const buttons =
+      container.querySelectorAll<HTMLButtonElement>("button.loop-node");
     expect(buttons).toHaveLength(6);
     fireEvent.click(buttons[2]);
     expect(onFocus).toHaveBeenCalledWith("gate");
@@ -131,9 +140,9 @@ describe("the headline narrates declared state, never focus", () => {
   });
 
   it("names the active stage when one is running", () => {
-    expect(
-      loopHeadline("improve", "cycle", stages("complete", "active")),
-    ).toBe("IMPROVE · OBSERVE ACTIVE — in progress");
+    expect(loopHeadline("improve", "cycle", stages("complete", "active"))).toBe(
+      "IMPROVE · OBSERVE ACTIVE — in progress",
+    );
   });
 
   it("names the blocked stage ahead of any active one", () => {

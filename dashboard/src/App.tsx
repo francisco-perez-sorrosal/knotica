@@ -421,30 +421,33 @@ export function App() {
                       button inside a label activates the labelled control. */}
                   <ProcessBrief process="vault.use" term="why switch" />
                   <label class="vault-picker vault-picker-inline">
-                  <span class="sr-only">Switch vault</span>
-                  <select
-                    value={vault || vaultName}
-                    onChange={(event) =>
-                      void selectVault(
-                        (event.target as HTMLSelectElement).value,
-                      )
-                    }
-                    aria-label="Switch vault"
-                  >
-                    {available.map((entry) => (
-                      <option value={entry.name} key={entry.name}>
-                        {entry.name}
-                        {entry.name === catalog.value?.default_vault
-                          ? " (active)"
-                          : ""}
-                      </option>
-                    ))}
-                  </select>
+                    <span class="sr-only">Switch vault</span>
+                    <select
+                      value={vault || vaultName}
+                      onChange={(event) =>
+                        void selectVault(
+                          (event.target as HTMLSelectElement).value,
+                        )
+                      }
+                      aria-label="Switch vault"
+                    >
+                      {available.map((entry) => (
+                        <option value={entry.name} key={entry.name}>
+                          {entry.name}
+                          {entry.name === catalog.value?.default_vault
+                            ? " (active)"
+                            : ""}
+                        </option>
+                      ))}
+                    </select>
                   </label>
                 </>
               ) : (
                 <h1 class="vault-title">
-                  <ObsidianLink href={vaultOpenUri} className="vault-title-link">
+                  <ObsidianLink
+                    href={vaultOpenUri}
+                    className="vault-title-link"
+                  >
                     {vaultName}
                   </ObsidianLink>
                 </h1>

@@ -326,13 +326,18 @@ describe("the lifecycle contract on the two branch verbs", () => {
     }));
     const client = fakeClient({ branchPromote });
     render(
-      <PromoteStage client={client} topic={TOPIC} vault={VAULT} status={null} />,
+      <PromoteStage
+        client={client}
+        topic={TOPIC}
+        vault={VAULT}
+        status={null}
+      />,
     );
 
+    fireEvent.click(await screen.findByTestId("promote-preview-trigger"));
     fireEvent.click(
-      await screen.findByTestId("promote-preview-trigger"),
+      await screen.findByRole("button", { name: /apply merge/i }),
     );
-    fireEvent.click(await screen.findByRole("button", { name: /apply merge/i }));
 
     expect(await screen.findByText(/Go to Improve → Prove\./)).toBeTruthy();
   });

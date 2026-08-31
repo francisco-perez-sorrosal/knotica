@@ -14,7 +14,6 @@ export const VAULT_PROCESSES: Record<
   Extract<ProcessId, `vault.${string}`>,
   ProcessMeta
 > = {
-
   "vault.create": {
     lane: "learn",
     stage: null,
@@ -31,7 +30,8 @@ export const VAULT_PROCESSES: Record<
     previewMode: "none",
     progressMode: "busy",
     outcomeMode: "refresh",
-    outcomeFallback: "The knowledge base is created and the dashboard is now reading it.",
+    outcomeFallback:
+      "The knowledge base is created and the dashboard is now reading it.",
     next: {
       kind: "always",
       go: {
@@ -59,7 +59,8 @@ export const VAULT_PROCESSES: Record<
     previewMode: "none",
     progressMode: "busy",
     outcomeMode: "refresh",
-    outcomeFallback: "The dashboard is now reading the vault you picked; every number on screen belongs to it.",
+    outcomeFallback:
+      "The dashboard is now reading the vault you picked; every number on screen belongs to it.",
     next: {
       kind: "always",
       go: {

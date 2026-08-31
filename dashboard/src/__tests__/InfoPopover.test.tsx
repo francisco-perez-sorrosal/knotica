@@ -108,7 +108,9 @@ describe("InfoPopover", () => {
       />,
     );
 
-    fireEvent.click(screen.getByRole("button", { name: "About the vault path" }));
+    fireEvent.click(
+      screen.getByRole("button", { name: "About the vault path" }),
+    );
 
     expect(screen.queryByText("What the states mean")).toBeNull();
   });

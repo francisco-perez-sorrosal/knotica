@@ -71,6 +71,8 @@ export function resolveNextAnchor(
 ): ProcessAnchor | null {
   if (next.kind === "terminal") return null;
   if (next.kind === "always") return next.go;
-  const branch = next.branches.find((candidate) => candidate.when === discriminant);
+  const branch = next.branches.find(
+    (candidate) => candidate.when === discriminant,
+  );
   return branch ? branch.go : next.fallback;
 }

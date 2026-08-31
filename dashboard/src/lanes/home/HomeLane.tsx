@@ -82,7 +82,9 @@ export function HomeLane({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [client, vault]);
 
-  const rows = attention ? sortAttentionRows(deriveAttentionRows(attention)) : [];
+  const rows = attention
+    ? sortAttentionRows(deriveAttentionRows(attention))
+    : [];
 
   return (
     <main class="pane-main home">

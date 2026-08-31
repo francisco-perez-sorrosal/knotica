@@ -6,11 +6,17 @@ A single-file Preact + TypeScript app, mounted two ways from one artifact: as an
 
 ```bash
 npm --prefix dashboard install
+npm --prefix dashboard run lint      # biome check .  (lint + format-check in one pass)
+npm --prefix dashboard run lint:fix  # biome check --write .  (safe fixes + format)
 npm --prefix dashboard test          # vitest run
 npm --prefix dashboard run build     # tsc --noEmit && vite build && package-artifact
 ```
 
-`npm test` transpiles from source through `vitest.config.ts` and reads nothing the build produces, so it runs first and fails faster; CI runs the same two commands in that order. There is no separate typecheck step to remember — `tsc --noEmit` inside `npm run build` covers the tests too, because `tsconfig` includes `src`.
+`npm test` transpiles from source through `vitest.config.ts` and reads nothing the build produces, so it runs first and fails faster; CI runs the same commands in that order. There is no separate typecheck step to remember — `tsc --noEmit` inside `npm run build` covers the tests too, because `tsconfig` includes `src`.
+
+**Biome is this tree's `ruff`** — one binary, lint *and* format, pinned to an exact version in `package.json`. `biome check` does both, which is why `npm run lint` is the whole style gate and `format:check` exists only as the narrower escape hatch. It is enforced twice: `make dashboard-lint` (a prerequisite of `make verify`, so the canonical chain covers the TypeScript half the way `ruff` covers the Python half) and the first step of `.github/workflows/dashboard.yml`. The Node toolchain is a *contributor* requirement only; an installed user still needs none.
+
+`biome.jsonc` **codifies what this tree already does** — the width, quote style and indent were measured against `src/`, not imported from a house style, and the five disabled rules each carry the finding count and the reason in a comment beside them. Read those comments before changing a value: the config's own header explains why "upgrading" one to a fashionable default is a regression here. `src/processModel.ts` is excluded because it is generated, and formatting it would leave the generator permanently dirty against its own `git diff --exit-code` gate.
 
 > The built artifact is **committed**. `npm run build` writes `dashboard/dist/index.html` and packages it to `src/knotica/dashboard/app.html`, and CI then runs `git diff --exit-code` over both paths. **Only `src/knotica/dashboard/app.html` is actually gated**: `dashboard/dist/` is gitignored, so that path is untracked and can never dirty a diff — naming it in the command does not make it enforced. A source change without a committed rebuild of `app.html` fails CI. Rebuild and commit in the same change.
 

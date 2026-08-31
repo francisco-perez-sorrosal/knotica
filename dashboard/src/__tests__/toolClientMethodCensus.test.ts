@@ -277,9 +277,7 @@ describe("the three shell methods stay off every lane's tool-call group", () => 
     "%s is not declared by any of the six lane tool-call groups",
     (name) => {
       const owners = Object.entries(LANE_GROUPS)
-        .filter(([, group]) =>
-          Object.prototype.hasOwnProperty.call(group, name),
-        )
+        .filter(([, group]) => Object.hasOwn(group, name))
         .map(([lane]) => lane);
       expect(owners).toEqual([]);
     },

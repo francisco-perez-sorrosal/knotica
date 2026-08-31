@@ -132,7 +132,11 @@ export function ProveStage({
                 stays `Probe it`. `query` mints no nonce, so the second click
                 is client-side — the chip prices the spend and the armed
                 label names what confirming costs. */}
-            <ProcessBrief process="improve.probe" term="why probe" align="end" />
+            <ProcessBrief
+              process="improve.probe"
+              term="why probe"
+              align="end"
+            />
             <ArmedButton
               armed={armed}
               busy={busy}
@@ -192,7 +196,7 @@ export function ProveStage({
           <>
             <div class="ask-compare">
               {pinned ? (
-              <AnswerCard
+                <AnswerCard
                   title="Before"
                   tone="before"
                   answer={pinned}

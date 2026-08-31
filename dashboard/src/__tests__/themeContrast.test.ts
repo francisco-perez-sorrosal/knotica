@@ -40,7 +40,15 @@ const URL_MODULE_NAME = "url";
 /** WCAG 2.2 AA, 1.4.3 Contrast (Minimum) -- body text and UI labels. */
 const TEXT_FLOOR = 4.5;
 
-/** Every semantic tone `app.css` sets as a `color:`. */
+/**
+ * Every semantic tone `app.css` sets as a `color:`, plus the chart tokens that
+ * carry a tone onto the loop chart's canvas. `--chart-axis` paints the axis
+ * labels, which are small text; `--chart-series` and `--chart-baseline` paint
+ * the data itself and would clear only the 3:1 non-text floor on their own, but
+ * they alias tones already held to 4.5:1, so measuring them here costs nothing
+ * and catches a re-hardcoded chart color. `--chart-grid` is deliberately absent
+ * -- it is decorative rule-work under WCAG's 1.4.11 decoration exception.
+ */
 const TONES = [
   "accent",
   "good",
@@ -50,6 +58,9 @@ const TONES = [
   "neutral",
   "text",
   "muted",
+  "chart-series",
+  "chart-baseline",
+  "chart-axis",
 ] as const;
 
 /** Every surface those tones are painted on. */
@@ -100,8 +111,7 @@ function resolve(
     expect(value, `theme.css defines --${name}`).toBeDefined();
     const reference = /^var\(\s*--([a-z0-9-]+)\s*\)$/.exec(value as string);
     if (!reference) break;
-    const next: string | undefined =
-      block[reference[1]] ?? root[reference[1]];
+    const next: string | undefined = block[reference[1]] ?? root[reference[1]];
     value = next;
   }
   expect(value, `--${name} resolves to a hex literal`).toMatch(

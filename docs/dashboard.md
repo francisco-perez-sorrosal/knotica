@@ -472,6 +472,7 @@ The dashboard is a single Preact app (Vite, inlined into one self-contained
 ```sh
 cd dashboard
 npm install
+npm run lint
 npm test
 npm run build
 ```
@@ -479,6 +480,14 @@ npm run build
 This regenerates `dist/index.html` and copies it into `src/knotica/dashboard/app.html`, the file
 the server reads at runtime (falling back to `dashboard/dist/index.html` for a source checkout
 without a packaged build).
+
+Style is enforced by [Biome](https://biomejs.dev/), pinned to an exact version in
+`dashboard/package.json`. `npm run lint` (`biome check .`) lints **and** format-checks in one
+pass, so it is the whole style gate; `npm run lint:fix` applies the safe fixes and the
+formatter. The same check runs as `make dashboard-lint` — a prerequisite of `make verify`, so
+the canonical chain covers TypeScript and CSS the way `ruff` covers Python — and as the first
+step of the `Dashboard` CI workflow. The configuration lives in `dashboard/biome.jsonc`, whose
+comments record why each setting and each disabled rule is what it is.
 
 Local HTTP preview, with the loop watcher running alongside so the Improve lane has live data:
 

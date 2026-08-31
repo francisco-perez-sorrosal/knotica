@@ -24,7 +24,9 @@ describe("TermHint", () => {
       />,
     );
 
-    fireEvent.click(screen.getByRole("button", { name: "0.66 — what this means" }));
+    fireEvent.click(
+      screen.getByRole("button", { name: "0.66 — what this means" }),
+    );
 
     expect(screen.getByRole("note")).toBeTruthy();
     expect(screen.queryByRole("dialog")).toBeNull();
@@ -32,29 +34,50 @@ describe("TermHint", () => {
 
   it("has a real button trigger reachable by keyboard, not hover-only", () => {
     render(
-      <TermHint id="term:test:keyboard" term="12" title="Latest gen" body="Each finished cycle." />,
+      <TermHint
+        id="term:test:keyboard"
+        term="12"
+        title="Latest gen"
+        body="Each finished cycle."
+      />,
     );
 
-    const trigger = screen.getByRole("button", { name: "12 — what this means" });
+    const trigger = screen.getByRole("button", {
+      name: "12 — what this means",
+    });
     expect(trigger.tagName).toBe("BUTTON");
   });
 
   it("names the trigger '<term> — what this means', never beginning with open/watch", () => {
     render(
-      <TermHint id="term:test:name" term="every 6h" title="Cadence" body="The shortest gap." />,
+      <TermHint
+        id="term:test:name"
+        term="every 6h"
+        title="Cadence"
+        body="The shortest gap."
+      />,
     );
 
-    const trigger = screen.getByRole("button", { name: "every 6h — what this means" });
+    const trigger = screen.getByRole("button", {
+      name: "every 6h — what this means",
+    });
     expect(trigger).toBeTruthy();
     expect(trigger.getAttribute("aria-label")).not.toMatch(/^(open|watch)\b/i);
   });
 
   it("closes on Escape and returns focus to the trigger", () => {
     render(
-      <TermHint id="term:test:escape" term="0.62" title="Baseline" body="The frozen stick." />,
+      <TermHint
+        id="term:test:escape"
+        term="0.62"
+        title="Baseline"
+        body="The frozen stick."
+      />,
     );
 
-    const trigger = screen.getByRole("button", { name: "0.62 — what this means" });
+    const trigger = screen.getByRole("button", {
+      name: "0.62 — what this means",
+    });
     fireEvent.click(trigger);
     expect(screen.getByRole("note")).toBeTruthy();
 
@@ -67,12 +90,19 @@ describe("TermHint", () => {
   it("closes when a pointerdown lands outside the trigger and the panel", () => {
     render(
       <div>
-        <TermHint id="term:test:outside" term="40" title="Held-out" body="The frozen golden set." />
+        <TermHint
+          id="term:test:outside"
+          term="40"
+          title="Held-out"
+          body="The frozen golden set."
+        />
         <button type="button">elsewhere</button>
       </div>,
     );
 
-    fireEvent.click(screen.getByRole("button", { name: "40 — what this means" }));
+    fireEvent.click(
+      screen.getByRole("button", { name: "40 — what this means" }),
+    );
     expect(screen.getByRole("note")).toBeTruthy();
 
     fireEvent.pointerDown(screen.getByRole("button", { name: "elsewhere" }));
@@ -83,15 +113,29 @@ describe("TermHint", () => {
   it("keeps at most one TermHint open at a time", () => {
     render(
       <>
-        <TermHint id="term:test:a" term="A" title="A title" body="First target." />
-        <TermHint id="term:test:b" term="B" title="B title" body="Second target." />
+        <TermHint
+          id="term:test:a"
+          term="A"
+          title="A title"
+          body="First target."
+        />
+        <TermHint
+          id="term:test:b"
+          term="B"
+          title="B title"
+          body="Second target."
+        />
       </>,
     );
 
-    fireEvent.click(screen.getByRole("button", { name: "A — what this means" }));
+    fireEvent.click(
+      screen.getByRole("button", { name: "A — what this means" }),
+    );
     expect(screen.getByText("First target.")).toBeTruthy();
 
-    fireEvent.click(screen.getByRole("button", { name: "B — what this means" }));
+    fireEvent.click(
+      screen.getByRole("button", { name: "B — what this means" }),
+    );
     expect(screen.queryByText("First target.")).toBeNull();
     expect(screen.getByText("Second target.")).toBeTruthy();
   });
@@ -105,14 +149,21 @@ describe("TermHint", () => {
           ariaLabel="About Observe"
           whatThisIs="Runs the eval harness."
         />
-        <TermHint id="term:shared:a" term="0.66" title="Latest scalar" body="The score." />
+        <TermHint
+          id="term:shared:a"
+          term="0.66"
+          title="Latest scalar"
+          body="The score."
+        />
       </>,
     );
 
     fireEvent.click(screen.getByRole("button", { name: "About Observe" }));
     expect(screen.getByText("Runs the eval harness.")).toBeTruthy();
 
-    fireEvent.click(screen.getByRole("button", { name: "0.66 — what this means" }));
+    fireEvent.click(
+      screen.getByRole("button", { name: "0.66 — what this means" }),
+    );
 
     expect(screen.queryByText("Runs the eval harness.")).toBeNull();
     expect(screen.getByText("The score.")).toBeTruthy();
@@ -121,7 +172,12 @@ describe("TermHint", () => {
   it("opening an InfoPopover closes an open TermHint", () => {
     render(
       <>
-        <TermHint id="term:shared:b" term="0.66" title="Latest scalar" body="The score." />
+        <TermHint
+          id="term:shared:b"
+          term="0.66"
+          title="Latest scalar"
+          body="The score."
+        />
         <InfoPopover
           id="popover:shared:b"
           title="Observe"
@@ -131,7 +187,9 @@ describe("TermHint", () => {
       </>,
     );
 
-    fireEvent.click(screen.getByRole("button", { name: "0.66 — what this means" }));
+    fireEvent.click(
+      screen.getByRole("button", { name: "0.66 — what this means" }),
+    );
     expect(screen.getByText("The score.")).toBeTruthy();
 
     fireEvent.click(screen.getByRole("button", { name: "About Observe" }));

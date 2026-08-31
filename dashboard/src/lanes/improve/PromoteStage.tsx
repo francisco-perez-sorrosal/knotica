@@ -225,17 +225,17 @@ export function PromoteStage({
                     term="why drop it"
                   />
                   <button
-                  type="button"
-                  class="danger"
-                  disabled={!client || deleteBusy}
-                  aria-busy={deletePreviewBusy || undefined}
-                  onClick={() => void previewDelete()}
-                >
-                  {deletePreviewBusy ? (
-                    <>
-                      <Spinner />
-                      Previewing…
-                    </>
+                    type="button"
+                    class="danger"
+                    disabled={!client || deleteBusy}
+                    aria-busy={deletePreviewBusy || undefined}
+                    onClick={() => void previewDelete()}
+                  >
+                    {deletePreviewBusy ? (
+                      <>
+                        <Spinner />
+                        Previewing…
+                      </>
                     ) : (
                       "Preview delete"
                     )}
@@ -250,18 +250,18 @@ export function PromoteStage({
                     align="end"
                   />
                   <button
-                  type="button"
-                  class="primary"
-                  data-testid="promote-preview-trigger"
-                  disabled={!client || promoteBusy}
-                  aria-busy={previewBusy || undefined}
-                  onClick={() => void previewPromote()}
-                >
-                  {previewBusy ? (
-                    <>
-                      <Spinner />
-                      Previewing…
-                    </>
+                    type="button"
+                    class="primary"
+                    data-testid="promote-preview-trigger"
+                    disabled={!client || promoteBusy}
+                    aria-busy={previewBusy || undefined}
+                    onClick={() => void previewPromote()}
+                  >
+                    {previewBusy ? (
+                      <>
+                        <Spinner />
+                        Previewing…
+                      </>
                     ) : (
                       "Preview promote"
                     )}

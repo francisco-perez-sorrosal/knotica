@@ -14,7 +14,6 @@ export const TEND_PROCESSES: Record<
   Extract<ProcessId, `tend.${string}`>,
   ProcessMeta
 > = {
-
   "tend.migrate": {
     lane: "tend",
     stage: "migrate",

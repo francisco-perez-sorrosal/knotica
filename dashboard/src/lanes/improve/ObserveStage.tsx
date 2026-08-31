@@ -4,6 +4,7 @@ import uPlot from "uplot";
 import "uplot/dist/uPlot.min.css";
 
 import { ArenaScorerSwitch } from "./ArenaScorerSwitch";
+import { readChartPalette, useThemeVersion } from "./chartTheme";
 import { Icon } from "../../icons";
 import { SectionCard } from "../../SectionCard";
 import { Stat, StatGrid } from "../../Stat";
@@ -169,11 +170,16 @@ export function ObserveStage({
     [records],
   );
 
+  // `themeVersion` is a dependency, not a value: a flip re-runs this effect,
+  // which re-resolves the palette and rebuilds the chart. Canvas pixels do not
+  // cascade, so nothing short of a redraw follows a theme change.
+  const themeVersion = useThemeVersion();
+
   useEffect(() => {
     const host = chartHost.current;
     if (!host || chartRecords.length === 0) return;
 
-    const palette = readObserveChartPalette(host);
+    const palette = readChartPalette(host);
     const generations = chartRecords.map((record) => record.generation);
     const scalars = chartRecords.map((record) => record.scalar);
     const series: uPlot.Options["series"] = [
@@ -191,8 +197,22 @@ export function ObserveStage({
       data.push(chartRecords.map(() => baselineScalar));
     }
 
+    // A fresh object per axis: uPlot writes its own derived state back onto the
+    // axis options it is handed, so one shared object would let the x axis
+    // clobber the y.
+    const axis = (): uPlot.Axis => ({
+      stroke: palette.axis,
+      grid: { stroke: palette.grid, width: 1 },
+      ticks: { stroke: palette.grid, width: 1 },
+    });
     const chart = new uPlot(
-      { width: host.clientWidth, height: 180, legend: { show: true }, series },
+      {
+        width: host.clientWidth,
+        height: 180,
+        legend: { show: true },
+        series,
+        axes: [axis(), axis()],
+      },
       data,
       host,
     );
@@ -205,7 +225,7 @@ export function ObserveStage({
       // A test double may not implement `destroy` — real `uPlot` always does.
       chart.destroy?.();
     };
-  }, [baselineScalar, chartRecords]);
+  }, [baselineScalar, chartRecords, themeVersion]);
 
   return (
     <section class="pane-main observe-stage" aria-label="Observe">
@@ -443,17 +463,4 @@ function runEvalFooter(
       </button>
     </>
   );
-}
-
-type ObserveChartPalette = { series: string; baseline: string };
-
-/** uPlot draws on canvas — resolve theme tokens to concrete colors at runtime. */
-function readObserveChartPalette(host: HTMLElement): ObserveChartPalette {
-  const cs = getComputedStyle(host);
-  const pick = (token: string, fallback: string) =>
-    cs.getPropertyValue(token).trim() || fallback;
-  return {
-    series: pick("--chart-series", pick("--accent", "#268bd2")),
-    baseline: pick("--chart-baseline", pick("--warn", "#b58900")),
-  };
 }

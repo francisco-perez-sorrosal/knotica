@@ -45,7 +45,9 @@ export function SectionCard({
       <header class="section-card-head">
         {icon ? <Icon name={icon} size={16} /> : null}
         <span class="microlabel">{title}</span>
-        {headerActions ? <span class="section-card-head-actions">{headerActions}</span> : null}
+        {headerActions ? (
+          <span class="section-card-head-actions">{headerActions}</span>
+        ) : null}
       </header>
       <div class="section-card-body">{children}</div>
       {footer ? <footer class="section-card-actions">{footer}</footer> : null}

@@ -1,6 +1,14 @@
 import { cleanup, fireEvent, render } from "@testing-library/preact";
 import type { JSX } from "preact";
-import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
+import {
+  afterEach,
+  beforeAll,
+  beforeEach,
+  describe,
+  expect,
+  it,
+  vi,
+} from "vitest";
 
 import type { ObsidianContext } from "../../../obsidianLinks";
 import type { ToolClient } from "../../../toolClient";
@@ -59,12 +67,7 @@ const STAGE_ORDER = [
   "prove",
 ] as const;
 type StageId = (typeof STAGE_ORDER)[number];
-type StageState =
-  | "pending"
-  | "active"
-  | "complete"
-  | "blocked"
-  | "unknown";
+type StageState = "pending" | "active" | "complete" | "blocked" | "unknown";
 
 const mounted: Record<StageId, number> = {
   instrument: 0,
@@ -82,7 +85,9 @@ function stubFor(id: StageId) {
   };
 }
 
-vi.mock("../InstrumentStage", () => ({ InstrumentStage: stubFor("instrument") }));
+vi.mock("../InstrumentStage", () => ({
+  InstrumentStage: stubFor("instrument"),
+}));
 vi.mock("../ObserveStage", () => ({ ObserveStage: stubFor("observe") }));
 vi.mock("../GateStage", () => ({ GateStage: stubFor("gate") }));
 vi.mock("../HealStage", () => ({ HealStage: stubFor("heal") }));
@@ -173,13 +178,18 @@ describe("focus opens a stage the server declares pending (the F1 fix)", () => {
     fireEvent.click(disclosureIn(rows(container)[2]));
 
     expect(mounted.gate).toBe(1);
-    expect(STAGE_ORDER.filter((id) => id !== "gate").every((id) => mounted[id] === 0)).toBe(true);
+    expect(
+      STAGE_ORDER.filter((id) => id !== "gate").every(
+        (id) => mounted[id] === 0,
+      ),
+    ).toBe(true);
   });
 
   it("mounts the real stage body when its loop-strip node is clicked", () => {
     const { container } = render(<ImproveLane {...props()} />);
 
-    const nodes = container.querySelectorAll<HTMLButtonElement>("button.loop-node");
+    const nodes =
+      container.querySelectorAll<HTMLButtonElement>("button.loop-node");
     expect(nodes).toHaveLength(6);
     fireEvent.click(nodes[4]);
 
@@ -191,7 +201,9 @@ describe("focus opens a stage the server declares pending (the F1 fix)", () => {
 
     const disclosure = disclosureIn(rows(container)[1]);
     fireEvent.click(disclosure);
-    expect(container.querySelector('[data-testid="stub-observe"]')).toBeTruthy();
+    expect(
+      container.querySelector('[data-testid="stub-observe"]'),
+    ).toBeTruthy();
 
     fireEvent.click(disclosureIn(rows(container)[1]));
     expect(container.querySelector('[data-testid="stub-observe"]')).toBeNull();
@@ -216,7 +228,10 @@ describe("focus opens a stage the server declares pending (the F1 fix)", () => {
 
     for (const row of rows(container)) fireEvent.click(disclosureIn(row));
 
-    const billed = client as unknown as Record<string, ReturnType<typeof vi.fn>>;
+    const billed = client as unknown as Record<
+      string,
+      ReturnType<typeof vi.fn>
+    >;
     for (const method of [
       "loopRunEval",
       "loopOnce",
@@ -243,7 +258,9 @@ describe("focus never touches the server's own position", () => {
     const heal = rows(container)[3];
     expect(heal.dataset.focus).toBe("true");
     expect(heal.getAttribute("aria-current")).toBeNull();
-    expect(container.querySelectorAll('.lane-stage[aria-current="step"]')).toHaveLength(0);
+    expect(
+      container.querySelectorAll('.lane-stage[aria-current="step"]'),
+    ).toHaveLength(0);
   });
 
   it("keeps aria-current on the declared stage even while another one is focused", () => {
@@ -254,7 +271,9 @@ describe("focus never touches the server's own position", () => {
     fireEvent.click(disclosureIn(rows(container)[4]));
 
     const current = Array.from(
-      container.querySelectorAll<HTMLElement>('.lane-stage[aria-current="step"]'),
+      container.querySelectorAll<HTMLElement>(
+        '.lane-stage[aria-current="step"]',
+      ),
     );
     expect(current).toHaveLength(1);
     expect(current[0].textContent?.toLowerCase()).toContain("observe");
@@ -275,7 +294,9 @@ describe("focus never touches the server's own position", () => {
     // server declared it active -- that is the render matrix, not focus theft.
     expect(rows(container)[2].dataset.focus).toBe("true");
     expect(container.querySelector('[data-testid="stub-gate"]')).toBeTruthy();
-    expect(container.querySelector('[data-testid="stub-observe"]')).toBeTruthy();
+    expect(
+      container.querySelector('[data-testid="stub-observe"]'),
+    ).toBeTruthy();
   });
 
   it("resets focus when the topic changes", () => {
@@ -291,7 +312,9 @@ describe("focus never touches the server's own position", () => {
     );
 
     expect(container.querySelector('[data-testid="stub-gate"]')).toBeNull();
-    expect(rows(container).every((row) => row.dataset.focus === "false")).toBe(true);
+    expect(rows(container).every((row) => row.dataset.focus === "false")).toBe(
+      true,
+    );
   });
 });
 
@@ -321,8 +344,12 @@ describe("the idle rail is not a dead end", () => {
       <ImproveLane {...props({ status: statusWith(statesAtWatermark(1)) })} />,
     );
 
-    expect(rows(container)[1].querySelector(".lane-stage-disclosure")).toBeNull();
-    expect(container.querySelector('[data-testid="stub-observe"]')).toBeTruthy();
+    expect(
+      rows(container)[1].querySelector(".lane-stage-disclosure"),
+    ).toBeNull();
+    expect(
+      container.querySelector('[data-testid="stub-observe"]'),
+    ).toBeTruthy();
   });
 });
 
@@ -339,9 +366,7 @@ describe("an unknown rail is rendered as unknown, not as pending", () => {
       <ImproveLane {...props({ status: statusWith(UNRECORDED) })} />,
     );
 
-    expect(
-      rows(container).map((row) => row.dataset.state),
-    ).toEqual(UNRECORDED);
+    expect(rows(container).map((row) => row.dataset.state)).toEqual(UNRECORDED);
     expect(
       rows(container)[0].querySelector(".lane-state-label")?.textContent,
     ).toBe("unknown");

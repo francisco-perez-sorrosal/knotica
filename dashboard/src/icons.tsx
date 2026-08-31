@@ -45,21 +45,15 @@ const GLYPHS: Record<IconName, JSX.Element> = {
   "lane:learn": (
     <path d="M4 5.5c2-1 5-1 8 .5v13c-3-1.5-6-1.5-8-.5zM20 5.5c-2-1-5-1-8 .5v13c3-1.5 6-1.5 8-.5z" />
   ),
-  "lane:answer": (
-    <path d="M4 5h16v10H9l-4 3.5V15H4z M11 9.2h.01 M11 12h.01" />
-  ),
+  "lane:answer": <path d="M4 5h16v10H9l-4 3.5V15H4z M11 9.2h.01 M11 12h.01" />,
   "lane:improve": (
     <path d="M5 12a7 7 0 0 1 12-5M19 4v4h-4 M19 12a7 7 0 0 1-12 5M5 20v-4h4" />
   ),
-  "lane:fill": (
-    <path d="M4 4h7v7H4z M13 4h7v7h-7z M4 13h7v7H4z" />
-  ),
+  "lane:fill": <path d="M4 4h7v7H4z M13 4h7v7h-7z M4 13h7v7H4z" />,
   "lane:tend": (
     <path d="M14.5 6.5a4 4 0 0 1-5.2 4.9L5 15.7 8.3 19l4.3-4.3a4 4 0 0 1 4.9-5.2l-2.6 2.6-2-2z" />
   ),
-  "state:pending": (
-    <circle cx="12" cy="12" r="7" stroke-dasharray="3 3" />
-  ),
+  "state:pending": <circle cx="12" cy="12" r="7" stroke-dasharray="3 3" />,
   "state:active": (
     <>
       <circle cx="12" cy="12" r="7" />
@@ -72,9 +66,7 @@ const GLYPHS: Record<IconName, JSX.Element> = {
       <path d="m9 12 2 2 4-4" />
     </>
   ),
-  "state:blocked": (
-    <path d="M12 4 2.5 19.5h19zM12 10v4.5 M12 17.2h.01" />
-  ),
+  "state:blocked": <path d="M12 4 2.5 19.5h19zM12 10v4.5 M12 17.2h.01" />,
   "state:unknown": (
     <>
       <circle cx="12" cy="12" r="7" />
@@ -87,9 +79,7 @@ const GLYPHS: Record<IconName, JSX.Element> = {
   "stage:instrument": (
     <path d="M4 6h6M4 12h10M4 18h7 M12 4v4 M16 9v6 M13 16v4" />
   ),
-  "stage:observe": (
-    <path d="M4 18V6 M4 18h16 M6 15l4-5 3 3 5-7" />
-  ),
+  "stage:observe": <path d="M4 18V6 M4 18h16 M6 15l4-5 3 3 5-7" />,
   "stage:gate": (
     <path d="M12 3 5 6v6c0 5 3 8 7 9 4-1 7-4 7-9V6z M9.5 12l1.8 1.8L15 10" />
   ),
@@ -168,6 +158,10 @@ export function Icon({
  * control is the machine-readable state. Motion is never the sole carrier
  * of anything, so a reduced-motion or ANSI-less reader loses nothing.
  */
-export function Spinner({ size = 16 }: { size?: 16 | 20 | 24 } = {}): JSX.Element {
+export function Spinner({
+  size = 16,
+}: {
+  size?: 16 | 20 | 24;
+} = {}): JSX.Element {
   return <Icon name="refresh" size={size} class="spin" />;
 }

@@ -1,10 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import {
-  flywheelLabel,
-  flywheelTone,
-  isCompileActive,
-} from "../compileStages";
+import { flywheelLabel, flywheelTone, isCompileActive } from "../compileStages";
 
 describe("dashboard test runner", () => {
   it("imports a pure source module and sees its exports", () => {

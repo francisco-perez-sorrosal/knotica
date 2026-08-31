@@ -33,14 +33,18 @@ describe("Stat", () => {
   });
 
   it("colours only the value, never a count", () => {
-    const { container } = render(<Stat label="Δ BASELINE" value="+0.0131" tone="good" />);
+    const { container } = render(
+      <Stat label="Δ BASELINE" value="+0.0131" tone="good" />,
+    );
 
     const stat = container.querySelector(".stat");
     expect(stat?.getAttribute("data-tone")).toBe("good");
   });
 
   it("drops an explicit tone when the value is absent -- absence is neutral, not a verdict", () => {
-    const { container } = render(<Stat label="BASELINE" value={null} tone="bad" />);
+    const { container } = render(
+      <Stat label="BASELINE" value={null} tone="bad" />,
+    );
 
     const stat = container.querySelector(".stat");
     expect(stat?.hasAttribute("data-tone")).toBe(false);

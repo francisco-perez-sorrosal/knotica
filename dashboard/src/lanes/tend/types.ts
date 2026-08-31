@@ -133,7 +133,11 @@ export type AnchorFidelity = "span" | "page" | "topic";
  * nothing at all.
  */
 export type AnchorStatus =
-  "exact" | "unanchored" | "shifted" | "fuzzy" | "orphaned";
+  | "exact"
+  | "unanchored"
+  | "shifted"
+  | "fuzzy"
+  | "orphaned";
 export type AnchorStatusFilter = AnchorStatus | "all";
 
 /**
@@ -401,4 +405,5 @@ export interface NotePromoteGapResult {
 export type PromoteTarget = "trainset" | "gap";
 
 export type NotePromoteActionResult =
-  NotePromoteTrainsetResult | NotePromoteGapResult;
+  | NotePromoteTrainsetResult
+  | NotePromoteGapResult;

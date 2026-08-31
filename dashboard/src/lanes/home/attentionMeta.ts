@@ -43,6 +43,10 @@ export interface AttentionKindMeta {
  * - `gaps_awaiting_discovery` -- `core/gapfill.py`'s discovery leg, which
  *   turns an open gap into ranked candidate sources; the row exists because
  *   nothing else reports a gap queue that discovery never reached.
+ * - `gaps_answered_in_vault` -- `core/gapfill/drain.py`'s
+ *   `answered_in_vault_at` stamp, written when a drain finds a gap's entire
+ *   candidate yield already stored as vault sources; `GapCard.tsx`'s dismiss
+ *   form is the other half of the answer when the gap is simply stale.
  * - `arena_aborted` -- `core/arena.py::ArenaStage.aborted` ("refused before
  *   scoring: the scorer and the baseline are not the same instrument"), and
  *   `HealStage.tsx`'s abort card, whose scorer switch is the fix.
@@ -67,6 +71,14 @@ export const ATTENTION_KIND_META: Record<AttentionKind, AttentionKindMeta> = {
       "Running discovery turns each open gap into ranked candidate sources you can approve, which is what starts an ingest.",
     // Discovery is the stalled step, so Discover is where the user must land.
     anchor: { lane: "fill", stage: "discover" },
+  },
+  gaps_answered_in_vault: {
+    why: "A drain found every source it could for these gaps already stored in the vault, so no discovery run will ever close them — the answer is present and the retrieval or linking to it is what failed.",
+    unlocks:
+      "Fixing the retrieval path (or the pages' links) makes the stored sources reachable; dismissing the gap is the honest exit when it is simply stale. Either way the gap stops costing a billed search on every drain.",
+    // The gap card -- its evidence and its dismiss form -- is what needs
+    // reading here; no amount of Discover will help.
+    anchor: { lane: "fill", stage: "gap" },
   },
   baseline_unreachable: {
     why: "The frozen gate baseline sits above what the default branch itself measures, so no candidate, source, or arena variant can pass — every refusal blames the content for a shortfall the bar created.",

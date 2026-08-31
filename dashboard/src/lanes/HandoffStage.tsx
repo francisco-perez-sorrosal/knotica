@@ -250,7 +250,9 @@ export function HandoffDispatchPanel({
             aria-busy={dispatching || undefined}
             onClick={() =>
               void run(
-                tier === "A" ? dispatch.sendMessage : dispatch.updateModelContext,
+                tier === "A"
+                  ? dispatch.sendMessage
+                  : dispatch.updateModelContext,
               )
             }
           >

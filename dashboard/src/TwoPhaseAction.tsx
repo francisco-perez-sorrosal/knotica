@@ -42,7 +42,9 @@ export interface TwoPhaseHandlers<T extends TwoPhaseEnvelope> {
   onError?: (message: string) => void;
 }
 
-export type TwoPhaseEmit<T extends TwoPhaseEnvelope> = (next: TwoPhaseState<T>) => void;
+export type TwoPhaseEmit<T extends TwoPhaseEnvelope> = (
+  next: TwoPhaseState<T>,
+) => void;
 
 export function idleTwoPhase<T extends TwoPhaseEnvelope>(): TwoPhaseState<T> {
   return { preview: null, outcome: null, busy: null };
@@ -84,7 +86,11 @@ export async function runConfirm<T extends TwoPhaseEnvelope>(
   if (state.busy || !quoted || !nonce) return;
   emit({ preview: quoted, outcome: null, busy: "confirm" });
   try {
-    emit({ preview: null, outcome: await handlers.confirm(nonce, quoted), busy: null });
+    emit({
+      preview: null,
+      outcome: await handlers.confirm(nonce, quoted),
+      busy: null,
+    });
   } catch (cause) {
     emit({ preview: quoted, outcome: null, busy: null });
     handlers.onError?.(describeCause(cause));
@@ -145,7 +151,9 @@ export function TwoPhaseConfirm({
   onCancel: () => void;
 }) {
   return (
-    <div class={`heal-policy-controls heal-run-eval-confirm ${extraClass}`.trimEnd()}>
+    <div
+      class={`heal-policy-controls heal-run-eval-confirm ${extraClass}`.trimEnd()}
+    >
       <p class="heal-step-body">{children}</p>
       <button
         type="button"
@@ -163,7 +171,12 @@ export function TwoPhaseConfirm({
           "Confirm — run and bill"
         )}
       </button>
-      <button type="button" class="ghost" disabled={busy !== null} onClick={onCancel}>
+      <button
+        type="button"
+        class="ghost"
+        disabled={busy !== null}
+        onClick={onCancel}
+      >
         Cancel
       </button>
     </div>
@@ -188,7 +201,10 @@ export function TwoPhaseOutcome({
   onDismiss: () => void;
 }) {
   return (
-    <div class={`heal-policy-controls heal-run-eval-outcome ${tone}`.trimEnd()} role="status">
+    <div
+      class={`heal-policy-controls heal-run-eval-outcome ${tone}`.trimEnd()}
+      role="status"
+    >
       <p class="heal-step-body">{children}</p>
       <button type="button" class="ghost" onClick={onDismiss}>
         Dismiss

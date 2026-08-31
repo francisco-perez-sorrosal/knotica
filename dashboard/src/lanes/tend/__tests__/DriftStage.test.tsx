@@ -518,7 +518,9 @@ describe("reanchor and detach reach exactly one preview/confirm implementation, 
     const container = renderDriftStage(client);
     await expandStage();
 
-    fireEvent.click(within(container).getByRole("button", { name: /^detach$/i }));
+    fireEvent.click(
+      within(container).getByRole("button", { name: /^detach$/i }),
+    );
 
     const banner = await within(container).findByRole("status");
     expect(banner.className).toMatch(/notes-action-confirm/);
@@ -537,7 +539,9 @@ describe("reanchor and detach reach exactly one preview/confirm implementation, 
     const container = renderDriftStage(client);
     await expandStage();
 
-    fireEvent.click(within(container).getByRole("button", { name: /^detach$/i }));
+    fireEvent.click(
+      within(container).getByRole("button", { name: /^detach$/i }),
+    );
     const banner = await within(container).findByRole("status");
     fireEvent.click(
       within(banner).getByRole("button", { name: /confirm detach/i }),

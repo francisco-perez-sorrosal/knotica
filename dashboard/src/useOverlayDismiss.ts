@@ -30,7 +30,10 @@ export function useOverlayDismiss<TPanel extends HTMLElement>(
     }
     function handlePointerDown(event: PointerEvent): void {
       const target = event.target as Node;
-      if (panelRef.current?.contains(target) || triggerRef.current?.contains(target)) {
+      if (
+        panelRef.current?.contains(target) ||
+        triggerRef.current?.contains(target)
+      ) {
         return;
       }
       onClose();

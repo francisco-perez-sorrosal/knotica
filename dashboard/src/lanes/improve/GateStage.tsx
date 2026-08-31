@@ -57,7 +57,9 @@ export function GateStage({
   // `gate` is the parent both `wiki_status` views now agree on; `loop` is the
   // deprecated mirror, read only so a server one release behind still renders.
   const baselineUnreachable =
-    status?.gate.baseline_unreachable ?? status?.loop.baseline_unreachable ?? null;
+    status?.gate.baseline_unreachable ??
+    status?.loop.baseline_unreachable ??
+    null;
 
   // Both legs go through one call expression, so the confirm leg is provably
   // the preview leg plus the nonce — mirrors `LoopPane.tsx`'s `gateCandidate`.
@@ -89,7 +91,9 @@ export function GateStage({
           <span class="chip">
             <TermHint
               id="gate-pending-count"
-              term={pendingCount > 0 ? `${pendingCount} pending` : "none pending"}
+              term={
+                pendingCount > 0 ? `${pendingCount} pending` : "none pending"
+              }
               title="Gate baseline"
               body="A candidate must beat the frozen baseline to merge. If the baseline is unreachable, every candidate fails for a reason that has nothing to do with the candidate — which is what the alert above says."
               align="end"
@@ -98,7 +102,10 @@ export function GateStage({
         }
         footer={
           outcome ? (
-            <div class="heal-policy-controls heal-run-eval-outcome" role="status">
+            <div
+              class="heal-policy-controls heal-run-eval-outcome"
+              role="status"
+            >
               <p class="heal-step-body">
                 {outcome.billed ? (
                   <>
@@ -216,8 +223,8 @@ export function GateStage({
             <p class="muted">
               Push new content to a local <code>loop/c/*</code> branch — the
               watcher picks it up, evals it on a clone, and gates the result
-              against the baseline. Nothing to do here manually; this card
-              fills in once a candidate is pending.
+              against the baseline. Nothing to do here manually; this card fills
+              in once a candidate is pending.
             </p>
           )}
         </>

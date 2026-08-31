@@ -264,9 +264,9 @@ describe("Ask bills, so one click never sends it", () => {
 
     const pending = stageNodes(container)[REACT];
     expect(pending.dataset.state).toBe("pending");
-    expect(
-      pending.querySelector(".lane-state-label")?.textContent,
-    ).toBe("pending");
+    expect(pending.querySelector(".lane-state-label")?.textContent).toBe(
+      "pending",
+    );
     expect(pending.querySelector(".lane-stage-index")).toBeTruthy();
 
     await askAndAwaitAnswer();

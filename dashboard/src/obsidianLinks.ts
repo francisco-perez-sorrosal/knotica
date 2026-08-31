@@ -25,8 +25,12 @@ export function obsidianVaultNameFromPath(vaultPath: string): string | null {
 }
 
 /** Obsidian vault folder name for URI ``vault=`` params — path basename wins over config key. */
-export function resolveObsidianVaultName(ctx: ObsidianContext): string | undefined {
-  const fromPath = ctx.vaultPath ? obsidianVaultNameFromPath(ctx.vaultPath) : null;
+export function resolveObsidianVaultName(
+  ctx: ObsidianContext,
+): string | undefined {
+  const fromPath = ctx.vaultPath
+    ? obsidianVaultNameFromPath(ctx.vaultPath)
+    : null;
   if (fromPath) return fromPath;
   const name = ctx.vaultName?.trim();
   return name && name !== "…" ? name : undefined;
@@ -45,7 +49,10 @@ export function encodeVaultFile(relativePath: string): string {
   return encodeURIComponent(normalized).replace(/%2F/g, "/");
 }
 
-export function obsidianOpenFile(vaultName: string, vaultRelativePath: string): string | null {
+export function obsidianOpenFile(
+  vaultName: string,
+  vaultRelativePath: string,
+): string | null {
   const name = vaultName.trim();
   const file = vaultRelativePath.trim();
   if (!name || name === "…" || !file) return null;
@@ -58,7 +65,9 @@ export function obsidianOpenPath(absolutePath: string): string | null {
   return `obsidian://open?path=${encodeURIComponent(path)}`;
 }
 
-export function obsidianOpenVaultFromContext(ctx: ObsidianContext): string | null {
+export function obsidianOpenVaultFromContext(
+  ctx: ObsidianContext,
+): string | null {
   const name = resolveObsidianVaultName(ctx);
   return name ? obsidianOpenVault(name) : null;
 }

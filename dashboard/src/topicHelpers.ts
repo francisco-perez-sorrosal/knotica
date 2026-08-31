@@ -44,7 +44,9 @@ export function resolveTopicBaseline(
   }
   const lastEval =
     topicRow?.last_eval ??
-    (metrics?.records.length ? metrics.records[metrics.records.length - 1] : null);
+    (metrics?.records.length
+      ? metrics.records[metrics.records.length - 1]
+      : null);
   if (lastEval && isNaiveProbeHarness(lastEval.harness_version)) {
     return { baseline: lastEval.scalar, source: "naive_probe" };
   }
@@ -76,7 +78,9 @@ export function resolveTopicCurrentScore(
   }
   const lastEval =
     topicRow?.last_eval ??
-    (metrics?.records.length ? metrics.records[metrics.records.length - 1] : null);
+    (metrics?.records.length
+      ? metrics.records[metrics.records.length - 1]
+      : null);
   if (lastEval && isNaiveProbeHarness(lastEval.harness_version)) {
     return { score: lastEval.scalar, source: "naive_probe" };
   }
@@ -112,13 +116,20 @@ export function baselineChipPrefix(source: BaselineSource): string {
 
 export function baselineChipTone(source: BaselineSource): "ok" | "warn" | "" {
   if (source === "frozen" || source === "loop") return "ok";
-  if (source === "compile" || source === "last_metrics" || source === "naive_probe") {
+  if (
+    source === "compile" ||
+    source === "last_metrics" ||
+    source === "naive_probe"
+  ) {
     return "warn";
   }
   return "";
 }
 
-export function baselineChipTitle(topic: string, source: BaselineSource): string {
+export function baselineChipTitle(
+  topic: string,
+  source: BaselineSource,
+): string {
   const topicCtx = `for ${topic}`;
   switch (source) {
     case "frozen":
@@ -142,7 +153,9 @@ export function isNaiveProbeScore(
   metrics?: MetricsWindow | null,
   topicRow?: TopicRow | null,
 ): boolean {
-  return resolveTopicCurrentScore(status, metrics, topicRow).source === "naive_probe";
+  return (
+    resolveTopicCurrentScore(status, metrics, topicRow).source === "naive_probe"
+  );
 }
 
 /** @deprecated Use {@link isNaiveProbeScore}. */
@@ -161,5 +174,7 @@ export function findTopicRow(
   topic: string,
 ): TopicRow | null {
   if (!status?.topics.length) return null;
-  return status.topics.find((row) => row.topic === topic) ?? status.topics[0] ?? null;
+  return (
+    status.topics.find((row) => row.topic === topic) ?? status.topics[0] ?? null
+  );
 }

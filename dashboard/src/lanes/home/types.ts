@@ -31,8 +31,12 @@ export interface AttentionTopicRow {
   topic: string;
   suggestions: AttentionSuggestions;
   /** Open gap records, all fault classes. A filed gap with nothing proposed
-   * against it is a stalled queue that no other signal reports. */
-  gaps: { open_total: number };
+   * against it is a stalled queue that no other signal reports.
+   * `answered_in_vault` counts the open gaps a drain stamped
+   * `answered_in_vault_at` — every source it could find for them is already
+   * stored, so the fault is retrieval or linking, not acquisition. Optional
+   * because a server predating the stamp omits it. */
+  gaps: { open_total: number; answered_in_vault?: number };
   compile_ready: boolean;
   runner: { alive: boolean };
   /** The topic's last arena stage, or `null` when no race was ever recorded --
@@ -44,7 +48,9 @@ export interface AttentionTopicRow {
    * can clear, so the topic's whole pipeline is jammed. `null` when the bar is
    * reachable (or unknowable: cross-instrument, probe-anchored, unevaluated).
    * Optional so a pre-field server payload still derives every other row. */
-  gate?: { baseline_unreachable: { baseline: number; last_scalar: number } | null };
+  gate?: {
+    baseline_unreachable: { baseline: number; last_scalar: number } | null;
+  };
 }
 
 /** The `view="attention"` payload -- every topic's actionable signals plus
@@ -73,12 +79,13 @@ export type AttentionUrgency = "blocked" | "waiting" | "running";
 /** Which of `deriveAttentionRows`'s signal branches produced a row --
  * drives `attentionMeta.ts`'s per-row rationale (why it is queued, what
  * acting on it unfolds). One kind per branch in `rowsForTopic`, never
- * derived from `urgency`/`lane` (two kinds share `waiting`, two share
+ * derived from `urgency`/`lane` (four kinds share `waiting`, four share
  * `fill`). */
 export type AttentionKind =
   | "refused_rework"
   | "pending_suggestions"
   | "gaps_awaiting_discovery"
+  | "gaps_answered_in_vault"
   | "compile_ready"
   | "arena_aborted"
   | "baseline_unreachable"

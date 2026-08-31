@@ -124,7 +124,9 @@ export function NotePromoteDialog({
       : question;
 
   return (
+    // biome-ignore lint/a11y/noStaticElementInteractions: click-outside is a pointer convenience over a dialog already closable by Escape (effect above) and the Cancel button; the backdrop is deliberately not in the a11y tree.
     <div class="modal-backdrop" role="presentation" onClick={onClose}>
+      {/* biome-ignore lint/a11y/useKeyWithClickEvents: the only handler is stopPropagation, guarding the backdrop click above -- there is no keyboard action to mirror. */}
       <div
         class="modal notes-promote-modal"
         role="dialog"

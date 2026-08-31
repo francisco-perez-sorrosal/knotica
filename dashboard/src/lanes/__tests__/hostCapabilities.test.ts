@@ -119,9 +119,7 @@ describe("deriveDispatchTier — absence tolerance (every McpUiHostCapabilities 
     expect(() =>
       hostCapabilities.deriveDispatchTier(undefined, "bridge"),
     ).not.toThrow();
-    expect(hostCapabilities.deriveDispatchTier(undefined, "bridge")).toBe(
-      "C",
-    );
+    expect(hostCapabilities.deriveDispatchTier(undefined, "bridge")).toBe("C");
   });
 
   it("does not throw and resolves D when the HTTP mount's host object is `undefined`", () => {
@@ -135,7 +133,12 @@ describe("deriveDispatchTier — absence tolerance (every McpUiHostCapabilities 
 describe("deriveDispatchTier — stable, pure ordering across all mount/capability combinations", () => {
   it.each<[string, HostCapabilities | undefined, Mount, DispatchTier]>([
     ["message only", { message: {} }, "bridge", "A"],
-    ["message + updateModelContext", { message: {}, updateModelContext: {} }, "bridge", "A"],
+    [
+      "message + updateModelContext",
+      { message: {}, updateModelContext: {} },
+      "bridge",
+      "A",
+    ],
     ["updateModelContext only", { updateModelContext: {} }, "bridge", "B"],
     ["neither", {}, "bridge", "C"],
     ["undefined caps", undefined, "bridge", "C"],
@@ -172,9 +175,15 @@ describe("deriveDispatchTier — stable, pure ordering across all mount/capabili
   it("carries no memory between calls — a tier-D call sandwiched between tier-A calls changes neither", () => {
     const capsWithMessage: HostCapabilities = { message: {} };
 
-    const before = hostCapabilities.deriveDispatchTier(capsWithMessage, "bridge");
+    const before = hostCapabilities.deriveDispatchTier(
+      capsWithMessage,
+      "bridge",
+    );
     hostCapabilities.deriveDispatchTier({}, "http");
-    const after = hostCapabilities.deriveDispatchTier(capsWithMessage, "bridge");
+    const after = hostCapabilities.deriveDispatchTier(
+      capsWithMessage,
+      "bridge",
+    );
 
     expect(before).toBe("A");
     expect(after).toBe("A");

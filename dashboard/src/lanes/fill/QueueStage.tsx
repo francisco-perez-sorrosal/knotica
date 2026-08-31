@@ -141,7 +141,10 @@ export function QueueStage({
   const [result, setResult] = useState<SuggestionsReadResult | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [busy, setBusy] = useState<{ id: string; action: SuggestionAction } | null>(null);
+  const [busy, setBusy] = useState<{
+    id: string;
+    action: SuggestionAction;
+  } | null>(null);
   /**
    * Rows decided in this session that the current filter no longer returns.
    * Held so a decision *transforms* its row instead of deleting it: among
@@ -248,7 +251,10 @@ export function QueueStage({
   }
 
   /** Returns the fresh payload so a caller can announce against its counts. */
-  async function load(cursor = "", append = false): Promise<SuggestionsReadResult | null> {
+  async function load(
+    cursor = "",
+    append = false,
+  ): Promise<SuggestionsReadResult | null> {
     if (!client || !topic) return null;
     setLoading(!append);
     setError(null);
@@ -308,17 +314,32 @@ export function QueueStage({
    * slot it occupied in the list that was clicked in, so it comes back exactly
    * there rather than at the end of a fifty-row queue.
    */
-  async function decide(suggestionId: string, action: SuggestionAction, reason = "") {
+  async function decide(
+    suggestionId: string,
+    action: SuggestionAction,
+    reason = "",
+  ) {
     if (!client || busy) return;
-    const snapshot = suggestions.find((row) => row.suggestion_id === suggestionId);
+    const snapshot = suggestions.find(
+      (row) => row.suggestion_id === suggestionId,
+    );
     // Anchored in `loaded`, the ghost-free list `mergeGhosts` splices into --
     // never in the merged view that was clicked, which already carries every
     // earlier ghost and would push this one a slot too high for each of them.
-    const anchor = loaded.findIndex((row) => row.suggestion_id === suggestionId);
+    const anchor = loaded.findIndex(
+      (row) => row.suggestion_id === suggestionId,
+    );
     setBusy({ id: suggestionId, action });
     setError(null);
     try {
-      await client.suggestionsReview(topic, suggestionId, action, "apply", reason, vault);
+      await client.suggestionsReview(
+        topic,
+        suggestionId,
+        action,
+        "apply",
+        reason,
+        vault,
+      );
       setRejectOpenId(null);
       setReasonDraft((prev) => {
         const next = { ...prev };
@@ -345,9 +366,11 @@ export function QueueStage({
     }
   }
 
-  const declared = status?.topics.find((row) => row.topic === topic)?.lanes?.fill ?? [];
+  const declared =
+    status?.topics.find((row) => row.topic === topic)?.lanes?.fill ?? [];
   const byId = new Map(declared.map((stage) => [stage.id, stage] as const));
-  const stateOf = (id: StageId): LaneRailStageState => byId.get(id)?.state ?? "pending";
+  const stateOf = (id: StageId): LaneRailStageState =>
+    byId.get(id)?.state ?? "pending";
 
   // Re-sorted on every render, including after "Load more" appends -- the
   // ordering is a view over whatever is loaded, never a one-shot decision.
@@ -368,14 +391,15 @@ export function QueueStage({
   // Single-sourced from wiki_status (topic-wide), not a page-local recount --
   // avoids undercounting refused suggestions outside the current filter/page.
   const refusedCount =
-    status?.topics.find((entry) => entry.topic === topic)?.suggestions?.refused_awaiting_rework ??
-    0;
+    status?.topics.find((entry) => entry.topic === topic)?.suggestions
+      ?.refused_awaiting_rework ?? 0;
 
   return (
     <>
       <StageShell id="gap" state={stateOf("gap")} position={1}>
         <p class="muted">
-          Diagnosed and waiting for source discovery -- there is nothing to approve on them yet.
+          Diagnosed and waiting for source discovery -- there is nothing to
+          approve on them yet.
         </p>
         {gapsError ? (
           <p class="sources-error" role="alert">
@@ -394,7 +418,9 @@ export function QueueStage({
                   key={gap.gap_id}
                   gap={gap}
                   dismissOpen={dismissOpenId === gap.gap_id}
-                  reasonDraft={dismissOpenId === gap.gap_id ? gapReasonDraft : ""}
+                  reasonDraft={
+                    dismissOpenId === gap.gap_id ? gapReasonDraft : ""
+                  }
                   busy={gapBusy === gap.gap_id}
                   disabled={gapBusy !== null}
                   onRequestDismiss={() => {
@@ -428,8 +454,8 @@ export function QueueStage({
 
       <StageShell id="discover" state={stateOf("discover")} position={2}>
         <p class="muted">
-          Searches for candidate sources for open gaps; each one that ranks becomes a row in the
-          Approve stage below.
+          Searches for candidate sources for open gaps; each one that ranks
+          becomes a row in the Approve stage below.
         </p>
         {/* Deliberately one control for every open gap, not one per row: the
             server drains by count (max_gaps), not by gap id. The brief is a
@@ -439,7 +465,9 @@ export function QueueStage({
         <button
           type="button"
           class="ghost"
-          disabled={!client || discoverBusy !== null || discover.state.preview !== null}
+          disabled={
+            !client || discoverBusy !== null || discover.state.preview !== null
+          }
           aria-busy={discoverBusy === "preview" || undefined}
           onClick={previewDiscover}
         >
@@ -459,23 +487,26 @@ export function QueueStage({
             busyLabel="Searching"
             extraClass="sources-discover-confirm"
             disabled={
-              !client || discoverBusy !== null || !discover.state.preview.provider_configured
+              !client ||
+              discoverBusy !== null ||
+              !discover.state.preview.provider_configured
             }
             onConfirm={discover.confirm}
             onCancel={discover.reset}
           >
             {discover.state.preview.provider_configured ? (
               <>
-                Would search for <strong>{discover.state.preview.would_drain}</strong> of{" "}
+                Would search for{" "}
+                <strong>{discover.state.preview.would_drain}</strong> of{" "}
                 <strong>{discover.state.preview.open_gaps}</strong> open gap
                 {discover.state.preview.open_gaps === 1 ? "" : "s"} —{" "}
-                {discover.state.preview.estimated_cost}. This has NOT billed yet; confirm to run
-                and bill.
+                {discover.state.preview.estimated_cost}. This has NOT billed
+                yet; confirm to run and bill.
               </>
             ) : (
               <>
-                No search provider is configured, so this would stage nothing. Set{" "}
-                <code>KNOTICA_YOUCOM_API_KEY</code> and try again.
+                No search provider is configured, so this would stage nothing.
+                Set <code>KNOTICA_YOUCOM_API_KEY</code> and try again.
               </>
             )}
           </TwoPhaseConfirm>
@@ -490,12 +521,16 @@ export function QueueStage({
             {discover.state.outcome.suggestions_staged === 1 ? "" : "s"}.
             {(discover.state.outcome.candidates_already_in_vault ?? 0) > 0
               ? ` ${discover.state.outcome.candidates_already_in_vault} candidate${
-                  discover.state.outcome.candidates_already_in_vault === 1 ? "" : "s"
+                  discover.state.outcome.candidates_already_in_vault === 1
+                    ? ""
+                    : "s"
                 } skipped — already ingested in the vault.`
               : ""}
             {(discover.state.outcome.stale_suggestions_closed ?? 0) > 0
               ? ` ${discover.state.outcome.stale_suggestions_closed} stale suggestion${
-                  discover.state.outcome.stale_suggestions_closed === 1 ? "" : "s"
+                  discover.state.outcome.stale_suggestions_closed === 1
+                    ? ""
+                    : "s"
                 } closed (already in the vault, or duplicates of one source).`
               : ""}
             {discover.state.outcome.suggestions_staged === 0
@@ -515,8 +550,9 @@ export function QueueStage({
 
       <StageShell id="approve" state={stateOf("approve")} position={3}>
         <p class="muted">
-          Ranked sources discovered for diagnosed knowledge gaps. Approve queues an ingest
-          instruction for the next interactive session; reject requires a reason.
+          Ranked sources discovered for diagnosed knowledge gaps. Approve queues
+          an ingest instruction for the next interactive session; reject
+          requires a reason.
         </p>
 
         {/* The four verbs explained once for the queue, not once per row: the
@@ -525,7 +561,10 @@ export function QueueStage({
             the two numbers the decision actually turns on. */}
         <div class="process-brief-row">
           <ProcessBrief process="fill.suggestion_approve" term="why queue it" />
-          <ProcessBrief process="fill.suggestion_reject" term="why turn it down" />
+          <ProcessBrief
+            process="fill.suggestion_reject"
+            term="why turn it down"
+          />
           <ProcessBrief process="fill.suggestion_defer" term="why park it" />
           <ProcessBrief process="fill.suggestion_withdraw" term="why undo it" />
         </div>
@@ -552,8 +591,9 @@ export function QueueStage({
 
         {result && result.skipped_malformed > 0 ? (
           <p class="muted sources-partial-note">
-            {result.skipped_malformed} suggestion record{result.skipped_malformed === 1 ? "" : "s"}{" "}
-            were malformed and skipped.
+            {result.skipped_malformed} suggestion record
+            {result.skipped_malformed === 1 ? "" : "s"} were malformed and
+            skipped.
           </p>
         ) : null}
 
@@ -568,15 +608,17 @@ export function QueueStage({
               // list reads is legitimately empty. Say which step is outstanding
               // rather than sending the reader off to manufacture a new gap.
               <p class="muted">
-                {gapCount === 1 ? "1 gap is" : `${gapCount} gaps are`} already open above, waiting
-                on discovery — run <code>knotica gapfill discover --topic {topic}</code> to search
+                {gapCount === 1 ? "1 gap is" : `${gapCount} gaps are`} already
+                open above, waiting on discovery — run{" "}
+                <code>knotica gapfill discover --topic {topic}</code> to search
                 for sources.
               </p>
             ) : (
               <p class="muted">
-                The loop writes suggestions here after it diagnoses a <code>genuine_gap</code> and
-                discovery finds ranked sources. To exercise it: freeze a golden question the vault
-                lacks, regress, let the loop classify, then run{" "}
+                The loop writes suggestions here after it diagnoses a{" "}
+                <code>genuine_gap</code> and discovery finds ranked sources. To
+                exercise it: freeze a golden question the vault lacks, regress,
+                let the loop classify, then run{" "}
                 <code>knotica gapfill discover --topic {topic}</code>.
               </p>
             )}
@@ -587,18 +629,27 @@ export function QueueStage({
               <SuggestionRow
                 key={suggestion.suggestion_id}
                 suggestion={suggestion}
-                busyAction={busy?.id === suggestion.suggestion_id ? busy.action : null}
+                busyAction={
+                  busy?.id === suggestion.suggestion_id ? busy.action : null
+                }
                 anyBusy={busy !== null}
                 ghost={!loadedIds.has(suggestion.suggestion_id)}
                 rejectOpen={rejectOpenId === suggestion.suggestion_id}
                 reasonDraft={reasonDraft[suggestion.suggestion_id] ?? ""}
-                onApprove={() => void decide(suggestion.suggestion_id, "approve")}
+                onApprove={() =>
+                  void decide(suggestion.suggestion_id, "approve")
+                }
                 onDefer={() => void decide(suggestion.suggestion_id, "defer")}
-                onWithdraw={() => void decide(suggestion.suggestion_id, "withdraw")}
+                onWithdraw={() =>
+                  void decide(suggestion.suggestion_id, "withdraw")
+                }
                 onOpenReject={() => setRejectOpenId(suggestion.suggestion_id)}
                 onCancelReject={() => setRejectOpenId(null)}
                 onReasonChange={(value) =>
-                  setReasonDraft((prev) => ({ ...prev, [suggestion.suggestion_id]: value }))
+                  setReasonDraft((prev) => ({
+                    ...prev,
+                    [suggestion.suggestion_id]: value,
+                  }))
                 }
                 onSubmitReject={() =>
                   void decide(

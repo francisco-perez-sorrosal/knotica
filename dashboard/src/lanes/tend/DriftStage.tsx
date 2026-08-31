@@ -617,7 +617,11 @@ function DriftAnchorCard({
             term="why re-anchor"
             align="end"
           />
-          <ProcessBrief process="tend.note_detach" term="why detach" align="end" />
+          <ProcessBrief
+            process="tend.note_detach"
+            term="why detach"
+            align="end"
+          />
         </div>
       )}
     </div>

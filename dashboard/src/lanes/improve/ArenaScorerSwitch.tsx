@@ -77,9 +77,7 @@ export function ArenaScorerSwitch({
     if (!client || busy) return;
     // Only the gated write has a free leg; a `heuristic` write applies at once
     // and is therefore never "previewing".
-    setBusy(
-      target === ARENA_SCORER_EVAL && !confirm ? "preview" : "confirm",
-    );
+    setBusy(target === ARENA_SCORER_EVAL && !confirm ? "preview" : "confirm");
     setError(null);
     setSavedAs(null);
     try {
@@ -176,7 +174,9 @@ export function ArenaScorerSwitch({
       {/* The saved-note above is the outcome and owns the live region; this
           adds only the sixth answer, which here is that nothing further is
           owed -- both runners rebuild from config on their own tick. */}
-      {savedAs ? <ProcessOutcome process="improve.arena_scorer_switch" /> : null}
+      {savedAs ? (
+        <ProcessOutcome process="improve.arena_scorer_switch" />
+      ) : null}
       {error ? (
         <p role="alert" class="ask-error">
           {error}

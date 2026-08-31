@@ -590,8 +590,12 @@ describe("a dispatch that succeeded says so, wherever the panel is mounted", () 
 
     fireEvent.click(screen.getByRole("button", { name: /send to claude/i }));
 
-    expect(await screen.findByText(/sent to your claude session/i)).toBeTruthy();
-    expect(screen.queryByRole("button", { name: /send to claude/i })).toBeNull();
+    expect(
+      await screen.findByText(/sent to your claude session/i),
+    ).toBeTruthy();
+    expect(
+      screen.queryByRole("button", { name: /send to claude/i }),
+    ).toBeNull();
     expect(sendMessage).toHaveBeenCalledTimes(1);
   });
 
@@ -604,7 +608,9 @@ describe("a dispatch that succeeded says so, wherever the panel is mounted", () 
     renderHandoffStage(client);
     await vi.waitFor(() => expect(dispatchControlPresent()).toBe(true));
 
-    fireEvent.click(screen.getByRole("button", { name: /copy the instruction/i }));
+    fireEvent.click(
+      screen.getByRole("button", { name: /copy the instruction/i }),
+    );
 
     // "Copied", never "Sent": nothing was dispatched — the user holds the
     // text. The copy affordance itself stays, so a re-copy is still possible.
@@ -632,7 +638,9 @@ describe("a dispatch that succeeded says so, wherever the panel is mounted", () 
     renderHandoffStage(client);
     await vi.waitFor(() => expect(dispatchControlPresent()).toBe(true));
 
-    fireEvent.click(screen.getByRole("button", { name: /copy the instruction/i }));
+    fireEvent.click(
+      screen.getByRole("button", { name: /copy the instruction/i }),
+    );
 
     expect(await screen.findByText(/copy failed/i)).toBeTruthy();
     expect(screen.queryByText(/^copied\.$/i)).toBeNull();

@@ -41,7 +41,8 @@ export function StateList({ label, rows }: StateListProps): JSX.Element {
   return (
     <ul class="state-list" aria-label={label}>
       {rows.map((row) => {
-        const hasValue = row.value !== null && row.value !== undefined && row.value !== "";
+        const hasValue =
+          row.value !== null && row.value !== undefined && row.value !== "";
         return (
           <li key={row.id} class="state-list-row" data-state={row.state}>
             <span class="state-list-icon" aria-hidden="true">
@@ -52,7 +53,9 @@ export function StateList({ label, rows }: StateListProps): JSX.Element {
               {row.stateLabel}
             </span>
             <span class="state-list-value">{hasValue ? row.value : "—"}</span>
-            {row.action ? <span class="state-list-action">{row.action}</span> : null}
+            {row.action ? (
+              <span class="state-list-action">{row.action}</span>
+            ) : null}
           </li>
         );
       })}

@@ -374,7 +374,11 @@ function IngestYouControl({
       {/* Sibling of the trigger, never a child: the four you-state labels are
           matched as exact accessible names by the lane's assembly tests, so
           nothing may be appended to them in text. */}
-      <ProcessBrief process="fill.ingest_dispatch" term="why in Claude" align="end" />
+      <ProcessBrief
+        process="fill.ingest_dispatch"
+        term="why in Claude"
+        align="end"
+      />
       {open ? (
         <div class="handoff-you-panel" id={panelId}>
           <p class="handoff-panel-why">{affordance.why}</p>
@@ -395,7 +399,9 @@ function IngestYouControl({
               would be unreachable on the HTTP mount entirely. The
               outcome itself stays `external` -- this claims nothing about the
               session's progress, only where the work lands when it finishes. */}
-          {dispatched ? <ProcessOutcome process="fill.ingest_dispatch" /> : null}
+          {dispatched ? (
+            <ProcessOutcome process="fill.ingest_dispatch" />
+          ) : null}
         </div>
       ) : null}
     </>

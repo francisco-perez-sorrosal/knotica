@@ -19,9 +19,15 @@ beforeEach(() => {
 
 describe("CopyBlock", () => {
   it("renders the code and copies it to the clipboard on click", async () => {
-    render(<CopyBlock code="tend action=notes notes_action=drift topic=decision-making" />);
+    render(
+      <CopyBlock code="tend action=notes notes_action=drift topic=decision-making" />,
+    );
 
-    expect(screen.getByText("tend action=notes notes_action=drift topic=decision-making")).toBeTruthy();
+    expect(
+      screen.getByText(
+        "tend action=notes notes_action=drift topic=decision-making",
+      ),
+    ).toBeTruthy();
 
     await fireEvent.click(screen.getByRole("button", { name: /copy/i }));
 
@@ -38,11 +44,15 @@ describe("CopyBlock", () => {
     render(
       <CopyBlock
         code="/knotica:fill s_1a2b3c4d rag-patterns"
-        copyText={"Claude writes the pages.\n\n/knotica:fill s_1a2b3c4d rag-patterns"}
+        copyText={
+          "Claude writes the pages.\n\n/knotica:fill s_1a2b3c4d rag-patterns"
+        }
       />,
     );
 
-    expect(screen.getByText("/knotica:fill s_1a2b3c4d rag-patterns")).toBeTruthy();
+    expect(
+      screen.getByText("/knotica:fill s_1a2b3c4d rag-patterns"),
+    ).toBeTruthy();
     await fireEvent.click(screen.getByRole("button", { name: /copy/i }));
 
     expect(navigator.clipboard.writeText).toHaveBeenCalledWith(
@@ -52,7 +62,10 @@ describe("CopyBlock", () => {
 
   it("takes its accessible name from actionLabel's visible text, never both", async () => {
     render(
-      <CopyBlock code="/knotica:fill s_1a2b3c4d rag-patterns" actionLabel="Copy the instruction" />,
+      <CopyBlock
+        code="/knotica:fill s_1a2b3c4d rag-patterns"
+        actionLabel="Copy the instruction"
+      />,
     );
 
     const action = screen.getByRole("button", { name: "Copy the instruction" });

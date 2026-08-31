@@ -357,7 +357,7 @@ describe("every moved declaration is still importable from the root barrel (roun
         const match = typesSource.match(pattern);
         if (!match) {
           throw new Error(
-            `No "export type { ... } from \"./lanes/${lane}/types\"" block found in types.ts`,
+            `No "export type { ... } from "./lanes/${lane}/types"" block found in types.ts`,
           );
         }
         block = match[1];

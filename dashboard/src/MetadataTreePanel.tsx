@@ -6,14 +6,20 @@ import { ObsidianFileLink, type ObsidianContext } from "./obsidianLinks";
 import { formatToolFailure, type ToolClient } from "./toolClient";
 import type { MetadataTreeNode, VaultMetadataTree } from "./types";
 
-function collectExpandedDefaults(nodes: MetadataTreeNode[], depth = 0): Set<string> {
+function collectExpandedDefaults(
+  nodes: MetadataTreeNode[],
+  depth = 0,
+): Set<string> {
   const out = new Set<string>();
   for (const node of nodes) {
     if (node.kind === "dir" && depth < 1) {
       out.add(node.path);
     }
     if (node.children?.length) {
-      for (const childPath of collectExpandedDefaults(node.children, depth + 1)) {
+      for (const childPath of collectExpandedDefaults(
+        node.children,
+        depth + 1,
+      )) {
         out.add(childPath);
       }
     }
@@ -52,7 +58,9 @@ function MetadataTreeRow({
             type="button"
             class="metadata-tree-toggle"
             aria-expanded={isOpen}
-            aria-label={isOpen ? `Collapse ${node.name}` : `Expand ${node.name}`}
+            aria-label={
+              isOpen ? `Collapse ${node.name}` : `Expand ${node.name}`
+            }
             onClick={() => onToggle(node.path)}
           >
             <span class="metadata-tree-chevron" aria-hidden="true">
@@ -62,7 +70,10 @@ function MetadataTreeRow({
         ) : (
           <span class="metadata-tree-spacer" aria-hidden="true" />
         )}
-        <span class={`metadata-tree-icon ${isDir ? "dir" : "file"}`} aria-hidden="true" />
+        <span
+          class={`metadata-tree-icon ${isDir ? "dir" : "file"}`}
+          aria-hidden="true"
+        />
         {isDir ? (
           <span class="metadata-tree-name">{node.name}</span>
         ) : (
@@ -123,7 +134,10 @@ export function MetadataTreePanel({
   const [expanded, setExpanded] = useState<Set<string>>(() => new Set());
 
   const defaultExpanded = useMemo(
-    () => (tree?.children ? collectExpandedDefaults(tree.children) : new Set<string>()),
+    () =>
+      tree?.children
+        ? collectExpandedDefaults(tree.children)
+        : new Set<string>(),
     [tree],
   );
 
@@ -142,7 +156,8 @@ export function MetadataTreePanel({
         if (!cancelled) setTree(payload);
       })
       .catch((cause) => {
-        if (!cancelled) setError(formatToolFailure(cause, "vault_metadata_tree"));
+        if (!cancelled)
+          setError(formatToolFailure(cause, "vault_metadata_tree"));
       })
       .finally(() => {
         if (!cancelled) setBusy(false);
@@ -196,7 +211,9 @@ export function MetadataTreePanel({
             </p>
           ) : null}
           {!error && tree && count === 0 ? (
-            <p class="muted">No `.knotica` trees or root metadata files on disk yet.</p>
+            <p class="muted">
+              No `.knotica` trees or root metadata files on disk yet.
+            </p>
           ) : null}
           {!error && tree && count > 0 ? (
             <ul class="metadata-tree-root" aria-label="Vault metadata tree">

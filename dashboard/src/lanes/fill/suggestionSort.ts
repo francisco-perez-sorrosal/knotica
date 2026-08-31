@@ -21,14 +21,18 @@ import type { SuggestionRecord } from "./types";
 export type QueueSortMode = "priority" | "newest";
 
 /** Compares two records under `priority`; exported for the row-order tests. */
-export function comparePriority(a: SuggestionRecord, b: SuggestionRecord): number {
+export function comparePriority(
+  a: SuggestionRecord,
+  b: SuggestionRecord,
+): number {
   const scoreA = a.candidate.reputability?.score;
   const scoreB = b.candidate.reputability?.score;
   // Null-last, without an infinite sentinel: `-Infinity - -Infinity` is NaN,
   // and a comparator that returns NaN has undefined sort behaviour.
   if (scoreA == null && scoreB != null) return 1;
   if (scoreB == null && scoreA != null) return -1;
-  if (scoreA != null && scoreB != null && scoreA !== scoreB) return scoreB - scoreA;
+  if (scoreA != null && scoreB != null && scoreA !== scoreB)
+    return scoreB - scoreA;
   return a.rank - b.rank;
 }
 
@@ -73,10 +77,15 @@ export function mergeGhosts(
   mode: QueueSortMode,
 ): SuggestionRecord[] {
   const present = new Set(loaded.map((row) => row.suggestion_id));
-  const absent = ghosts.filter((ghost) => !present.has(ghost.record.suggestion_id));
+  const absent = ghosts.filter(
+    (ghost) => !present.has(ghost.record.suggestion_id),
+  );
   if (absent.length === 0) return sortSuggestions(loaded, mode);
   if (mode === "priority") {
-    return sortSuggestions([...loaded, ...absent.map((ghost) => ghost.record)], mode);
+    return sortSuggestions(
+      [...loaded, ...absent.map((ghost) => ghost.record)],
+      mode,
+    );
   }
   const rows = [...loaded];
   // Descending: every anchor indexes `loaded`, so inserting the deepest ghost

@@ -92,7 +92,11 @@ export function QueueToolbar({
           </button>
         </div>
 
-        <div class="queue-outcomes" role="group" aria-label="Suggestion counts by outcome">
+        <div
+          class="queue-outcomes"
+          role="group"
+          aria-label="Suggestion counts by outcome"
+        >
           <span class="chip" data-tone="warn">
             <span aria-hidden="true">⚠</span>{" "}
             <TermHint

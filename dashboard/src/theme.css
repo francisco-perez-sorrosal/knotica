@@ -20,20 +20,28 @@
   --green: #859900;
 
   /* ── neutral ramp (replaces base03..base3 as the surface source) ────────── */
-  --n-0:  #ffffff;   --n-1:  #fbfbfa;   --n-2:  #f2f2f0;   --n-3:  #e6e5e1;
-  --n-4:  #c9c8c2;   --n-5:  #8a8a84;   --n-6:  #56564f;   --n-7:  #2b2b28;
-  --n-8:  #17181a;   --n-9:  #101113;   --n-10: #0b0c0d;
+  --n-0: #ffffff;
+  --n-1: #fbfbfa;
+  --n-2: #f2f2f0;
+  --n-3: #e6e5e1;
+  --n-4: #c9c8c2;
+  --n-5: #8a8a84;
+  --n-6: #56564f;
+  --n-7: #2b2b28;
+  --n-8: #17181a;
+  --n-9: #101113;
+  --n-10: #0b0c0d;
 
   /* ── semantic surfaces (light) ───────────────────────────────────────────── */
-  --bg:             var(--n-1);
-  --surface:        var(--n-0);
+  --bg: var(--n-1);
+  --surface: var(--n-0);
   --surface-raised: var(--n-2);
   --surface-sunken: var(--n-2);
-  --line:           var(--n-3);
-  --line-strong:    var(--n-4);
-  --text:           var(--n-7);
-  --heading:        var(--n-8);
-  --muted:          var(--n-6);
+  --line: var(--n-3);
+  --line-strong: var(--n-4);
+  --text: var(--n-7);
+  --heading: var(--n-8);
+  --muted: var(--n-6);
 
   /* ── semantic tones (Solarized hues retained, two added) ─────────────────── */
   /* Light values are darkened, hue-preserved variants of the Solarized accents:
@@ -43,10 +51,10 @@
      clears the floor on the dark surfaces, and carry their own text-grade
      variant where it does not (`--bad`, `--neutral`). Every (tone, surface)
      pair is machine-checked on both themes by `themeContrast.test.ts`. */
-  --accent:  #1a6ba6;
-  --good:    #5f7000;
-  --bad:     #bd2521;
-  --warn:    #8a6400;
+  --accent: #1a6ba6;
+  --good: #5f7000;
+  --bad: #bd2521;
+  --warn: #8a6400;
   /* `--n-5` (#8a8a84) reads at 3.10:1 on `--surface-raised`; this is the same
      ramp one step darker, chosen for the 4.5:1 text floor rather than for the
      ramp's own spacing. */
@@ -54,26 +62,31 @@
   --running: #1d7a72;
 
   /* ── typography ───────────────────────────────────────────────────────────── */
-  --mono:    "SF Mono", "JetBrains Mono", ui-monospace, Menlo, Consolas, monospace;
-  --sans:    "Inter", "Avenir Next", "Segoe UI", "Helvetica Neue", sans-serif;
+  --mono: "SF Mono", "JetBrains Mono", ui-monospace, Menlo, Consolas, monospace;
+  --sans: "Inter", "Avenir Next", "Segoe UI", "Helvetica Neue", sans-serif;
   --display: var(--mono);
 
-  --fs-micro: .625rem;
-  --fs-xs:    .6875rem;
-  --fs-sm:    .8125rem;
-  --fs-base:  .875rem;
-  --fs-md:    1rem;
-  --fs-lg:    1.375rem;
-  --tracking-micro: .14em;
-  --tracking-label: .06em;
+  --fs-micro: 0.625rem;
+  --fs-xs: 0.6875rem;
+  --fs-sm: 0.8125rem;
+  --fs-base: 0.875rem;
+  --fs-md: 1rem;
+  --fs-lg: 1.375rem;
+  --tracking-micro: 0.14em;
+  --tracking-label: 0.06em;
 
   /* ── geometry ─────────────────────────────────────────────────────────────── */
-  --radius:      4px;
+  --radius: 4px;
   --radius-card: 8px;
   --radius-pill: 999px;
-  --border:      1px;
-  --space-1: 4px;  --space-2: 8px;   --space-3: 12px;  --space-4: 16px;
-  --space-6: 24px; --space-8: 32px;  --space-12: 48px;
+  --border: 1px;
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-6: 24px;
+  --space-8: 32px;
+  --space-12: 48px;
   --chrome-pad: max(1.25rem, calc((100vw - 1040px) / 2));
 
   /* ── elevation — overlays ONLY; cards are borders, never shadows ───────────── */
@@ -81,91 +94,88 @@
   --shadow-overlay: 0 4px 20px rgb(0 0 0 / 14%);
 
   /* ── motion ───────────────────────────────────────────────────────────────── */
-  --dur-micro: 120ms;  --dur-enter: 200ms;  --dur-exit: 150ms;
-  --ease-out: cubic-bezier(0, 0, .2, 1);  --ease-in: cubic-bezier(.4, 0, 1, 1);
+  --dur-micro: 120ms;
+  --dur-enter: 200ms;
+  --dur-exit: 150ms;
+  --ease-out: cubic-bezier(0, 0, 0.2, 1);
+  --ease-in: cubic-bezier(0.4, 0, 1, 1);
 
-  --z-popover: 300;  --z-chrome: 120;
+  --z-popover: 300;
+  --z-chrome: 120;
   --glow: transparent;
 
-  /* Loop chart — concrete colors for canvas (uPlot cannot use var() in stroke) */
-  --chart-series: #0a4d75;
-  --chart-point-fill: #fffaf0;
-  --chart-point-stroke: #073642;
-  --chart-baseline: #8f6800;
-  --chart-compiled: #5c6400;
-  --chart-axis: #43575c;
-  --chart-grid: #bfb59a;
+  /* ── loop chart ──────────────────────────────────────────────────────────── */
+  /* uPlot paints on canvas and cannot read `var()` from a stroke, so
+     `lanes/improve/chartTheme.ts` resolves these four to concrete strings at
+     mount and again on every theme flip. They are *aliases* of the semantic
+     tones rather than a private palette: that is what keeps the chart inside
+     the design language instead of drifting back out of it (`td-058` was the
+     drift, when they were hand-picked Solarized concretes). Because each is an
+     alias, neither dark block redeclares them -- following `--accent` and
+     friends is the whole point. `--chart-axis` is small text and is measured
+     against the AA floor by `themeContrast.test.ts`; `--chart-grid` is
+     decorative rule-work, deliberately below any contrast floor. */
+  --chart-series: var(--accent);
+  --chart-baseline: var(--warn);
+  --chart-axis: var(--muted);
+  --chart-grid: var(--line-strong);
 }
 
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme="light"]) {
-    --bg:             var(--n-10);
-    --surface:        var(--n-9);
+    --bg: var(--n-10);
+    --surface: var(--n-9);
     --surface-raised: var(--n-8);
     --surface-sunken: var(--n-10);
-    --line:           #232528;
-    --line-strong:    #33363a;
-    --text:           #c6c9cd;
-    --heading:        #eceef0;
-    --muted:          #8d9298;
+    --line: #232528;
+    --line-strong: #33363a;
+    --text: #c6c9cd;
+    --heading: #eceef0;
+    --muted: #8d9298;
     /* Two dark-theme text-grade variants, for the same reason the light block
        darkens its accents: raw `--red` reads 3.84:1 and `#6f757b` 3.81:1 on
        `--surface-raised`, both under the 4.5:1 floor for small text. Hue
        preserved, lightness moved only as far as the floor requires -- with
        `--bad` also clearing it on `button.danger`'s own tinted hover fill,
        which is the tightest surface either tone lands on. */
-    --neutral:        #868d94;
-    --accent:         var(--blue);
-    --good:           var(--green);
-    --bad:            #ee6b66;
-    --warn:           var(--yellow);
-    --running:        var(--cyan);
+    --neutral: #868d94;
+    --accent: var(--blue);
+    --good: var(--green);
+    --bad: #ee6b66;
+    --warn: var(--yellow);
+    --running: var(--cyan);
     --shadow-overlay: 0 4px 24px rgb(0 0 0 / 55%);
-
-    --chart-series: #7ec8ff;
-    --chart-point-fill: #0b3d47;
-    --chart-point-stroke: #eee8d5;
-    --chart-baseline: #e6bc2f;
-    --chart-compiled: #b4d926;
-    --chart-axis: #aab8b8;
-    --chart-grid: #2a6270;
   }
 }
 
 :root[data-theme="dark"] {
-  --bg:             var(--n-10);
-  --surface:        var(--n-9);
+  --bg: var(--n-10);
+  --surface: var(--n-9);
   --surface-raised: var(--n-8);
   --surface-sunken: var(--n-10);
-  --line:           #232528;
-  --line-strong:    #33363a;
-  --text:           #c6c9cd;
-  --heading:        #eceef0;
-  --muted:          #8d9298;
+  --line: #232528;
+  --line-strong: #33363a;
+  --text: #c6c9cd;
+  --heading: #eceef0;
+  --muted: #8d9298;
   /* Two dark-theme text-grade variants, for the same reason the light block
      darkens its accents: raw `--red` reads 3.84:1 and `#6f757b` 3.81:1 on
      `--surface-raised`, both under the 4.5:1 floor for small text. Hue
      preserved, lightness moved only as far as the floor requires -- with
      `--bad` also clearing it on `button.danger`'s own tinted hover fill,
      which is the tightest surface either tone lands on. */
-  --neutral:        #868d94;
-  --accent:         var(--blue);
-  --good:           var(--green);
-  --bad:            #ee6b66;
-  --warn:           var(--yellow);
-  --running:        var(--cyan);
+  --neutral: #868d94;
+  --accent: var(--blue);
+  --good: var(--green);
+  --bad: #ee6b66;
+  --warn: var(--yellow);
+  --running: var(--cyan);
   --shadow-overlay: 0 4px 24px rgb(0 0 0 / 55%);
-
-  --chart-series: #7ec8ff;
-  --chart-point-fill: #0b3d47;
-  --chart-point-stroke: #eee8d5;
-  --chart-baseline: #e6bc2f;
-  --chart-compiled: #b4d926;
-  --chart-axis: #aab8b8;
-  --chart-grid: #2a6270;
 }
 
-* { box-sizing: border-box; }
+* {
+  box-sizing: border-box;
+}
 
 html {
   background: var(--bg);
@@ -176,13 +186,17 @@ body {
   min-width: 320px;
   min-height: 100vh;
   color: var(--text);
-  font: var(--fs-base)/1.5 var(--mono);
+  font: var(--fs-base) / 1.5 var(--mono);
   background: var(--bg);
   -webkit-font-smoothing: antialiased;
 }
 
-button { font: inherit; }
-a { color: var(--accent); }
+button {
+  font: inherit;
+}
+a {
+  color: var(--accent);
+}
 ::selection {
   background: color-mix(in srgb, var(--cyan) 35%, var(--surface));
   color: var(--heading);

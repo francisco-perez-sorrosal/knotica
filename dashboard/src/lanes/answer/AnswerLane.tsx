@@ -299,7 +299,12 @@ export function AnswerLane({
           ) : null}
         </StageRow>
 
-        <StageRow stage="cite" state={citeStage.state} position={2} title="Cite">
+        <StageRow
+          stage="cite"
+          state={citeStage.state}
+          position={2}
+          title="Cite"
+        >
           {result ? (
             <AnswerCard
               title="Answer"
@@ -318,7 +323,12 @@ export function AnswerLane({
           )}
         </StageRow>
 
-        <StageRow stage="react" state={reactStage.state} position={3} title="React">
+        <StageRow
+          stage="react"
+          state={reactStage.state}
+          position={3}
+          title="React"
+        >
           <SectionCard
             title="REACT"
             footer={
@@ -397,9 +407,7 @@ export function AnswerLane({
           >
             {result ? (
               <>
-                <p class="muted">
-                  These are the signals the loop learns from.
-                </p>
+                <p class="muted">These are the signals the loop learns from.</p>
                 <p class="muted">
                   Good/Bad{" "}
                   <TermHint
@@ -408,8 +416,8 @@ export function AnswerLane({
                     title="Curated example"
                     body="Kept as a curated example — good ones become training signal, bad ones become counter-examples."
                   />{" "}
-                  trains the loop directly; Note it and Report gap route
-                  through the loop's queues instead.
+                  trains the loop directly; Note it and Report gap route through
+                  the loop's queues instead.
                 </p>
               </>
             ) : (

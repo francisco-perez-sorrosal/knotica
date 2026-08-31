@@ -238,11 +238,16 @@ describe("navigation has exactly one owner and no ad-hoc destinations", () => {
       meta.next.kind === "always"
         ? [meta.next.go]
         : meta.next.kind === "conditional"
-          ? [...meta.next.branches.map((branch) => branch.go), meta.next.fallback]
+          ? [
+              ...meta.next.branches.map((branch) => branch.go),
+              meta.next.fallback,
+            ]
           : [],
     );
     expect(
-      anchors.filter((anchor) => anchor.lane === "home" && anchor.stage !== null),
+      anchors.filter(
+        (anchor) => anchor.lane === "home" && anchor.stage !== null,
+      ),
     ).toEqual([]);
   });
 });

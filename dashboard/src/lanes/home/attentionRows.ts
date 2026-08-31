@@ -17,12 +17,13 @@ import type {
  * Routing (signal → lane, every gap-queue signal lands on `fill`; every
  * Improve-folded signal lands on `improve`, per `INTERFACE_DESIGN.md §2.4`):
  * `refused_awaiting_rework` → blocked/fill, `pending` → waiting/fill, open
- * gaps with no discovery → waiting/fill, an aborted race → blocked/improve,
+ * gaps with no discovery → waiting/fill, open gaps the vault already answers
+ * → waiting/fill, an aborted race → blocked/improve,
  * `gate.baseline_unreachable` → blocked/improve, `compile_ready` →
  * waiting/improve, `runner.alive` → running/improve.
  * `action` is `"Watch"` only for `running` rows, `"Open"` otherwise. Each row
  * also carries its own `kind` -- one per branch below, never derived from
- * `urgency`/`lane` (three branches share `waiting`, three share `fill`) -- so
+ * `urgency`/`lane` (four branches share `waiting`, four share `fill`) -- so
  * `attentionMeta.ts` can attach a rationale *and a destination stage* per
  * signal rather than per urgency class.
  *
@@ -83,6 +84,22 @@ function rowsForTopic(topic: AttentionTopicRow): AttentionRow[] {
       urgency: "waiting",
       kind: "gaps_awaiting_discovery",
       narration: `${openGaps} open gap(s), no discovery run yet.`,
+      action: "Open",
+    });
+  }
+
+  // The drain already looked and found nothing new to acquire: every source it
+  // could reach for these gaps is stored in the vault already. Read optionally
+  // for the same back-compat reason as the two fields above -- a server
+  // predating the stamp renders an inbox one signal short, never a broken one.
+  const answeredGaps = topic.gaps?.answered_in_vault ?? 0;
+  if (answeredGaps > 0) {
+    rows.push({
+      topic: topic.topic,
+      lane: "fill",
+      urgency: "waiting",
+      kind: "gaps_answered_in_vault",
+      narration: `${answeredGaps} open gap(s) whose sources the vault already stores — retrieval or linking, not acquisition.`,
       action: "Open",
     });
   }

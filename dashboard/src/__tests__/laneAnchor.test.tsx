@@ -123,9 +123,7 @@ describe("ProcessOutcome's NEXT STEP reaches the destination it names", () => {
   it("renders the destination as prose when no navigation is published", () => {
     render(<ProcessOutcome process={PROCESS} />);
 
-    expect(
-      screen.queryByRole("button", { name: /^go to /i }),
-    ).toBeNull();
+    expect(screen.queryByRole("button", { name: /^go to /i })).toBeNull();
     expect(screen.getByText(/^go to /i)).toBeTruthy();
   });
 

@@ -83,7 +83,9 @@ describe("StateList", () => {
       />,
     );
 
-    expect(screen.getByRole("button", { name: "Show query.md diff" })).toBeTruthy();
+    expect(
+      screen.getByRole("button", { name: "Show query.md diff" }),
+    ).toBeTruthy();
     expect(document.querySelectorAll(".state-list-action").length).toBe(1);
   });
 

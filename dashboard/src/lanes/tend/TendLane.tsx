@@ -502,10 +502,7 @@ function DoctorPanel({
             class={`check-row check-${row.status.toLowerCase()}`}
             key={row.name}
           >
-            <span
-              class={`health-chip ${checkStatusTone(row.status)}`}
-              aria-label={`Status: ${row.status}`}
-            >
+            <span class={`health-chip ${checkStatusTone(row.status)}`}>
               {row.status}
             </span>
             <div class="check-body">

@@ -84,26 +84,24 @@ describe("per-row rationale TermHint", () => {
       screen.getByRole("button", { name: "blocked — what this means" }),
     );
 
-    const meta = ATTENTION_KIND_META["refused_rework"];
+    const meta = ATTENTION_KIND_META.refused_rework;
     const note = screen.getByRole("note");
     expect(note.textContent).toContain(meta.why);
     expect(note.textContent).toContain(meta.unlocks);
   });
 
   it("a different row's hint carries its own kind's copy, not another row's", () => {
-    render(
-      <AttentionTable rows={[WAITING_ROW]} onOpenAnchor={vi.fn()} />,
-    );
+    render(<AttentionTable rows={[WAITING_ROW]} onOpenAnchor={vi.fn()} />);
 
     fireEvent.click(
       screen.getByRole("button", { name: "waiting — what this means" }),
     );
 
-    const meta = ATTENTION_KIND_META["pending_suggestions"];
+    const meta = ATTENTION_KIND_META.pending_suggestions;
     const note = screen.getByRole("note");
     expect(note.textContent).toContain(meta.why);
     expect(note.textContent).not.toContain(
-      ATTENTION_KIND_META["refused_rework"].why,
+      ATTENTION_KIND_META.refused_rework.why,
     );
   });
 });

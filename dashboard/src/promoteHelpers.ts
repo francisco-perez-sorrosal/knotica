@@ -10,11 +10,12 @@ export function formatPromotePreview(result: CompilePromoteResult): string {
       "Apply merge to update the live wiki."
     );
   }
-  return (
-    `Preview: merge ${branch} into ${into}. Apply merge to update the live wiki.`
-  );
+  return `Preview: merge ${branch} into ${into}. Apply merge to update the live wiki.`;
 }
 
 export function formatPromoteApplied(result: CompilePromoteResult): string {
-  return result.message || `Merged ${result.branch} into ${result.into ?? "default"}.`;
+  return (
+    result.message ||
+    `Merged ${result.branch} into ${result.into ?? "default"}.`
+  );
 }

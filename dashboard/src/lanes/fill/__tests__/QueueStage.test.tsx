@@ -98,7 +98,9 @@ const QUEUE_STAGE_MODULE_PATH = "../QueueStage";
 let QueueStage: QueueStageComponent;
 
 beforeAll(async () => {
-  ({ QueueStage } = (await import(QUEUE_STAGE_MODULE_PATH)) as QueueStageModule);
+  ({ QueueStage } = (await import(
+    QUEUE_STAGE_MODULE_PATH
+  )) as QueueStageModule);
 });
 
 afterEach(cleanup);
@@ -136,7 +138,9 @@ function baseGap(overrides: Partial<GapRecord> = {}): GapRecord {
   };
 }
 
-function baseGapsResult(overrides: Partial<GapsReadResult> = {}): GapsReadResult {
+function baseGapsResult(
+  overrides: Partial<GapsReadResult> = {},
+): GapsReadResult {
   return {
     topic: TOPIC,
     status_filter: "open",
@@ -167,13 +171,19 @@ function baseCandidate(
     is_open_access: true,
     fwci: null,
     provider_score: 0.91,
-    reputability: { tier: "preprint_known_lab", score: 0.7, signals: ["known lab"] },
+    reputability: {
+      tier: "preprint_known_lab",
+      score: 0.7,
+      signals: ["known lab"],
+    },
     schema_version: 1,
     ...overrides,
   };
 }
 
-function baseSuggestion(overrides: Partial<SuggestionRecord> = {}): SuggestionRecord {
+function baseSuggestion(
+  overrides: Partial<SuggestionRecord> = {},
+): SuggestionRecord {
   return {
     schema_version: 1,
     suggestion_id: "s_1a2b3c4d",
@@ -205,7 +215,13 @@ function baseSuggestionsResult(
     topic: TOPIC,
     status_filter: "pending",
     suggestions: [baseSuggestion()],
-    status_counts: { pending: 1, approved: 0, rejected: 0, deferred: 0, ingested: 0 },
+    status_counts: {
+      pending: 1,
+      approved: 0,
+      rejected: 0,
+      deferred: 0,
+      ingested: 0,
+    },
     next_cursor: "",
     has_more: false,
     total_count: 1,
@@ -248,10 +264,12 @@ function discoverOutcome(
 /** Minimal `WikiStatus`, only the fields `QueueStage` could plausibly read
  * (`topics[].lanes.fill`, `topics[].suggestions.refused_awaiting_rework`) --
  * matches `ImproveLane.test.tsx`'s own `baseStatus` cast convention. */
-function baseStatus(overrides: {
-  lanesFill?: LaneRailStageStatus[];
-  refusedAwaitingRework?: number;
-} = {}): WikiStatus {
+function baseStatus(
+  overrides: {
+    lanesFill?: LaneRailStageStatus[];
+    refusedAwaitingRework?: number;
+  } = {},
+): WikiStatus {
   return {
     schema_version: 1,
     vault: VAULT,
@@ -295,9 +313,12 @@ function fakeClient(
     discoverConfirmResult?: GapfillDiscoverResult;
   } = {},
 ) {
-  const gapsRead = vi.fn(async (..._args: unknown[]) => overrides.gaps ?? baseGapsResult());
+  const gapsRead = vi.fn(
+    async (..._args: unknown[]) => overrides.gaps ?? baseGapsResult(),
+  );
   const suggestionsRead = vi.fn(
-    async (..._args: unknown[]) => overrides.suggestions ?? baseSuggestionsResult(),
+    async (..._args: unknown[]) =>
+      overrides.suggestions ?? baseSuggestionsResult(),
   );
   const gapfillDiscover = vi.fn(async (...args: unknown[]) => {
     const confirm = args[2];
@@ -327,7 +348,14 @@ function fakeClient(
     suggestionsReview,
     reviewGap,
   } as unknown as ToolClient;
-  return { client, gapsRead, suggestionsRead, gapfillDiscover, suggestionsReview, reviewGap };
+  return {
+    client,
+    gapsRead,
+    suggestionsRead,
+    gapfillDiscover,
+    suggestionsReview,
+    reviewGap,
+  };
 }
 
 function renderQueueStage(
@@ -447,7 +475,9 @@ describe("the gap stage", () => {
     const container = renderQueueStage(client);
 
     await vi.waitFor(() =>
-      expect(within(stageNodes(container)[GAP]).getByText(/no coverage of hyde/i)).toBeTruthy(),
+      expect(
+        within(stageNodes(container)[GAP]).getByText(/no coverage of hyde/i),
+      ).toBeTruthy(),
     );
   });
 
@@ -461,7 +491,9 @@ describe("the gap stage", () => {
 
     await vi.waitFor(() =>
       expect(
-        within(stageNodes(container)[GAP]).getByText(/never mentions retrieval augmentation/i),
+        within(stageNodes(container)[GAP]).getByText(
+          /never mentions retrieval augmentation/i,
+        ),
       ).toBeTruthy(),
     );
   });
@@ -518,7 +550,11 @@ describe("the discover stage's two-phase flow", () => {
     );
 
     await vi.waitFor(() =>
-      expect(within(stageNodes(container)[DISCOVER]).getByText(/has\s*not\s*billed yet/i)).toBeTruthy(),
+      expect(
+        within(stageNodes(container)[DISCOVER]).getByText(
+          /has\s*not\s*billed yet/i,
+        ),
+      ).toBeTruthy(),
     );
   });
 
@@ -574,7 +610,9 @@ describe("the discover stage's two-phase flow", () => {
         name: /discover sources/i,
       }),
     );
-    await vi.waitFor(() => expect(client.gapfillDiscover).toHaveBeenCalledTimes(1));
+    await vi.waitFor(() =>
+      expect(client.gapfillDiscover).toHaveBeenCalledTimes(1),
+    );
     gapsRead.mockClear();
     suggestionsRead.mockClear();
 
@@ -639,7 +677,11 @@ describe("the discover stage's two-phase flow", () => {
     );
 
     await vi.waitFor(() =>
-      expect(within(stageNodes(container)[DISCOVER]).getByText(/no search provider is configured/i)).toBeTruthy(),
+      expect(
+        within(stageNodes(container)[DISCOVER]).getByText(
+          /no search provider is configured/i,
+        ),
+      ).toBeTruthy(),
     );
     expect(
       isDisabled(
@@ -671,7 +713,9 @@ describe("the approve stage's suggestion queue", () => {
     await vi.waitFor(() => expect(client.suggestionsRead).toHaveBeenCalled());
 
     fireEvent.click(
-      await within(stageNodes(container)[APPROVE]).findByRole("button", { name: /approve/i }),
+      await within(stageNodes(container)[APPROVE]).findByRole("button", {
+        name: /approve/i,
+      }),
     );
 
     await vi.waitFor(() => expect(suggestionsReview).toHaveBeenCalled());
@@ -688,7 +732,9 @@ describe("the approve stage's suggestion queue", () => {
     await vi.waitFor(() => expect(client.suggestionsRead).toHaveBeenCalled());
 
     fireEvent.click(
-      await within(stageNodes(container)[APPROVE]).findByRole("button", { name: /defer/i }),
+      await within(stageNodes(container)[APPROVE]).findByRole("button", {
+        name: /defer/i,
+      }),
     );
 
     await vi.waitFor(() => expect(suggestionsReview).toHaveBeenCalled());
@@ -701,16 +747,26 @@ describe("the approve stage's suggestion queue", () => {
     await vi.waitFor(() => expect(client.suggestionsRead).toHaveBeenCalled());
 
     fireEvent.click(
-      await within(stageNodes(container)[APPROVE]).findByRole("button", { name: /reject/i }),
+      await within(stageNodes(container)[APPROVE]).findByRole("button", {
+        name: /reject/i,
+      }),
     );
-    const confirmButton = within(stageNodes(container)[APPROVE]).getByRole("button", {
-      name: /confirm reject/i,
-    });
+    const confirmButton = within(stageNodes(container)[APPROVE]).getByRole(
+      "button",
+      {
+        name: /confirm reject/i,
+      },
+    );
     expect(isDisabled(confirmButton)).toBe(true);
 
-    fireEvent.input(within(stageNodes(container)[APPROVE]).getByPlaceholderText(/why doesn't this source fit/i), {
-      target: { value: "off-topic for this vault" },
-    });
+    fireEvent.input(
+      within(stageNodes(container)[APPROVE]).getByPlaceholderText(
+        /why doesn't this source fit/i,
+      ),
+      {
+        target: { value: "off-topic for this vault" },
+      },
+    );
     expect(isDisabled(confirmButton)).toBe(false);
 
     fireEvent.click(confirmButton);
@@ -727,18 +783,27 @@ describe("the approve stage's suggestion queue", () => {
       decided_reason: "duplicate of an existing citation",
     });
     const { client } = fakeClient({
-      suggestions: baseSuggestionsResult({ suggestions: [decided], status_filter: "all" }),
+      suggestions: baseSuggestionsResult({
+        suggestions: [decided],
+        status_filter: "all",
+      }),
     });
     const container = renderQueueStage(client);
 
     await vi.waitFor(() =>
-      expect(within(stageNodes(container)[APPROVE]).getByText(/rejected/i)).toBeTruthy(),
+      expect(
+        within(stageNodes(container)[APPROVE]).getByText(/rejected/i),
+      ).toBeTruthy(),
     );
     expect(
-      within(stageNodes(container)[APPROVE]).queryByRole("button", { name: /^✓ approve$/i }),
+      within(stageNodes(container)[APPROVE]).queryByRole("button", {
+        name: /^✓ approve$/i,
+      }),
     ).toBeNull();
     expect(
-      within(stageNodes(container)[APPROVE]).getByText(/duplicate of an existing citation/i),
+      within(stageNodes(container)[APPROVE]).getByText(
+        /duplicate of an existing citation/i,
+      ),
     ).toBeTruthy();
   });
 
@@ -749,15 +814,20 @@ describe("the approve stage's suggestion queue", () => {
     });
     await vi.waitFor(() => expect(client.suggestionsRead).toHaveBeenCalled());
 
-    expect(within(stageNodes(container)[APPROVE]).getByText(/refused 2/i)).toBeTruthy();
+    expect(
+      within(stageNodes(container)[APPROVE]).getByText(/refused 2/i),
+    ).toBeTruthy();
   });
 
   it("keeps every triage action on one quiet-button family -- no filled primary among peers", async () => {
     const { client } = fakeClient();
     const container = renderQueueStage(client);
-    const approve = await within(stageNodes(container)[APPROVE]).findByRole("button", {
-      name: /^✓ approve$/i,
-    });
+    const approve = await within(stageNodes(container)[APPROVE]).findByRole(
+      "button",
+      {
+        name: /^✓ approve$/i,
+      },
+    );
     const reject = within(stageNodes(container)[APPROVE]).getByRole("button", {
       name: /reject/i,
     });
@@ -784,13 +854,22 @@ describe("the approve stage's suggestion queue", () => {
     await vi.waitFor(() => expect(client.suggestionsRead).toHaveBeenCalled());
 
     fireEvent.click(
-      await within(stageNodes(container)[APPROVE]).findByRole("button", { name: /reject/i }),
+      await within(stageNodes(container)[APPROVE]).findByRole("button", {
+        name: /reject/i,
+      }),
     );
-    fireEvent.input(within(stageNodes(container)[APPROVE]).getByPlaceholderText(/why doesn't this source fit/i), {
-      target: { value: "not relevant" },
-    });
+    fireEvent.input(
+      within(stageNodes(container)[APPROVE]).getByPlaceholderText(
+        /why doesn't this source fit/i,
+      ),
+      {
+        target: { value: "not relevant" },
+      },
+    );
     fireEvent.click(
-      within(stageNodes(container)[APPROVE]).getByRole("button", { name: /confirm reject/i }),
+      within(stageNodes(container)[APPROVE]).getByRole("button", {
+        name: /confirm reject/i,
+      }),
     );
 
     expect(confirmSpy).not.toHaveBeenCalled();
@@ -839,7 +918,9 @@ function triageFixtures(): SuggestionRecord[] {
 
 function rowTitles(container: Element): string[] {
   return Array.from(
-    stageNodes(container)[APPROVE].querySelectorAll<HTMLElement>(".triage-title"),
+    stageNodes(container)[APPROVE].querySelectorAll<HTMLElement>(
+      ".triage-title",
+    ),
   ).map((node) => node.textContent ?? "");
 }
 
@@ -854,7 +935,12 @@ describe("the approve stage's triage ordering", () => {
     // Delta before Alpha: both score 0.90, Delta ranks #3 against Alpha's #5.
     // Charlie last: no reputability block at all is absence, not a low score.
     await vi.waitFor(() =>
-      expect(rowTitles(container)).toEqual(["Delta", "Alpha", "Bravo", "Charlie"]),
+      expect(rowTitles(container)).toEqual([
+        "Delta",
+        "Alpha",
+        "Bravo",
+        "Charlie",
+      ]),
     );
   });
 
@@ -866,11 +952,18 @@ describe("the approve stage's triage ordering", () => {
     await vi.waitFor(() => expect(rowTitles(container)).toHaveLength(4));
 
     fireEvent.click(
-      within(stageNodes(container)[APPROVE]).getByRole("button", { name: "newest" }),
+      within(stageNodes(container)[APPROVE]).getByRole("button", {
+        name: "newest",
+      }),
     );
 
     await vi.waitFor(() =>
-      expect(rowTitles(container)).toEqual(["Charlie", "Bravo", "Alpha", "Delta"]),
+      expect(rowTitles(container)).toEqual([
+        "Charlie",
+        "Bravo",
+        "Alpha",
+        "Delta",
+      ]),
     );
   });
 
@@ -885,7 +978,9 @@ describe("the approve stage's triage ordering", () => {
     const container = renderQueueStage(client);
 
     expect(
-      await within(stageNodes(container)[APPROVE]).findByText(/sorted across the 4 loaded/i),
+      await within(stageNodes(container)[APPROVE]).findByText(
+        /sorted across the 4 loaded/i,
+      ),
     ).toBeTruthy();
   });
 });
@@ -897,7 +992,9 @@ describe("the approve stage's toolbar", () => {
     await vi.waitFor(() => expect(suggestionsRead).toHaveBeenCalledTimes(1));
 
     fireEvent.click(
-      within(stageNodes(container)[APPROVE]).getByRole("button", { name: "Refresh" }),
+      within(stageNodes(container)[APPROVE]).getByRole("button", {
+        name: "Refresh",
+      }),
     );
 
     await vi.waitFor(() => expect(suggestionsRead).toHaveBeenCalledTimes(2));
@@ -906,7 +1003,13 @@ describe("the approve stage's toolbar", () => {
   it("prints each filter's own count on its pill, and the whole-topic total on 'all'", async () => {
     const { client } = fakeClient({
       suggestions: baseSuggestionsResult({
-        status_counts: { pending: 3, approved: 1, rejected: 2, deferred: 0, ingested: 4 },
+        status_counts: {
+          pending: 3,
+          approved: 1,
+          rejected: 2,
+          deferred: 0,
+          ingested: 4,
+        },
       }),
     });
     const container = renderQueueStage(client);
@@ -914,9 +1017,15 @@ describe("the approve stage's toolbar", () => {
 
     // `all` sums status_counts rather than reading `total_count`, which
     // describes only the currently-filtered slice.
-    expect(await within(approve).findByRole("button", { name: "pending 3" })).toBeTruthy();
-    expect(within(approve).getByRole("button", { name: "accepted 1" })).toBeTruthy();
-    expect(within(approve).getByRole("button", { name: "all 10" })).toBeTruthy();
+    expect(
+      await within(approve).findByRole("button", { name: "pending 3" }),
+    ).toBeTruthy();
+    expect(
+      within(approve).getByRole("button", { name: "accepted 1" }),
+    ).toBeTruthy();
+    expect(
+      within(approve).getByRole("button", { name: "all 10" }),
+    ).toBeTruthy();
   });
 });
 
@@ -958,7 +1067,9 @@ function decidingClient(initial: SuggestionRecord[]) {
     return { mode: "apply" as const };
   });
   const client = {
-    gapsRead: vi.fn(async (..._args: unknown[]) => baseGapsResult({ gaps: [] })),
+    gapsRead: vi.fn(async (..._args: unknown[]) =>
+      baseGapsResult({ gaps: [] }),
+    ),
     suggestionsRead,
     gapfillDiscover: vi.fn(),
     suggestionsReview,
@@ -974,7 +1085,8 @@ function triageRows(container: Element): HTMLElement[] {
 
 function rowFor(container: Element, title: string): HTMLElement {
   const row = triageRows(container).find(
-    (node) => (node.querySelector(".triage-title")?.textContent ?? "") === title,
+    (node) =>
+      (node.querySelector(".triage-title")?.textContent ?? "") === title,
   );
   if (!row) throw new Error(`no triage row titled ${title}`);
   return row;
@@ -983,12 +1095,19 @@ function rowFor(container: Element, title: string): HTMLElement {
 /** The ghost's own sentence -- glyph and word live in separate spans, so the
  *  assertion reads the statement's text rather than querying for one string. */
 function ghostStatement(container: Element, title: string): string {
-  return rowFor(container, title).querySelector(".triage-ghost-statement")?.textContent ?? "";
+  return (
+    rowFor(container, title).querySelector(".triage-ghost-statement")
+      ?.textContent ?? ""
+  );
 }
 
 async function approveRow(container: Element, title: string): Promise<void> {
   await vi.waitFor(() => rowFor(container, title));
-  fireEvent.click(within(rowFor(container, title)).getByRole("button", { name: /^✓ approve$/i }));
+  fireEvent.click(
+    within(rowFor(container, title)).getByRole("button", {
+      name: /^✓ approve$/i,
+    }),
+  );
 }
 
 describe("a decided row's ghost", () => {
@@ -1000,12 +1119,16 @@ describe("a decided row's ghost", () => {
 
     // The row is still there -- a vanish is what made the click look like a no-op.
     await vi.waitFor(() =>
-      expect(within(rowFor(container, title)).getByText(/queued for ingest/i)).toBeTruthy(),
+      expect(
+        within(rowFor(container, title)).getByText(/queued for ingest/i),
+      ).toBeTruthy(),
     );
     expect(rowFor(container, title).dataset.decision).toBe("approved");
     // ...and it is no longer offering the decision it has already taken.
     expect(
-      within(rowFor(container, title)).queryByRole("button", { name: /^✓ approve$/i }),
+      within(rowFor(container, title)).queryByRole("button", {
+        name: /^✓ approve$/i,
+      }),
     ).toBeNull();
   });
 
@@ -1014,29 +1137,47 @@ describe("a decided row's ghost", () => {
   // with the accessible name of its own reject button.
   it("states a rejection and a deferral in the same place, each toned to its own decision", async () => {
     const rows = [
-      baseSuggestion({ suggestion_id: "s_r", candidate: baseCandidate({ title: "Cardinal" }) }),
-      baseSuggestion({ suggestion_id: "s_d", candidate: baseCandidate({ title: "Sparrow" }) }),
+      baseSuggestion({
+        suggestion_id: "s_r",
+        candidate: baseCandidate({ title: "Cardinal" }),
+      }),
+      baseSuggestion({
+        suggestion_id: "s_d",
+        candidate: baseCandidate({ title: "Sparrow" }),
+      }),
     ];
     const { client } = decidingClient(rows);
     const container = renderQueueStage(client);
     await vi.waitFor(() => expect(triageRows(container)).toHaveLength(2));
 
     fireEvent.click(
-      within(rowFor(container, "Cardinal")).getByRole("button", { name: /^✕ reject/i }),
+      within(rowFor(container, "Cardinal")).getByRole("button", {
+        name: /^✕ reject/i,
+      }),
     );
     fireEvent.input(
-      within(rowFor(container, "Cardinal")).getByPlaceholderText(/why doesn't this source fit/i),
+      within(rowFor(container, "Cardinal")).getByPlaceholderText(
+        /why doesn't this source fit/i,
+      ),
       { target: { value: "off-topic" } },
     );
     fireEvent.click(
-      within(rowFor(container, "Cardinal")).getByRole("button", { name: /confirm reject/i }),
+      within(rowFor(container, "Cardinal")).getByRole("button", {
+        name: /confirm reject/i,
+      }),
     );
-    await vi.waitFor(() => expect(rowFor(container, "Cardinal").dataset.decision).toBe("rejected"));
+    await vi.waitFor(() =>
+      expect(rowFor(container, "Cardinal").dataset.decision).toBe("rejected"),
+    );
 
     fireEvent.click(
-      within(rowFor(container, "Sparrow")).getByRole("button", { name: /^⧗ defer$/i }),
+      within(rowFor(container, "Sparrow")).getByRole("button", {
+        name: /^⧗ defer$/i,
+      }),
     );
-    await vi.waitFor(() => expect(rowFor(container, "Sparrow").dataset.decision).toBe("deferred"));
+    await vi.waitFor(() =>
+      expect(rowFor(container, "Sparrow").dataset.decision).toBe("deferred"),
+    );
 
     // Word plus glyph, never the left-edge tone alone (WCAG 1.4.1).
     expect(ghostStatement(container, "Cardinal")).toMatch(/✕\s*rejected/);
@@ -1047,15 +1188,27 @@ describe("a decided row's ghost", () => {
     const { client } = decidingClient(triageFixtures());
     const container = renderQueueStage(client);
     await vi.waitFor(() =>
-      expect(rowTitles(container)).toEqual(["Delta", "Alpha", "Bravo", "Charlie"]),
+      expect(rowTitles(container)).toEqual([
+        "Delta",
+        "Alpha",
+        "Bravo",
+        "Charlie",
+      ]),
     );
 
     await approveRow(container, "Bravo");
 
     await vi.waitFor(() =>
-      expect(within(rowFor(container, "Bravo")).getByText(/queued for ingest/i)).toBeTruthy(),
+      expect(
+        within(rowFor(container, "Bravo")).getByText(/queued for ingest/i),
+      ).toBeTruthy(),
     );
-    expect(rowTitles(container)).toEqual(["Delta", "Alpha", "Bravo", "Charlie"]);
+    expect(rowTitles(container)).toEqual([
+      "Delta",
+      "Alpha",
+      "Bravo",
+      "Charlie",
+    ]);
   });
 
   it("holds the ghost's own slot under newest order, which has no comparator to re-derive it", async () => {
@@ -1063,57 +1216,93 @@ describe("a decided row's ghost", () => {
     const container = renderQueueStage(client);
     await vi.waitFor(() => expect(rowTitles(container)).toHaveLength(4));
     fireEvent.click(
-      within(stageNodes(container)[APPROVE]).getByRole("button", { name: "newest" }),
+      within(stageNodes(container)[APPROVE]).getByRole("button", {
+        name: "newest",
+      }),
     );
     await vi.waitFor(() =>
-      expect(rowTitles(container)).toEqual(["Charlie", "Bravo", "Alpha", "Delta"]),
+      expect(rowTitles(container)).toEqual([
+        "Charlie",
+        "Bravo",
+        "Alpha",
+        "Delta",
+      ]),
     );
 
     await approveRow(container, "Bravo");
 
     await vi.waitFor(() =>
-      expect(within(rowFor(container, "Bravo")).getByText(/queued for ingest/i)).toBeTruthy(),
+      expect(
+        within(rowFor(container, "Bravo")).getByText(/queued for ingest/i),
+      ).toBeTruthy(),
     );
-    expect(rowTitles(container)).toEqual(["Charlie", "Bravo", "Alpha", "Delta"]);
+    expect(rowTitles(container)).toEqual([
+      "Charlie",
+      "Bravo",
+      "Alpha",
+      "Delta",
+    ]);
   });
 
   it("moves the filter pill counts in the same reload", async () => {
     const { client } = decidingClient(triageFixtures());
     const container = renderQueueStage(client);
     const approve = stageNodes(container)[APPROVE];
-    expect(await within(approve).findByRole("button", { name: "pending 4" })).toBeTruthy();
+    expect(
+      await within(approve).findByRole("button", { name: "pending 4" }),
+    ).toBeTruthy();
 
     await approveRow(container, "Bravo");
 
     await vi.waitFor(() =>
-      expect(within(approve).getByRole("button", { name: "pending 3" })).toBeTruthy(),
+      expect(
+        within(approve).getByRole("button", { name: "pending 3" }),
+      ).toBeTruthy(),
     );
-    expect(within(approve).getByRole("button", { name: "accepted 1" })).toBeTruthy();
+    expect(
+      within(approve).getByRole("button", { name: "accepted 1" }),
+    ).toBeTruthy();
   });
 });
 
 describe("the ghost's withdraw undo", () => {
   it("offers Withdraw on an approved ghost only", async () => {
     const rows = [
-      baseSuggestion({ suggestion_id: "s_a", candidate: baseCandidate({ title: "Cardinal" }) }),
-      baseSuggestion({ suggestion_id: "s_d", candidate: baseCandidate({ title: "Sparrow" }) }),
+      baseSuggestion({
+        suggestion_id: "s_a",
+        candidate: baseCandidate({ title: "Cardinal" }),
+      }),
+      baseSuggestion({
+        suggestion_id: "s_d",
+        candidate: baseCandidate({ title: "Sparrow" }),
+      }),
     ];
     const { client } = decidingClient(rows);
     const container = renderQueueStage(client);
     await vi.waitFor(() => expect(triageRows(container)).toHaveLength(2));
 
     await approveRow(container, "Cardinal");
-    await vi.waitFor(() => expect(rowFor(container, "Cardinal").dataset.decision).toBe("approved"));
-    fireEvent.click(
-      within(rowFor(container, "Sparrow")).getByRole("button", { name: /^⧗ defer$/i }),
+    await vi.waitFor(() =>
+      expect(rowFor(container, "Cardinal").dataset.decision).toBe("approved"),
     );
-    await vi.waitFor(() => expect(rowFor(container, "Sparrow").dataset.decision).toBe("deferred"));
+    fireEvent.click(
+      within(rowFor(container, "Sparrow")).getByRole("button", {
+        name: /^⧗ defer$/i,
+      }),
+    );
+    await vi.waitFor(() =>
+      expect(rowFor(container, "Sparrow").dataset.decision).toBe("deferred"),
+    );
 
     expect(
-      within(rowFor(container, "Cardinal")).getByRole("button", { name: /^withdraw$/i }),
+      within(rowFor(container, "Cardinal")).getByRole("button", {
+        name: /^withdraw$/i,
+      }),
     ).toBeTruthy();
     expect(
-      within(rowFor(container, "Sparrow")).queryByRole("button", { name: /^withdraw$/i }),
+      within(rowFor(container, "Sparrow")).queryByRole("button", {
+        name: /^withdraw$/i,
+      }),
     ).toBeNull();
   });
 
@@ -1122,13 +1311,21 @@ describe("the ghost's withdraw undo", () => {
     const container = renderQueueStage(client);
     const title = baseCandidate().title;
     await approveRow(container, title);
-    await vi.waitFor(() => expect(rowFor(container, title).dataset.decision).toBe("approved"));
+    await vi.waitFor(() =>
+      expect(rowFor(container, title).dataset.decision).toBe("approved"),
+    );
 
-    fireEvent.click(within(rowFor(container, title)).getByRole("button", { name: /withdraw/i }));
+    fireEvent.click(
+      within(rowFor(container, title)).getByRole("button", {
+        name: /withdraw/i,
+      }),
+    );
 
     await vi.waitFor(() =>
       expect(
-        within(rowFor(container, title)).getByRole("button", { name: /^✓ approve$/i }),
+        within(rowFor(container, title)).getByRole("button", {
+          name: /^✓ approve$/i,
+        }),
       ).toBeTruthy(),
     );
     expect(rowFor(container, title).dataset.decision).toBeUndefined();
@@ -1144,10 +1341,14 @@ describe("the ghost's lifetime", () => {
     const container = renderQueueStage(client);
     const title = baseCandidate().title;
     await approveRow(container, title);
-    await vi.waitFor(() => expect(rowFor(container, title).dataset.decision).toBe("approved"));
+    await vi.waitFor(() =>
+      expect(rowFor(container, title).dataset.decision).toBe("approved"),
+    );
 
     fireEvent.click(
-      within(stageNodes(container)[APPROVE]).getByRole("button", { name: /^all/i }),
+      within(stageNodes(container)[APPROVE]).getByRole("button", {
+        name: /^all/i,
+      }),
     );
 
     await vi.waitFor(() => expect(triageRows(container)).toHaveLength(0));
@@ -1158,10 +1359,14 @@ describe("the ghost's lifetime", () => {
     const container = renderQueueStage(client);
     const title = baseCandidate().title;
     await approveRow(container, title);
-    await vi.waitFor(() => expect(rowFor(container, title).dataset.decision).toBe("approved"));
+    await vi.waitFor(() =>
+      expect(rowFor(container, title).dataset.decision).toBe("approved"),
+    );
 
     fireEvent.click(
-      within(stageNodes(container)[APPROVE]).getByRole("button", { name: "Refresh" }),
+      within(stageNodes(container)[APPROVE]).getByRole("button", {
+        name: "Refresh",
+      }),
     );
 
     await vi.waitFor(() => expect(triageRows(container)).toHaveLength(0));
@@ -1200,10 +1405,14 @@ describe("the ghost's lifetime", () => {
 
     const container = renderQueueStage(client);
     await approveRow(container, "First");
-    await vi.waitFor(() => expect(rowFor(container, "First").dataset.decision).toBe("approved"));
+    await vi.waitFor(() =>
+      expect(rowFor(container, "First").dataset.decision).toBe("approved"),
+    );
 
     fireEvent.click(
-      within(stageNodes(container)[APPROVE]).getByRole("button", { name: /load more/i }),
+      within(stageNodes(container)[APPROVE]).getByRole("button", {
+        name: /load more/i,
+      }),
     );
 
     await vi.waitFor(() => expect(rowFor(container, "Second")).toBeTruthy());
@@ -1219,9 +1428,12 @@ describe("the decision's non-visual feedback", () => {
 
     await approveRow(container, "Bravo");
 
-    const live = stageNodes(container)[APPROVE].querySelector('[role="status"]');
+    const live =
+      stageNodes(container)[APPROVE].querySelector('[role="status"]');
     await vi.waitFor(() =>
-      expect(live?.textContent ?? "").toMatch(/approved: bravo — 3 pending remaining/i),
+      expect(live?.textContent ?? "").toMatch(
+        /approved: bravo — 3 pending remaining/i,
+      ),
     );
   });
 
@@ -1230,11 +1442,18 @@ describe("the decision's non-visual feedback", () => {
     const container = renderQueueStage(client);
     const title = baseCandidate().title;
     await approveRow(container, title);
-    await vi.waitFor(() => expect(rowFor(container, title).dataset.decision).toBe("approved"));
+    await vi.waitFor(() =>
+      expect(rowFor(container, title).dataset.decision).toBe("approved"),
+    );
 
-    fireEvent.click(within(rowFor(container, title)).getByRole("button", { name: /withdraw/i }));
+    fireEvent.click(
+      within(rowFor(container, title)).getByRole("button", {
+        name: /withdraw/i,
+      }),
+    );
 
-    const live = stageNodes(container)[APPROVE].querySelector('[role="status"]');
+    const live =
+      stageNodes(container)[APPROVE].querySelector('[role="status"]');
     await vi.waitFor(() =>
       expect(live?.textContent ?? "").toMatch(/withdrawn, back to pending/i),
     );
@@ -1246,7 +1465,9 @@ describe("the decision's non-visual feedback", () => {
       release = resolve;
     });
     const { client } = decidingClient([baseSuggestion()]);
-    const slow = client as unknown as { suggestionsReview: (...args: unknown[]) => unknown };
+    const slow = client as unknown as {
+      suggestionsReview: (...args: unknown[]) => unknown;
+    };
     const inner = slow.suggestionsReview.bind(client);
     slow.suggestionsReview = async (...args: unknown[]) => {
       await gate;
@@ -1257,7 +1478,9 @@ describe("the decision's non-visual feedback", () => {
     const title = baseCandidate().title;
     await approveRow(container, title);
 
-    await vi.waitFor(() => expect(rowFor(container, title).getAttribute("aria-busy")).toBe("true"));
+    await vi.waitFor(() =>
+      expect(rowFor(container, title).getAttribute("aria-busy")).toBe("true"),
+    );
     const row = within(rowFor(container, title));
     // The clicked control shows its busy form -- the verb is kept and marked
     // `aria-busy`, so the row's own busy flag is no longer the only place a
@@ -1265,7 +1488,9 @@ describe("the decision's non-visual feedback", () => {
     // disabled but not pretending to be the one in flight.
     const approving = row.getByRole("button", { name: /✓ approve/i });
     expect(approving.getAttribute("aria-busy")).toBe("true");
-    expect(isDisabled(row.getByRole("button", { name: /⧗ defer/i }))).toBe(true);
+    expect(isDisabled(row.getByRole("button", { name: /⧗ defer/i }))).toBe(
+      true,
+    );
 
     release();
     await vi.waitFor(() =>
@@ -1288,7 +1513,9 @@ describe("the triage row's disclosure", () => {
 
     fireEvent.click(disclose);
 
-    expect(await within(approve).findByText(/no coverage of hyde/i)).toBeTruthy();
+    expect(
+      await within(approve).findByText(/no coverage of hyde/i),
+    ).toBeTruthy();
     expect(disclose.getAttribute("aria-expanded")).toBe("true");
   });
 
@@ -1297,10 +1524,16 @@ describe("the triage row's disclosure", () => {
     const container = renderQueueStage(client);
     const approve = stageNodes(container)[APPROVE];
 
-    fireEvent.click(await within(approve).findByRole("button", { name: /reject/i }));
+    fireEvent.click(
+      await within(approve).findByRole("button", { name: /reject/i }),
+    );
 
-    expect(await within(approve).findByText(/no coverage of hyde/i)).toBeTruthy();
-    expect(within(approve).getByPlaceholderText(/why doesn't this source fit/i)).toBeTruthy();
+    expect(
+      await within(approve).findByText(/no coverage of hyde/i),
+    ).toBeTruthy();
+    expect(
+      within(approve).getByPlaceholderText(/why doesn't this source fit/i),
+    ).toBeTruthy();
   });
 });
 
@@ -1314,7 +1547,9 @@ describe("the lifecycle contract on the triage verbs", () => {
     await approveRow(container, baseCandidate().title);
 
     const approve = stageNodes(container)[APPROVE];
-    expect(await within(approve).findByText(/Go to Fill → Ingest\./)).toBeTruthy();
+    expect(
+      await within(approve).findByText(/Go to Fill → Ingest\./),
+    ).toBeTruthy();
   });
 
   it("sends a rejection back to discovery -- the gap outlives the candidate", async () => {
@@ -1322,13 +1557,22 @@ describe("the lifecycle contract on the triage verbs", () => {
     const container = renderQueueStage(client);
     const approve = stageNodes(container)[APPROVE];
 
-    fireEvent.click(await within(approve).findByRole("button", { name: /^✕ reject…$/i }));
-    fireEvent.input(within(approve).getByPlaceholderText(/why doesn't this source fit/i), {
-      target: { value: "wrong topic" },
-    });
-    fireEvent.click(within(approve).getByRole("button", { name: /^confirm reject$/i }));
+    fireEvent.click(
+      await within(approve).findByRole("button", { name: /^✕ reject…$/i }),
+    );
+    fireEvent.input(
+      within(approve).getByPlaceholderText(/why doesn't this source fit/i),
+      {
+        target: { value: "wrong topic" },
+      },
+    );
+    fireEvent.click(
+      within(approve).getByRole("button", { name: /^confirm reject$/i }),
+    );
 
-    expect(await within(approve).findByText(/Go to Fill → Discover\./)).toBeTruthy();
+    expect(
+      await within(approve).findByText(/Go to Fill → Discover\./),
+    ).toBeTruthy();
   });
 
   it("keeps one live region in the stage -- the outcome adds no second one", async () => {
@@ -1347,17 +1591,20 @@ describe("the lifecycle contract on the triage verbs", () => {
   });
 });
 
-
 describe("gap dismissal -- the one gap-side decision, cascading by design", () => {
   it("requires opening the reason form and typing a non-empty reason before confirming", async () => {
     const { client, reviewGap } = fakeClient();
     const container = renderQueueStage(client);
     await vi.waitFor(() =>
-      expect(within(stageNodes(container)[GAP]).getByText(/no coverage of HyDE/)).toBeTruthy(),
+      expect(
+        within(stageNodes(container)[GAP]).getByText(/no coverage of HyDE/),
+      ).toBeTruthy(),
     );
 
     fireEvent.click(
-      within(stageNodes(container)[GAP]).getByRole("button", { name: /dismiss…/i }),
+      within(stageNodes(container)[GAP]).getByRole("button", {
+        name: /dismiss…/i,
+      }),
     );
 
     const confirm = within(stageNodes(container)[GAP]).getByRole("button", {
@@ -1376,19 +1623,25 @@ describe("gap dismissal -- the one gap-side decision, cascading by design", () =
     const { client, reviewGap, gapsRead, suggestionsRead } = fakeClient();
     const container = renderQueueStage(client, { onStatusRefresh });
     await vi.waitFor(() =>
-      expect(within(stageNodes(container)[GAP]).getByText(/no coverage of HyDE/)).toBeTruthy(),
+      expect(
+        within(stageNodes(container)[GAP]).getByText(/no coverage of HyDE/),
+      ).toBeTruthy(),
     );
     gapsRead.mockClear();
     suggestionsRead.mockClear();
 
     fireEvent.click(
-      within(stageNodes(container)[GAP]).getByRole("button", { name: /dismiss…/i }),
+      within(stageNodes(container)[GAP]).getByRole("button", {
+        name: /dismiss…/i,
+      }),
     );
     fireEvent.input(within(stageNodes(container)[GAP]).getByRole("textbox"), {
       target: { value: "answered by the retrieval page" },
     });
     fireEvent.click(
-      within(stageNodes(container)[GAP]).getByRole("button", { name: /confirm dismiss/i }),
+      within(stageNodes(container)[GAP]).getByRole("button", {
+        name: /confirm dismiss/i,
+      }),
     );
 
     await vi.waitFor(() => expect(reviewGap).toHaveBeenCalledTimes(1));
@@ -1413,7 +1666,8 @@ describe("gap dismissal -- the one gap-side decision, cascading by design", () =
     );
     const gapStage = stageNodes(container)[GAP];
     expect(
-      within(gapStage).getByText(/2 linked suggestions closed with it/)
+      within(gapStage)
+        .getByText(/2 linked suggestions closed with it/)
         .closest("[role='status']"),
     ).toBeTruthy();
     // The sixth answer lands beside it, and nowhere else.
@@ -1429,19 +1683,27 @@ describe("gap dismissal -- the one gap-side decision, cascading by design", () =
     const { client, reviewGap } = fakeClient();
     const container = renderQueueStage(client);
     await vi.waitFor(() =>
-      expect(within(stageNodes(container)[GAP]).getByText(/no coverage of HyDE/)).toBeTruthy(),
+      expect(
+        within(stageNodes(container)[GAP]).getByText(/no coverage of HyDE/),
+      ).toBeTruthy(),
     );
 
     fireEvent.click(
-      within(stageNodes(container)[GAP]).getByRole("button", { name: /dismiss…/i }),
+      within(stageNodes(container)[GAP]).getByRole("button", {
+        name: /dismiss…/i,
+      }),
     );
     fireEvent.click(
-      within(stageNodes(container)[GAP]).getByRole("button", { name: /^cancel$/i }),
+      within(stageNodes(container)[GAP]).getByRole("button", {
+        name: /^cancel$/i,
+      }),
     );
 
     expect(reviewGap).not.toHaveBeenCalled();
     expect(
-      within(stageNodes(container)[GAP]).queryByRole("button", { name: /confirm dismiss/i }),
+      within(stageNodes(container)[GAP]).queryByRole("button", {
+        name: /confirm dismiss/i,
+      }),
     ).toBeNull();
   });
 });

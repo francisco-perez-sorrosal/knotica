@@ -111,7 +111,10 @@ describe("putting both legs of a single billed loop pass on the wire", () => {
       message: "Gate cycle finished",
     });
 
-    const outcome: LoopOnceResult = await host.client.loopRunOnce("physics", "gate-nonce");
+    const outcome: LoopOnceResult = await host.client.loopRunOnce(
+      "physics",
+      "gate-nonce",
+    );
 
     expect(outcome.billed).toBe(true);
     expect(outcome.confirm_nonce).toBeUndefined();

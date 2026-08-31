@@ -29,7 +29,13 @@ export interface TermHintProps {
  * Forbidden placements (design §2.3): never inside a `<button>`, never
  * inside any element carrying `aria-expanded`, never inside a `title=`.
  */
-export function TermHint({ id, term, title, body, align = "start" }: TermHintProps): JSX.Element {
+export function TermHint({
+  id,
+  term,
+  title,
+  body,
+  align = "start",
+}: TermHintProps): JSX.Element {
   const open = isPopoverOpen(id);
   const panelId = `${id}-panel`;
   const triggerRef = useRef<HTMLButtonElement>(null);

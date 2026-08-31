@@ -111,7 +111,7 @@ function anchorLabel(anchor: ProcessAnchor): string {
   const lane = anchor.lane.charAt(0).toUpperCase() + anchor.lane.slice(1);
   if (anchor.stage === null) return lane;
   const title =
-    LANE_STAGES[anchor.lane]?.find((stage) => stage.id === anchor.stage)?.title ??
-    anchor.stage;
+    LANE_STAGES[anchor.lane]?.find((stage) => stage.id === anchor.stage)
+      ?.title ?? anchor.stage;
   return `${lane} → ${title}`;
 }

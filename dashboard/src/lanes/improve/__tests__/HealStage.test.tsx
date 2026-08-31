@@ -390,7 +390,9 @@ describe("an aborted race explains itself and names the next step", () => {
     // `loopCadenceRead`'s), and the arm click's FREE leg is sanctioned --
     // what must not happen before the second click is a call carrying the
     // nonce, which is the only thing that writes.
-    const loopCadence = client.loopCadence as unknown as ReturnType<typeof vi.fn>;
+    const loopCadence = client.loopCadence as unknown as ReturnType<
+      typeof vi.fn
+    >;
     expect(loopCadence.mock.calls.filter((call) => call[3])).toHaveLength(0);
     expect(
       await screen.findByRole("button", {
@@ -423,7 +425,9 @@ describe("an aborted race explains itself and names the next step", () => {
     });
     fireEvent.click(screen.getByTestId("heal-arena-scorer"));
 
-    const loopCadence = client.loopCadence as unknown as ReturnType<typeof vi.fn>;
+    const loopCadence = client.loopCadence as unknown as ReturnType<
+      typeof vi.fn
+    >;
     await vi.waitFor(() =>
       expect(loopCadence.mock.calls.filter((call) => call[3])).toHaveLength(1),
     );
@@ -553,7 +557,9 @@ describe("the arena card carries the race's instrument and each variant's proven
     const client = fakeClient({
       arenaStatus: vi
         .fn()
-        .mockResolvedValue(fakeArenaStatus({ scorer_id: "eval", n_examples: 40 })),
+        .mockResolvedValue(
+          fakeArenaStatus({ scorer_id: "eval", n_examples: 40 }),
+        ),
     });
 
     render(

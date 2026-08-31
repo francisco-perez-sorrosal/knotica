@@ -62,10 +62,14 @@ interface AttentionTopicRow {
   suggestions: AttentionSuggestions;
   compile_ready: boolean;
   runner: AttentionRunner;
-  /** Optional for the same back-compat reason as `suggestions.total`. */
-  gaps?: { open_total: number };
+  /** Optional for the same back-compat reason as `suggestions.total`;
+   *  `answered_in_vault` is optional again *within* it, because a server that
+   *  sends the gap block can still predate the drain-time stamp. */
+  gaps?: { open_total: number; answered_in_vault?: number };
   arena?: { stage: string | null };
-  gate?: { baseline_unreachable: { baseline: number; last_scalar: number } | null };
+  gate?: {
+    baseline_unreachable: { baseline: number; last_scalar: number } | null;
+  };
 }
 
 interface AttentionTotals {
@@ -102,6 +106,7 @@ type AttentionKind =
   | "refused_rework"
   | "pending_suggestions"
   | "gaps_awaiting_discovery"
+  | "gaps_answered_in_vault"
   | "compile_ready"
   | "arena_aborted"
   | "runner_active";
@@ -255,9 +260,7 @@ describe("running class -- an alive runner", () => {
 
 describe("quiet topics -- the fourth, correct class: not rendered", () => {
   it("drops a fully quiet topic entirely", () => {
-    expect(attentionRows.deriveAttentionRows(payload([QUIET_ROW]))).toEqual(
-      [],
-    );
+    expect(attentionRows.deriveAttentionRows(payload([QUIET_ROW]))).toEqual([]);
   });
 
   it("an empty vault (no topics) produces no rows", () => {
@@ -286,9 +289,7 @@ describe("a single topic can surface more than one signal", () => {
       compile_ready: false,
       runner: { alive: true },
     };
-    const rows = attentionRows.deriveAttentionRows(
-      payload([QUIET_ROW, busy]),
-    );
+    const rows = attentionRows.deriveAttentionRows(payload([QUIET_ROW, busy]));
     expect(rows).toHaveLength(1);
     expect(rows[0].topic).toBe("agentic-systems");
   });
@@ -428,7 +429,9 @@ describe("waiting class -- open gaps that discovery never reached", () => {
     };
 
     expect(
-      rowsFor(midPipeline).filter((row) => row.kind === "gaps_awaiting_discovery"),
+      rowsFor(midPipeline).filter(
+        (row) => row.kind === "gaps_awaiting_discovery",
+      ),
     ).toEqual([]);
   });
 
@@ -439,6 +442,67 @@ describe("waiting class -- open gaps that discovery never reached", () => {
   it("stays silent against a server that does not send the fields yet", () => {
     // One signal short beats a blank Home: the row is absent, nothing throws.
     expect(rowsFor(QUIET_ROW)).toEqual([]);
+  });
+});
+
+/**
+ * The eighth signal (`td-070`): a gap whose whole candidate yield a drain
+ * found already stored in the vault. It was previously visible only in the
+ * drain's own result, so an operator who did not run the drain never learned
+ * that the missing piece is retrieval or linking rather than acquisition. The
+ * server stamps it on the gap record (`answered_in_vault_at`) so Home reads it
+ * as a count, paying no discovery cost (`dec-092`).
+ */
+describe("waiting class -- open gaps the vault already answers", () => {
+  const ANSWERED: AttentionTopicRow = {
+    topic: "rag-patterns",
+    suggestions: { pending: 0, refused_awaiting_rework: 0, total: 4 },
+    gaps: { open_total: 2, answered_in_vault: 2 },
+    compile_ready: false,
+    runner: { alive: false },
+  };
+
+  it("produces exactly one waiting row routed to fill", () => {
+    const rows = rowsFor(ANSWERED);
+
+    expect(rows).toHaveLength(1);
+    expect(rows[0].urgency).toBe("waiting");
+    expect(rows[0].lane).toBe("fill");
+    expect(rows[0].kind).toBe("gaps_answered_in_vault");
+    expect(rows[0].action).toBe("Open");
+  });
+
+  it("narrates the count and says the sources are already stored", () => {
+    const narration = rowsFor(ANSWERED)[0].narration;
+    expect(narration).toMatch(/\b2\b/);
+    expect(narration).toMatch(/store|vault/i);
+  });
+
+  it("stays silent when no open gap carries the stamp", () => {
+    expect(
+      rowsFor({ ...ANSWERED, gaps: { open_total: 2, answered_in_vault: 0 } }),
+    ).toEqual([]);
+  });
+
+  it("stays silent against a server whose gap block predates the stamp", () => {
+    // One signal short beats a blank Home -- the same contract every other
+    // optionally-read field here holds to.
+    expect(rowsFor({ ...ANSWERED, gaps: { open_total: 2 } })).toEqual([]);
+  });
+
+  it("is independent of the never-discovered row -- a topic can carry both", () => {
+    // `answered_in_vault` says discovery ran and found nothing new;
+    // `gaps_awaiting_discovery` says it never ran. A payload asserting both is
+    // the server's business, and the derivation must not silently merge them.
+    const rows = rowsFor({
+      ...ANSWERED,
+      suggestions: { pending: 0, refused_awaiting_rework: 0, total: 0 },
+    });
+
+    expect(rows.map((row) => row.kind).sort()).toEqual([
+      "gaps_answered_in_vault",
+      "gaps_awaiting_discovery",
+    ]);
   });
 });
 
@@ -503,10 +567,9 @@ describe("the new signals sort into their classes with the old ones", () => {
       ]),
     );
 
-    expect(attentionRows.sortAttentionRows(rows).map((row) => row.kind)).toEqual([
-      "arena_aborted",
-      "gaps_awaiting_discovery",
-    ]);
+    expect(
+      attentionRows.sortAttentionRows(rows).map((row) => row.kind),
+    ).toEqual(["arena_aborted", "gaps_awaiting_discovery"]);
   });
 
   it("emits both new rows for one topic that is simultaneously stalled and blocked", () => {
@@ -555,7 +618,9 @@ describe("blocked class -- a gate baseline the corpus cannot reach", () => {
   });
 
   it("stays silent when the server withholds the finding", () => {
-    expect(rowsFor({ ...JAMMED, gate: { baseline_unreachable: null } })).toEqual([]);
+    expect(
+      rowsFor({ ...JAMMED, gate: { baseline_unreachable: null } }),
+    ).toEqual([]);
   });
 
   it("stays silent against a server that does not send the gate block yet", () => {

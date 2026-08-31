@@ -101,7 +101,8 @@ export const IMPROVE_PROCESSES: Record<
     // it; before this row a finished compile looked exactly like a click that
     // did nothing, because the only visible effect was a status re-read.
     outcomeMode: "refresh",
-    outcomeFallback: "A fresh candidate branch is compiled and waiting to be measured.",
+    outcomeFallback:
+      "A fresh candidate branch is compiled and waiting to be measured.",
     next: {
       kind: "always",
       go: {

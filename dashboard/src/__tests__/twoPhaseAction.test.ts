@@ -1,7 +1,11 @@
 import { describe, expect, it } from "vitest";
 
 import { idleTwoPhase, runConfirm, runPreview } from "../TwoPhaseAction";
-import type { TwoPhaseEnvelope, TwoPhaseHandlers, TwoPhaseState } from "../TwoPhaseAction";
+import type {
+  TwoPhaseEnvelope,
+  TwoPhaseHandlers,
+  TwoPhaseState,
+} from "../TwoPhaseAction";
 
 /**
  * The one client-side billing boundary.
@@ -24,8 +28,14 @@ interface GateEnvelope extends TwoPhaseEnvelope {
   message?: string;
 }
 
-const GATE_QUOTE: GateEnvelope = { confirm_nonce: "gate-nonce", estimated_cost: "$0.12" };
-const GATE_RESULT: GateEnvelope = { billed: true, message: "Gate cycle finished" };
+const GATE_QUOTE: GateEnvelope = {
+  confirm_nonce: "gate-nonce",
+  estimated_cost: "$0.12",
+};
+const GATE_RESULT: GateEnvelope = {
+  billed: true,
+  message: "Gate cycle finished",
+};
 
 /** What the primitive asked the caller to do, in the order it asked. */
 type RecordedLeg<T extends TwoPhaseEnvelope> =
@@ -69,7 +79,9 @@ function recordingLegs<T extends TwoPhaseEnvelope>(legs: {
  * wired any other way would read a stale, never-busy state, so the in-flight
  * guards below are only meaningful against this feedback.
  */
-function twoPhaseAction<T extends TwoPhaseEnvelope>(handlers: TwoPhaseHandlers<T>) {
+function twoPhaseAction<T extends TwoPhaseEnvelope>(
+  handlers: TwoPhaseHandlers<T>,
+) {
   const emitted: TwoPhaseState<T>[] = [];
   let latest = idleTwoPhase<T>();
   const emit = (next: TwoPhaseState<T>) => {
@@ -122,7 +134,11 @@ describe("taking a free quote", () => {
 
     await action.preview();
 
-    expect(action.state).toEqual({ preview: GATE_QUOTE, outcome: null, busy: null });
+    expect(action.state).toEqual({
+      preview: GATE_QUOTE,
+      outcome: null,
+      busy: null,
+    });
   });
 
   it("publishes a quoting phase while the free leg is in flight, and clears it once quoted", async () => {
@@ -235,7 +251,11 @@ describe("redeeming a quote", () => {
 
     const inFlight = action.confirm();
 
-    expect(action.state).toEqual({ preview: GATE_QUOTE, outcome: null, busy: "confirm" });
+    expect(action.state).toEqual({
+      preview: GATE_QUOTE,
+      outcome: null,
+      busy: "confirm",
+    });
 
     pending.settle(GATE_RESULT);
     await inFlight;
@@ -253,7 +273,11 @@ describe("reporting what the charge did", () => {
     await action.preview();
     await action.confirm();
 
-    expect(action.state).toEqual({ preview: null, outcome: GATE_RESULT, busy: null });
+    expect(action.state).toEqual({
+      preview: null,
+      outcome: GATE_RESULT,
+      busy: null,
+    });
   });
 });
 
@@ -285,7 +309,11 @@ describe("when a leg fails", () => {
     await action.preview();
     await action.confirm();
 
-    expect(action.state).toEqual({ preview: GATE_QUOTE, outcome: null, busy: null });
+    expect(action.state).toEqual({
+      preview: GATE_QUOTE,
+      outcome: null,
+      busy: null,
+    });
     expect(legs.errors).toEqual(["gate refused the candidate"]);
   });
 });
@@ -297,7 +325,11 @@ describe("serving more than one billed surface", () => {
       would_drain?: number;
       drained?: number;
     }
-    const drainQuote: DrainEnvelope = { confirm_nonce: "drain-nonce", open_gaps: 7, would_drain: 7 };
+    const drainQuote: DrainEnvelope = {
+      confirm_nonce: "drain-nonce",
+      open_gaps: 7,
+      would_drain: 7,
+    };
     const drainResult: DrainEnvelope = { drained: 7 };
     const legs = recordingLegs<DrainEnvelope>({
       quote: async () => drainQuote,

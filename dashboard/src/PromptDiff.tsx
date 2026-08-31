@@ -118,8 +118,10 @@ export function PromptDiff({
             <Spinner />
             Loading diff…
           </>
+        ) : open ? (
+          resolvedHideLabel
         ) : (
-          open ? resolvedHideLabel : resolvedLabel
+          resolvedLabel
         )}
       </button>
       {!diffAvailable ? (
@@ -131,7 +133,11 @@ export function PromptDiff({
         </p>
       ) : null}
       {open && diff ? (
-        <div class="prompt-diff-panel" aria-label="Query prompt diff">
+        <div
+          class="prompt-diff-panel"
+          role="group"
+          aria-label="Query prompt diff"
+        >
           <header class="prompt-diff-meta">
             <code>{diff.path}</code>
             {baseSha && headSha ? (
@@ -150,15 +156,19 @@ export function PromptDiff({
               </span>
             ) : null}
             {diff.source ? <span class="muted">via {diff.source}</span> : null}
-            {comparisonCaption ? <span class="muted">{comparisonCaption}</span> : null}
+            {comparisonCaption ? (
+              <span class="muted">{comparisonCaption}</span>
+            ) : null}
             {mode === "compiled" && diff.demo_count != null && artifactName ? (
               <span class="muted">
-                {diff.demo_count} demo{diff.demo_count === 1 ? "" : "s"} · artifact{" "}
-                <code>{artifactName}</code>
+                {diff.demo_count} demo{diff.demo_count === 1 ? "" : "s"} ·
+                artifact <code>{artifactName}</code>
               </span>
             ) : null}
             {diff.empty ? <span class="muted">No changes</span> : null}
-            {diff.truncated ? <span class="health-chip warn">truncated</span> : null}
+            {diff.truncated ? (
+              <span class="health-chip warn">truncated</span>
+            ) : null}
           </header>
           {diff.empty ? (
             <p class="muted prompt-diff-empty">
@@ -184,7 +194,11 @@ export function PromptDiff({
                           {line.new_no ?? ""}
                         </span>
                         <span class="prompt-diff-sign">
-                          {line.type === "add" ? "+" : line.type === "del" ? "-" : " "}
+                          {line.type === "add"
+                            ? "+"
+                            : line.type === "del"
+                              ? "-"
+                              : " "}
                         </span>
                         <span class="prompt-diff-text">{line.text || " "}</span>
                       </div>

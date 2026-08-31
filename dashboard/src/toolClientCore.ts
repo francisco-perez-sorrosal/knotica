@@ -79,7 +79,7 @@ export function installToolCallGroups(
 ): void {
   for (const group of groups) {
     for (const [name, method] of Object.entries(group)) {
-      if (Object.prototype.hasOwnProperty.call(prototype, name)) {
+      if (Object.hasOwn(prototype, name)) {
         throw new Error(
           `Tool-call group collision: two groups (or a group and the client ` +
             `class itself) both declare "${name}".`,

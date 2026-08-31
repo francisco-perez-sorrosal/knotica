@@ -973,9 +973,21 @@ async function openPanelFor(
 }
 
 describe("the you-control opens an inline panel rather than doing nothing", () => {
-  const YOU_STATES: Array<[string, (id: string) => SessionStatus, RegExp, RegExp]> = [
-    ["not_started", NOT_STARTED, /^open a session$/i, /only claude can write into it/i],
-    ["client_wrote", CLIENT_WROTE, /^submit$/i, /runs the preflight in your claude session/i],
+  const YOU_STATES: Array<
+    [string, (id: string) => SessionStatus, RegExp, RegExp]
+  > = [
+    [
+      "not_started",
+      NOT_STARTED,
+      /^open a session$/i,
+      /only claude can write into it/i,
+    ],
+    [
+      "client_wrote",
+      CLIENT_WROTE,
+      /^submit$/i,
+      /runs the preflight in your claude session/i,
+    ],
     ["refused", REFUSED, /^rework it$/i, /reopens the quarantined session/i],
     ["swept", SWEPT, /^reopen$/i, /expired after 24 hours/i],
   ];
@@ -986,7 +998,9 @@ describe("the you-control opens an inline panel rather than doing nothing", () =
       const suggestion = baseSuggestion();
       const { client } = fakeClient({
         suggestions: [suggestion],
-        sessionResponses: { [suggestion.suggestion_id]: [state(suggestion.suggestion_id)] },
+        sessionResponses: {
+          [suggestion.suggestion_id]: [state(suggestion.suggestion_id)],
+        },
       });
       const container = renderIngestGateStage(client);
       await vi.waitFor(() => expect(ingestRowsRendered(container)).toBe(true));
@@ -1016,16 +1030,24 @@ describe("the you-control opens an inline panel rather than doing nothing", () =
     const suggestion = baseSuggestion();
     const { client, sendMessage } = fakeClient({
       suggestions: [suggestion],
-      sessionResponses: { [suggestion.suggestion_id]: [NOT_STARTED(suggestion.suggestion_id)] },
+      sessionResponses: {
+        [suggestion.suggestion_id]: [NOT_STARTED(suggestion.suggestion_id)],
+      },
     });
     const container = renderIngestGateStage(withMessageCapability(client));
     await vi.waitFor(() => expect(ingestRowsRendered(container)).toBe(true));
 
-    await openPanelFor(container, suggestion.candidate.title, /^open a session$/i);
+    await openPanelFor(
+      container,
+      suggestion.candidate.title,
+      /^open a session$/i,
+    );
     // Opening the panel is not dispatching.
     expect(sendMessage).not.toHaveBeenCalled();
 
-    fireEvent.click(within(container).getByRole("button", { name: /send to claude/i }));
+    fireEvent.click(
+      within(container).getByRole("button", { name: /send to claude/i }),
+    );
 
     await vi.waitFor(() => expect(sendMessage).toHaveBeenCalledTimes(1));
     expect(
@@ -1037,18 +1059,26 @@ describe("the you-control opens an inline panel rather than doing nothing", () =
     const suggestion = baseSuggestion();
     const { client, sendMessage, updateModelContext } = fakeClient({
       suggestions: [suggestion],
-      sessionResponses: { [suggestion.suggestion_id]: [NOT_STARTED(suggestion.suggestion_id)] },
+      sessionResponses: {
+        [suggestion.suggestion_id]: [NOT_STARTED(suggestion.suggestion_id)],
+      },
     });
     const container = renderIngestGateStage(client);
     await vi.waitFor(() => expect(ingestRowsRendered(container)).toBe(true));
 
-    await openPanelFor(container, suggestion.candidate.title, /^open a session$/i);
+    await openPanelFor(
+      container,
+      suggestion.candidate.title,
+      /^open a session$/i,
+    );
 
     expect(
       within(container).queryByRole("button", { name: /send to claude/i }),
     ).toBeNull();
     expect(within(container).getByText("Copy the instruction")).toBeTruthy();
-    expect(within(container).queryByText(/sent to your claude session/i)).toBeNull();
+    expect(
+      within(container).queryByText(/sent to your claude session/i),
+    ).toBeNull();
     expect(sendMessage).not.toHaveBeenCalled();
     expect(updateModelContext).not.toHaveBeenCalled();
   });
@@ -1064,8 +1094,14 @@ describe("the you-control opens an inline panel rather than doing nothing", () =
     const container = renderIngestGateStage(withMessageCapability(client));
     await vi.waitFor(() => expect(ingestRowsRendered(container)).toBe(true));
 
-    await openPanelFor(container, SUGGESTION_A.candidate.title, /^open a session$/i);
-    fireEvent.click(within(container).getByRole("button", { name: /send to claude/i }));
+    await openPanelFor(
+      container,
+      SUGGESTION_A.candidate.title,
+      /^open a session$/i,
+    );
+    fireEvent.click(
+      within(container).getByRole("button", { name: /send to claude/i }),
+    );
     await vi.waitFor(() => expect(sendMessage).toHaveBeenCalledTimes(1));
     expect(
       await within(container).findByText(/sent to your claude session/i),
@@ -1078,6 +1114,8 @@ describe("the you-control opens an inline panel rather than doing nothing", () =
     );
     // B's panel is closed, and A's confirmation does not bleed into it.
     expect(controlB.getAttribute("aria-expanded")).toBe("false");
-    expect(within(container).queryByText(/sent to your claude session/i)).toBeNull();
+    expect(
+      within(container).queryByText(/sent to your claude session/i),
+    ).toBeNull();
   });
 });

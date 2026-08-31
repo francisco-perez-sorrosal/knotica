@@ -2,7 +2,11 @@ import type { App } from "@modelcontextprotocol/ext-apps";
 import { beforeEach, describe, expect, it } from "vitest";
 
 import { BridgeToolClient } from "../toolClient";
-import type { GapfillDiscoverResult, LoopOnceResult, LoopRunEvalResult } from "../types";
+import type {
+  GapfillDiscoverResult,
+  LoopOnceResult,
+  LoopRunEvalResult,
+} from "../types";
 
 /**
  * What the dashboard puts on the wire for the billed, two-phase calls.
@@ -169,7 +173,8 @@ describe("previewing and then confirming a billed gap drain", () => {
       ttl: 300,
     });
 
-    const preview: GapfillDiscoverResult = await host.client.gapfillDiscover("physics");
+    const preview: GapfillDiscoverResult =
+      await host.client.gapfillDiscover("physics");
 
     expect(preview.confirm_nonce).toBe("drain-nonce");
   });
@@ -266,11 +271,11 @@ describe("previewing and then confirming a single billed loop pass", () => {
     const gapfillDeclaresNonce: DeclaresConfirmNonce<GapfillDiscoverResult> = true;
     const runOnceDeclaresNonce: DeclaresConfirmNonce<LoopOnceResult> = true;
 
-    expect([runEvalDeclaresNonce, gapfillDeclaresNonce, runOnceDeclaresNonce]).toEqual([
-      true,
-      true,
-      true,
-    ]);
+    expect([
+      runEvalDeclaresNonce,
+      gapfillDeclaresNonce,
+      runOnceDeclaresNonce,
+    ]).toEqual([true, true, true]);
   });
 });
 
