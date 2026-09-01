@@ -1,3 +1,20 @@
+## v0.4.0 (2026-09-01)
+
+### Feat
+
+- **mcp**: every parameter grounded from one declaration, and success says what's next
+
+### Fix
+
+- **state**: dec-120 cites only tracked paths — .git/hooks/ never exists in a clone, so the ADR gate failed only in CI
+- **gates**: the citation discipline becomes real — both dead layers re-armed, every pointer resolved
+
+### Refactor
+
+- **evals**: the instrument's fear becomes a checked property, then harness and golden become packages
+- **core**: the loop's fourth pass — observe and gap-redirect get their own modules
+- **core**: the record families get their own modules, and GapRecord keeps what it does not understand
+
 ## v0.3.0 (2026-08-31)
 
 ### Feat
