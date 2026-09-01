@@ -11,7 +11,6 @@ agent_type: implementer
 branch: main
 pipeline_tier: standard
 affected_files:
-  - .git/hooks/pre-commit
   - scripts/check_id_citation_discipline.py
 dissent: A per-repo checker copy can drift from the plugin's, so two Praxion projects can enforce subtly different rules under the same rule name.
 ---
