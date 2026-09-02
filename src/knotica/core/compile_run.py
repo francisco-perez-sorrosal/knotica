@@ -148,6 +148,12 @@ def run_compile(
             fix="Freeze more held-out golden pairs before compiling.",
         )
 
+    # Post-eval refuses to fabricate scores, so resolve its LLM client up front:
+    # a missing credential must refuse here, before the optimize phase spends
+    # anything. Tests that inject compare_fn keep their client-free runs.
+    if llm_client is None and compare_fn is None:
+        llm_client = _require_llm()
+
     state = CompileState(
         topic=cleaned,
         stage=CompileStage.running,
@@ -158,6 +164,7 @@ def run_compile(
     write_compile_state(store, root, state, title="compile start")
 
     clone_dir: Path | None = None
+    terminal_state_written = False
     try:
         # 3. Clone
         vcs = VaultVcs(root)
@@ -239,6 +246,7 @@ def run_compile(
                 ),
                 title="compile failed post-eval",
             )
+            terminal_state_written = True
             raise KnoticaError(
                 ErrorCode.NOT_CONFIGURED,
                 (
@@ -290,6 +298,7 @@ def run_compile(
             scalar_after=compiled_scalar,
         )
         write_compile_state(store, root, completed, title="compile completed")
+        terminal_state_written = True
         record_compile_finished(
             store,
             root,
@@ -310,7 +319,21 @@ def run_compile(
             train_n=train_n,
             golden_n=golden_n,
         )
-    except KnoticaError:
+    except KnoticaError as error:
+        # A typed refusal mid-run must still land a terminal marker — otherwise
+        # the state file stays stuck at its last progress stage forever.
+        if not terminal_state_written:
+            write_compile_state(
+                store,
+                root,
+                CompileState(
+                    topic=cleaned,
+                    stage=CompileStage.failed,
+                    message=str(error),
+                    error="compile_error",
+                ),
+                title="compile failed",
+            )
         raise
     except GitError as error:
         write_compile_state(

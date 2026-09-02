@@ -304,3 +304,58 @@ def test_compile_promote_refuses_dirty_tree(template_vault: Path) -> None:
     assert "error" in payload
     assert payload["error"]["code"] == ErrorCode.GIT_ERROR.value
     assert "dirty" in payload["error"]["message"].lower()
+
+
+def test_compile_resolves_a_real_scorer_before_spending_when_no_compare_fn_is_injected(
+    template_vault: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    store = LocalFSStore(template_vault)
+    populate_query_trainset(store, template_vault, TOPIC)
+    optimize_calls: list[str] = []
+
+    def refusing_require_llm():
+        raise KnoticaError(
+            ErrorCode.NOT_CONFIGURED,
+            "no LLM credentials for compile post-eval",
+        )
+
+    monkeypatch.setattr("knotica.core.compile_run._require_llm", refusing_require_llm)
+
+    def recording_optimize(store_arg, topic, train, **kwargs):
+        optimize_calls.append(topic)
+        return bootstrap_query_artifact(store_arg, topic, train, golden_n=20)
+
+    with pytest.raises(KnoticaError) as raised:
+        run_compile(
+            store,
+            template_vault,
+            TOPIC,
+            use_mipro=False,
+            optimize_fn=recording_optimize,
+        )
+    assert raised.value.code is ErrorCode.NOT_CONFIGURED
+    assert "credentials" in raised.value.message
+    assert optimize_calls == [], "credential refusal must precede the paid optimize phase"
+
+
+def test_a_knotica_error_mid_compile_leaves_a_failed_marker_not_a_stuck_evaluating_one(
+    template_vault: Path,
+) -> None:
+    store = LocalFSStore(template_vault)
+    populate_query_trainset(store, template_vault, TOPIC)
+
+    def exploding_optimize(store_arg, topic, train, **kwargs):
+        raise KnoticaError(ErrorCode.NOT_CONFIGURED, "optimizer dependency missing")
+
+    with pytest.raises(KnoticaError):
+        run_compile(
+            store,
+            template_vault,
+            TOPIC,
+            use_mipro=False,
+            optimize_fn=exploding_optimize,
+            compare_fn=lambda *a: (0.41, 0.72),
+        )
+    state = compile_status_payload(store, TOPIC)
+    assert state["stage"] == "failed"
+    assert "optimizer dependency missing" in state["message"]
