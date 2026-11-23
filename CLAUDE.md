@@ -8,6 +8,8 @@ AI-maintained, compounding knowledge wiki (Karpathy's llm-wiki pattern) living i
 
 **[`.ai-state/DESIGN.md`](.ai-state/DESIGN.md) is the design canon** (invariants, rationale, design target). **[`docs/architecture.md`](docs/architecture.md) is the code-verified developer guide** (what exists now). Read the guide for current state, DESIGN for intent; update both when a structural change lands — `make verify` gates their package inventory and every `src/knotica/...` path they cite. The original pre-plan is archived at `.ai-state/design-history/PRE_PLAN.md`: historical only, never cite it as current.
 
+**[`ROADMAP.md`](ROADMAP.md) is the plan of record** for the self-improving memory core: the step order, the quality bar every step meets, the deployment-readiness rules, and the progress tracker. Read a step's block before starting it; update its tracker row in the pull request that lands it.
+
 Invariants — do not violate without updating `DESIGN.md` first:
 
 - **Client-as-brain**: the MCP server exposes deterministic tools; the client's LLM does the cognitive work (ingest/query/lint) guided by vault schemas. `query` is the one *flat* tool that calls a server-side LLM; the dispatchers `compile action=run`, `datasets action=bootstrap|bootstrap_train`, and `loop action=run_eval|run_once` also call one **in the server process**, each behind a gate or two-phase confirm. The arena is not one of them — its only wired scorer is a keyword heuristic.
